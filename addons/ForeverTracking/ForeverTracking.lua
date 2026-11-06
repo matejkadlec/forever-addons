@@ -190,11 +190,12 @@ end
 -- Pick the tracking spell for the current target, nil when unknown or hidden
 local function GetTargetTrackingSpell()
     local creatureType, creatureTypeID = UnitCreatureType("target")
-    -- Forever can hide the identity (creature type) of NPC targets from addons
+    -- Forever can hide the identity (creature type) of NPC targets from addons while
+    -- addon restrictions are active (out of combat it is readable, verified in game)
     if IsSecret(creatureType) or IsSecret(creatureTypeID) then
         if not hiddenTypeNoticeShown then
             hiddenTypeNoticeShown = true
-            print(FormatMessage(ADDON_PREFIX, "WoW: Forever hides this target's creature type from AddOns, tracking was not switched. This notice is shown once per session."))
+            print(FormatMessage(ADDON_PREFIX, "WoW: Forever hides this target's creature type from AddOns while AddOn restrictions are active (e.g. in combat), tracking was not switched. This notice is shown once per session."))
         end
         return nil
     end
@@ -502,8 +503,9 @@ local function RegisterSettingsPanel()
     note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -112)
     note:SetWidth(520)
     note:SetJustifyH("LEFT")
-    note:SetText("Only active on Hunter characters. WoW: Forever can hide the creature type of NPC targets "
-        .. "from AddOns, tracking is not switched for such targets.")
+    note:SetText("Only active on Hunter characters. Outside AddOn restrictions (normally whenever you are out "
+        .. "of combat) it works on every neutral/hostile target. While restrictions are active (for example in "
+        .. "combat) WoW: Forever can hide the creature type of NPC targets, tracking is not switched then.")
 
     panel.OnRefresh = RefreshSettingsPanel
     panel.OnDefault = function()

@@ -2,7 +2,7 @@
 ## Title: |cFFFF8000Forever|r Tracking
 ## Notes: Automatically switches Hunter tracking based on target type.
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.0.0
+## Version: 1.0.1
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverTrackingSettings
 

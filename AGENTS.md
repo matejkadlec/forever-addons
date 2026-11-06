@@ -27,12 +27,15 @@
   - Only mention core/bigger changes (for smaller changes overall, mention the small change)
   - Do not include a summary when only answering a question and making no changes to any files
     (but if even one change was done to ANY file, then include it)
-- After changing any AddOn files inside `addons/` or `backports/`, sync the changed AddOns before replying to the user
+- AUTOMATIC SYNC (VERY IMPORTANT): at the end of EVERY change to AddOn files inside `addons/` or `backports/`, sync the changed AddOns into the game yourself, without asking and before replying to the user
+  - The user expects this on every edit, also for small fixes; never let the in-game copies lag behind the repository
   - Run `scripts/sync-addons.sh <AddOnName> [...]` (without arguments it syncs every AddOn)
   - The script loads developer-specific paths from `.env.sync-addons`
   - The template file `.env.sync-addons.example` shows the required variables
+  - If `.env.sync-addons` is missing, create it from the template with the default path on the maintainer's machine, `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"` (WSL), but only after checking that this folder exists; otherwise do not create it and use the fallback below or report that the sync is unavailable
   - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it
-  - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder, copy the changed AddOn folders there instead
+  - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder (`C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`), copy the changed AddOn folders there instead and verify the copies
+  - The Git hooks in `.githooks/` are an optional extra for manual work, they do not replace this rule
 - After syncing changed addon files, tell the user what was updated and whether `/reload` or a full restart is needed
   - If sync succeeds: "I updated {AddOn Name} for you. Please {run "/reload"}/{restart the game} for these changes to take effect in-game."
   - If sync fails or is unavailable: explain that the sync did not complete and tell the user to update the AddOn manually
@@ -80,7 +83,7 @@
 
 | AddOn | Shortname | Slash command | Notes |
 | ----- | --------- | ------------- | ----- |
-| ForeverTweaks | FTW | `/ftw` (aliases `/ft`, `/forevertweaks`) | Minimap zone text size/hide, chat input font size, chat history on plain Up/Down, world map and minimap player arrow size; settings panel `Tweaks` |
+| ForeverTweaks | FTW | `/ftw` | Minimap zone text size/hide, chat input font size, chat history on plain Up/Down, world map and minimap player arrow size; settings panel `Tweaks` |
 | ForeverTracking | FTR | `/ftr` | Hunter tracking switcher by target creature type; Hunters only; settings panel `Tracking` |
 
 ### Backported AddOns (`backports/`)
@@ -139,7 +142,7 @@
 - Important values (names, creature types, numbers): **orange** (`|cFFFF8000`)
 - Error text: **red** (`|cFFFF0000`) with same orange prefix, body starts with `Failed to ...`
 - Messages are built by a `FormatMessage(prefix, msg, value)` / `FormatErrorMessage(prefix, msg)` pair (ForeverTweaks wraps them with a fixed prefix as `FTW.FormatMessage(msg, value)` / `FTW.Print`)
-- Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.6.0 loaded`
+- Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.2.3 loaded`
   - The version is read from the `.toc` via `C_AddOns.GetAddOnMetadata`
   - AddOns that only activate for some characters (ForeverTracking: Hunters) print it only when active
 
@@ -163,12 +166,12 @@
 - These rules apply to first-party Forever AddOns in `addons/` that expose slash commands
 - Backported AddOns in `backports/` keep their original slash commands and parser behavior unless the user asks to normalize them
 - Register using Blizzard pattern: `SLASH_NAME1 = "/cmd"` + `SlashCmdList["NAME"]`
-- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/ftr`); extra aliases are allowed (`/ft`)
+- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/ftr`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
 - Typing `/cmd` with no arguments shows help (list of available subcommands)
 - `help` subcommand also shows the same help output
 - All first-party slash commands include `on` and `off` subcommands that enable/disable the AddOn without requiring a UI reload
 - Keep slash commands small; setting subcommands are fine when they mirror settings panel options (ForeverTweaks)
-- In help output, `on` and `off` are listed immediately after the bare `/cmd` entry, `help` is listed last (alias lines go right before it)
+- In help output, `on` and `off` are listed immediately after the bare `/cmd` entry, `help` is listed last
 - Help format: one line per subcommand, indented with two spaces:
   - `  |cFFFF8000/cmd subcommand |cFFFFFF00- Description of the subcommand|r`
 - Unknown subcommand → error: `"find subcommand 'X'. Use /cmd help to see available commands"`
@@ -178,7 +181,7 @@
 - Input is trimmed and lowercased before command lookup
 - Define subcommands in a `SUBCOMMANDS` table with `handler` and `args` (or `minArgs`/`maxArgs`) fields
 - Current first-party slash commands:
-  - `/ftw` (`/ft`, `/forevertweaks`): bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
+  - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
   - `/ftr`: bare command behaves like `help`; `on`, `off`, `help`
 
 ---
@@ -205,7 +208,7 @@ When implementing features:
 4. Keep compatibility over elegance
 5. Bump the `.toc` version of every changed AddOn
 6. Update `AGENTS.md` and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
-7. Sync the changed AddOns (see Communication Rules)
+7. Sync the changed AddOns automatically (see Communication Rules)
 
 ---
 

@@ -38,7 +38,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - World map player arrow scale (0.3 - 2)
 - Bigger minimap player arrow (1 - 3)
   - Forever has no API to resize the built-in arrow, so a bigger arrow is drawn on top of it; it cannot be made smaller
-- Slash commands (`/ftw`, aliases `/ft` and `/forevertweaks`):
+- Slash commands (`/ftw`):
   - `/ftw` shows help
   - `/ftw on` and `/ftw off` enable/disable all tweaks without reloading the UI (`off` restores Blizzard defaults)
   - `/ftw zone <8-24|hide|default>`
@@ -57,7 +57,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - Triggers only for neutral/hostile targets and only for tracking you have learned
 - GCD-aware to prevent false switching
 - Implemented to work with manual tracking switching as well
-- WoW: Forever can hide the creature type of NPC targets from AddOns; tracking is not switched for such targets and a one-time notice is printed
+- Outside AddOn restrictions (normally whenever you are out of combat) it works on every neutral/hostile target; while restrictions are active (for example in combat) WoW: Forever can hide the creature type of NPC targets, tracking is not switched then and a one-time notice is printed
 - Slash commands `/ftr on` and `/ftr off` enable/disable tracking switching without reloading the UI
 - Settings panel: `Forever AddOns -> Tracking`
 - Type `/ftr help` for a list of available commands
@@ -123,7 +123,7 @@ This project is under active development as of November 2026.
 
 ### 🔄️ Development Sync
 
-If you are developing the AddOns, you can sync them into your WoW: Forever client with the helper script:
+AI agents working on this repository sync every changed AddOn into the game automatically at the end of each change (see `AGENTS.md`). If you are developing the AddOns yourself, you can sync them into your WoW: Forever client with the helper script:
 
 1. Copy `.env.sync-addons.example` to `.env.sync-addons`
 2. Set `SYNC_ADDONS_DEST_DIR` to the absolute path of your `_forever_/Interface/AddOns` folder, in quotes

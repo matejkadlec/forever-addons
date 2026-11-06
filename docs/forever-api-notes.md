@@ -23,7 +23,8 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - Known secret sources:
   - `UnitCastingInfo` / `UnitChannelInfo` for any unit other than the player and their pet
   - Unit identity (`UnitName`, `UnitCreatureType`, ...) of units that are not player-controlled and not in the group
-    (the documentation does not say whether this only applies while a restriction state is active; check `C_Secrets.ShouldUnitIdentityBeSecret(unit)` or `issecretvalue` at runtime)
+    - Verified in game: `UnitCreatureType("target")` of a mob is **not** secret out of combat, so this applies while a restriction state is active (in-combat secrecy assumed, not yet observed)
+    - Check `C_Secrets.ShouldUnitIdentityBeSecret(unit)` or `issecretvalue` at runtime
   - `UnitHealth` (`SecretReturns`), unit stats (`UnitAttackSpeed`, `UnitRangedDamage`) while restricted
   - `C_Spell.GetSpellCooldown` while restricted; its `isActive` and `isOnGCD` fields are never secret
   - Target/focus auras (`C_UnitAuras.*`) while restricted

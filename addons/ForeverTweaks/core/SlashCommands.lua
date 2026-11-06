@@ -30,7 +30,6 @@ local function PrintHelp()
     PrintHelpLine("arrow map <0.3-2|default>", "World map player arrow scale")
     PrintHelpLine("arrow minimap <1-3|default>", "Bigger minimap player arrow (it cannot be made smaller)")
     PrintHelpLine("arrow status", "Show the current player arrow settings")
-    print(string_format("  %s/ft %s- Short alias for %s|r", ORANGE, YELLOW, CMD))
     PrintHelpLine("help", "Show this help")
 end
 
@@ -130,7 +129,7 @@ local function HandleArrow(args)
         return false
     end
 
-    -- v1.5 shorthand: "/ftw arrow 0.7" and "/ftw arrow default" mean the world map arrow
+    -- shorthand kept from v1.5: "/ftw arrow 0.7" and "/ftw arrow default" mean the world map arrow
     if (tonumber(target) or target == "default") and not value then
         target, value = "map", target
         args = { "map", args[1] }
@@ -205,8 +204,6 @@ end
 -- Register slash command parser following Blizzard pattern
 function FTW.RegisterSlashCommands()
     SLASH_FTW1 = CMD
-    SLASH_FTW2 = "/ft"
-    SLASH_FTW3 = "/forevertweaks"
     SlashCmdList["FTW"] = function(msg)
         local rawMsg = strtrim(msg or "")
         local normalizedMsg = string_lower(rawMsg)
