@@ -1,0 +1,17 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Tweaks
+## Notes: Small UI tweaks: minimap zone text, chat input font, chat history on Up/Down, world map and minimap player arrows.
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.6.0
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverTweaksDB
+
+core\Core.lua
+tweaks\ZoneText.lua
+tweaks\ChatInput.lua
+tweaks\ChatHistory.lua
+tweaks\MapArrow.lua
+tweaks\MinimapArrow.lua
+ui\SettingsPanel.lua
+core\SlashCommands.lua
+ForeverTweaks.lua
