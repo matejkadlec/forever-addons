@@ -1,0 +1,61 @@
+## Title: Quartz
+## Interface: 16001
+## Notes: Modular casting bar. Unofficial WoW: Forever port (swing timer via PLAYER_SWING).
+## Author: Nevcairiel, Nymbia (backported by Matej Kadlec)
+## Version: 3.7.9-forever1
+## X-License: GPL v2
+## X-Credits: Ammo (some code based on PitBull_CastBar), kergoth (Tradeskill Merge module idea), Roartindon (Lag Embed mode for Latency module)
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## X-Original-Repository: https://github.com/Nevcairiel/Quartz
+
+## Title-ruRU: Кварц
+## Notes-ruRU: Модульная полоса применений.
+## Notes-frFR: Barres d'incantation modulaires.
+## Notes-zhCN: 模块化施法条。
+## Notes-zhTW: 模組化施法條。
+
+## SavedVariables: Quartz3DB
+## OptionalDeps: Ace3, LibWindow-1.1, LibSharedMedia-3.0, AceGUI-3.0-SharedMediaWidgets, SharedMedia
+
+libs\LibStub\LibStub.lua
+libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+libs\AceAddon-3.0\AceAddon-3.0.xml
+libs\AceGUI-3.0\AceGUI-3.0.xml
+libs\AceConfig-3.0\AceConfig-3.0.xml
+libs\AceConsole-3.0\AceConsole-3.0.xml
+libs\AceDB-3.0\AceDB-3.0.xml
+libs\AceDBOptions-3.0\AceDBOptions-3.0.xml
+libs\AceEvent-3.0\AceEvent-3.0.xml
+libs\AceTimer-3.0\AceTimer-3.0.xml
+libs\AceBucket-3.0\AceBucket-3.0.xml
+libs\AceLocale-3.0\AceLocale-3.0.xml
+libs\AceHook-3.0\AceHook-3.0.xml
+
+libs\LibSharedMedia-3.0\lib.xml
+libs\AceGUI-3.0-SharedMediaWidgets\widget.xml
+libs\LibWindow-1.1\LibWindow-1.1.lua
+
+locale\locale.xml
+
+Quartz.lua
+Config.lua
+
+QuartzStatusBar.lua
+
+CastBarTemplate.lua
+
+modules\Player.lua
+modules\Target.lua
+modules\Focus.lua
+modules\Pet.lua
+modules\Latency.lua
+modules\Tradeskill.lua
+modules\GCD.lua
+modules\Buff.lua
+modules\Mirror.lua
+modules\Timer.lua
+modules\Swing.lua
+modules\Interrupt.lua
+modules\Range.lua
+modules\Flight.lua
+modules\EnemyCasts.lua
