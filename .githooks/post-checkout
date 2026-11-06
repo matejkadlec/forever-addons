@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# After switching branches, sync the AddOns that differ between them (needs .env.sync-addons).
+# $3 == 1 for branch checkouts, 0 for single-file checkouts.
+if [[ "${3:-0}" == "1" && "${1:-}" != "${2:-}" ]]; then
+    "$(git rev-parse --show-toplevel)/.githooks/sync-changed-addons.sh" "$1" "$2"
+fi

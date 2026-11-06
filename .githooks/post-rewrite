@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# After "git pull --rebase" / "git rebase", sync the AddOns that changed (needs .env.sync-addons).
+# post-merge does not run for rebases.
+if [[ "${1:-}" == "rebase" ]]; then
+    "$(git rev-parse --show-toplevel)/.githooks/sync-changed-addons.sh" "ORIG_HEAD" "HEAD"
+fi

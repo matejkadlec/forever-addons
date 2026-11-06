@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# After every commit, sync the AddOns that the commit changed (needs .env.sync-addons).
+"$(git rev-parse --show-toplevel)/.githooks/sync-changed-addons.sh" "HEAD~1" "HEAD"

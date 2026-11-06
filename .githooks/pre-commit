@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Require a '## Version:' bump in the AddOn's .toc whenever files of an existing AddOn are staged.
+set -euo pipefail
+
+# Merge commits only combine already versioned changes, skip the check
+if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+    exit 0
+fi
+
+# Collect staged AddOn roots, e.g. "addons/ForeverTweaks" or "backports/Quartz"
+# (-z keeps non-ASCII paths unquoted)
+declare -A addon_roots=()
+while IFS= read -r -d '' file; do
+    case "$file" in
+        addons/*/*|backports/*/*)
+            group="${file%%/*}"
+            rest="${file#*/}"
+            addon_roots["$group/${rest%%/*}"]=1
+            ;;
+    esac
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+if [[ ${#addon_roots[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+failures=0
+messages=()
+
+for addon_root in "${!addon_roots[@]}"; do
+    addon_dir="${addon_root#*/}"
+    toc_path="$addon_root/$addon_dir.toc"
+
+    # Skip folders that are not single-addon roots with matching toc naming.
+    if ! git cat-file -e ":$toc_path" 2>/dev/null; then
+        continue
+    fi
+
+    new_version="$(git show ":$toc_path" | sed -n 's/^## Version:[[:space:]]*//p' | head -n1 | tr -d '\r')"
+    if [[ -z "$new_version" ]]; then
+        messages+=("[$addon_dir] Missing '## Version:' in staged $toc_path")
+        failures=1
+        continue
+    fi
+
+    old_version=""
+    if git cat-file -e "HEAD:$toc_path" 2>/dev/null; then
+        old_version="$(git show "HEAD:$toc_path" | sed -n 's/^## Version:[[:space:]]*//p' | head -n1 | tr -d '\r')"
+    fi
+
+    # Existing addon: require a version change if anything in its folder is staged.
+    if [[ -n "$old_version" && "$new_version" == "$old_version" ]]; then
+        messages+=("[$addon_dir] TOC version unchanged ($new_version) while files in $addon_root/ are staged.")
+        failures=1
+    fi
+done
+
+if [[ $failures -ne 0 ]]; then
+    echo "pre-commit: addon TOC version check failed."
+    for msg in "${messages[@]}"; do
+        echo "  - $msg"
+    done
+    echo "Bump '## Version:' in each affected .toc file, stage it, and commit again."
+    exit 1
+fi
+
+exit 0

@@ -1,0 +1,4 @@
+# Shell scripts, Git hooks and env files must keep LF line endings (also when cloned with Windows Git)
+*.sh text eol=lf
+.githooks/* text eol=lf
+.env* text eol=lf

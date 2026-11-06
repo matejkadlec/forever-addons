@@ -1,0 +1,17 @@
+# Editors
+.vscode/
+.idea/
+*.code-workspace
+
+# Machine-specific sync settings (template: .env.sync-addons.example)
+.env.sync-addons
+
+# Local scratch space, e.g. a clone of wow-ui-source used as API reference
+untracked/
+
+# OS / WoW leftovers
+.DS_Store
+Thumbs.db
+desktop.ini
+*.bak
+*.zip
