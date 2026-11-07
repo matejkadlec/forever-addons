@@ -1,0 +1,13 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Range Indicator
+## Notes: Shows a colored marker above your target's nameplate telling whether it is in Auto Shot range, too close or too far.
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.0
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverRangeIndicatorSettings
+
+Libs\LibStub\LibStub.lua
+Libs\LibRangeCheck-3.0\LibRangeCheck-3.0.lua
+
+ForeverRangeIndicator.lua
+SettingsPanel.lua

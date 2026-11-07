@@ -18,6 +18,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - [Available AddOns](#-available-addons)
   - [ForeverTweaks](#forevertweaks)
   - [ForeverTracking](#forevertracking)
+  - [ForeverRangeIndicator](#foreverrangeindicator)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
 - [Installation](#️-installation)
@@ -63,6 +64,28 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - Type `/ftr help` for a list of available commands
 
 > ℹ️ This AddOn only activates if logged in as a Hunter.
+
+### ForeverRangeIndicator
+
+🔵 Shows a small colored marker above your target's nameplate, so you always know whether you can shoot.
+
+- The marker sits above the top left corner of the target's nameplate (opposite Plater's level text), works with Plater and the default nameplates
+- Colors (all configurable):
+  - 🔵 Blue: in Auto Shot range (8 - 35 yards, more with Hawk Eye)
+  - 🟡 Yellow: still in range, but close to the minimum range (about 8 - 10 yards) or the maximum range (the last ~5 yards)
+  - 🔴 Red: too close, below the minimum range (dead zone and melee)
+  - ⚪ Grey: too far, beyond the maximum range
+  - Yellow only shows while the target is in range, out of range it is always red or grey
+- In range / out of range comes from the client's Auto Shot range check; the yellow zones and too close / too far use [LibRangeCheck-3.0](https://github.com/WeakAuras/LibRangeCheck-3.0) (embedded, MIT) and a melee range check, the client only reports distances in steps, so the yellow zone borders are approximate (they need a few seconds after login until the item data used for the distance checks is loaded)
+- Shapes: circle, ring, square, diamond, triangle, with an optional dark outline; adjustable size and position
+- Slash commands:
+  - `/fri` shows help
+  - `/fri on` and `/fri off` enable/disable the marker without reloading the UI
+  - `/fri debug` prints the raw range readings of your target
+  - `/fri help` shows help
+- Settings panel: `Forever AddOns -> Range Indicator` with every option above and a `Defaults` button
+
+> ℹ️ This AddOn only activates if logged in as a Hunter. Enemy nameplates must be shown, the marker appears as far as your target's nameplate is visible.
 
 ## 🧩 Backported AddOns
 

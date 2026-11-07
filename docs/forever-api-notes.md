@@ -49,6 +49,23 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - `C_Minimap.SetTracking(index, on)` switches tracking (`CastSpellByName` is not available to AddOns)
 - Event: `MINIMAP_UPDATE_TRACKING`
 
+## Range checks
+
+- `C_Spell.IsSpellInRange(spell, unit)` returns `true` / `false` / `nil` (`nil` when the range check is invalid, per the API docs); not flagged as secret; accepts spell IDs or names (that a name matches the rank you know is not yet verified in game)
+- `C_Spell.GetSpellInfo(spell)` returns a table with `minRange` / `maxRange`
+- `CheckInteractDistance`, `C_Item.IsItemInRange` exist; [LibRangeCheck-3.0](https://github.com/WeakAuras/LibRangeCheck-3.0) supports Forever since v38 (`isForever`), v39 also handles secret GUIDs
+  - Its distance steps for hostile units on Forever/Era come from item range checks: 5, 10, 15, 20, 25, 30, 35, 40, 45, 100 yards (plus class spells such as Auto Shot); the interact distance checks (8 and 28 yards) are only used while no item data is cached, for example right after login
+  - When every check fails it returns the largest cached step and `nil`, e.g. `(100, nil)` or `(45, nil)` while the 100 yard item is not cached; in combat it only skips item checks on units you cannot attack (not yet verified in game)
+  - With secret GUIDs it caches by unit token, so pass `maxCacheAge = 0` to `GetRange` right after a target change
+- `UnitCanAttack`, `UnitIsDeadOrGhost` are not flagged as secret
+- `Region:SetAlphaFromBoolean(value, alphaIfTrue, alphaIfFalse)` accepts secret booleans (shows/hides a region based on a secret result)
+
+## Nameplates
+
+- `C_NamePlate.GetNamePlateForUnit(unit)` (the `"target"` unit token is used for the target's plate), events `NAME_PLATE_UNIT_ADDED` / `NAME_PLATE_UNIT_REMOVED` (the plate is still returned while `REMOVED` is dispatched)
+- Blizzard's health bar: `plate.UnitFrame.HealthBarsContainer.healthBar`; the Camelot level frame sits to the right of it
+- Plater keeps its own unit frame on `plate.unitFrame` with `plate.unitFrame.healthBar`; its level text is anchored above the top right corner of the health bar by default
+
 ## Settings panel (Esc -> Options -> AddOns)
 
 - Canvas pages: `Settings.RegisterCanvasLayoutCategory(frame, name)`, `Settings.RegisterCanvasLayoutSubcategory(parentCategory, frame, name)`, then `Settings.RegisterAddOnCategory(category)` for the top level category
@@ -57,6 +74,7 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - `Settings.OpenToCategory(category:GetID())` calls `C_SettingsUtil.OpenSettingsPanel`, which `HasRestrictions`: only call it from a user click and never in combat
 - Templates that exist: `UICheckButtonTemplate` (`.Text`, aliased as `.text`), `UIRadioButtonTemplate` (`.text`), `UISliderTemplateWithLabels` (`.Text`, `.Low`, `.High`), `UIPanelButtonTemplate`
 - `InterfaceOptionsCheckButtonTemplate` / `OptionsSliderTemplate` only exist in `DeprecatedTemplates.xml`, avoid them
+- Color picker: `ColorPickerFrame:SetupColorPickerAndShow({ r, g, b, hasOpacity, swatchFunc, cancelFunc })`, read the color with `ColorPickerFrame:GetColorRGB()`
 
 ## Chat
 
