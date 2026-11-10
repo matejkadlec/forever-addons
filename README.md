@@ -97,6 +97,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - The hawk that leaves first is on top, a third cast replaces the bar of the oldest hawk
   - Summon Hawk is recognized by its spell name, so every rank counts (`/fht debug` lists the spell IDs seen); the bars are cleared when you die
 - Placed below the center of the screen by default; move it in Edit Mode (`Esc -> Edit Mode`): the bars get Blizzard's blue Edit Mode highlight (yellow while dragged) and sample bars, drag them anywhere, the position is saved right away
+  - With Edit Mode's `Snap to Elements` on, the bars snap to the horizontal center of the screen when dropped close to it (Blizzard's own snap distance); a red guide line shows when they will snap
 - Adjustable width (60 - 400) and height (6 - 40) with sliders or by typing the number, cyan by default with a color picker for both bars, optional spell icon
 - The bars follow your casts, not the hawks themselves, so a hawk that leaves early keeps its bar until the time runs out
 - Slash commands:

@@ -7,6 +7,7 @@ local type = type
 local ipairs = ipairs
 local tonumber = tonumber
 local tostring = tostring
+local math_abs = math.abs
 local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
@@ -72,6 +73,11 @@ local EDIT_MODE_LAYOUT = {
 }
 local EDIT_MODE_HIGHLIGHT_KIT = "editmode-actionbar-highlight"
 local EDIT_MODE_SELECTED_KIT = "editmode-actionbar-selected"
+-- Light help with centering: this close to the screen's vertical center line the bars snap onto it
+-- (Blizzard's Edit Mode magnetism range, EditModeMagnetismManager.magnetismRange, compared in scaled units like Blizzard)
+local CENTER_SNAP_RANGE = 8
+-- Width of the guide line in pixels (Blizzard's magnetism preview line)
+local CENTER_LINE_PIXEL_WIDTH = 1.5
 
 local DEFAULTS = {
     enabled = true,
@@ -494,22 +500,89 @@ local function SetOverlaySelected(selected)
 end
 SetOverlaySelected(false)
 
--- Save the dragged position as an offset from the screen center
-local function SavePosition()
-    local db = GetDB()
+-- Offset of the bars' center from the screen center, nil if unknown
+local function GetCenterOffset()
     local centerX, centerY = container:GetCenter()
     local parentX, parentY = UIParent:GetCenter()
     -- the container is never scaled, so both centers use the same units
-    if type(centerX) == "number" and type(centerY) == "number" and type(parentX) == "number" and type(parentY) == "number"
-        and not IsSecret(centerX) and not IsSecret(centerY) and not IsSecret(parentX) and not IsSecret(parentY) then
-        db.x = NormalizePosition(centerX - parentX) or db.x
-        db.y = NormalizePosition(centerY - parentY) or db.y
+    if type(centerX) ~= "number" or type(centerY) ~= "number" or type(parentX) ~= "number" or type(parentY) ~= "number"
+        or IsSecret(centerX) or IsSecret(centerY) or IsSecret(parentX) or IsSecret(parentY) then
+        return nil
+    end
+    return centerX - parentX, centerY - parentY
+end
+
+-- Follow Edit Mode's "Snap to Elements" checkbox (snapping stays on if it cannot be read)
+local function IsSnapEnabled()
+    local manager = EditModeManagerFrame
+    if manager and manager.IsSnapEnabled then
+        return manager:IsSnapEnabled() == true
+    end
+    return true
+end
+
+-- Effective scale of a region, 1 if the client hides it
+local function GetSafeScale(region)
+    local scale = region:GetEffectiveScale()
+    if type(scale) ~= "number" or IsSecret(scale) or scale <= 0 then
+        return 1
+    end
+    return scale
+end
+
+-- True when the bars are close enough to the screen's vertical center line to snap onto it
+local function ShouldSnapToCenter(offsetX)
+    -- Blizzard multiplies the distance by the UI scale before comparing it with the range
+    return offsetX ~= nil and IsSnapEnabled() and math_abs(offsetX) * GetSafeScale(UIParent) <= CENTER_SNAP_RANGE
+end
+
+-- Save the dragged position as an offset from the screen center
+local function SavePosition()
+    local db = GetDB()
+    local offsetX, offsetY = GetCenterOffset()
+    if offsetX then
+        db.x = ShouldSnapToCenter(offsetX) and 0 or NormalizePosition(offsetX) or db.x
+        db.y = NormalizePosition(offsetY) or db.y
     end
     -- anchor to the screen center again (StartMoving re-anchors to a corner)
     ApplyLayout()
 end
 
+-- Holder above Blizzard's Edit Mode highlights, like Blizzard's HIGH strata container for its preview lines
+local centerLineHolder = CreateFrame("Frame", nil, overlay)
+centerLineHolder:SetFrameStrata("HIGH")
+centerLineHolder:SetAllPoints(UIParent)
+centerLineHolder:EnableMouse(false)
+
+-- Red guide line through the screen center while a drag would snap onto it (like Blizzard's magnetism preview)
+local centerLine = centerLineHolder:CreateLine(nil, "OVERLAY")
+centerLine:SetColorTexture(1, 0, 0, 1)
+centerLine:SetStartPoint("TOP", UIParent, 0, 0)
+centerLine:SetEndPoint("BOTTOM", UIParent, 0, 0)
+centerLine:Hide()
+
 local isDragging = false
+
+-- Show the guide line while the dragged bars are within the snap range
+local function RefreshCenterLine()
+    local show = isDragging and ShouldSnapToCenter((GetCenterOffset()))
+    if show and not centerLine:IsShown() then
+        -- keep the line crisp at every UI scale
+        local thickness = CENTER_LINE_PIXEL_WIDTH
+        if PixelUtil and PixelUtil.GetNearestPixelSize then
+            thickness = PixelUtil.GetNearestPixelSize(CENTER_LINE_PIXEL_WIDTH, GetSafeScale(centerLine), CENTER_LINE_PIXEL_WIDTH)
+        end
+        centerLine:SetThickness(thickness)
+    end
+    centerLine:SetShown(show)
+end
+
+-- Check the guide line every frame while dragging (the overlay is only shown in Edit Mode)
+overlay:SetScript("OnUpdate", function()
+    if isDragging or centerLine:IsShown() then
+        RefreshCenterLine()
+    end
+end)
 
 -- Yellow while the mouse button is held, like a selected Blizzard frame
 overlay:SetScript("OnMouseDown", function()
@@ -536,6 +609,7 @@ local function StopDragging()
     end
     isDragging = false
     container:StopMovingOrSizing()
+    centerLine:Hide()
     SetOverlaySelected(false)
     overlayLabel:SetShown(overlay:IsShown() and overlay:IsMouseOver())
     SavePosition()
