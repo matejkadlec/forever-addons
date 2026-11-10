@@ -22,6 +22,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - [ForeverHawkTimer](#foreverhawktimer)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
+  - [Skada](#skada)
 - [Installation](#️-installation)
 - [Feedback](#-feedback)
 - [Contributing](#-contributing)
@@ -126,6 +127,16 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - **GCD** is exact out of combat; in combat Forever hides cooldown timing, so the bar approximates 1.5 sec (1 sec for energy users)
 - **Target, Focus, Buff, Interrupt and EnemyCasts** disable themselves when the client hides their data (cast info of other units, combat log); their options explain why and Blizzard's own target/focus cast bars stay untouched
 - Slash commands `/quartz` and `/q3` open the settings (a standalone window in combat)
+
+### Skada
+
+📊 [Skada](https://github.com/zarnivoop/skada) 2.6.2 damage meter (the WoW: Forever build that reads Blizzard's own damage meter data), maintained here.
+
+- Lives separately from first-party AddOns in `backports/Skada`, MIT licensed like the original
+- Based on the official 2.6.2 package, which fixes the reported bug that left Skada and Blizzard's damage meter empty until `/reload`: after a reset from outside Skada (for example Blizzard's reset menu or another meter) Skada reset the native sessions a second time ([skada#9](https://github.com/zarnivoop/skada/issues/9))
+- Extra safety in this port: Skada does not reset the native sessions again within 2 seconds of a reset it saw
+- The CurseForge/Wago IDs were removed from the tocs; if you use the CurseForge app, do not let it update Skada, it would replace this port with the CurseForge version
+- Slash commands, settings and saved settings are the original Skada ones (`/skada`)
 
 ## ⚙️ Installation
 

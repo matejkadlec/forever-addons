@@ -73,6 +73,12 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - `C_Spell.GetSpellName(spellID)` / `C_Spell.GetSpellTexture(spellID)` take secret arguments (`AllowedWhenTainted`) and return nothing for unknown spells
 - Forever-only spells use new high IDs (game data, not in wow-ui-source; from the in-game tooltip and warcraft.wiki.gg): **Summon Hawk** (Beast Mastery talent, 4 ranks, added in 1.60.1) is 1293241 (rank 1) and 1293527 (rank 4), ranks 2 and 3 are unknown, so match the spell name; the hawk stays 18 sec and only 2 hawks can be active at once (tooltip)
 
+## Damage meter
+
+- `C_DamageMeter` is Blizzard's built-in meter data (no combat log): `GetAvailableCombatSessions`, `GetCombatSessionFromType/FromID` and `GetCombatSessionSourceFromType/FromID` (the last four are `SecretWhenInCombat`), `IsDamageMeterAvailable()` returns `isAvailable, failureReason`; session types `Overall` 0, `Current` 1, `Expired` 2
+- Blizzard's meter window is shown only with the CVar `damageMeterEnabled` on, the meter available and its visibility setting allowing it (`Blizzard_DamageMeter/DamageMeter.lua` `ShouldBeShown`); the checkboxes for `damageMeterEnabled` and `damageMeterResetOnNewInstance` (reset on new instance) are registered in `Blizzard_SettingsDefinitions_Frame/AdvancedOptions.lua`
+- Reported, not verifiable in wow-ui-source: calling `C_DamageMeter.ResetAllCombatSessions()` again in response to a reset (from `DAMAGE_METER_RESET`) can leave the native meter unable to attribute damage until `/reload`, so Blizzard's meter and every addon meter stay empty ([skada#9](https://github.com/zarnivoop/skada/issues/9), fixed in Skada 2.6.2, our backport also skips resets within 2 s of another one)
+
 ## Edit Mode
 
 - `EventRegistry:RegisterCallback("EditMode.Enter" / "EditMode.Exit", func, owner)` (used by Blizzard's Camelot `MainMenuBarEndCaps.lua`); the CallbackRegistry runs every callback through `securecallfunction`, so addon callbacks do not taint Edit Mode

@@ -94,6 +94,7 @@
 | AddOn | Slash command | Notes |
 | ----- | ------------- | ----- |
 | Quartz | `/quartz`, `/q3` | Quartz 3.7.9 cast bars ported to Forever; Swing module rewritten on `PLAYER_SWING` with an Auto Shot wind-up zone; Target, Focus, Buff, Interrupt and EnemyCasts disable themselves when the client hides their data |
+| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based) from the official package without its dev files (AGENTS.md, API.md, generate-version.py), LF line endings; `Skada_Camelot.toc`/`Skada_Forever.toc` are what Forever loads and must stay identical; port change: native resets within 2 s of another reset are skipped (`NativeAPI.lua`, `Skada.lua`); version `v2.6.2-forever1`, bump it in all three tocs (the hook only checks `Skada.toc`); `X-Curse-Project-ID`/`X-Wago-ID` were removed so AddOn managers do not replace the port |
 
 ---
 
