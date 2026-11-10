@@ -135,6 +135,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Lives separately from first-party AddOns in `backports/Skada`, MIT licensed like the original
 - Based on the official 2.6.2 package, which fixes the reported bug that left Skada and Blizzard's damage meter empty until `/reload`: after a reset from outside Skada (for example Blizzard's reset menu or another meter) Skada reset the native sessions a second time ([skada#9](https://github.com/zarnivoop/skada/issues/9))
 - Extra safety in this port: Skada does not reset the native sessions again within 2 seconds of a reset it saw
+- Port fix: in the settings, the search box of the media (font, texture, sound) picker no longer sticks out of the picker, its rows use the full width and long titles stop before the close button
 - The CurseForge/Wago IDs were removed from the tocs; if you use the CurseForge app, do not let it update Skada, it would replace this port with the CurseForge version
 - Slash commands, settings and saved settings are the original Skada ones (`/skada`)
 

@@ -1,3 +1,4 @@
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: the media picker's search box, rows and title fit the picker width
 local _, Skada = ...
 
 local L = LibStub("AceLocale-3.0"):GetLocale("Skada", true)
@@ -340,12 +341,17 @@ local function GetMediaPicker()
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
 	close:SetScript("OnClick", function() frame:Hide() end)
+	-- Forever port: long (localized) titles stop before the close button
+	frame.title:SetPoint("RIGHT", close, "LEFT", -4, 0)
+	frame.title:SetWordWrap(false)
 
 	local searchLabel = MakeText(frame, "GameFontNormalSmall", 10, L["Search"], MUTED)
 	searchLabel:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -34)
 	local search = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
-	search:SetSize(320, 24)
-	search:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -50)
+	-- Forever port: the box follows the picker width (left border is drawn 5 px left of the box)
+	search:SetHeight(24)
+	search:SetPoint("TOPLEFT", frame, "TOPLEFT", 19, -50)
+	search:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -50)
 	search:SetAutoFocus(false)
 	search:SetMaxLetters(60)
 	frame.search = search
@@ -421,7 +427,8 @@ local function GetMediaPicker()
 			end
 		end
 		for i = shown + 1, #frame.rows do frame.rows[i]:Hide() end
-		content:SetWidth(math.max(120, (scroll:GetWidth() or 320) - 22))
+		-- Forever port: rows use the whole scroll width (the scroll bar sits outside the scroll frame)
+		content:SetWidth(math.max(120, scroll:GetWidth() or 320))
 		content:SetHeight(math.max(1, shown * 27 + 2))
 		scroll:SetVerticalScroll(0)
 	end
