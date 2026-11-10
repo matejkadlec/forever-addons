@@ -1,12 +1,12 @@
 local _, ns = ...
 
--- Settings panel: Esc -> Options -> AddOns -> Forever AddOns -> Range Indicator
+-- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Range Indicator
 
 local CreateFrame = CreateFrame
 local string_format = string.format
 
-local PARENT_CATEGORY_NAME = "Forever AddOns"
-local PARENT_PANEL_NAME = "ForeverAddOnsSettingsPanel"
+local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
+local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
 local CHILD_CATEGORY_NAME = "Range Indicator"
 local CHILD_DESCRIPTION = "Range marker above your target's nameplate (Hunters)"
 local SLIDER_WIDTH = 170
@@ -36,7 +36,7 @@ local function OpenCategory(category)
     end
 end
 
--- Create (once, shared by all Forever AddOns) the "Forever AddOns" parent category
+-- Create (once, shared by all of Jim's Forever AddOns) the "Jim's Forever AddOns" parent category
 -- with an overview page that lists a button for every installed Forever AddOn
 local function EnsureForeverAddOnsCategory()
     local parentPanel = _G[PARENT_PANEL_NAME]
@@ -53,7 +53,7 @@ local function EnsureForeverAddOnsCategory()
 
     local subtitle = parentPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", parentPanel, "TOPLEFT", 18, -40)
-    subtitle:SetText("Settings of the installed Forever AddOns:")
+    subtitle:SetText("Settings of the installed AddOns:")
 
     parentPanel.foreverCategory = Settings.RegisterCanvasLayoutCategory(parentPanel, PARENT_CATEGORY_NAME)
     Settings.RegisterAddOnCategory(parentPanel.foreverCategory)
@@ -285,7 +285,7 @@ local function RefreshSettingsPanel()
     refreshing = false
 end
 
--- Build the panel and register it under "Forever AddOns"
+-- Build the panel and register it under "Jim's Forever AddOns"
 local function RegisterSettingsPanel()
     if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterCanvasLayoutSubcategory) then
         return

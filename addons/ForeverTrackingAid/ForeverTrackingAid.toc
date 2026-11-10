@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Tracking Aid
+## Notes: Automatically switches Hunter tracking based on target type.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\Ability_Tracking
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 2.0.0
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverTrackingAidSettings
+
+ForeverTrackingAid.lua

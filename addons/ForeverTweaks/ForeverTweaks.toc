@@ -1,8 +1,10 @@
 ## Interface: 16001
 ## Title: |cFFFF8000Forever|r Tweaks
 ## Notes: Small UI tweaks: minimap zone text, chat input font, chat history on Up/Down, world map and minimap player arrows.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\Trade_Engineering
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.6.1
+## Version: 1.7.0
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverTweaksDB
 

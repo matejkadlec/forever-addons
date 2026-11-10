@@ -34,6 +34,7 @@
   - The template file `.env.sync-addons.example` shows the required variables
   - If `.env.sync-addons` is missing, create it from the template with the default path on the maintainer's machine, `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"` (WSL), but only after checking that this folder exists; otherwise do not create it and use the fallback below or report that the sync is unavailable
   - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it
+  - Syncing never deletes AddOn folders: after an AddOn is renamed or removed, delete its old folder from the game's AddOns folder too (ask for delete permission if needed), otherwise the old copy keeps loading next to the new one
   - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder (`C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`), copy the changed AddOn folders there instead and verify the copies
   - The Git hooks in `.githooks/` are an optional extra for manual work, they do not replace this rule
 - After syncing changed addon files, tell the user what was updated and whether `/reload` or a full restart is needed
@@ -84,7 +85,7 @@
 | AddOn | Shortname | Slash command | Notes |
 | ----- | --------- | ------------- | ----- |
 | ForeverTweaks | FTW | `/ftw` | Minimap zone text size/hide, chat input font size, chat history on plain Up/Down, world map and minimap player arrow size; settings panel `Tweaks` |
-| ForeverTracking | FTR | `/ftr` | Hunter tracking switcher by target creature type; Hunters only; settings panel `Tracking` |
+| ForeverTrackingAid | FTA | `/fta` | Hunter tracking switcher by target creature type (renamed from ForeverTracking `/ftr` in 2.0.0); Hunters only; settings panel `Tracking Aid` |
 | ForeverRangeIndicator | FRI | `/fri` | Colored marker above the target's nameplate (Plater or Blizzard) for Auto Shot range: in range, close to min/max range, too close, too far; shape/size/offset/colors configurable; embeds LibRangeCheck-3.0 (MIT); Hunters only; settings panel `Range Indicator` |
 | ForeverHawkTimer | FHT | `/fht` | Countdown bars for Summon Hawk (up to 2 hawks, 18 s each) from the player's `UNIT_SPELLCAST_SUCCEEDED`; moved in Edit Mode (own overlay on the `EditMode.Enter`/`Exit` callbacks), width/height/color/icon configurable; Hunters only; settings panel `Hawk Timer` |
 
@@ -114,7 +115,7 @@
 
 ## Naming and `.toc` Rules
 
-- First-party AddOns are named `Forever{AddonName}`, for example `ForeverTweaks` or `ForeverTracking`; the name part does not have to be two words
+- First-party AddOns are named `Forever{AddonName}`, for example `ForeverTweaks` or `ForeverTrackingAid`; the name part does not have to be two words
 - Each AddOn picks a unique three letter shortname starting with `F` (used for the chat prefix and the slash command)
 - Each AddOn is fully standalone, no cross-AddOn dependencies
 - Required `.toc` fields for first-party AddOns:
@@ -122,12 +123,16 @@
   ## Interface: 16001
   ## Title: |cFFFF8000Forever|r {Addon Name}
   ## Notes: One sentence description.
+  ## Category: Jim's Forever AddOns
+  ## IconTexture: Interface\Icons\{IconName}
   ## Author: Matej Kadlec (https://github.com/matejkadlec)
   ## Version: 1.0.0
   ## X-Repository: https://github.com/matejkadlec/forever-addons
   ## SavedVariables: Forever{AddonName}Settings
   ```
   - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name
+  - `## Category: Jim's Forever AddOns` groups all first-party AddOns under one collapsible header in the AddOn list (`Blizzard_AddOnList/AddonList.lua`, the header's right-click menu enables/disables the whole category); keep the exact same text in every AddOn
+  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon)
 - Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
 - Update `## Interface:` when the WoW: Forever client changes its interface version
 
@@ -146,15 +151,15 @@
 - Messages are built by a `FormatMessage(prefix, msg, value)` / `FormatErrorMessage(prefix, msg)` pair (ForeverTweaks wraps them with a fixed prefix as `FTW.FormatMessage(msg, value)` / `FTW.Print`)
 - Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.2.3 loaded`
   - The version is read from the `.toc` via `C_AddOns.GetAddOnMetadata`
-  - AddOns that only activate for some characters (ForeverTracking, ForeverRangeIndicator, ForeverHawkTimer: Hunters) print it only when active
+  - AddOns that only activate for some characters (ForeverTrackingAid, ForeverRangeIndicator, ForeverHawkTimer: Hunters) print it only when active
 
 ---
 
 ## Settings Panel Rules
 
-- First-party AddOns with settings register under `Esc -> Options -> AddOns -> Forever AddOns`
-- The shared `Forever AddOns` parent category is created by whichever AddOn loads first (global frame `ForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
-- Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking`, `Range Indicator` or `Hawk Timer`
+- First-party AddOns with settings register under `Esc -> Options -> AddOns -> Jim's Forever AddOns` (same name as the AddOn list category)
+- The shared `Jim's Forever AddOns` parent category is created by whichever AddOn loads first (global frame `JimsForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
+- Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking Aid`, `Range Indicator` or `Hawk Timer`
 - Panel layout follows the warmane-addons style: large title `Forever {Addon Name}` with the version, `User Settings` header, enable checkbox first, indented child options below it
 - Everything that can be set with a slash command must also be settable in the panel
 - Child options are greyed out while the AddOn is disabled
@@ -168,7 +173,7 @@
 - These rules apply to first-party Forever AddOns in `addons/` that expose slash commands
 - Backported AddOns in `backports/` keep their original slash commands and parser behavior unless the user asks to normalize them
 - Register using Blizzard pattern: `SLASH_NAME1 = "/cmd"` + `SlashCmdList["NAME"]`
-- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/ftr`, `/fri`, `/fht`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
+- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/fta`, `/fri`, `/fht`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
 - Typing `/cmd` with no arguments shows help (list of available subcommands)
 - `help` subcommand also shows the same help output
 - All first-party slash commands include `on` and `off` subcommands that enable/disable the AddOn without requiring a UI reload
@@ -184,7 +189,7 @@
 - Define subcommands in a `SUBCOMMANDS` table with `handler` and `args` (or `minArgs`/`maxArgs`) fields
 - Current first-party slash commands:
   - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
-  - `/ftr`: bare command behaves like `help`; `on`, `off`, `help`
+  - `/fta`: bare command behaves like `help`; `on`, `off`, `help`
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
 

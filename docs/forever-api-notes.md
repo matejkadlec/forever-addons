@@ -100,6 +100,14 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - The minimap has no `SetPlayerTexture` / `SetPlayerTextureHeight`, the engine player arrow cannot be resized
 - World map player arrow: `GroupMembersPinTemplate` pins, `pin.dataProvider:GetUnitPinSizesTable().player`, then `pin:SynchronizePinSizes()`
 
+## AddOn list
+
+- `Blizzard_AddOnList/AddonList.lua` reads these `.toc` fields:
+  - `## IconTexture:` (texture path or file ID) or `## IconAtlas:` puts an icon before the title, without them the list shows `INV_Misc_QuestionMark`
+  - `## Category:` puts AddOns under one collapsible category header (categories are sorted alphabetically above the uncategorized AddOns, the header's right-click menu has Enable all / Disable all / Reset to default); no AddOn depends on another for this
+  - `## Group:` nests an AddOn under another *installed* AddOn whose folder name matches exactly (seen in game with the multi-part ForeverArtisan and its "Core"); the client sets it automatically for AddOns with similar names and dependencies, children with a missing parent fall back to the top level outside any category
+- SavedVariables files are named after the AddOn folder (`WTF/Account/<account>/SavedVariables/<AddOnName>.lua`, seen on the maintainer's client), so a renamed AddOn starts with a new file and the old one stays unused; the variable name inside must match the `## SavedVariables:` name too
+
 ## Misc
 
 - AddOn metadata: `C_AddOns.GetAddOnMetadata(addonName, "Version")`

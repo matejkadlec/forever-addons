@@ -1,8 +1,10 @@
 ## Interface: 16001
 ## Title: |cFFFF8000Forever|r Range Indicator
 ## Notes: Shows a colored marker above your target's nameplate telling whether it is in Auto Shot range, too close or too far.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\Ability_Hunter_EagleEye
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.0.0
+## Version: 1.1.0
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverRangeIndicatorSettings
 

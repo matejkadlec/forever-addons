@@ -22,13 +22,13 @@ local COLOR = {
     RED = "|cFFFF0000"
 }
 
-local ADDON_PREFIX = "FTR"
-local ADDON_FULL_NAME = "ForeverTracking"
-local SLASH_COMMAND = "/ftr"
+local ADDON_PREFIX = "FTA"
+local ADDON_FULL_NAME = "ForeverTrackingAid"
+local SLASH_COMMAND = "/fta"
 local DEFAULT_ADDON_ENABLED = true
-local PARENT_CATEGORY_NAME = "Forever AddOns"
-local PARENT_PANEL_NAME = "ForeverAddOnsSettingsPanel"
-local CHILD_CATEGORY_NAME = "Tracking"
+local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
+local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
+local CHILD_CATEGORY_NAME = "Tracking Aid"
 local CHILD_DESCRIPTION = "Hunter tracking switching by target creature type"
 
 -- Global cooldown in seconds
@@ -97,7 +97,7 @@ local TRACKING_SPELL_NAMES = {
 }
 
 -- Create main frame
-local FTR = CreateFrame("Frame")
+local FTA = CreateFrame("Frame")
 
 -- Initialize tracking variables
 local playerClass = nil
@@ -111,25 +111,25 @@ local RefreshSettingsPanel
 
 -- Create the saved settings table and populate validated defaults
 local function InitializeSavedData()
-    if type(ForeverTrackingSettings) ~= "table" then
-        ForeverTrackingSettings = {}
+    if type(ForeverTrackingAidSettings) ~= "table" then
+        ForeverTrackingAidSettings = {}
     end
 
-    if type(ForeverTrackingSettings.enabled) ~= "boolean" then
-        ForeverTrackingSettings.enabled = DEFAULT_ADDON_ENABLED
+    if type(ForeverTrackingAidSettings.enabled) ~= "boolean" then
+        ForeverTrackingAidSettings.enabled = DEFAULT_ADDON_ENABLED
     end
 end
 
 -- Read the current persisted enabled state safely
 local function IsAddonEnabled()
     InitializeSavedData()
-    return ForeverTrackingSettings.enabled
+    return ForeverTrackingAidSettings.enabled
 end
 
 -- Persist one validated enabled state
 local function SetSavedAddonEnabled(enabled)
     InitializeSavedData()
-    ForeverTrackingSettings.enabled = enabled and true or false
+    ForeverTrackingAidSettings.enabled = enabled and true or false
 end
 
 -- Return the localized name of a tracking spell (English fallback)
@@ -210,15 +210,15 @@ local function ActivateTracking()
     end
 
     lastKnownTracking = GetActiveTracking()
-    FTR:RegisterEvent("MINIMAP_UPDATE_TRACKING")
-    FTR:RegisterEvent("PLAYER_TARGET_CHANGED")
+    FTA:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+    FTA:RegisterEvent("PLAYER_TARGET_CHANGED")
     trackingActive = true
 end
 
 -- Stop tracking events and clear transient state
 local function DeactivateTracking()
-    FTR:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
-    FTR:UnregisterEvent("PLAYER_TARGET_CHANGED")
+    FTA:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+    FTA:UnregisterEvent("PLAYER_TARGET_CHANGED")
     lastCastTime = 0
     lastKnownTracking = nil
     trackingActive = false
@@ -276,11 +276,11 @@ local function OnTargetChanged()
 end
 
 -- Register the initialization events; runtime events are enabled only while active
-FTR:RegisterEvent("ADDON_LOADED")
-FTR:RegisterEvent("PLAYER_LOGIN")
+FTA:RegisterEvent("ADDON_LOADED")
+FTA:RegisterEvent("PLAYER_LOGIN")
 
 -- Main event handler
-FTR:SetScript("OnEvent", function(self, event, ...)
+FTA:SetScript("OnEvent", function(self, event, ...)
     if event == "ADDON_LOADED" then
         if ... == addonName then
             InitializeSavedData()
@@ -322,10 +322,10 @@ end)
 -- Print help text listing available slash commands
 local function PrintHelp()
     print(FormatMessage(ADDON_PREFIX, "Available commands:"))
-    print("  |cFFFF8000/ftr |cFFFFFF00- Show this help|r")
-    print("  |cFFFF8000/ftr on |cFFFFFF00- Enable Hunter tracking switching|r")
-    print("  |cFFFF8000/ftr off |cFFFFFF00- Disable Hunter tracking switching|r")
-    print("  |cFFFF8000/ftr help |cFFFFFF00- Show this help|r")
+    print("  |cFFFF8000/fta |cFFFFFF00- Show this help|r")
+    print("  |cFFFF8000/fta on |cFFFFFF00- Enable Hunter tracking switching|r")
+    print("  |cFFFF8000/fta off |cFFFFFF00- Disable Hunter tracking switching|r")
+    print("  |cFFFF8000/fta help |cFFFFFF00- Show this help|r")
 end
 
 -- Enable or disable tracking switching without reloading the UI
@@ -366,8 +366,8 @@ local SUBCOMMANDS = {
 }
 
 -- Register slash command parser following Blizzard pattern
-SLASH_FTR1 = SLASH_COMMAND
-SlashCmdList["FTR"] = function(msg)
+SLASH_FTA1 = SLASH_COMMAND
+SlashCmdList["FTA"] = function(msg)
     local rawMsg = strtrim(msg or "")
     local normalizedMsg = string_lower(rawMsg)
 
@@ -397,7 +397,7 @@ SlashCmdList["FTR"] = function(msg)
 end
 
 --------------------------------------------------------------------------------
--- Settings panel: Esc -> Options -> AddOns -> Forever AddOns -> Tracking
+-- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Tracking Aid
 --------------------------------------------------------------------------------
 
 -- Return the numeric ID of a settings category
@@ -419,7 +419,7 @@ local function OpenCategory(category)
     end
 end
 
--- Create (once, shared by all Forever AddOns) the "Forever AddOns" parent category
+-- Create (once, shared by all of Jim's Forever AddOns) the "Jim's Forever AddOns" parent category
 -- with an overview page that lists a button for every installed Forever AddOn
 local function EnsureForeverAddOnsCategory()
     local parentPanel = _G[PARENT_PANEL_NAME]
@@ -436,7 +436,7 @@ local function EnsureForeverAddOnsCategory()
 
     local subtitle = parentPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", parentPanel, "TOPLEFT", 18, -40)
-    subtitle:SetText("Settings of the installed Forever AddOns:")
+    subtitle:SetText("Settings of the installed AddOns:")
 
     parentPanel.foreverCategory = Settings.RegisterCanvasLayoutCategory(parentPanel, PARENT_CATEGORY_NAME)
     Settings.RegisterAddOnCategory(parentPanel.foreverCategory)
@@ -470,17 +470,17 @@ RefreshSettingsPanel = function()
     end
 end
 
--- Build the panel and register it under "Forever AddOns"
+-- Build the panel and register it under "Jim's Forever AddOns"
 local function RegisterSettingsPanel()
     if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterCanvasLayoutSubcategory) then
         return
     end
 
-    local panel = CreateFrame("Frame", "ForeverTrackingSettingsPanel")
+    local panel = CreateFrame("Frame", "ForeverTrackingAidSettingsPanel")
 
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
-    title:SetText("Forever Tracking")
+    title:SetText("Forever Tracking Aid")
 
     local version = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     version:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 8, 1)
@@ -490,7 +490,7 @@ local function RegisterSettingsPanel()
     header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -52)
     header:SetText("User Settings")
 
-    settingsCheckbox = CreateFrame("CheckButton", "ForeverTrackingSettingsEnabled", panel, "UICheckButtonTemplate")
+    settingsCheckbox = CreateFrame("CheckButton", "ForeverTrackingAidSettingsEnabled", panel, "UICheckButtonTemplate")
     settingsCheckbox:SetSize(26, 26)
     settingsCheckbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 14, -76)
     settingsCheckbox.Text:SetFontObject("GameFontHighlight")

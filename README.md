@@ -11,13 +11,13 @@ WoW: Forever runs the modern WoW client with vanilla game content. AddOns theref
 
 A big thanks goes to the maintainers of the [`wow-ui-source`](https://github.com/Gethe/wow-ui-source/tree/forever) GitHub repository, whose `forever` branch is the main API reference during development.
 
-First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Forever AddOns`.
+First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list they share one collapsible category (each with its own icon, right-click the category to enable/disable all of them) and their in-game settings live under `Esc -> Options -> AddOns -> Jim's Forever AddOns`.
 
 ## 📋 Table of Contents
 
 - [Available AddOns](#-available-addons)
   - [ForeverTweaks](#forevertweaks)
-  - [ForeverTracking](#forevertracking)
+  - [ForeverTrackingAid](#forevertrackingaid)
   - [ForeverRangeIndicator](#foreverrangeindicator)
   - [ForeverHawkTimer](#foreverhawktimer)
 - [Backported AddOns](#-backported-addons)
@@ -49,9 +49,9 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
   - `/ftw arrow map <0.3-2|default>`, `/ftw arrow minimap <1-3|default>`, `/ftw arrow status`
   - `/ftw help` shows help
   - Values are rounded to the settings panel steps (font sizes to whole numbers, map arrow to 0.05, minimap arrow to 0.1)
-- Settings panel: `Forever AddOns -> Tweaks` with every option above and a `Defaults` button
+- Settings panel: `Jim's Forever AddOns -> Tweaks` with every option above and a `Defaults` button
 
-### ForeverTracking
+### ForeverTrackingAid
 
 🎯 Automatically switches Hunter tracking based on target type.
 
@@ -60,9 +60,10 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - GCD-aware to prevent false switching
 - Implemented to work with manual tracking switching as well
 - Outside AddOn restrictions (normally whenever you are out of combat) it works on every neutral/hostile target; while restrictions are active (for example in combat) WoW: Forever can hide the creature type of NPC targets, tracking is not switched then and a one-time notice is printed
-- Slash commands `/ftr on` and `/ftr off` enable/disable tracking switching without reloading the UI
-- Settings panel: `Forever AddOns -> Tracking`
-- Type `/ftr help` for a list of available commands
+- Slash commands `/fta on` and `/fta off` enable/disable tracking switching without reloading the UI
+- Settings panel: `Jim's Forever AddOns -> Tracking Aid`
+- Type `/fta help` for a list of available commands
+- Renamed from **ForeverTracking** (`/ftr`) in 2.0.0: when updating, delete the old `ForeverTracking` folder from your AddOns folder (its setting is not carried over: if you had disabled it, run `/fta off` again)
 
 > ℹ️ This AddOn only activates if logged in as a Hunter.
 
@@ -84,7 +85,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
   - `/fri on` and `/fri off` enable/disable the marker without reloading the UI
   - `/fri debug` prints the raw range readings of your target
   - `/fri help` shows help
-- Settings panel: `Forever AddOns -> Range Indicator` with every option above and a `Defaults` button
+- Settings panel: `Jim's Forever AddOns -> Range Indicator` with every option above and a `Defaults` button
 
 > ℹ️ This AddOn only activates if logged in as a Hunter. Enemy nameplates must be shown, the marker appears as far as your target's nameplate is visible.
 
@@ -104,7 +105,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
   - `/fht test` shows two test bars (not while your hawks are active, a real Summon Hawk ends them)
   - `/fht debug` prints the tracked spell, the active hawks, the last Summon Hawk cast, every Summon Hawk spell ID seen and ignored duplicate events
   - `/fht help` shows help
-- Settings panel: `Forever AddOns -> Hawk Timer` with every option above, `Reset Position`, `Test Bars` and a `Defaults` button
+- Settings panel: `Jim's Forever AddOns -> Hawk Timer` with every option above, `Reset Position`, `Test Bars` and a `Defaults` button
 
 > ℹ️ This AddOn only activates if logged in as a Hunter.
 
@@ -159,6 +160,8 @@ This project is under active development as of November 2026.
   2. Each AddOn must be fully standalone with no cross-AddOn dependencies
   3. Required `.toc` file attributes:
      ```ini
+     ## Category: Jim's Forever AddOns
+     ## IconTexture: Interface\Icons\{IconName}
      ## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
      ## X-Repository: https://github.com/matejkadlec/forever-addons
      ```
