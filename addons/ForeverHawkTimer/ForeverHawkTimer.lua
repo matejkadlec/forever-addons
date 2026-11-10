@@ -75,8 +75,8 @@ local EDIT_MODE_SELECTED_KIT = "editmode-actionbar-selected"
 
 local DEFAULTS = {
     enabled = true,
-    width = 150,
-    height = 12,
+    width = 200,
+    height = 16,
     showIcon = true,
     color = { r = 0, g = 1, b = 1 },
     x = 0,
