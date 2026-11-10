@@ -66,6 +66,20 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - Blizzard's health bar: `plate.UnitFrame.HealthBarsContainer.healthBar`; the Camelot level frame sits to the right of it
 - Plater keeps its own unit frame on `plate.unitFrame` with `plate.unitFrame.healthBar`; its level text is anchored above the top right corner of the health bar by default
 
+## Spell casts
+
+- `UNIT_SPELLCAST_SUCCEEDED` (`unitTarget, castGUID, spellID, castBarID`) is flagged `SecretWhenUnitSpellCastRestricted`; `C_Secrets.ShouldUnitSpellCastingBeSecret(unit)` / `ShouldUnitSpellCastBeSecret(unit, spell)` tell when; guard `spellID` with `issecretvalue` (ForeverHawkTimer counts such casts in `/fht debug`, not yet verified whether the player's own casts are ever secret)
+- Register it with `frame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")` for the player's own casts
+- `C_Spell.GetSpellName(spellID)` / `C_Spell.GetSpellTexture(spellID)` take secret arguments (`AllowedWhenTainted`) and return nothing for unknown spells
+- Forever-only spells use new high IDs (game data, not in wow-ui-source; from the in-game tooltip and warcraft.wiki.gg): **Summon Hawk** (Beast Mastery talent, 4 ranks, added in 1.60.1) is 1293241 (rank 1) and 1293527 (rank 4), ranks 2 and 3 are unknown, so match the spell name; the hawk stays 18 sec and only 2 hawks can be active at once (tooltip)
+
+## Edit Mode
+
+- `EventRegistry:RegisterCallback("EditMode.Enter" / "EditMode.Exit", func, owner)` (used by Blizzard's Camelot `MainMenuBarEndCaps.lua`); the CallbackRegistry runs every callback through `securecallfunction`, so addon callbacks do not taint Edit Mode
+- `EditModeManagerFrame:IsEditModeActive()` tells whether Edit Mode is open; it stays true while Blizzard hides Edit Mode for a moment without leaving it (`CheckHideAndLockEditMode`: Quick Keybind mode, Action Bar / Raid Frame settings, Cooldown Viewer), which fires no `EditMode.Exit`, so also follow `EditModeManagerFrame:IsShown()` (`HookScript` its `OnShow` / `OnHide`)
+- AddOn frames cannot join Blizzard's Edit Mode systems; ForeverHawkTimer shows its own drag overlay while Edit Mode is open, with Blizzard's look: a `NineSliceCodeTemplate` frame and `NineSliceUtil.ApplyLayout(frame, layout, "editmode-actionbar-highlight")` (`"editmode-actionbar-selected"` for the yellow look) with a copy of the local `EditModeSystemSelectionLayout` from `Blizzard_EditMode/Shared/EditModeSystemTemplates.lua`
+- Movable addon frames: `SetMovable(true)`, `SetClampedToScreen(true)`, `SetDontSavePosition(true)` (keeps the position out of the client's own layout file, the AddOn saves it), `StartMoving()` / `StopMovingOrSizing()`
+
 ## Settings panel (Esc -> Options -> AddOns)
 
 - Canvas pages: `Settings.RegisterCanvasLayoutCategory(frame, name)`, `Settings.RegisterCanvasLayoutSubcategory(parentCategory, frame, name)`, then `Settings.RegisterAddOnCategory(category)` for the top level category

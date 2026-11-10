@@ -19,6 +19,7 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
   - [ForeverTweaks](#forevertweaks)
   - [ForeverTracking](#forevertracking)
   - [ForeverRangeIndicator](#foreverrangeindicator)
+  - [ForeverHawkTimer](#foreverhawktimer)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
 - [Installation](#️-installation)
@@ -86,6 +87,26 @@ First-party AddOns expose in-game settings under `Esc -> Options -> AddOns -> Fo
 - Settings panel: `Forever AddOns -> Range Indicator` with every option above and a `Defaults` button
 
 > ℹ️ This AddOn only activates if logged in as a Hunter. Enemy nameplates must be shown, the marker appears as far as your target's nameplate is visible.
+
+### ForeverHawkTimer
+
+🦅 Shows a countdown bar for each of your active hawks from the Beast Mastery talent **Summon Hawk**.
+
+- Up to 2 bars (only 2 hawks can be active at once), each counting down the hawk's 18 seconds and draining like a channeled cast bar
+  - The hawk that leaves first is on top, a third cast replaces the bar of the oldest hawk
+  - Summon Hawk is recognized by its spell name, so every rank counts (`/fht debug` lists the spell IDs seen); the bars are cleared when you die
+- Placed below the center of the screen by default; move it in Edit Mode (`Esc -> Edit Mode`): the bars get Blizzard's blue Edit Mode highlight (yellow while dragged) and sample bars, drag them anywhere, the position is saved right away
+- Adjustable width (60 - 400) and height (6 - 40) with sliders or by typing the number, cyan by default with a color picker for both bars, optional spell icon
+- The bars follow your casts, not the hawks themselves, so a hawk that leaves early keeps its bar until the time runs out
+- Slash commands:
+  - `/fht` shows help
+  - `/fht on` and `/fht off` enable/disable the bars without reloading the UI
+  - `/fht test` shows two test bars (not while your hawks are active, a real Summon Hawk ends them)
+  - `/fht debug` prints the tracked spell, the active hawks, the last Summon Hawk cast, every Summon Hawk spell ID seen and ignored duplicate events
+  - `/fht help` shows help
+- Settings panel: `Forever AddOns -> Hawk Timer` with every option above, `Reset Position`, `Test Bars` and a `Defaults` button
+
+> ℹ️ This AddOn only activates if logged in as a Hunter.
 
 ## 🧩 Backported AddOns
 

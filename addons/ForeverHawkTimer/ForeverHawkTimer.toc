@@ -1,0 +1,10 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Hawk Timer
+## Notes: Shows a countdown bar for each of your active Summon Hawk hawks.
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.0
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverHawkTimerSettings
+
+ForeverHawkTimer.lua
+SettingsPanel.lua

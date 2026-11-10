@@ -86,6 +86,7 @@
 | ForeverTweaks | FTW | `/ftw` | Minimap zone text size/hide, chat input font size, chat history on plain Up/Down, world map and minimap player arrow size; settings panel `Tweaks` |
 | ForeverTracking | FTR | `/ftr` | Hunter tracking switcher by target creature type; Hunters only; settings panel `Tracking` |
 | ForeverRangeIndicator | FRI | `/fri` | Colored marker above the target's nameplate (Plater or Blizzard) for Auto Shot range: in range, close to min/max range, too close, too far; shape/size/offset/colors configurable; embeds LibRangeCheck-3.0 (MIT); Hunters only; settings panel `Range Indicator` |
+| ForeverHawkTimer | FHT | `/fht` | Countdown bars for Summon Hawk (up to 2 hawks, 18 s each) from the player's `UNIT_SPELLCAST_SUCCEEDED`; moved in Edit Mode (own overlay on the `EditMode.Enter`/`Exit` callbacks), width/height/color/icon configurable; Hunters only; settings panel `Hawk Timer` |
 
 ### Backported AddOns (`backports/`)
 
@@ -145,7 +146,7 @@
 - Messages are built by a `FormatMessage(prefix, msg, value)` / `FormatErrorMessage(prefix, msg)` pair (ForeverTweaks wraps them with a fixed prefix as `FTW.FormatMessage(msg, value)` / `FTW.Print`)
 - Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.2.3 loaded`
   - The version is read from the `.toc` via `C_AddOns.GetAddOnMetadata`
-  - AddOns that only activate for some characters (ForeverTracking, ForeverRangeIndicator: Hunters) print it only when active
+  - AddOns that only activate for some characters (ForeverTracking, ForeverRangeIndicator, ForeverHawkTimer: Hunters) print it only when active
 
 ---
 
@@ -153,7 +154,7 @@
 
 - First-party AddOns with settings register under `Esc -> Options -> AddOns -> Forever AddOns`
 - The shared `Forever AddOns` parent category is created by whichever AddOn loads first (global frame `ForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
-- Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking` or `Range Indicator`
+- Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking`, `Range Indicator` or `Hawk Timer`
 - Panel layout follows the warmane-addons style: large title `Forever {Addon Name}` with the version, `User Settings` header, enable checkbox first, indented child options below it
 - Everything that can be set with a slash command must also be settable in the panel
 - Child options are greyed out while the AddOn is disabled
@@ -167,7 +168,7 @@
 - These rules apply to first-party Forever AddOns in `addons/` that expose slash commands
 - Backported AddOns in `backports/` keep their original slash commands and parser behavior unless the user asks to normalize them
 - Register using Blizzard pattern: `SLASH_NAME1 = "/cmd"` + `SlashCmdList["NAME"]`
-- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/ftr`, `/fri`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
+- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/ftr`, `/fri`, `/fht`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
 - Typing `/cmd` with no arguments shows help (list of available subcommands)
 - `help` subcommand also shows the same help output
 - All first-party slash commands include `on` and `off` subcommands that enable/disable the AddOn without requiring a UI reload
@@ -185,6 +186,7 @@
   - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
   - `/ftr`: bare command behaves like `help`; `on`, `off`, `help`
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
+  - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
 
 ---
 
