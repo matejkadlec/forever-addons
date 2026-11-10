@@ -115,6 +115,13 @@ local function CreateButton(name, x, y, width, text, onClick)
     return button
 end
 
+-- Show a number in an input box; resetting the cursor keeps the text from being scrolled out of sight
+-- when it is set while the panel is being shown (the same fix as Blizzard's auction house quantity box)
+local function SetInputNumber(input, value)
+    input:SetText(string_format("%d", value))
+    input:SetCursorPosition(0)
+end
+
 -- Apply the number typed into an input box (clamped to the slider limits)
 local function ApplyInputBox(input)
     local value = tonumber(input:GetText())
@@ -166,7 +173,7 @@ local function CreateNumberSetting(name, labelText, y, key)
         if not rounded then
             return
         end
-        input:SetText(string_format("%d", rounded))
+        SetInputNumber(input, rounded)
         if not refreshing then
             ns.SetNumber(key, rounded)
         end
@@ -177,13 +184,17 @@ local function CreateNumberSetting(name, labelText, y, key)
         self:ClearFocus()
     end)
     input:SetScript("OnEscapePressed", function(self)
-        self:SetText(string_format("%d", ns.GetDB()[key]))
+        SetInputNumber(self, ns.GetDB()[key])
         self:ClearFocus()
     end)
     input:HookScript("OnEditFocusLost", function(self)
         if not refreshing then
             ApplyInputBox(self)
         end
+    end)
+    -- safety net next to OnRefresh: refill the box when it is shown
+    input:HookScript("OnShow", function(self)
+        SetInputNumber(self, ns.GetDB()[key])
     end)
     return slider
 end
@@ -282,7 +293,10 @@ local function RefreshSettingsPanel()
 
     for key, slider in pairs(controls.sliders) do
         slider:SetValue(db[key])
-        slider.input:SetText(string_format("%d", db[key]))
+        -- a box the user is typing into keeps its text
+        if not slider.input:HasFocus() then
+            SetInputNumber(slider.input, db[key])
+        end
         SetControlEnabled(slider, enabled)
     end
 

@@ -89,6 +89,7 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - Templates that exist: `UICheckButtonTemplate` (`.Text`, aliased as `.text`), `UIRadioButtonTemplate` (`.text`), `UISliderTemplateWithLabels` (`.Text`, `.Low`, `.High`), `UIPanelButtonTemplate`
 - `InterfaceOptionsCheckButtonTemplate` / `OptionsSliderTemplate` only exist in `DeprecatedTemplates.xml`, avoid them
 - Color picker: `ColorPickerFrame:SetupColorPickerAndShow({ r, g, b, hasOpacity, swatchFunc, cancelFunc })`, read the color with `ColorPickerFrame:GetColorRGB()`
+- Input boxes on canvas pages: Settings calls `OnRefresh` on every canvas page while it still has no parent or anchors (0 width), and `EditBox:SetText()` then leaves the box scrolled so the text is invisible until the user types (seen in game with ForeverHawkTimer 1.1.0); call `editBox:SetCursorPosition(0)` after every `SetText` (Blizzard's documented workaround in `Blizzard_AuctionHouseSellFrame.lua`, not yet confirmed in game for our panel; fallback: set the text again one frame later)
 
 ## Chat
 
