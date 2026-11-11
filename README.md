@@ -136,6 +136,10 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Based on the official 2.6.2 package, which fixes the reported bug that left Skada and Blizzard's damage meter empty until `/reload`: after a reset from outside Skada (for example Blizzard's reset menu or another meter) Skada reset the native sessions a second time ([skada#9](https://github.com/zarnivoop/skada/issues/9))
 - Extra safety in this port: Skada does not reset the native sessions again within 2 seconds of a reset it saw
 - Port fix: in the settings, the search box of the media (font, texture, sound) picker no longer sticks out of the picker, its rows use the full width and long titles stop before the close button
+- Port change: in combat the client hides the meter numbers from AddOns, so Skada used to switch to plain numbers without ranks and without the % column; now combat rows also show ranks (`1.`), condensed numbers (53.3K, with the Condensed number format) and the % column (also the share in the spell breakdown)
+  - The combat numbers and percentages come from workarounds that check themselves with plain numbers first; if a check fails, that part keeps the old combat look (`/skada debug` before the first fight prints the results)
+  - Port fix: in combat the mode list (and its tooltips) shows each mode's group total instead of the first player's amount
+  - The last digit of combat numbers may differ slightly from the one shown after combat; bar lengths in combat still follow the rank order, not the real share, and hover tooltips show no spell shares in combat
 - The CurseForge/Wago IDs were removed from the tocs; if you use the CurseForge app, do not let it update Skada, it would replace this port with the CurseForge version
 - Slash commands, settings and saved settings are the original Skada ones (`/skada`)
 

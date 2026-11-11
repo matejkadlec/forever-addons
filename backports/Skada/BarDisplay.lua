@@ -1,3 +1,4 @@
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: ranks, the percent column and spell shares also in combat
 --[[
 
 The traditional bar display used in some form by most damage meters.
@@ -436,7 +437,9 @@ local function buildColumnSpec(win)
 			spec[#spec + 1] = { label = "DPS", value = "valueText2" }
 		end
 	end
-	if width >= 400 and not secret and columns.Percent then
+	-- In combat the percent column needs percentages computed from secret values (ModuleBase).
+	local percentReady = not secret or (win.metadata and win.metadata.secretPercent)
+	if width >= 400 and percentReady and columns.Percent then
 		spec[#spec + 1] = { label = "%", value = "valueText3" }
 	end
 	return spec
@@ -734,11 +737,21 @@ function mod:Update(win)
 				bar.order = i
 			end
 
-			-- Secret names cannot safely be composed with a rank prefix via
-			-- string.format. Pass them straight to the FontString instead.
-			if win.metadata.showspots and Skada.db.profile.showranks and not data.ignore
-				and not issecretvalue(data.label) then
-				if win.db.barorientation == 1 then
+			if win.metadata.showspots and Skada.db.profile.showranks and not data.ignore then
+				if issecretvalue(data.label) then
+					-- FontString:SetFormattedText accepts secret arguments (AllowedWhenTainted),
+					-- so combat rows with secret names get their rank too; on an error the
+					-- bare name is shown like before.
+					local ok
+					if win.db.barorientation == 1 then
+						ok = pcall(bar.label.SetFormattedText, bar.label, "%2d. %s", nr, data.label)
+					else
+						ok = pcall(bar.label.SetFormattedText, bar.label, "%s %2d", data.label, nr)
+					end
+					if not ok then
+						bar:SetLabel(data.label)
+					end
+				elseif win.db.barorientation == 1 then
 					bar:SetLabel(("%2u. %s"):format(nr, data.label))
 				else
 					bar:SetLabel(("%s %2u"):format(data.label, nr))
@@ -747,10 +760,15 @@ function mod:Update(win)
 				bar:SetLabel(data.label)
 			end
 
-			if data.valuetext then
+			-- type() instead of a truth test: valuetext is a secret string in combat.
+			if type(data.valuetext) ~= "nil" then
 				bar:SetColumnText(1, nil)
 				bar:SetColumnText(2, nil)
 				bar:SetColumnText(3, data.valuetext)
+				-- Combat spell rows: "value (share%)" composed by the FontString, which accepts secret arguments.
+				if type(data.percenttext) ~= "nil" and bar.columns and bar.columns[3] then
+					pcall(bar.columns[3].SetFormattedText, bar.columns[3], "%s (%s)", data.valuetext, data.percenttext)
+				end
 			else
 				bar:SetColumnText(1, nil)
 				bar:SetColumnText(2, nil)

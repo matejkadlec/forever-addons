@@ -1,4 +1,4 @@
--- Modified by Matej Kadlec for the unofficial WoW: Forever port: skip a native reset that follows another one within 2 seconds
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: skip a native reset that follows another one within 2 seconds, return the source total with its spells
 local _, Skada = ...
 
 --[[
@@ -480,7 +480,12 @@ function NativeAPI:GetPlayerSpells(playerID, set, damageType, sourceCreatureID)
 		DebugLogSource(source)
 	end
 
-	return ExtractSpellsFromSource(source)
+	-- The source total (secret in combat) lets the spell list show shares in combat too.
+	local total
+	if type(source) == "table" and not issecretvalue(source) then
+		total = source.totalAmount
+	end
+	return ExtractSpellsFromSource(source), total
 end
 
 function NativeAPI:GetPlayerSpell(playerID, set, damageType, spellID)

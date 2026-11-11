@@ -1,4 +1,4 @@
--- Modified by Matej Kadlec for the unofficial WoW: Forever port: note native resets from other sources so they are not repeated
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: note native resets from other sources so they are not repeated, abbreviate secret numbers in combat
 local _, addon = ...
 
 local Skada = LibStub("AceAddon-3.0"):NewAddon(addon, "Skada", "AceTimer-3.0", "AceEvent-3.0", "LibNotify-1.0")
@@ -2388,13 +2388,92 @@ function Skada:FormatNumber(number)
 	return tostring(math.floor(number))
 end
 
+-- Breakpoints close to the condensed FormatNumber output (53.3K, 1.25M, 12.5M, 150M, 2B) for secret values;
+-- AbbreviateNumbers may round differently and drop trailing zeros, so the last digit can differ slightly after combat.
+local SECRET_ABBREVIATION_BREAKPOINTS = {
+	{ breakpoint = 1000000000, abbreviation = "B", significandDivisor = 1000000000, fractionDivisor = 1, abbreviationIsGlobal = false },
+	{ breakpoint = 100000000, abbreviation = "M", significandDivisor = 1000000, fractionDivisor = 1, abbreviationIsGlobal = false },
+	{ breakpoint = 10000000, abbreviation = "M", significandDivisor = 100000, fractionDivisor = 10, abbreviationIsGlobal = false },
+	{ breakpoint = 1000000, abbreviation = "M", significandDivisor = 10000, fractionDivisor = 100, abbreviationIsGlobal = false },
+	{ breakpoint = 100000, abbreviation = "K", significandDivisor = 1000, fractionDivisor = 1, abbreviationIsGlobal = false },
+	{ breakpoint = 1000, abbreviation = "K", significandDivisor = 100, fractionDivisor = 10, abbreviationIsGlobal = false },
+}
+-- Extra breakpoint that drops the decimals of small rates (123.4 DPS -> 123), used when the client accepts it.
+local SECRET_ABBREVIATION_UNITS = { breakpoint = 1, abbreviation = "", significandDivisor = 1, fractionDivisor = 1, abbreviationIsGlobal = false }
+
+-- AbbreviateNumbers options for secret values: for any number, and for whole numbers (totals) only.
+local secretAbbreviateOptions, secretAbbreviateWholeOptions
+local secretAbbreviateBuilt = false
+
+-- Check a candidate with plain numbers: condensed output, and whether small rates/totals keep no decimals.
+local function TestAbbreviation(options)
+	local ok, big, million, rate, whole = pcall(function()
+		return AbbreviateNumbers(53321, options), AbbreviateNumbers(1250000, options),
+			AbbreviateNumbers(123.456, options), AbbreviateNumbers(123, options)
+	end)
+	if not ok then return false, false, tostring(big) end
+	-- Plain inputs should give plain strings; anything else counts as a failed check.
+	local results = { big, million, rate, whole }
+	for i = 1, 4 do
+		if issecretvalue(results[i]) or type(results[i]) ~= "string" then return false, false, "unexpected result" end
+	end
+	local condensed = big == "53.3K" and million == "1.25M"
+	local summary = table.concat({ tostring(big), tostring(million), tostring(rate), tostring(whole) }, " ")
+	return condensed and rate == "123", condensed and whole == "123", summary
+end
+
+-- Pick the AbbreviateNumbers options once; only candidates that format like Skada are used.
+local function BuildSecretAbbreviateOptions()
+	if secretAbbreviateBuilt then return end
+	secretAbbreviateBuilt = true
+	if type(AbbreviateNumbers) ~= "function" then return end
+
+	local withUnits = {}
+	for i, data in ipairs(SECRET_ABBREVIATION_BREAKPOINTS) do
+		withUnits[i] = data
+	end
+	withUnits[#withUnits + 1] = SECRET_ABBREVIATION_UNITS
+
+	local candidates = {}
+	for _, breakpoints in ipairs({ withUnits, SECRET_ABBREVIATION_BREAKPOINTS }) do
+		-- CreateAbbreviateConfig raises an error on breakpoints it rejects.
+		if type(CreateAbbreviateConfig) == "function" then
+			local ok, config = pcall(CreateAbbreviateConfig, breakpoints)
+			if ok and type(config) ~= "nil" then
+				candidates[#candidates + 1] = { config = config }
+			end
+		end
+		candidates[#candidates + 1] = { breakpointData = breakpoints }
+	end
+
+	for _, options in ipairs(candidates) do
+		local anyNumber, wholeNumber, summary = TestAbbreviation(options)
+		Skada:Debug("Combat number format test:", summary, anyNumber and "any" or (wholeNumber and "whole" or "failed"))
+		if anyNumber and not secretAbbreviateOptions then secretAbbreviateOptions = options end
+		if wholeNumber and not secretAbbreviateWholeOptions then secretAbbreviateWholeOptions = options end
+	end
+end
+
 -- Format a number that may be a WoW 12.0 secret value.
-function Skada:FormatNumberSecret(number)
-	-- For secret values, use string.format with %.0f for clean whole numbers
+-- wholeNumber: the value has no decimals (totals), so a format that keeps decimals below 1000 is fine.
+function Skada:FormatNumberSecret(number, wholeNumber)
 	if issecretvalue(number) then
-		-- string.format is safe for secret values
-		local s = string.format("%.0f", number)
-		return tostring(s)
+		-- AbbreviateNumbers accepts secret numbers, so the condensed format also works in combat.
+		if self.db.profile.numberformat == 1 then
+			BuildSecretAbbreviateOptions()
+			local options = secretAbbreviateOptions
+			if not options and wholeNumber then options = secretAbbreviateWholeOptions end
+			if options then
+				local ok, text = pcall(AbbreviateNumbers, number, options)
+				if ok and (issecretvalue(text) or type(text) == "string") then
+					return text
+				end
+				-- Stop trying after the first failure and keep the plain numbers.
+				secretAbbreviateOptions, secretAbbreviateWholeOptions = nil, nil
+			end
+		end
+		-- string.format is safe for secret values; %.0f gives clean whole numbers.
+		return string.format("%.0f", number)
 	end
 	-- For normal values, use regular formatting
 	return self:FormatNumber(number)

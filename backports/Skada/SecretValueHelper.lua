@@ -1,3 +1,4 @@
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: percentages of secret values through a self-tested hidden helper status bar
 --[[
 	SecretValueHelper.lua
 	
@@ -128,6 +129,111 @@ function SecretHelper:FormatNumber(value)
 	end
 
 	return "0"
+end
+
+--[[
+	Percentages of secret values.
+	Addon code cannot divide secret values, but a StatusBar accepts secret
+	min/max/value and sizes its fill texture from them. A helper bar that is
+	exactly 100 units wide therefore has a fill width equal to value / total
+	in percent. GetWidth is expected to return that width as a secret (it is
+	SecretWhenAnchoringSecret) and string.format turns it into display text.
+	The trick is only used after a self-test with plain numbers showed that
+	the fill width follows SetValue immediately, so one shared helper bar
+	serves every row without showing a previous row's share.
+]]
+local PERCENT_BAR_WIDTH = 100
+local PERCENT_TEST_TOLERANCE = 0.5
+local percentHolder, percentProbe, percentBar -- created at load so they are laid out before the first fight
+local percentTested = false -- self-test done and passed
+
+-- Invisible, non-interactive 100 unit wide StatusBar.
+local function CreatePercentBar(holder)
+	local bar = CreateFrame("StatusBar", nil, holder)
+	bar:SetPoint("TOPLEFT")
+	bar:SetSize(PERCENT_BAR_WIDTH, 1)
+	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+	bar:SetStatusBarColor(0, 0, 0, 0)
+	bar:EnableMouse(false)
+	local texture = bar:GetStatusBarTexture()
+	-- Keep the fill geometry off the pixel grid (same as AlternatePowerBarBase).
+	if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(false) end
+	if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
+	bar:SetMinMaxValues(0, 1)
+	bar:SetValue(0)
+	return bar
+end
+
+-- Create the helper frames: the probe for the self-test and the shared bar for secret values.
+local function CreatePercentFrames()
+	if percentHolder then return end
+	-- Shown but fully transparent, so the bars keep their layout without drawing anything.
+	percentHolder = CreateFrame("Frame", nil, UIParent)
+	percentHolder:SetFrameStrata("BACKGROUND")
+	percentHolder:SetSize(PERCENT_BAR_WIDTH, 1)
+	percentHolder:SetPoint("CENTER")
+	percentHolder:SetAlpha(0)
+	percentHolder:EnableMouse(false)
+	-- A separate probe keeps the secret aspect of real values away from the self-test.
+	percentProbe = CreatePercentBar(percentHolder)
+	percentBar = CreatePercentBar(percentHolder)
+end
+
+-- Fill width of a bar right after setting it (plain inputs give a plain width).
+local function ReadFill(bar, value, total)
+	bar:SetMinMaxValues(0, total)
+	bar:SetValue(value)
+	return bar:GetStatusBarTexture():GetWidth()
+end
+
+-- Self-test with plain numbers: the fill width must follow SetValue immediately.
+local function TestPercentBar()
+	CreatePercentFrames()
+	local third = ReadFill(percentProbe, 1, 3)
+	local twoThirds = ReadFill(percentProbe, 2, 3)
+	local passed = not issecretvalue(third) and not issecretvalue(twoThirds)
+		and type(third) == "number" and type(twoThirds) == "number"
+		and math.abs(third - PERCENT_BAR_WIDTH / 3) <= PERCENT_TEST_TOLERANCE
+		and math.abs(twoThirds - PERCENT_BAR_WIDTH * 2 / 3) <= PERCENT_TEST_TOLERANCE
+	Skada:Debug("Combat percent self-test:", tostring(third), tostring(twoThirds), passed and "passed" or "failed")
+	return passed
+end
+
+-- Display text for the share of secret values, read from the shared helper bar.
+local function ReadSecretPercent(value, total)
+	if not percentTested then
+		if not TestPercentBar() then
+			error("helper bar self-test failed")
+		end
+		percentTested = true
+	end
+	return string.format("%02.1f%%", ReadFill(percentBar, value, total))
+end
+
+-- Build the frames now (out of combat during loading); a failure only disables combat percentages.
+if type(CreateFrame) == "function" and not pcall(CreatePercentFrames) then
+	SecretHelper.percentUnavailable = true
+end
+
+--[[
+	Percentage text ("25.3%") of value / total, both of which may be secret.
+	@return string|nil - Display text (secret while the inputs are secret), or nil
+]]
+function SecretHelper:GetPercentText(value, total)
+	if type(value) == "nil" or type(total) == "nil" then return nil end
+	if not issecretvalue(value) and not issecretvalue(total) then
+		-- Plain numbers (for example only the names are secret): compute directly.
+		local v, t = tonumber(value) or 0, tonumber(total) or 0
+		if t <= 0 then return nil end
+		return string.format("%02.1f%%", v / t * 100)
+	end
+	if self.percentUnavailable or not percentHolder then return nil end
+	local ok, text = pcall(ReadSecretPercent, value, total)
+	if ok then return text end
+	-- Self-test failed or the client refused the helper bar: keep the old behavior (no percentages in combat).
+	self.percentUnavailable = true
+	Skada:Debug("Combat percentages disabled:", tostring(text))
+	return nil
 end
 
 --[[

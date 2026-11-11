@@ -1,3 +1,4 @@
+-- Modified by Matej Kadlec for the unofficial WoW: Forever port: percentages, condensed totals and session totals in combat (lists, tooltips, summaries)
 --[[
 	ModuleBase.lua
 	
@@ -76,6 +77,14 @@ function ModuleBase:UpdatePlayerList(win, set, options)
 		end
 	end
 
+	-- In combat the share comes from the session total (only matches when the value is the total amount).
+	local sessionTotal
+	if hasSecretValues and options.includePercent and valueKey == "totalAmount" and not issecretvalue(view) then
+		sessionTotal = view.totalAmount
+	end
+	-- Set after the rows: the percent column only appears in combat when a percentage was produced.
+	local secretPercentShown = false
+
 	if hasSecretValues then
 		-- SLOW PATH: values are protected. Use synthetic order values for the
 		-- bars and let FormatNumberSecret produce display text.
@@ -99,11 +108,20 @@ function ModuleBase:UpdatePlayerList(win, set, options)
 					d.order = nr
 					d.value = SecretHelper:GetDisplayValue(rawValue, nr, sourceCount)
 
-					local valueText = Skada:FormatNumberSecret(rawValue)
+					local valueText = Skada:FormatNumberSecret(rawValue, valueKey == "totalAmount")
 					local rateText = Skada:FormatNumberSecret(rawRate)
+					local percentText
+					if type(sessionTotal) ~= "nil" and type(rawValue) ~= "nil" then
+						percentText = SecretHelper:GetPercentText(rawValue, sessionTotal)
+					end
+					if type(percentText) == "nil" then
+						percentText = ""
+					else
+						secretPercentShown = true
+					end
 
 					if options.columns then
-						Skada:FormatValueText(d, valueText, options.columns[1], rateText, options.columns[2], "", options.columns[3])
+						Skada:FormatValueText(d, valueText, options.columns[1], rateText, options.columns[2], percentText, options.columns[3])
 					else
 						d.valuetext = valueText
 					end
@@ -112,7 +130,9 @@ function ModuleBase:UpdatePlayerList(win, set, options)
 			end
 		end
 		win.metadata.maxvalue = SecretHelper:GetMaxValue(true, 0, sourceCount)
+		win.metadata.secretPercent = secretPercentShown
 	else
+		win.metadata.secretPercent = nil
 		-- FAST PATH: Standard arithmetic and comparisons (no secrets)
 		for _, player in ipairs(sources) do
 			if type(player) == "table" then
@@ -233,7 +253,7 @@ function ModuleBase:UpdateSimpleList(win, set, options)
 					d.role = player.role
 					d.order = nr
 					d.value = SecretHelper:GetDisplayValue(rawValue, nr, sourceCount)
-					d.valuetext = Skada:FormatNumberSecret(rawValue)
+					d.valuetext = Skada:FormatNumberSecret(rawValue, valueKey == "totalAmount")
 					nr = nr + 1
 				end
 			end
@@ -325,7 +345,7 @@ function ModuleBase:UpdateSpellList(win, playerid, set, damageType, options)
 	end
 	local viewSet
 	if type(view) ~= "nil" then viewSet = view else viewSet = set end
-	local spells = Skada.NativeAPI:GetPlayerSpells(realID, viewSet, damageType, sourceCreatureID)
+	local spells, sourceTotal = Skada.NativeAPI:GetPlayerSpells(realID, viewSet, damageType, sourceCreatureID)
 
 
 	if type(spells) == "nil" then
@@ -419,7 +439,11 @@ function ModuleBase:UpdateSpellList(win, playerid, set, damageType, options)
 					end
 
 					d.value = SecretHelper:GetDisplayValue(rawValue, nr, #spells)
-					d.valuetext = Skada:FormatNumberSecret(rawValue)
+					d.valuetext = Skada:FormatNumberSecret(rawValue, valueKey == "totalAmount")
+					-- Share of the source total; BarDisplay shows it as "value (share%)" like out of combat.
+					if valueKey == "totalAmount" and type(sourceTotal) ~= "nil" and type(rawValue) ~= "nil" then
+						d.percenttext = SecretHelper:GetPercentText(rawValue, sourceTotal)
+					end
 					d.icon = Skada:GetSpellIcon(rawSpellID)
 					nr = nr + 1
 				end
@@ -496,6 +520,11 @@ function ModuleBase:GetSetTotal(set, damageType, options)
 			end
 			if type(value) ~= "nil" then
 				if issecretvalue(value) then
+					-- In combat the session total (secret) is the sum of all sources; the first source alone is only a part.
+					if valueKey == "totalAmount" and sourcesKey == "combatSources" and not issecretvalue(view) then
+						local sessionTotal = view.totalAmount
+						if type(sessionTotal) ~= "nil" then return sessionTotal end
+					end
 					return value -- Return secret value if found
 				end
 				total = total + (tonumber(value) or 0)
@@ -583,7 +612,7 @@ function ModuleBase:CreatePlayerTooltip(options)
 			tooltip:AddLine(string.format("%s - %s", tostring(playerName), tostring(options.labelRate)))
 		end
 		tooltip:AddDoubleLine(L["Segment time"], string.format("%s s", Skada:FormatNumberSecret(totaltime)), 1, 1, 1, 1, 1, 1)
-		tooltip:AddDoubleLine(options.labelDamage, Skada:FormatNumberSecret(rawValue), 1, 1, 1, 1, 1, 1)
+		tooltip:AddDoubleLine(options.labelDamage, Skada:FormatNumberSecret(rawValue, (options.valueKey or "totalAmount") == "totalAmount"), 1, 1, 1, 1, 1, 1)
 		tooltip:AddDoubleLine(options.labelRate, Skada:FormatNumberSecret(rawRate), 1, 1, 1, 1, 1, 1)
 
 		-- Add top spells (unavailable while the spell collection is secret)
@@ -621,7 +650,7 @@ function ModuleBase:CreatePlayerTooltip(options)
 
 					local rawVal = s[spellValueKey]
 					if issecretvalue(rawVal) then
-						tooltip:AddDoubleLine(name, Skada:FormatNumberSecret(rawVal), 1, 1, 1, 1, 1, 1)
+						tooltip:AddDoubleLine(name, Skada:FormatNumberSecret(rawVal, spellValueKey == "totalAmount"), 1, 1, 1, 1, 1, 1)
 					elseif type(rawVal) ~= "nil" then
 						local val = tonumber(rawVal) or 0
 						local playerVal = SecretHelper:SafeNumber(rawValue)
@@ -649,7 +678,7 @@ function ModuleBase:CreateSimpleTooltip(labelTotal)
 		if type(player) == "table" then
 			local rawValue = player.totalAmount
 			if type(rawValue) ~= "nil" then
-				tooltip:AddDoubleLine(labelTotal, Skada:FormatNumberSecret(rawValue), 1, 1, 1, 1, 1, 1)
+				tooltip:AddDoubleLine(labelTotal, Skada:FormatNumberSecret(rawValue, true), 1, 1, 1, 1, 1, 1)
 			end
 		end
 	end
@@ -712,16 +741,18 @@ end
 ]]
 function ModuleBase:FormatSetSummary(datasetItem, set, options)
 	local total = self:GetSetTotal(set, options.damageType, {valueKey = options.valueKey})
+	-- Totals have no decimals, so they may use the whole-number abbreviation in combat.
+	local wholeTotal = (options.valueKey or "totalAmount") == "totalAmount"
 	
 	if options.rateType then
 		local rate = self:GetRaidRate(set, options.rateType)
 		Skada:FormatValueText(
 			datasetItem,
-			Skada:FormatNumberSecret(total), options.columns[1],
+			Skada:FormatNumberSecret(total, wholeTotal), options.columns[1],
 			Skada:FormatNumberSecret(rate), options.columns[2]
 		)
 	else
-		Skada:FormatValueText(datasetItem, Skada:FormatNumberSecret(total), true)
+		Skada:FormatValueText(datasetItem, Skada:FormatNumberSecret(total, wholeTotal), true)
 	end
 end
 
