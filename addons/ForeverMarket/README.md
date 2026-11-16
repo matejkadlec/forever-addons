@@ -81,6 +81,17 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Farm log `R.farm.mobs[npcID] = { n, z, lv, l = corpses looted, k = kills by experience, c = coins, s = skins,
     d = drops, sk = skin loot }`: corpses from the loot window sources (GUID -> NPC ID; the client keeps the
     combat log from AddOns), kills without loot from "X dies, you gain N experience", a corpse looted twice = skin.
+* Battle.net feed (scan/Feed.lua): `services/forever-market-feed` writes the load-on-demand AddOn
+  `ForeverMarket_Feed` (`ForeverMarketFeedData`: per snapshot a string of `itemKey|deep record` lines, the newest
+  fingerprints, items seen with two bonus lists = suffix variants). At login the records newer than `r.feedT` are
+  appended, except those whose interval (time - gap) starts before the latest in-game deep scan; the newest snapshot
+  becomes `r.last` (`source = "api"`, own auctions tagged `@` with the own pool); each snapshot gets a scans log entry
+  with source `api` (Backfill of "Past 3 days" skips them: their items only have records when something
+  changed). Feed records only exist when something happened or the market changed, else a full record every 4
+  hours (never `=`: the record it refers to may be skipped). Records never land before an item's newest record, so an
+  import cut short by a /reload is safe to repeat; deep scans wait while an import runs (`FM.feedImporting`).
+  Only the realm bucket the feed was matched to imports (`bucket`), `ForeverMarketDB.feedImported[bucket]` tells
+  the feed what the game already has.
 * "No outliers" (on by default) hides rows whose profit per 1g is beyond 3x the interquartile range of the tab,
   and vendor items listed at over 10x the vendor price.
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link.

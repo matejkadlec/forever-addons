@@ -666,7 +666,9 @@ local function Backfill(sources, latestMinutes, nowMinutes, done)
     for _, entry in ipairs(h) do have[EntryMinutes(entry)] = true end
     local stamps = {}
     for _, scan in ipairs(r.scans) do
-        if string_byte(scan, 1) == 114 then -- deep scans: "r<stamp>,..."
+        -- deep scans "r<stamp>,source,...", not the Battle.net feed's: its items only have a record when
+        -- something changed, so a view of one of its stamps would miss most items
+        if string_byte(scan, 1) == 114 and not scan:find("^r[^,]*,api,") then
             local stamp = scan:match("^(r[^,]*)")
             local minutes = stamp and Dec(string_sub(stamp, 2))
             if minutes and minutes >= nowMinutes - HISTORY_MIN and minutes ~= latestMinutes and not have[minutes] then

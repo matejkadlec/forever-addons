@@ -116,6 +116,11 @@ local function MatchOwn(snap, key, count, unit)
     return false
 end
 
+-- The same match for a pool from FM.BuildOwnPool (the Battle.net feed's auctions have no sellers either)
+function FM.MatchOwn(pool, key, count, unit)
+    return MatchOwn({ ownPool = pool }, key, count, unit)
+end
+
 -- count: stack size, buyout: total buyout copper of the auction, band: time left band 0-3
 function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
     if not key or type(count) ~= "number" or type(buyout) ~= "number" or count <= 0 or buyout <= 0 then
@@ -229,6 +234,11 @@ function FM.SnapshotInventory()
 end
 
 function FM.FinalizeSnapshot(snap, onDone)
+    -- the Battle.net feed import replaces r.last and appends records: diff against what it leaves behind
+    if FM.feedImporting then
+        C_Timer.After(1, function() FM.FinalizeSnapshot(snap, onDone) end)
+        return
+    end
     local r = FM.R()
     local now = snap.t
     local nowMinutes = MinutesOf(now)

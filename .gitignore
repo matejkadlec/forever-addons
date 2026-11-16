@@ -19,3 +19,9 @@ desktop.ini
 # ForeverMarket tool output (Claude advice input, Battle.net probe result)
 addons/ForeverMarket/tools/*.json
 __pycache__/
+
+# ForeverMarket feed: Battle.net API client, run state, logs
+.env.market-feed
+services/forever-market-feed/state/
+services/forever-market-feed/*.log
+services/forever-market-feed/*.log.1

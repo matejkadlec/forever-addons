@@ -2,3 +2,7 @@
 *.sh text eol=lf
 .githooks/* text eol=lf
 .env* text eol=lf
+# Windows scripts of the ForeverMarket feed keep CRLF, the task XML is UTF-16
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.task.xml binary

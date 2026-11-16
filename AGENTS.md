@@ -7,6 +7,7 @@
   - `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT` (`18`), `.toc` interface version `16001` (client 1.60.x)
   - NOT WotLK 3.3.5a, NOT Classic Era, NOT plain retail: AddOn access to combat data is restricted (secret values, no combat log)
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
+- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format
 - There is no copy of the Blizzard UI source in this repository
 
 ---
