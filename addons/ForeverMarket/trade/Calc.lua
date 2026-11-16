@@ -4,7 +4,7 @@ local _, FM = ...
 --   crafts  profit per 1g invested, max price of the main material, min sell price, listed, sold ~12h
 --   past    the same craft numbers averaged over the scans of the last 3 days
 --   vendor  items a vendor sells for clearly less than they go for on the AH (with buyers)
---   flips   AH listings far below the usual price with a real market above them
+--   flips   AH listings cheap enough to relist under the next real price level (15%+ profit after the cut)
 --   mats    every material of your crafts: sell it, or is it worth more crafted?
 -- Prices come from the exact ladders of the latest deep scan (r.last.fp, your own auctions left out).
 -- One compact line of craft numbers per deep scan is kept for 72h in r.track.h; "Past 3 days"
@@ -38,9 +38,10 @@ local CLEAN_GAP = 480    -- only scan intervals up to 8h tell sales apart from e
 local MIN_COVER = 120    -- a sales rate needs at least 2h of such intervals
 local VENDOR_MIN_PROFIT = 10
 local SELL_CAP = 1.25    -- a craft's list price above 125% of its usual price falls back to the usual price
-local FLIP_BELOW = 0.70
+local FLIP_MARGIN = 0.15  -- a flip buys at most at what it resells for (after the cut) / 1.15
+local FLIP_MAX_SHARE = 0.25 -- the cheap units are at most this share of all listed: else they are the market
 local FLIP_MIN_USUAL = 20
-local FLIP_MIN_PROFIT = 500
+local FLIP_MIN_PROFIT = 100
 local FLIP_MIN_QTY = 5
 
 FM.TRADE = { AH_CUT = AH_CUT, MARGIN = MARGIN, BATCH = BATCH }
@@ -562,72 +563,75 @@ local function UsualPrice(key, now)
 end
 FM.UsualPrice = UsualPrice
 
--- Quick test on the ladder alone: could any usual price make this a flip?
+-- The wall above the k cheapest price levels: the price where `need` units of others wait
+local function WallAbove(ladder, k, need)
+    local acc = 0
+    for j = k + 1, #ladder do
+        acc = acc + ladder[j][2]
+        if acc >= need then return ladder[j][1] end
+    end
+    return nil
+end
+
+-- Quick test on the ladder alone: are there cheap units under a wall they could be relisted below?
 local function MaybeFlip(ladder, qty)
-    local minPrice = ladder[1][1]
     local need = math_max(3, 0.1 * qty)
     local cum = 0
     for k = 1, #ladder - 1 do
         cum = cum + ladder[k][2]
-        if cum > 0.25 * qty then return false end
-        local acc = 0
-        for j = k + 1, #ladder do
-            acc = acc + ladder[j][2]
-            if acc >= need then
-                if ladder[j][1] * FLIP_BELOW >= minPrice * 0.85 then return true end
-                break
-            end
-        end
+        if cum > FLIP_MAX_SHARE * qty then return false end
+        local wall = WallAbove(ladder, k, need)
+        if not wall then return false end
+        if ladder[1][1] <= wall * (1 - AH_CUT) / (1 + FLIP_MARGIN) then return true end
     end
     return false
 end
 
+-- Buy the cheapest units, relist them just under the next real price level (the wall), never above 110% of
+-- the usual price (median daily low, last week). Every split of the ladder into cheap levels and the rest is
+-- tried; the most profitable one wins. The market above must be real: the wall at least 85% of the usual price.
 local function FlipRow(key, p, now)
     local usual, recent = UsualPrice(key, now)
     if not usual or usual < FLIP_MIN_USUAL then return nil end
     if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
-    local limit = usual * FLIP_BELOW
-    local cheap, above = {}, {}
-    local cheapQty = 0
-    for _, level in ipairs(p.ladder) do
-        if level[1] <= limit then
-            cheap[#cheap + 1] = level
-            cheapQty = cheapQty + level[2]
-        else
-            above[#above + 1] = level
-        end
-    end
-    if #cheap == 0 or #above == 0 or cheapQty > 0.25 * p.qty then return nil end
+    local ladder = p.ladder
     local need = math_max(3, 0.1 * p.qty)
-    local acc, wall = 0, nil
-    for _, level in ipairs(above) do
-        acc = acc + level[2]
-        if acc >= need then
-            wall = level[1]
-            break
+    local floor = FM.MinListPrice(key, p)
+    local best
+    local cheapQty = 0
+    for k = 1, #ladder - 1 do
+        cheapQty = cheapQty + ladder[k][2]
+        if cheapQty > FLIP_MAX_SHARE * p.qty then break end
+        local wall = WallAbove(ladder, k, need)
+        if not wall then break end
+        if wall >= 0.85 * usual then
+            local sell = math_max(floor, math_min(math_floor(usual * 1.1), wall) - 1)
+            local maxBuy = sell * (1 - AH_CUT) / (1 + FLIP_MARGIN)
+            if ladder[k][1] <= maxBuy then
+                -- units waiting at or under the wall: the queue to sell through, also how many to buy at most
+                local support = 0
+                for j = k + 1, #ladder do
+                    if ladder[j][1] <= wall then support = support + ladder[j][2] end
+                end
+                local cap = math_max(support, 5)
+                local units, cost, top = 0, 0, 0
+                for j = 1, k do
+                    local n = math_min(ladder[j][2], cap - units)
+                    if n <= 0 then break end
+                    units = units + n
+                    cost = cost + n * ladder[j][1]
+                    top = ladder[j][1]
+                end
+                local profit = units * sell * (1 - AH_CUT) - cost
+                if units > 0 and profit >= FLIP_MIN_PROFIT and (not best or profit > best.profit) then
+                    best = { key = key, top = top, units = units, cheapQty = cheapQty, cost = cost, sell = sell, profit = profit,
+                        p1g = profit / cost * 10000, usual = usual, recent = recent, wall = wall, support = support,
+                        qty = p.qty, own = p.own, minSell = math_floor(cost / units / (1 - AH_CUT) + 0.99) }
+                end
+            end
         end
     end
-    if not wall or wall < 0.85 * usual then return nil end
-    local support = 0
-    for _, level in ipairs(above) do
-        if level[1] <= wall then support = support + level[2] end
-    end
-    local sell = math_max(FM.MinListPrice(key, p), math_min(math_floor(usual * 1.1), wall) - 1)
-    local cap = math_max(support, 5)
-    local units, cost, top = 0, 0, 0
-    for _, level in ipairs(cheap) do
-        local n = math_min(level[2], cap - units)
-        if n <= 0 then break end
-        units = units + n
-        cost = cost + n * level[1]
-        top = level[1]
-    end
-    if units == 0 then return nil end
-    local profit = units * sell * (1 - AH_CUT) - cost
-    if profit < FLIP_MIN_PROFIT then return nil end
-    return { key = key, top = top, units = units, cheapQty = cheapQty, cost = cost, sell = sell, profit = profit,
-        p1g = profit / cost * 10000, usual = usual, recent = recent, wall = wall, support = support,
-        qty = p.qty, own = p.own, minSell = math_floor(cost / units / (1 - AH_CUT) + 0.99) }
+    return best
 end
 
 ---------------------------------------------------------------- the pass

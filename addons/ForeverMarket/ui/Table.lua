@@ -251,14 +251,18 @@ local FARM_COLUMNS = {
     { title = "Per kill", width = 96, text = function(r) return Money(r.perKill) end, sort = function(r) return r.perKill end },
     { title = "Best drop", width = 230, align = "LEFT", text = function(r)
         local p = r.parts and r.parts[1]
+        -- skins count too: the skin when it is worth more per kill than the best drop
+        if r.skinKey and (r.skinPer or 0) > (p and p.per or 0) then
+            return IconText(r.skinKey) .. Name(r.skinKey) .. GREY .. " skin|r"
+        end
         if not p then return GREY .. (r.coins > 0 and "coins" or "-") .. "|r" end
         return IconText(p.key) .. Name(p.key) .. GREY .. string_format(" %.0f%%", p.rate * 100) .. "|r"
-    end, sort = function(r) return r.parts and r.parts[1] and r.parts[1].per or 0 end },
+    end, sort = function(r) return math_max(r.parts and r.parts[1] and r.parts[1].per or 0, r.skinPer or 0) end },
 }
 
 local KIND_LABEL = {
     craft = GREEN .. "Craft|r", learn = BLUE .. "Learn|r", level = GREY .. "Level for|r", vendor = YELLOW .. "Vendor|r",
-    flip = YELLOW .. "Flip|r", stock = GREEN .. "Your stock|r"
+    flip = YELLOW .. "Flip|r"
 }
 
 local PICK_COLUMNS = {
@@ -386,7 +390,8 @@ local function BuildRows()
                 local rowProf = row.prof or (row.craft and row.craft.prof)
                 if keep and prof and rowProf ~= prof then keep = false end
             end
-            if keep and s.tableProfitOnly and not tab.picks and tab.id ~= "mats" and not (row.p1g and row.p1g > 0) then keep = false end
+            -- only crafts can lose money: vendor and AH resell rows are profitable by design
+            if keep and s.tableProfitOnly and tab.crafts and not (row.p1g and row.p1g > 0) then keep = false end
             local minProfit = s.tableMinProfit
             if keep and minProfit and tab.id ~= "mats" then
                 local per = tab.picks and row.unitProfit or ProfitPerItem(row)
@@ -700,7 +705,7 @@ local function PickStatus(row)
     if not rank and not reason then return end
     Header("Picks")
     if rank then
-        Note(string_format("In the picks (#%d)", rank), GREEN)
+        Note(string_format("In the picks (#%d%s)", rank, trade.pickExtra and trade.pickExtra[row.key] and ", beyond your gold now" or ""), GREEN)
     else
         Note("Not in the picks: " .. reason, ORANGE)
     end
@@ -975,7 +980,9 @@ local function FooterText(total)
     end
     if tab.picks then
         local gold = trade and trade.pickGold
-        text = text .. "  ·  ranked by expected profit in the next 24h" .. (gold and (" within " .. Money(gold)) or "") .. ", hover for why"
+        local plan = trade and trade.pickPlan
+        text = text .. "  ·  expected profit in the next 24h" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
+            .. (gold and (" (" .. Money(gold) .. ")") or "") or "") .. ", the rest is beyond it  ·  hover for why"
     elseif tab.id == "past" and trade and trade.pastScans then
         text = text .. string_format("  ·  averages of %d scans since %s", trade.pastScans,
             trade.pastSince and date("%a %H:%M", trade.pastSince) or "?")
@@ -987,7 +994,7 @@ local function FooterText(total)
     elseif tab.id == "vendor" then
         text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
     elseif tab.id == "flips" then
-        text = text .. "  ·  listings under 70% of the usual price, with a real market above them"
+        text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut"
     elseif tab.id == "mats" then
         text = text .. "  ·  craft value = what one unit is worth inside your best learned recipe"
     end
@@ -1010,7 +1017,8 @@ Render = function()
             -- the "why" line under a pick
             button.icon:Hide()
             for _, cell in ipairs(button.cells) do cell:Hide() end
-            button.wide:SetText(GREY .. (row.reasonOf.why or "") .. "|r")
+            button.wide:SetText((row.reasonOf.extra and (ORANGE .. "beyond your gold now|r" .. GREY .. "  ·  |r") or "")
+                .. GREY .. (row.reasonOf.why or "") .. "|r")
             button.wide:Show()
             button:Show()
         elseif row then
@@ -1035,7 +1043,7 @@ Render = function()
     frame.prof:SetShown((tab.crafts or tab.picks) and true or false)
     frame.learn:SetChecked(Settings().tableLearn and true or false)
     frame.profit:SetChecked(Settings().tableProfitOnly and true or false)
-    frame.profit:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm)
+    frame.profit:SetShown(tab.crafts and true or false)
     frame.outliers:SetChecked(Settings().tableNoOutliers and true or false)
     frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm)
     local prof = ProfFilter()
