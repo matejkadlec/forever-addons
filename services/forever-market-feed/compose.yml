@@ -1,0 +1,81 @@
+# ForeverMarket feed server. A draft for the shared host's tenant pattern (rootless Docker per project, no
+# published ports, the API reached only through the project's own Cloudflare Tunnel, secrets in /etc/<project>).
+# Image names, limits, backups and the tunnel service follow the host's existing projects when deployed.
+name: forever-market-feed
+
+x-logging: &logging
+  driver: local                 # rotated by Docker: an internet flood of requests cannot fill the disk
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: /etc/forever-market-feed/db.env           # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB (0600)
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./deploy/readonly-role.sql:/docker-entrypoint-initdb.d/10-readonly-role.sql:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  collector:
+    build: .
+    image: forever-market-feed:latest
+    command: ["collect"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file: /etc/forever-market-feed/collector.env    # DATABASE_URL (owner role), BLIZZARD_*, FEED_* (0600)
+    networks: [backend, egress]
+    depends_on:
+      db: { condition: service_healthy }
+    logging: *logging
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }       # a cycle peaks at ~300 MB (two ~10 MB API answers)
+
+  api:
+    image: forever-market-feed:latest
+    command: ["serve"]
+    restart: unless-stopped
+    env_file: /etc/forever-market-feed/api.env          # DATABASE_URL (read-only role), FEED_API_TOKEN (0600)
+    networks: [backend, frontend]
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      # the process answers (503 = no fresh snapshot is the collector's problem, not the API's)
+      test: ["CMD", "python", "-c", "import urllib.request as u, urllib.error as e\ntry: u.urlopen('http://127.0.0.1:8080/healthz', timeout=5)\nexcept e.HTTPError: pass"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    logging: *logging
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 512M }       # at most two 72 h downloads at once, ~160 MB each
+
+  tunnel:
+    image: cloudflare/cloudflared:latest            # pin to the version tag the host's other tunnels use
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    env_file: /etc/forever-market-feed/tunnel.env       # TUNNEL_TOKEN of the project's own tunnel (0600)
+    networks: [frontend, egress]                    # reaches the API, never the database
+    depends_on: [api]
+    logging: *logging
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+networks:
+  backend: { internal: true }                       # database traffic only, no way out
+  frontend: { internal: true }                      # tunnel -> API
+  egress: {}                                        # outgoing HTTPS: Battle.net (collector), Cloudflare (tunnel)
+
+volumes:
+  db-data:
