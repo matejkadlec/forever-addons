@@ -15,3 +15,7 @@ Thumbs.db
 desktop.ini
 *.bak
 *.zip
+
+# ForeverMarket tool output (Claude advice input, Battle.net probe result)
+addons/ForeverMarket/tools/*.json
+__pycache__/
