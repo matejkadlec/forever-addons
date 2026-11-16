@@ -293,7 +293,7 @@ local HELP = {
 
 local function ShowHelp(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("|cFFFF8000Forever|r Market sniper")
+    GameTooltip:AddLine("|cFFFF8000Forever|r Market Sniper")
     for _, line in ipairs(HELP) do
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine(line, 1, 1, 1, true)
@@ -489,7 +489,7 @@ local function CreateWindow()
     tinsert(UISpecialFrames, FRAME_NAME)
 
     local title = Text(f, "GameFontNormal", "TOP", 0, -6)
-    title:SetText("|cFFFF8000Forever|r Market sniper")
+    title:SetText("|cFFFF8000Forever|r Market Sniper")
     if type(f.TitleText) == "table" and f.TitleText.SetText then f.TitleText:SetText("") end
 
     -- the ? explains the rules

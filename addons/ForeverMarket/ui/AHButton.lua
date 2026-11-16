@@ -13,7 +13,7 @@ end
 
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market sniper")
+    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market Sniper")
     GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step buys the newest offer at or under their price. Also /fm snipe.", 1, 1, 1, true)
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Deep scan: /fm scan   Save for Claude: /fm save", 0.6, 0.8, 1)
