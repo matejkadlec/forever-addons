@@ -909,7 +909,8 @@ local function StatusText()
     local last = r.last and r.last.t
     local parts = {}
     if last then
-        parts[#parts + 1] = string_format("Deep scan %s ago (%s)", FM.FormatAge(FM.Now() - last), date("%a %H:%M", last))
+        local source = r.last.source == "api" and "Battle.net snapshot" or "Deep scan"
+        parts[#parts + 1] = string_format("%s %s ago (%s)", source, FM.FormatAge(FM.Now() - last), date("%a %H:%M", last))
     else
         parts[#parts + 1] = "No deep scan yet"
     end
