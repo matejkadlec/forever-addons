@@ -21,6 +21,7 @@ Settings come from .env.market-feed in the repository root (or the environment):
   FEED_RULESET       ruleset ID, default: the one whose name says PvP, else the first
   FEED_HOUSE         auction house ID, default: the house of FEED_FACTION that matches your last deep scan
   FEED_RECORD_HOURS  4 (default): longest time without a record of an item; 0 = a record every snapshot
+  FEED_SERVER_URL, FEED_API_TOKEN  pull mode: download from the feed server (server.py) instead of the API
 Only the Python standard library is needed (3.8+), so it runs on Windows Python or in WSL.
 """
 import base64
@@ -703,18 +704,67 @@ def write_addon(wow_dir, text):
 
 # ---------------------------------------------------------------- one run
 
+def fetch_snapshot(api, house, state):
+    """The house's snapshot if it changed since state["modified"] (raises NotModified otherwise):
+    item auctions, commodity listings, the items answer's Last-Modified and the snapshot time"""
+    items, t_items = api.get(house["href"], since=state.get("modified"))
+    commodities, t_comm = [], t_items
+    link = items.get("commodities")
+    if isinstance(link, dict) and link.get("href"):
+        answer, t_comm = api.get(link["href"])
+        commodities = answer.get("auctions") or answer.get("commodities") or []
+    elif isinstance(link, list):
+        commodities = link
+    log.info("items modified %s, commodities modified %s", time.strftime("%H:%M:%S", time.localtime(t_items)),
+             time.strftime("%H:%M:%S", time.localtime(t_comm)))
+    return items.get("auctions") or [], commodities, t_items, max(t_items, t_comm)
+
+
+def process_snapshot(state, item_auctions, commodities, t_items, snap_t, record_hours):
+    """Records of a new snapshot (updates state); None when it is not newer or looks cut short"""
+    if state.get("prev") and snap_t <= state["prev"]["t"]:
+        log.info("snapshot %s is not newer than the last one", snap_t)
+        state["modified"] = t_items
+        return None
+    # a cut short or empty answer would look like everything sold at once: wait for the next snapshot
+    previous_n = state.get("n") or 0
+    total = len(item_auctions) + len(commodities)
+    if not item_auctions or not commodities or (previous_n and total < 0.6 * previous_n):
+        log.warning("snapshot skipped: %d item auctions, %d commodity listings (last one had %d in all)",
+                    len(item_auctions), len(commodities), previous_n)
+        return None
+    aggs, bonus, skipped = aggregate([item_auctions, commodities])
+    update_variants(state, bonus)
+    state["n"] = total
+    gap = snap_t - state["prev"]["t"] if state.get("prev") else None
+    records, sold = build_records(state, snap_t, aggs, record_hours)
+    state["modified"] = t_items
+    snapshot = {"t": snap_t, "gap": int(math.floor(gap / 60 + 0.5)) if gap and gap <= DIFF_MAX_GAP_SECONDS else 0,
+                "n": sum(a.n for a in aggs.values()), "items": len(aggs), "sold": sold,
+                "recs": ";".join(k + "|" + r for k, r in records)}
+    log.info("snapshot %s: %d auctions (%d skipped), %d items, %d records, ~%d sold since the last one",
+             time.strftime("%Y-%m-%d %H:%M", time.localtime(snap_t)), snapshot["n"], skipped, len(aggs),
+             len(records), sold)
+    return snapshot
+
+
+def record_hours_of(cfg):
+    # past 8 hours ForeverMarket's demand estimate drops an interval (Picks CLEAN_GAP)
+    return min(7.0, max(0.0, float(cfg.get("FEED_RECORD_HOURS", "4"))))
+
+
 def run():
     setup_logging()
     cfg = load_env()
-    if not (cfg.get("BLIZZARD_CLIENT_ID") and cfg.get("BLIZZARD_CLIENT_SECRET")):
-        log.warning("no Battle.net API client: put BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET into %s", ENV_PATH)
-        return 0
     wow_dir = native_path(cfg.get("FEED_WOW_DIR") or DEFAULT_WOW_DIR)
     if not os.path.isdir(os.path.join(wow_dir, "Interface", "AddOns")):
         log.error("WoW folder not found: %s (set FEED_WOW_DIR)", wow_dir)
         return 1
-    # past 8 hours ForeverMarket's demand estimate drops an interval (Picks CLEAN_GAP)
-    record_hours = min(7.0, max(0.0, float(cfg.get("FEED_RECORD_HOURS", "4"))))
+    if cfg.get("FEED_SERVER_URL"):
+        return pull(cfg, wow_dir)
+    if not (cfg.get("BLIZZARD_CLIENT_ID") and cfg.get("BLIZZARD_CLIENT_SECRET")):
+        log.warning("no Battle.net API client: put BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET into %s", ENV_PATH)
+        return 0
     api = Api(cfg.get("FEED_REGION", "eu"), cfg["BLIZZARD_CLIENT_ID"], cfg["BLIZZARD_CLIENT_SECRET"])
     house = discover_house(api, cfg, wow_dir)
 
@@ -725,59 +775,61 @@ def run():
         state = {}
     state["house"] = house["house"]
 
-    since = state.get("modified")
     try:
-        items, t_items = api.get(house["href"], since=since)
+        snap = fetch_snapshot(api, house, state)
     except NotModified:
         if state.get("prev") and state.get("written") != state["prev"]["t"]:
             write_feed(wow_dir, house, state)  # the last write failed (the game had the file open?)
             write_atomic(state_path, json.dumps(state), compress=True)
-        log.info("no new snapshot (last %s)", time.strftime("%H:%M", time.localtime(since)))
+        log.info("no new snapshot (last %s)", time.strftime("%H:%M", time.localtime(state.get("modified") or 0)))
         return 0
-    commodities, t_comm = [], t_items
-    link = items.get("commodities")
-    if isinstance(link, dict) and link.get("href"):
-        answer, t_comm = api.get(link["href"])
-        commodities = answer.get("auctions") or answer.get("commodities") or []
-    elif isinstance(link, list):
-        commodities = link
-    snap_t = max(t_items, t_comm)
-    log.info("items modified %s, commodities modified %s", time.strftime("%H:%M:%S", time.localtime(t_items)),
-             time.strftime("%H:%M:%S", time.localtime(t_comm)))
-    if state.get("prev") and snap_t <= state["prev"]["t"]:
-        log.info("snapshot %s is not newer than the last one", snap_t)
-        state["modified"] = t_items
+    snapshot = process_snapshot(state, *snap, record_hours_of(cfg))
+    if snapshot is None:
         write_atomic(state_path, json.dumps(state), compress=True)
         return 0
-
-    started = time.time()
-    item_auctions = items.get("auctions") or []
-    # a cut short or empty answer would look like everything sold at once: wait for the next snapshot
-    previous_n = state.get("n") or 0
-    total = len(item_auctions) + len(commodities)
-    if not item_auctions or not commodities or (previous_n and total < 0.6 * previous_n):
-        log.warning("snapshot skipped: %d item auctions, %d commodity listings (last one had %d in all)",
-                    len(item_auctions), len(commodities), previous_n)
-        return 0
-    aggs, bonus, skipped = aggregate([item_auctions, commodities])
-    update_variants(state, bonus)
-    n_auctions = sum(a.n for a in aggs.values())
-    state["n"] = total
-    gap = snap_t - state["prev"]["t"] if state.get("prev") else None
-    records, sold = build_records(state, snap_t, aggs, record_hours)
-    state["modified"] = t_items
-    snapshots = [s for s in state.get("snapshots", []) if s["t"] > snap_t - DETAIL_SECONDS]
-    snapshots.append({"t": snap_t, "gap": int(math.floor(gap / 60 + 0.5)) if gap and gap <= DIFF_MAX_GAP_SECONDS else 0,
-                      "n": n_auctions, "items": len(aggs), "sold": sold,
-                      "recs": ";".join(k + "|" + r for k, r in records)})
-    state["snapshots"] = snapshots
+    state["snapshots"] = [s for s in state.get("snapshots", []) if s["t"] > snapshot["t"] - DETAIL_SECONDS] + [snapshot]
     write_atomic(state_path, json.dumps(state), compress=True)
     folder, pending = write_feed(wow_dir, house, state)
     write_atomic(state_path, json.dumps(state), compress=True)
-    log.info("snapshot %s: %d auctions (%d skipped), %d items, %d records, ~%d sold since the last one; "
-             "%d snapshots waiting for the game in %s (%.1fs)",
-             time.strftime("%Y-%m-%d %H:%M", time.localtime(snap_t)), n_auctions, skipped, len(aggs), len(records),
-             sold, pending, folder, time.time() - started)
+    log.info("%d snapshots waiting for the game in %s", pending, folder)
+    return 0
+
+
+# ---------------------------------------------------------------- pull mode: the PC side of the server feed
+
+def http_json(url, token, timeout=120):
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "Accept-Encoding": "gzip",
+                                               "User-Agent": "forever-market-feed"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+        if resp.headers.get("Content-Encoding") == "gzip":
+            raw = gzip.decompress(raw)
+        return json.loads(raw)
+
+
+def pull(cfg, wow_dir):
+    """FEED_SERVER_URL set: the server collects the snapshots around the clock, this only downloads what the game
+    has not imported yet and writes the AddOn (no Battle.net client needed on the PC)"""
+    base = cfg["FEED_SERVER_URL"].rstrip("/")
+    token = cfg.get("FEED_API_TOKEN", "")
+    meta_path = os.path.join(STATE_DIR, "server.json")
+    meta = read_json(meta_path, {}) or {}
+    floor = imported_until(wow_dir, meta.get("bucket"))
+    status = http_json(base + "/v1/status", token, timeout=30)
+    latest = status.get("latest")
+    if latest is None:
+        log.info("the server has no snapshot yet")
+        return 0
+    feed_file = os.path.join(wow_dir, "Interface", "AddOns", FEED_ADDON, "Feed.lua")
+    if meta.get("written") == latest and meta.get("floor") == floor and os.path.exists(feed_file):
+        log.info("up to date (newest snapshot %s)", time.strftime("%H:%M", time.localtime(latest)))
+        return 0
+    data = http_json(base + "/v1/feed?since=" + str(floor), token)
+    house = data["house"]
+    folder = write_addon(wow_dir, render_feed(house, data["snapshots"], data["last"], data["variants"], int(time.time())))
+    write_atomic(meta_path, json.dumps({"bucket": house.get("bucket"), "written": data["last"]["t"], "floor": floor}))
+    log.info("pulled %d snapshots (newest %s) from the server into %s", len(data["snapshots"]),
+             time.strftime("%Y-%m-%d %H:%M", time.localtime(data["last"]["t"])), folder)
     return 0
 
 

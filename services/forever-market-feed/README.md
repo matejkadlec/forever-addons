@@ -5,7 +5,11 @@ task asks the Battle.net Game Data API for the WoW: Forever auction house snapsh
 hour), turns it into the same records an in-game deep scan writes and puts them into the load-on-demand AddOn
 `ForeverMarket_Feed`. ForeverMarket imports them at login or `/reload`.
 
-Later the same `feed.py` is meant to run on a server (server → DB → PC → AddOn); for now it runs on the PC.
+Two ways to run it:
+- **Server mode** (server → DB → PC → AddOn): `server.py` collects the snapshots around the clock into PostgreSQL;
+  the PC's task only downloads what the game has not imported yet (`FEED_SERVER_URL` in `.env.market-feed`), so
+  nothing is missed while the PC sleeps
+- **Local mode**: without `FEED_SERVER_URL` the PC's task asks the Battle.net API itself (only while the PC is on)
 
 ## How it works
 
@@ -60,10 +64,42 @@ standard library is needed (Python 3.8+).
 | `FEED_RULESET` | the PvP ruleset | ruleset ID (1 PvP, 2 Normal, 3 Roleplay, 15 Roleplay PvP on EU) |
 | `FEED_HOUSE` | matched with your last deep scan | auction house ID (110 on EU PvP Alliance in Nov 2026) |
 | `FEED_RECORD_HOURS` | `4` | longest time without a record of an item; `0` = every item every snapshot |
+| `FEED_SERVER_URL` | | server mode: the feed server's API (`https://...`), the Battle.net client is then not needed on the PC |
+| `FEED_API_TOKEN` | | server mode: the API's bearer token |
 
 ## Files
 
 - `feed.log` what each run did (rotated at 1 MB), `feed-run.log` only interpreter crashes
-- `state/` (gitignored): API token, chosen house, the previous snapshot, pending records of the last 72 hours
+- `state/` (gitignored): API token, chosen house, the previous snapshot, pending records of the last 72 hours;
+  in server mode only `server.json` (realm bucket, newest snapshot written)
 - `forever_ah_probe.py` (in `addons/ForeverMarket/tools/`): one-off look at what the API returns
 - Delete `state/` to start over; delete `state/house.json` to pick the auction house again
+
+## Server (`server.py`)
+
+One image (`Dockerfile`), the command picks the role; `compose.yml` is a draft for a shared host where every project
+has its own rootless Docker, no published ports and its own Cloudflare Tunnel:
+
+| Service | Command | |
+| ------- | ------- | - |
+| `db` | PostgreSQL | tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it) |
+| `collector` | `python server.py collect` | every `FEED_INTERVAL` (1800 s): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction; snapshots older than `FEED_KEEP_DAYS` (90) are deleted |
+| `api` | `python server.py serve` | port 8080 inside the compose network, reached through the tunnel |
+| `tunnel` | cloudflared | the project's own tunnel, routes the public hostname to `http://api:8080` |
+
+API (bearer token `FEED_API_TOKEN`, gzip when asked):
+- `GET /healthz` without token: 200 when the newest snapshot is under 3 hours old, else 503
+- `GET /v1/status`: newest snapshot time and the house
+- `GET /v1/feed?since=<unix>`: snapshots newer than `since` (at most 72 hours back), the newest fingerprints and the
+  variant items, the shape `render_feed` writes into the AddOn
+
+Secrets live in env files outside the repository (`deploy/*.env.example` list the variables): `DATABASE_URL`,
+`BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`, `FEED_API_TOKEN` (`openssl rand -hex 32`), the tunnel token. The
+server has no SavedVariables to match the house with, so `FEED_HOUSE`, `FEED_RULESET`, `FEED_FACTION` and
+`FEED_BUCKET` are set there. `python server.py once` runs one cycle by hand.
+
+On the PC, server mode needs two lines in `.env.market-feed`; the Windows task stays the same:
+```
+FEED_SERVER_URL=https://<the API hostname>
+FEED_API_TOKEN=<the same token as on the server>
+```

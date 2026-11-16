@@ -1,0 +1,63 @@
+# ForeverMarket feed server. A draft for the shared host's tenant pattern (rootless Docker per project, no
+# published ports, the API reached only through the project's own Cloudflare Tunnel, secrets in /etc/<project>).
+# Image names, limits and the tunnel service follow the host's existing projects when deployed.
+name: forever-market-feed
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: /etc/forever-market-feed/db.env          # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB (0600)
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+
+  collector:
+    build: .
+    image: forever-market-feed:latest
+    command: ["collect"]
+    restart: unless-stopped
+    env_file:
+      - /etc/forever-market-feed/feed.env              # DATABASE_URL, BLIZZARD_*, FEED_* (0600)
+    depends_on:
+      db: { condition: service_healthy }
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }      # one snapshot is ~200k auctions, ~10 MB JSON twice
+
+  api:
+    image: forever-market-feed:latest
+    command: ["serve"]
+    restart: unless-stopped
+    env_file:
+      - /etc/forever-market-feed/feed.env              # DATABASE_URL, FEED_API_TOKEN
+    depends_on:
+      db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    env_file: /etc/forever-market-feed/tunnel.env      # TUNNEL_TOKEN of the project's own tunnel (0600)
+    depends_on: [api]
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+
+volumes:
+  db-data:
