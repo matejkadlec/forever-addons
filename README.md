@@ -123,7 +123,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item
   - The server's price is checked before any gold leaves; only stackable items (commodities)
   - With the AH open, Shift-click a market table row to snipe its main material at the table's price
-- Market table `/fm` (or `FM: table` at the AH), refreshed after every deep scan:
+- Market table `/fm`, the key `U` (or `FM: table` at the AH), refreshed after every deep scan:
   - **Picks**: what to do in the next 24 hours within your gold, ranked by expected profit, with the reasons in the tooltip (and why other rows are not picks)
   - **Latest** and **Past 3 days**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
   - **Vendor resell**, **AH resell** and **Materials**
@@ -131,6 +131,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Search, sortable columns, quick filters, right-click a row to exclude an item (food you eat, things you keep)
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
+- Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)
 - Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
 - Settings panel: `Jim's Forever AddOns -> Market`
 - Optional Battle.net feed: a Windows task reads the auction house from the Battle.net API every 30 minutes while you are away and ForeverMarket imports it at login ([`services/forever-market-feed`](services/forever-market-feed/README.md))

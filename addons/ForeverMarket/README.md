@@ -26,10 +26,13 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 * Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
-* `/fm` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and sniper. The market
+  table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
+  (the chat says what); after that a rebind or a cleared key stays as the player set it (`settings.keyGiven`)
 * `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
 
-## Market table (`/fm`, "FM: table" at the AH, settings button)
+## Market table (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
 Refreshes by itself after every deep scan, nothing to maintain by hand:
 
