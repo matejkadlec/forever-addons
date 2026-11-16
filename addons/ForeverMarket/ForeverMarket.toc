@@ -1,0 +1,34 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Market
+## Notes: Logs the Auction House over time (deep scans, market depth, sales estimates, your posts and sales) so Claude can advise on prices.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\INV_Misc_Coin_02
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.5.3
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverMarketDB
+## OptionalDeps: Auctionator
+
+core\Core.lua
+core\Codec.lua
+core\Store.lua
+data\Advice.lua
+data\Tracked.lua
+scan\Diff.lua
+scan\Snapshot.lua
+scan\DeepScan.lua
+scan\Auctionator.lua
+scan\Search.lua
+scan\Ledger.lua
+scan\FarmLog.lua
+trade\Sources.lua
+trade\Calc.lua
+trade\Picks.lua
+trade\Farm.lua
+ui\Tooltip.lua
+ui\AHButton.lua
+ui\Popup.lua
+ui\SettingsPanel.lua
+ui\Table.lua
+core\SlashCommands.lua
+ForeverMarket.lua

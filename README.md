@@ -20,6 +20,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - [ForeverTrackingAid](#forevertrackingaid)
   - [ForeverRangeIndicator](#foreverrangeindicator)
   - [ForeverHawkTimer](#foreverhawktimer)
+  - [ForeverMarket](#forevermarket)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
   - [Skada](#skada)
@@ -110,6 +111,24 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Settings panel: `Jim's Forever AddOns -> Hawk Timer` with every option above, `Reset Position`, `Test Bars` and a `Defaults` button
 
 > ℹ️ This AddOn only activates if logged in as a Hunter.
+
+### ForeverMarket
+
+💰 Logs the Auction House over time and turns it into a market table: what to craft, buy and resell, and where to farm.
+
+- Deep scans of the whole AH (`/fm scan` or the `FM: scan` button at the AH, at most every 15 minutes); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
+- Your own posts, sales and invoices are logged too
+- Market table `/fm` (or `FM: table` at the AH), refreshed after every deep scan:
+  - **Picks**: what to do in the next 24 hours within your gold, ranked by expected profit, with the reasons in the tooltip (and why other rows are not picks)
+  - **Latest** and **Past 3 days**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
+  - **Vendor resell**, **AH resell** and **Materials**
+  - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
+  - Search, sortable columns, quick filters, right-click a row to exclude an item (food you eat, things you keep)
+- Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
+- Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
+- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
+- Settings panel: `Jim's Forever AddOns -> Market`
+- Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)
 
 ## 🧩 Backported AddOns
 
