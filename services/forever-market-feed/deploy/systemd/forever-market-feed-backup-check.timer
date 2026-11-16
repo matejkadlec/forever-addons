@@ -1,0 +1,12 @@
+# Installed for the fmf-deploy account by deploy/provision-server.sh; enabled by hand once the first run of its
+# service has passed (README.md, section Server).
+[Unit]
+Description=ForeverMarket feed: daily backup check
+
+[Timer]
+OnCalendar=*-*-* 09:50:00 Europe/Prague
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

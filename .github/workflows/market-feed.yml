@@ -1,0 +1,124 @@
+name: Market feed
+
+# Checks the ForeverMarket feed server (services/forever-market-feed) and deploys master to the shared host once
+# the checks pass. The SSH key in the `production` environment can only run the forced command
+# deploy/forever-market-feed-deploy on the server, which takes nothing but a commit of master and fetches the
+# source itself. "Run workflow" redeploys the current master. services/forever-market-feed/README.md (section
+# Server) is the documentation.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - services/forever-market-feed/**
+      - .github/workflows/market-feed.yml
+  pull_request:
+    paths:
+      - services/forever-market-feed/**
+      - .github/workflows/market-feed.yml
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: services/forever-market-feed
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Python syntax
+        run: python3 -m py_compile feed.py server.py
+
+      - name: Shell scripts
+        run: shellcheck deploy/provision-server.sh deploy/forever-market-feed-deploy deploy/forever-market-feed-backup
+
+      - name: Compose file
+        run: |
+          set -euo pipefail
+          config="$RUNNER_TEMP/config"
+          mkdir -p "$config"
+          touch "$config"/{postgres.env,api-database.env,collector.env,api.env,cloudflared-token}
+          RELEASE=ci FMF_CONFIG_DIRECTORY="$config" docker compose --profile tunnel config --quiet
+
+      - name: Image
+        run: |
+          set -euo pipefail
+          docker build --tag forever-market-feed:ci .
+          docker run --rm --entrypoint python forever-market-feed:ci -c "import psycopg, server; print('psycopg', psycopg.__version__)"
+
+  deploy:
+    name: Deploy to production
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    # The server builds the image under its own CPU ceiling.
+    timeout-minutes: 20
+    concurrency:
+      group: market-feed-production-deploy
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://market.matejkadlec.cz/v1/status
+    env:
+      COMMIT: ${{ github.sha }}
+      API_URL: https://market.matejkadlec.cz
+    steps:
+      - name: Deploy the commit over SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          # Secrets rather than variables: this repository's logs are public, and a step's variables are printed
+          # in them.
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+          SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+          SSH_USER: ${{ vars.DEPLOY_SSH_USER }}
+        run: |
+          set -euo pipefail
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ -n "$SSH_PRIVATE_KEY" && -n "$SSH_HOST" && -n "$SSH_USER" && "$SSH_HOST_KEY" == ssh-ed25519\ * ]]
+          port="${SSH_PORT:-22}"
+
+          install -d -m 0700 "$RUNNER_TEMP/ssh"
+          (umask 077 && printf '%s\n' "$SSH_PRIVATE_KEY" >"$RUNNER_TEMP/ssh/key")
+          if [[ "$port" == "22" ]]; then
+            printf '%s %s\n' "$SSH_HOST" "$SSH_HOST_KEY" >"$RUNNER_TEMP/ssh/known_hosts"
+          else
+            printf '[%s]:%s %s\n' "$SSH_HOST" "$port" "$SSH_HOST_KEY" >"$RUNNER_TEMP/ssh/known_hosts"
+          fi
+
+          ssh -T -F /dev/null \
+            -i "$RUNNER_TEMP/ssh/key" -p "$port" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            "$SSH_USER@$SSH_HOST" "deploy $COMMIT"
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh"
+
+      # Through Cloudflare and the tunnel, as the PC arrives: the API's own answer to a request without the token.
+      # The route serves only /v1/; /healthz stays inside the host (the monitor timer checks it).
+      - name: Check the public API
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            code="$(curl --silent --output "$RUNNER_TEMP/body" --max-time 10 --user-agent forever-market-feed \
+              --write-out '%{http_code}' "$API_URL/v1/status" || true)"
+            if [[ "$code" == "401" ]] && grep -Fq '"error":"unauthorized"' "$RUNNER_TEMP/body"; then
+              echo "The API answers through the tunnel."
+              exit 0
+            fi
+            echo "Attempt $attempt: /v1/status answered $code; retrying ..."
+            sleep 5
+          done
+          exit 1

@@ -1,0 +1,5 @@
+# Only what the Dockerfile copies enters the build context.
+*
+!requirements.lock
+!feed.py
+!server.py

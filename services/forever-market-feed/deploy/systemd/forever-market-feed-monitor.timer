@@ -1,0 +1,12 @@
+# Installed for the fmf-deploy account by deploy/provision-server.sh; enabled by hand once the first run of its
+# service has passed (README.md, section Server).
+[Unit]
+Description=ForeverMarket feed: health check every 15 minutes
+
+[Timer]
+OnCalendar=*:07/15
+RandomizedDelaySec=1min
+Persistent=false
+
+[Install]
+WantedBy=timers.target

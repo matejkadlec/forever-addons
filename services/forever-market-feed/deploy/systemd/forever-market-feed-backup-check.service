@@ -1,0 +1,14 @@
+# Installed for the fmf-deploy account by deploy/provision-server.sh.
+[Unit]
+Description=ForeverMarket feed: backup freshness and integrity check
+Documentation=https://github.com/matejkadlec/forever-addons/blob/master/services/forever-market-feed/README.md
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/forever-market-feed-backup check
+# Must never compete with the sites for CPU or disk.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h
