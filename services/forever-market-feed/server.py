@@ -15,6 +15,8 @@ as on the PC. Settings come from the environment:
   FEED_REGION (eu), FEED_RULESET (1 = PvP), FEED_HOUSE (110), FEED_FACTION (Alliance),
   FEED_BUCKET (realm bucket "Realm-Faction" that imports it, e.g. "CAMWOW EU4 Realm 2 PvP-Alliance")
   FEED_RECORD_HOURS (4), FEED_INTERVAL (1800 s), FEED_KEEP_DAYS (90, snapshots kept in the database), FEED_PORT (8080)
+The collector owns the tables (migrate); the API only reads, so it can use a read-only role
+(deploy/readonly-role.sql) and never sees the Battle.net secret.
 """
 import gzip
 import hmac
@@ -25,6 +27,7 @@ import signal
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -65,8 +68,12 @@ def connect():
     return psycopg.connect(env("DATABASE_URL", ""), autocommit=False)
 
 
+MIGRATE_LOCK = 0x46454544  # "FEED": two processes creating the tables at once would collide
+
+
 def migrate():
     with connect() as conn:
+        conn.execute("select pg_advisory_xact_lock(%s)", (MIGRATE_LOCK,))
         conn.execute(SCHEMA)
         conn.commit()
 
@@ -100,34 +107,39 @@ def load_state(conn, house_id):
 
 
 def collect_once(api, house, record_hours, keep_days):
-    """One cycle: 'new', 'unchanged' or 'skipped'. A transaction advisory lock keeps two collectors apart."""
-    with connect() as conn:
-        locked = conn.execute("select pg_try_advisory_xact_lock(%s)", (house["house"],)).fetchone()[0]
-        if not locked:
+    """One cycle: 'new', 'unchanged', 'skipped' or 'busy'. A session advisory lock keeps two collectors apart; the
+    Battle.net download happens outside any transaction, the writes are one transaction."""
+    with psycopg.connect(env("DATABASE_URL", ""), autocommit=True) as conn:
+        if not conn.execute("select pg_try_advisory_lock(%s)", (house["house"],)).fetchone()[0]:
             log.info("another collector is running")
             return "busy"
-        state = load_state(conn, house["house"])
         try:
-            snap = feed.fetch_snapshot(api, house, state)
-        except feed.NotModified:
-            log.info("no new snapshot")
-            return "unchanged"
-        snapshot = feed.process_snapshot(state, *snap, record_hours)
-        meta = {k: house[k] for k in ("region", "ruleset", "house", "name", "faction", "bucket")}
-        newest = state["prev"]["t"] if state.get("prev") else 0
-        if snapshot is not None:
-            conn.execute("insert into feed_snapshot (house, t, gap, auctions, items, sold, recs) "
-                         "values (%s, %s, %s, %s, %s, %s, %s) on conflict (house, t) do nothing",
-                         (house["house"], snapshot["t"], snapshot["gap"], snapshot["n"], snapshot["items"],
-                          snapshot["sold"], snapshot["recs"]))
-            conn.execute("delete from feed_snapshot where house = %s and t < %s",
-                         (house["house"], snapshot["t"] - int(keep_days * 86400)))
-        conn.execute("insert into feed_state (house, state, t, meta) values (%s, %s, %s, %s) "
-                     "on conflict (house) do update set state = excluded.state, t = excluded.t, meta = excluded.meta, "
-                     "updated_at = now()",
-                     (house["house"], gzip.compress(json.dumps(state).encode()), newest, json.dumps(meta)))
-        conn.commit()
-        return "new" if snapshot is not None else "skipped"
+            state = load_state(conn, house["house"])
+            try:
+                snap = feed.fetch_snapshot(api, house, state)
+            except feed.NotModified:
+                log.info("no new snapshot")
+                return "unchanged"
+            snapshot = feed.process_snapshot(state, *snap, record_hours)
+            if not state.get("prev"):
+                return "skipped"  # nothing usable yet: no state row, the API keeps saying "no snapshot"
+            meta = {k: house[k] for k in ("region", "ruleset", "house", "name", "faction", "bucket")}
+            with conn.transaction():
+                if snapshot is not None:
+                    conn.execute("insert into feed_snapshot (house, t, gap, auctions, items, sold, recs) "
+                                 "values (%s, %s, %s, %s, %s, %s, %s) on conflict (house, t) do nothing",
+                                 (house["house"], snapshot["t"], snapshot["gap"], snapshot["n"], snapshot["items"],
+                                  snapshot["sold"], snapshot["recs"]))
+                    conn.execute("delete from feed_snapshot where house = %s and t < %s",
+                                 (house["house"], snapshot["t"] - int(keep_days * 86400)))
+                conn.execute("insert into feed_state (house, state, t, meta) values (%s, %s, %s, %s) "
+                             "on conflict (house) do update set state = excluded.state, t = excluded.t, "
+                             "meta = excluded.meta, updated_at = now()",
+                             (house["house"], gzip.compress(json.dumps(state).encode()), state["prev"]["t"],
+                              json.dumps(meta)))
+            return "new" if snapshot is not None else "skipped"
+        finally:
+            conn.execute("select pg_advisory_unlock(%s)", (house["house"],))
 
 
 def collect(loop=True):
@@ -147,27 +159,33 @@ def collect(loop=True):
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     while True:
+        wait = interval
         try:
             collect_once(api, house, record_hours, keep_days)
-        except Exception:  # noqa: BLE001 - keep collecting; the next cycle tries again
-            log.exception("collect cycle failed")
-        if not loop or stop.wait(interval):
+        except Exception:  # noqa: BLE001 - keep collecting: API hiccups (429/5xx) or the database restarting
+            log.exception("collect cycle failed, trying again in 5 minutes")
+            wait = min(300, interval)
+        if not loop or stop.wait(wait):
             return 0
 
 
 # ---------------------------------------------------------------- serve
 
 def feed_data(since, now):
-    """What feed.py's pull mode writes into the AddOn: snapshots newer than `since` (at most 72 hours back)"""
+    """What feed.py's pull mode writes into the AddOn: snapshots newer than `since` (at most 72 hours back), never
+    newer than the state's snapshot (one repeatable-read transaction sees both as of the same moment)"""
     with connect() as conn:
-        row = conn.execute("select house, state, meta from feed_state order by updated_at desc limit 1").fetchone()
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        row = conn.execute("select house, state, meta, t from feed_state order by updated_at desc limit 1").fetchone()
         if not row:
             return None
-        house_id, blob, meta = row
+        house_id, blob, meta, newest = row
         state = json.loads(gzip.decompress(blob))
+        if not state.get("prev"):
+            return None
         floor = max(int(since), int(now) - feed.DETAIL_SECONDS)
         rows = conn.execute("select t, gap, auctions, items, sold, recs from feed_snapshot "
-                            "where house = %s and t > %s order by t", (house_id, floor)).fetchall()
+                            "where house = %s and t > %s and t <= %s order by t", (house_id, floor, newest)).fetchall()
     return {"house": meta,
             "snapshots": [{"t": t, "gap": gap, "n": n, "items": items, "sold": sold, "recs": recs}
                           for t, gap, n, items, sold, recs in rows],
@@ -175,19 +193,48 @@ def feed_data(since, now):
 
 
 def status_data():
-    with connect() as conn:
-        row = conn.execute("select t, meta, updated_at from feed_state order by updated_at desc limit 1").fetchone()
-    if not row:
+    try:
+        with connect() as conn:
+            row = conn.execute("select t, meta, updated_at from feed_state order by updated_at desc limit 1").fetchone()
+    except psycopg.errors.UndefinedTable:
+        return {"latest": None}  # the collector has not created the tables yet
+    if not row or not row[0]:
         return {"latest": None}
     return {"latest": row[0], "house": row[1], "checked": row[2].isoformat()}
 
 
+_health = {"at": 0.0, "code": 503, "body": {"ok": False}}
+_health_lock = threading.Lock()
+
+
+def health():
+    """Cached for 30 s: the unauthenticated endpoint must not let anyone hammer the database or the logs"""
+    with _health_lock:
+        if time.time() - _health["at"] > 30:
+            try:
+                latest = status_data().get("latest")
+                age = time.time() - latest if latest else None
+                # unhealthy when no snapshot arrived for 3 hours (Blizzard updates hourly)
+                _health.update(code=200 if age is not None and age < 3 * 3600 else 503,
+                               body={"ok": age is not None, "age": age})
+            except Exception as err:  # noqa: BLE001 - one line, no traceback
+                _health.update(code=503, body={"ok": False, "error": type(err).__name__})
+                log.warning("health check: %s", type(err).__name__)
+            _health["at"] = time.time()
+        return _health["code"], dict(_health["body"])
+
+
+FEED_SLOTS = threading.BoundedSemaphore(2)  # a 72 h download needs ~160 MB while it is built
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "forever-market-feed"
+    timeout = 30  # slow or stuck clients
     token = ""
 
-    def log_message(self, fmt, *args):  # one line per request into the container log, no tokens
-        log.info("%s %s", self.command, self.path.split("?")[0] + (" " + fmt % args if "%s" in fmt else ""))
+    def log_message(self, fmt, *args):  # one line per request into the container log: no query, no headers
+        path = (getattr(self, "path", "") or "").split("?")[0][:80]
+        log.info("%s %s %s", getattr(self, "command", "-"), path, args[1] if len(args) > 1 else "")
 
     def send_json(self, code, payload):
         body = json.dumps(payload, separators=(",", ":")).encode()
@@ -212,10 +259,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         try:
             if url.path == "/healthz":
-                status = status_data()
-                age = time.time() - status["latest"] if status.get("latest") else None
-                # unhealthy when no snapshot arrived for 3 hours (Blizzard updates hourly)
-                self.send_json(200 if age is not None and age < 3 * 3600 else 503, {"ok": age is not None, "age": age})
+                self.send_json(*health())
                 return
             if not self.authorized():
                 self.send_json(401, {"error": "unauthorized"})
@@ -225,14 +269,23 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/v1/feed":
                 query = urllib.parse.parse_qs(url.query)
                 since = int((query.get("since") or ["0"])[0] or 0)
-                data = feed_data(since, time.time())
+                if not FEED_SLOTS.acquire(blocking=False):
+                    self.send_json(503, {"error": "busy, try again later"})
+                    return
+                try:
+                    data = feed_data(since, time.time())
+                finally:
+                    FEED_SLOTS.release()
                 self.send_json(200 if data else 404, data or {"error": "no snapshot yet"})
             else:
                 self.send_json(404, {"error": "not found"})
         except ValueError:
             self.send_json(400, {"error": "bad request"})
+        except psycopg.OperationalError as err:
+            log.warning("database unavailable: %s", str(err).splitlines()[0][:120])
+            self.send_json(503, {"error": "database unavailable"})
         except Exception:  # noqa: BLE001
-            log.exception("request failed")
+            log.error("request failed: %s", traceback.format_exc(limit=3))
             self.send_json(500, {"error": "server error"})
 
 
@@ -241,7 +294,6 @@ def serve():
     if len(token) < 24:
         log.error("FEED_API_TOKEN missing or shorter than 24 characters")
         return 1
-    migrate()
     Handler.token = token
     server = ThreadingHTTPServer(("0.0.0.0", int(env("FEED_PORT", "8080"))), Handler)
     signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())

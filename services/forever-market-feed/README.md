@@ -82,10 +82,10 @@ has its own rootless Docker, no published ports and its own Cloudflare Tunnel:
 
 | Service | Command | |
 | ------- | ------- | - |
-| `db` | PostgreSQL | tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it) |
-| `collector` | `python server.py collect` | every `FEED_INTERVAL` (1800 s): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction; snapshots older than `FEED_KEEP_DAYS` (90) are deleted |
-| `api` | `python server.py serve` | port 8080 inside the compose network, reached through the tunnel |
-| `tunnel` | cloudflared | the project's own tunnel, routes the public hostname to `http://api:8080` |
+| `db` | PostgreSQL | tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it); network `backend` only |
+| `collector` | `python server.py collect` | owns the tables; every `FEED_INTERVAL` (1800 s): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction (session advisory lock, the download happens outside it); a failed cycle retries after 5 minutes; snapshots older than `FEED_KEEP_DAYS` (90) are deleted |
+| `api` | `python server.py serve` | port 8080 on `frontend`, read-only database role `feed_api` (`deploy/readonly-role.sql`), at most two `/v1/feed` builds at once (503 otherwise), `/healthz` cached for 30 s |
+| `tunnel` | cloudflared | the project's own tunnel, routes the public hostname to `http://api:8080`; reaches the API, never the database |
 
 API (bearer token `FEED_API_TOKEN`, gzip when asked):
 - `GET /healthz` without token: 200 when the newest snapshot is under 3 hours old, else 503
@@ -93,10 +93,16 @@ API (bearer token `FEED_API_TOKEN`, gzip when asked):
 - `GET /v1/feed?since=<unix>`: snapshots newer than `since` (at most 72 hours back), the newest fingerprints and the
   variant items, the shape `render_feed` writes into the AddOn
 
-Secrets live in env files outside the repository (`deploy/*.env.example` list the variables): `DATABASE_URL`,
-`BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`, `FEED_API_TOKEN` (`openssl rand -hex 32`), the tunnel token. The
-server has no SavedVariables to match the house with, so `FEED_HOUSE`, `FEED_RULESET`, `FEED_FACTION` and
-`FEED_BUCKET` are set there. `python server.py once` runs one cycle by hand.
+Secrets live in env files outside the repository, one per service (`deploy/*.env.example` list the variables):
+the collector gets the database owner and the Battle.net client, the API only the read-only role and
+`FEED_API_TOKEN` (`openssl rand -hex 32`), the tunnel its token. The server has no SavedVariables to match the house
+with, so `FEED_HOUSE`, `FEED_RULESET`, `FEED_FACTION` and `FEED_BUCKET` are set there. `python server.py once` runs
+one cycle by hand. Backups: `pg_dump` from the `db` container (the data directory belongs to a subordinate UID under
+rootless Docker). Logs are rotated by Docker (`local` driver).
+
+The PC trusts nothing it downloads: `feed.py` only accepts https (or localhost), never follows a redirect with the
+token, and checks every value before it goes into the Lua file the game runs (numbers, item keys, record
+characters).
 
 On the PC, server mode needs two lines in `.env.market-feed`; the Windows task stays the same:
 ```

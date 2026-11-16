@@ -662,6 +662,7 @@ def interface_version(wow_dir):
 
 
 def lua_string(s):
+    s = str(s).replace("\r", " ").replace("\n", " ")
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
@@ -669,16 +670,16 @@ def render_feed(house, snapshots, latest, variants, generated):
     """Feed.lua: one long string of records per snapshot (few Lua constants, fast to load)"""
     out = ["-- Written by forever-addons/services/forever-market-feed/feed.py, rewritten every run. Do not edit.",
            "ForeverMarketFeedData = {",
-           f"    v = {FEED_VERSION}, generated = {generated}, region = {lua_string(house['region'])},",
-           f"    ruleset = {house['ruleset']}, house = {house['house']}, houseName = {lua_string(house['name'])},",
+           f"    v = {FEED_VERSION}, generated = {int(generated)}, region = {lua_string(house['region'])},",
+           f"    ruleset = {int(house['ruleset'])}, house = {int(house['house'])}, houseName = {lua_string(house['name'])},",
            f"    faction = {lua_string(house['faction'])}, bucket = {lua_string(house.get('bucket') or '')},",
            f"    variants = {lua_string(','.join(sorted(variants, key=int)))},",
            "    snapshots = {"]
     for s in snapshots:
-        out.append(f"        {{ t = {s['t']}, gap = {s['gap'] or 0}, n = {s['n']}, items = {s['items']}, "
-                   f"sold = {s['sold']}, recs = [==[{s['recs']}]==] }},")
+        out.append(f"        {{ t = {int(s['t'])}, gap = {int(s['gap'] or 0)}, n = {int(s['n'])}, items = {int(s['items'])}, "
+                   f"sold = {int(s['sold'])}, recs = [==[{s['recs']}]==] }},")
     out.append("    },")
-    out.append(f"    last = {{ t = {latest['t']}, fp = {{")
+    out.append(f"    last = {{ t = {int(latest['t'])}, fp = {{")
     for key in sorted(latest["fp"], key=int):
         out.append(f"        [{lua_string(key)}] = {lua_string(latest['fp'][key])},")
     out.append("    } },")
@@ -797,39 +798,83 @@ def run():
 
 # ---------------------------------------------------------------- pull mode: the PC side of the server feed
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The bearer token must never follow a redirect to another host (Cloudflare Access, redirect rules)"""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"redirect to {newurl} refused", headers, fp)
+
+
+NO_REDIRECT = urllib.request.build_opener(NoRedirect)
+
+
 def http_json(url, token, timeout=120):
     req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "Accept-Encoding": "gzip",
                                                "User-Agent": "forever-market-feed"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        if resp.headers.get("Content-Encoding") == "gzip":
-            raw = gzip.decompress(raw)
-        return json.loads(raw)
+    try:
+        with NO_REDIRECT.open(req, timeout=timeout) as resp:
+            raw = resp.read()
+            if resp.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            return json.loads(raw)
+    except urllib.error.HTTPError as err:
+        # a Cloudflare challenge says so in cf-mitigated; the body is an HTML page, not worth logging
+        raise RuntimeError(f"{url.split('?')[0]}: HTTP {err.code} {err.reason}"
+                           f"{' (Cloudflare: ' + err.headers.get('cf-mitigated') + ')' if err.headers and err.headers.get('cf-mitigated') else ''}") from None
+
+
+RECORDS_RE = re.compile(r"^[0-9a-z?@:,;|=./\-]*$")
+FP_RE = re.compile(r"^[0-9a-z?@:,]*$")
+KEY_RE = re.compile(r"^[0-9]+$")
+
+
+def checked_feed(data):
+    """Everything from the server goes into a Lua file the game runs: only numbers and record characters pass"""
+    house = data["house"]
+    clean_house = {"region": str(house["region"]), "ruleset": int(house["ruleset"]), "house": int(house["house"]),
+                   "name": str(house["name"]), "faction": str(house["faction"]), "bucket": str(house.get("bucket") or "")}
+    snapshots = []
+    for s in data["snapshots"]:
+        if not RECORDS_RE.match(s["recs"]):
+            raise ValueError("unexpected characters in the records of snapshot %s" % s.get("t"))
+        snapshots.append({"t": int(s["t"]), "gap": int(s["gap"] or 0), "n": int(s["n"]), "items": int(s["items"]),
+                          "sold": int(s["sold"]), "recs": s["recs"]})
+    fp = {}
+    for key, value in data["last"]["fp"].items():
+        if not (KEY_RE.match(key) and FP_RE.match(value)):
+            raise ValueError("unexpected fingerprint of item %r" % key[:20])
+        fp[key] = value
+    variants = [str(int(v)) for v in data.get("variants") or []]
+    return clean_house, snapshots, {"t": int(data["last"]["t"]), "fp": fp}, variants
 
 
 def pull(cfg, wow_dir):
     """FEED_SERVER_URL set: the server collects the snapshots around the clock, this only downloads what the game
     has not imported yet and writes the AddOn (no Battle.net client needed on the PC)"""
     base = cfg["FEED_SERVER_URL"].rstrip("/")
+    host = urllib.parse.urlsplit(base).hostname or ""
+    if not base.startswith("https://") and host not in ("localhost", "127.0.0.1", "::1"):
+        log.error("FEED_SERVER_URL must be https:// (the token would go out in clear text)")
+        return 1
     token = cfg.get("FEED_API_TOKEN", "")
     meta_path = os.path.join(STATE_DIR, "server.json")
     meta = read_json(meta_path, {}) or {}
-    floor = imported_until(wow_dir, meta.get("bucket"))
     status = http_json(base + "/v1/status", token, timeout=30)
     latest = status.get("latest")
-    if latest is None:
+    if not latest:
         log.info("the server has no snapshot yet")
         return 0
+    # what this realm bucket's characters already imported (the bucket comes from the server)
+    bucket = (status.get("house") or {}).get("bucket") or meta.get("bucket")
+    floor = imported_until(wow_dir, bucket)
     feed_file = os.path.join(wow_dir, "Interface", "AddOns", FEED_ADDON, "Feed.lua")
     if meta.get("written") == latest and meta.get("floor") == floor and os.path.exists(feed_file):
         log.info("up to date (newest snapshot %s)", time.strftime("%H:%M", time.localtime(latest)))
         return 0
-    data = http_json(base + "/v1/feed?since=" + str(floor), token)
-    house = data["house"]
-    folder = write_addon(wow_dir, render_feed(house, data["snapshots"], data["last"], data["variants"], int(time.time())))
-    write_atomic(meta_path, json.dumps({"bucket": house.get("bucket"), "written": data["last"]["t"], "floor": floor}))
-    log.info("pulled %d snapshots (newest %s) from the server into %s", len(data["snapshots"]),
-             time.strftime("%Y-%m-%d %H:%M", time.localtime(data["last"]["t"])), folder)
+    house, snapshots, last, variants = checked_feed(http_json(base + "/v1/feed?since=" + str(floor), token))
+    folder = write_addon(wow_dir, render_feed(house, snapshots, last, variants, int(time.time())))
+    write_atomic(meta_path, json.dumps({"bucket": house["bucket"], "written": last["t"], "floor": floor}))
+    log.info("pulled %d snapshots (newest %s) from the server into %s", len(snapshots),
+             time.strftime("%Y-%m-%d %H:%M", time.localtime(last["t"])), folder)
     return 0
 
 
