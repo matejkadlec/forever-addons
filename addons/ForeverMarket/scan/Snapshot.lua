@@ -234,6 +234,11 @@ function FM.SnapshotInventory()
 end
 
 function FM.FinalizeSnapshot(snap, onDone)
+    -- the Battle.net feed import replaces r.last and appends records: diff against what it leaves behind
+    if FM.feedImporting then
+        C_Timer.After(1, function() FM.FinalizeSnapshot(snap, onDone) end)
+        return
+    end
     local r = FM.R()
     local now = snap.t
     local nowMinutes = MinutesOf(now)

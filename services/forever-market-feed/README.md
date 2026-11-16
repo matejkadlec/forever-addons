@@ -26,7 +26,12 @@ Later the same `feed.py` is meant to run on a server (server → DB → PC → A
    deep scan); the table and the picks are recomputed
 
 The auction house is found once and remembered in `state/house.json`: the ruleset named PvP and the house of your
-faction whose lowest prices match your last in-game deep scan (WoW: Forever has several Alliance houses).
+faction whose lowest prices match your last in-game deep scan (WoW: Forever has several Alliance houses), plus the
+realm bucket of that deep scan (`Realm-Faction`): only characters of that bucket import the feed.
+
+Safety: a snapshot with no item auctions, no commodities or under 60% of the previous one's auctions is skipped
+(a cut short answer would look like everything sold at once); a Feed.lua write that failed (the game had it open)
+is redone on the next run; records are always full records.
 
 ## Setup (Windows)
 
@@ -37,8 +42,9 @@ faction whose lowest prices match your last in-game deep scan (WoW: Forever has 
    BLIZZARD_CLIENT_ID=...
    BLIZZARD_CLIENT_SECRET=...
    ```
-2. Double-click `register-task.cmd`: registers the task `ForeverMarketFeed` from `ForeverMarketFeed.task.xml`
-   (every 30 minutes, hidden through `run-feed.vbs`, only while you are logged in, result in `register-task.log`)
+2. Double-click `register-task.cmd`: registers the task `ForeverMarketFeed` from the template
+   `ForeverMarketFeed.task.xml` (`__FEED_DIR__` becomes this folder; every 30 minutes, hidden through
+   `run-feed.vbs`, only while you are logged in, result in `register-task.log`)
 3. Restart the game once (ForeverMarket 1.6.0 adds a file, the feed AddOn is new); later imports only need `/reload`
 
 `run-feed.cmd` uses the first Python that works: the `py` launcher, `python`, else `python3` in WSL. Only the

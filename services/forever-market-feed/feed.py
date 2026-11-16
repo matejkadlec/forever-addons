@@ -293,10 +293,12 @@ def active(stats):
     return bool(stats.get("sold") or stats.get("amb") or stats.get("rep") or stats.get("new"))
 
 
-def build_records(state, snap_t, aggs, record_hours):
+def build_records(state, snap_t, aggs, record_hours, compact=False):
     """Records of one snapshot, like FM.FinalizeSnapshot, against state["prev"] (the previous snapshot).
 
-    record_hours = 0 writes every item every snapshot, exactly like a deep scan in the game. Otherwise an item
+    record_hours = 0 with compact=True writes every item every snapshot, exactly like a deep scan in the game.
+    The feed writes full records instead of "=": the game may skip the record an "=" refers to (an in-game deep
+    scan covered its time), and the "=" would then expand against the wrong record. Otherwise an item
     gets a record when something happened or its market changed, or once its pending time reaches
     record_hours (an "unchanged" record); the activity of the skipped snapshots is summed into the next record.
     Returns [(key, record)] and the units sold in this snapshot.
@@ -334,7 +336,7 @@ def build_records(state, snap_t, aggs, record_hours):
             continue  # nothing new for this item yet: keep summing
         gap_minutes = int(math.floor(total["gap"] / 60 + 0.5))
         add_stats(f, total, gap_minutes)
-        if agg is not None and not happened and sig == previous:
+        if compact and agg is not None and not happened and sig == previous:
             records.append((key, stamp + ",=," + f[9]))
         else:
             records.append((key, trim_fields(f)))
@@ -412,9 +414,12 @@ def load_env():
 
 
 def native_path(path):
-    """A Windows path works in WSL too (C:\\x -> /mnt/c/x)"""
+    """Windows and WSL paths both work on both (C:\\x <-> /mnt/c/x)"""
     if os.name != "nt" and re.match(r"^[A-Za-z]:[\\/]", path):
         return "/mnt/" + path[0].lower() + path[2:].replace("\\", "/")
+    m = re.match(r"^/mnt/([A-Za-z])(/.*)?$", path)
+    if os.name == "nt" and m:
+        return m.group(1).upper() + ":" + (m.group(2) or "/").replace("/", "\\")
     return path
 
 
@@ -521,9 +526,9 @@ def name_of(entry):
 
 
 def last_deep_scan_minimums(wow_dir, faction):
-    """Cheapest unit price per item of the last in-game deep scan (r.last.fp in ForeverMarket's
-    SavedVariables) of a realm bucket of this faction, to tell which auction house is yours"""
-    best = {}
+    """Realm bucket ("Realm-Faction") with the biggest last in-game deep scan and its cheapest unit price per
+    item (r.last.fp in ForeverMarket's SavedVariables), to tell which auction house is yours"""
+    best, best_bucket = {}, None
     for path in glob.glob(os.path.join(wow_dir, "WTF", "Account", "*", "SavedVariables", "ForeverMarket.lua")):
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -547,17 +552,22 @@ def last_deep_scan_minimums(wow_dir, faction):
                         if m.group(1) not in mins or u < mins[m.group(1)]:
                             mins[m.group(1)] = u
             if len(mins) > len(best):
-                best = mins
-    return best
+                best, best_bucket = mins, bucket.group(1) + "-" + faction
+    return best_bucket, best
 
 
 def discover_house(api, cfg, wow_dir):
     """Ruleset and auction house to follow, remembered in state/house.json"""
     path = os.path.join(STATE_DIR, "house.json")
     known = read_json(path)
-    if known and (not cfg.get("FEED_HOUSE") or str(known["house"]) == cfg["FEED_HOUSE"]):
-        return known
     faction = cfg.get("FEED_FACTION", "Alliance")
+    if (known and known.get("faction") == faction and known.get("region") == api.region
+            and (not cfg.get("FEED_HOUSE") or str(known["house"]) == cfg["FEED_HOUSE"])):
+        if not known.get("bucket"):
+            known["bucket"], _ = last_deep_scan_minimums(wow_dir, faction)
+            if known["bucket"]:
+                write_atomic(path, json.dumps(known))
+        return known
     index, _ = api.get("/data/wow/ruleset/index")
     rulesets = []
     for entry in index.get("rulesets") or []:
@@ -576,10 +586,10 @@ def discover_house(api, cfg, wow_dir):
     houses = [(h["id"], name_of(h), (h.get("key") or {}).get("href")) for h in houses_index.get("auctions") or []]
     log.info("auction houses of ruleset %s: %s", ruleset, [(h[0], h[1]) for h in houses])
     choice = None
+    bucket, mine = last_deep_scan_minimums(wow_dir, faction)
     if cfg.get("FEED_HOUSE"):
         choice = next((h for h in houses if str(h[0]) == cfg["FEED_HOUSE"]), None)
     else:
-        mine = last_deep_scan_minimums(wow_dir, faction)
         candidates = [h for h in houses if faction.lower() in h[1].lower()]
         scores = []
         for h in candidates:
@@ -599,6 +609,7 @@ def discover_house(api, cfg, wow_dir):
     if choice is None:
         raise SystemExit("no auction house found: set FEED_HOUSE in .env.market-feed (see feed.log)")
     known = {"region": api.region, "ruleset": ruleset, "house": choice[0], "name": choice[1], "faction": faction,
+             "bucket": bucket,
              "href": choice[2] or f"/data/wow/ruleset/{ruleset}/auctions/{choice[0]}"}
     write_atomic(path, json.dumps(known))
     log.info("following auction house %s (%s) of ruleset %s", choice[0], choice[1], ruleset)
@@ -607,7 +618,7 @@ def discover_house(api, cfg, wow_dir):
 
 # ---------------------------------------------------------------- the AddOn the game imports
 
-FEED_TOC = """## Interface: 16001
+FEED_TOC = """## Interface: {interface}
 ## Title: |cFFFF8000Forever|r Market Feed
 ## Notes: Auction house snapshots from the Battle.net API for ForeverMarket, loaded by ForeverMarket on demand. Written by forever-addons/services/forever-market-feed.
 ## Category: Jim's Forever AddOns
@@ -621,14 +632,32 @@ Feed.lua
 """
 
 
-def imported_until(wow_dir):
-    """Newest snapshot the game imported (r.feedT in ForeverMarket's SavedVariables, saved at logout)"""
+def imported_until(wow_dir, bucket):
+    """Newest snapshot the game imported into this realm bucket (ForeverMarketDB.feedImported, saved at logout)"""
     newest = 0
     for path in glob.glob(os.path.join(wow_dir, "WTF", "Account", "*", "SavedVariables", "ForeverMarket.lua")):
         with open(path, encoding="utf-8", errors="replace") as f:
-            for m in re.finditer(r'\["feedT"\] = (\d+)', f.read()):
-                newest = max(newest, int(m.group(1)))
+            text = f.read()
+        start = text.find('["feedImported"] = {')
+        if start < 0:
+            continue
+        end = text.find("}", start)
+        for m in re.finditer(r'\["([^"\r\n]+)"\]\s*=\s*(\d+)', text[start:end]):
+            if bucket is None or m.group(1) == bucket:
+                newest = max(newest, int(m.group(2)))
     return newest
+
+
+def interface_version(wow_dir):
+    """## Interface of the installed ForeverMarket: the feed AddOn must never be out of date next to it"""
+    try:
+        with open(os.path.join(wow_dir, "Interface", "AddOns", "ForeverMarket", "ForeverMarket.toc"), encoding="utf-8-sig") as f:
+            m = re.search(r"^## Interface:\s*(\S+)", f.read(), re.M)
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return "16001"
 
 
 def lua_string(s):
@@ -641,7 +670,7 @@ def render_feed(house, snapshots, latest, variants, generated):
            "ForeverMarketFeedData = {",
            f"    v = {FEED_VERSION}, generated = {generated}, region = {lua_string(house['region'])},",
            f"    ruleset = {house['ruleset']}, house = {house['house']}, houseName = {lua_string(house['name'])},",
-           f"    faction = {lua_string(house['faction'])},",
+           f"    faction = {lua_string(house['faction'])}, bucket = {lua_string(house.get('bucket') or '')},",
            f"    variants = {lua_string(','.join(sorted(variants, key=int)))},",
            "    snapshots = {"]
     for s in snapshots:
@@ -660,13 +689,14 @@ def write_addon(wow_dir, text):
     folder = os.path.join(wow_dir, "Interface", "AddOns", FEED_ADDON)
     os.makedirs(folder, exist_ok=True)
     toc = os.path.join(folder, FEED_ADDON + ".toc")
+    toc_text = FEED_TOC.format(interface=interface_version(wow_dir))
     try:
         with open(toc, encoding="utf-8") as f:
-            same = f.read() == FEED_TOC
+            same = f.read() == toc_text
     except FileNotFoundError:
         same = False
     if not same:
-        write_atomic(toc, FEED_TOC)
+        write_atomic(toc, toc_text)
     write_atomic(os.path.join(folder, "Feed.lua"), text)
     return folder
 
@@ -683,7 +713,8 @@ def run():
     if not os.path.isdir(os.path.join(wow_dir, "Interface", "AddOns")):
         log.error("WoW folder not found: %s (set FEED_WOW_DIR)", wow_dir)
         return 1
-    record_hours = float(cfg.get("FEED_RECORD_HOURS", "4"))
+    # past 8 hours ForeverMarket's demand estimate drops an interval (Picks CLEAN_GAP)
+    record_hours = min(7.0, max(0.0, float(cfg.get("FEED_RECORD_HOURS", "4"))))
     api = Api(cfg.get("FEED_REGION", "eu"), cfg["BLIZZARD_CLIENT_ID"], cfg["BLIZZARD_CLIENT_SECRET"])
     house = discover_house(api, cfg, wow_dir)
 
@@ -698,6 +729,9 @@ def run():
     try:
         items, t_items = api.get(house["href"], since=since)
     except NotModified:
+        if state.get("prev") and state.get("written") != state["prev"]["t"]:
+            write_feed(wow_dir, house, state)  # the last write failed (the game had the file open?)
+            write_atomic(state_path, json.dumps(state), compress=True)
         log.info("no new snapshot (last %s)", time.strftime("%H:%M", time.localtime(since)))
         return 0
     commodities, t_comm = [], t_items
@@ -708,6 +742,8 @@ def run():
     elif isinstance(link, list):
         commodities = link
     snap_t = max(t_items, t_comm)
+    log.info("items modified %s, commodities modified %s", time.strftime("%H:%M:%S", time.localtime(t_items)),
+             time.strftime("%H:%M:%S", time.localtime(t_comm)))
     if state.get("prev") and snap_t <= state["prev"]["t"]:
         log.info("snapshot %s is not newer than the last one", snap_t)
         state["modified"] = t_items
@@ -715,9 +751,18 @@ def run():
         return 0
 
     started = time.time()
-    aggs, bonus, skipped = aggregate([items.get("auctions") or [], commodities])
+    item_auctions = items.get("auctions") or []
+    # a cut short or empty answer would look like everything sold at once: wait for the next snapshot
+    previous_n = state.get("n") or 0
+    total = len(item_auctions) + len(commodities)
+    if not item_auctions or not commodities or (previous_n and total < 0.6 * previous_n):
+        log.warning("snapshot skipped: %d item auctions, %d commodity listings (last one had %d in all)",
+                    len(item_auctions), len(commodities), previous_n)
+        return 0
+    aggs, bonus, skipped = aggregate([item_auctions, commodities])
     update_variants(state, bonus)
     n_auctions = sum(a.n for a in aggs.values())
+    state["n"] = total
     gap = snap_t - state["prev"]["t"] if state.get("prev") else None
     records, sold = build_records(state, snap_t, aggs, record_hours)
     state["modified"] = t_items
@@ -727,27 +772,49 @@ def run():
                       "recs": ";".join(k + "|" + r for k, r in records)})
     state["snapshots"] = snapshots
     write_atomic(state_path, json.dumps(state), compress=True)
-
-    # the game only needs what it has not imported yet
-    floor = imported_until(wow_dir)
-    pending = [s for s in snapshots if s["t"] > floor]
-    folder = write_addon(wow_dir, render_feed(house, pending, state["prev"], state["variants"], int(time.time())))
+    folder, pending = write_feed(wow_dir, house, state)
+    write_atomic(state_path, json.dumps(state), compress=True)
     log.info("snapshot %s: %d auctions (%d skipped), %d items, %d records, ~%d sold since the last one; "
              "%d snapshots waiting for the game in %s (%.1fs)",
              time.strftime("%Y-%m-%d %H:%M", time.localtime(snap_t)), n_auctions, skipped, len(aggs), len(records),
-             sold, len(pending), folder, time.time() - started)
+             sold, pending, folder, time.time() - started)
     return 0
+
+
+def write_feed(wow_dir, house, state):
+    """Feed.lua with what the game has not imported yet; state["written"] remembers a successful write"""
+    floor = imported_until(wow_dir, house.get("bucket"))
+    pending = [s for s in state.get("snapshots", []) if s["t"] > floor]
+    folder = write_addon(wow_dir, render_feed(house, pending, state["prev"], state.get("variants", []), int(time.time())))
+    state["written"] = state["prev"]["t"]
+    return folder, len(pending)
+
+
+def acquire_lock(lock):
+    """One run at a time: a new lock file, or a stale one (empty = released, older than 20 minutes = crashed)"""
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        try:
+            stale = os.path.getsize(lock) == 0 or time.time() - os.path.getmtime(lock) >= 1200
+        except OSError:
+            stale = True
+        if not stale:
+            return False
+        with open(lock, "w") as f:
+            f.write(str(os.getpid()))
+        return True
 
 
 def main():
     lock = os.path.join(STATE_DIR, "run.lock")
     os.makedirs(STATE_DIR, exist_ok=True)
+    if not acquire_lock(lock):
+        return 0
     try:
-        # a lock older than 20 minutes is left over from a crash; an empty one is released
-        if os.path.exists(lock) and os.path.getsize(lock) > 0 and time.time() - os.path.getmtime(lock) < 1200:
-            return 0
-        with open(lock, "w") as f:
-            f.write(str(os.getpid()))
         return run()
     except SystemExit as err:
         log.error("%s", err)
