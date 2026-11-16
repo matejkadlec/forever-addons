@@ -582,6 +582,11 @@ local function EvaluateCraft(c)
         planText = planText .. string_format(", buy %s %s up to %s", Count(plan.trial.used[mainKey]), Name(mainKey), M(plan.trial.top[mainKey]))
     end
     pick.plan = planText
+    -- Shift-click in the table (AH open) snipes the main AH material at the plan's highest price
+    if mainKey and c.kind ~= "level" then
+        pick.mainKey = mainKey
+        pick.mainTop = plan.trial.top[mainKey]
+    end
     local why = { string_format("~%s bought/day", Count(d.perDay or V)), string_format("%s listed", Count(others)) }
     if row.rawMin and row.rawMax and (row.avgN or 0) >= 2 then
         why[#why + 1] = string_format("3d %s-%s", M(row.rawMin), M(row.rawMax))
@@ -745,6 +750,8 @@ local function EvaluateFlip(c)
     local pick = { key = row.key, kind = "flip", score = score, p1g = expected / cost * 10000, invest = cost,
         unitProfit = expected / n, cand = c, trial = trial }
     pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
+    pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
+    pick.mainTop = trial.top[row.key]
     pick.why = table_concat({ string_format("usual %s", M(row.usual)), string_format("~%s bought/day", Count(d.perDay or V)),
         string_format("%s wait at %s", Count(row.support), M(row.wall)) }, "  ·  ")
     pick.reasons = {

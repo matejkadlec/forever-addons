@@ -89,7 +89,7 @@
 | ForeverTrackingAid | FTA | `/fta` | Hunter tracking switcher by target creature type (renamed from ForeverTracking `/ftr` in 2.0.0); Hunters only; settings panel `Tracking Aid` |
 | ForeverRangeIndicator | FRI | `/fri` | Colored marker above the target's nameplate (Plater or Blizzard) for Auto Shot range: in range, close to min/max range, too close, too far; shape/size/offset/colors configurable; embeds LibRangeCheck-3.0 (MIT); Hunters only; settings panel `Range Indicator` |
 | ForeverHawkTimer | FHT | `/fht` | Countdown bars for Summon Hawk (up to 2 hawks, 18 s each) from the player's `UNIT_SPELLCAST_SUCCEEDED`; moved in Edit Mode (own overlay on the `EditMode.Enter`/`Exit` callbacks, snaps to the screen's horizontal center within Blizzard's magnetism range when `Snap to Elements` is on), width/height/color/icon configurable; Hunters only; settings panel `Hawk Timer` |
-| ForeverMarket | FM | `/fm` | Auction House logger and market table: deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales, market table `/fm` (Picks, crafts from ForeverArtisan recipes, vendor/AH resell, materials, Farm from Questie drop data and its own farm log), Auctionator price export; SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `tools/` holds Claude's analysis script and the Battle.net API probe; settings panel `Market`; details in `addons/ForeverMarket/README.md` |
+| ForeverMarket | FM | `/fm` | Auction House logger and market table: deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales, sniper `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget), market table `/fm` (Picks, crafts from ForeverArtisan recipes, vendor/AH resell, materials, Farm from Questie drop data and its own farm log), Auctionator price export; SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `tools/` holds Claude's analysis script and the Battle.net API probe; settings panel `Market`; details in `addons/ForeverMarket/README.md` |
 
 ### Backported AddOns (`backports/`)
 
@@ -195,7 +195,7 @@
   - `/fta`: bare command behaves like `help`; `on`, `off`, `help`
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
-  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
+  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
 
 ---
 

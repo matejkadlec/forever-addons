@@ -143,6 +143,12 @@ function FM.RegisterSettingsPanel()
     tableButton:SetText("Open market table")
     tableButton:SetScript("OnClick", function() FM.OpenTable() end)
 
+    local snipeButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    snipeButton:SetSize(140, 24)
+    snipeButton:SetPoint("LEFT", tableButton, "RIGHT", 12, 0)
+    snipeButton:SetText("Open sniper")
+    snipeButton:SetScript("OnClick", function() FM.ShowSnipe() end)
+
     infoText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     infoText:SetPoint("TOPLEFT", saveButton, "BOTTOMLEFT", 0, -14)
     infoText:SetJustifyH("LEFT")

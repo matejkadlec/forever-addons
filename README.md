@@ -116,8 +116,13 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 💰 Logs the Auction House over time and turns it into a market table: what to craft, buy and resell, and where to farm.
 
-- Deep scans of the whole AH (`/fm scan` or the `FM: scan` button at the AH, at most every 15 minutes); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
+- Deep scans of the whole AH (by themselves at most every 15 minutes while the AH is open, or `/fm scan`); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
 - Your own posts, sales and invoices are logged too
+- Sniper (`/fm snipe` or `FM: snipe` at the AH): while its window is open at the AH, your items are searched over and over and every mouse wheel step buys what someone just listed at or under your price
+  - Max price per unit in gold / silver / copper, the item list on the left (click to edit, X to stop sniping; price and gold % are remembered)
+  - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item
+  - The server's price is checked before any gold leaves; only stackable items (commodities)
+  - With the AH open, Shift-click a market table row to snipe its main material at the table's price
 - Market table `/fm` (or `FM: table` at the AH), refreshed after every deep scan:
   - **Picks**: what to do in the next 24 hours within your gold, ranked by expected profit, with the reasons in the tooltip (and why other rows are not picks)
   - **Latest** and **Past 3 days**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
@@ -126,7 +131,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Search, sortable columns, quick filters, right-click a row to exclude an item (food you eat, things you keep)
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
-- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
+- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
 - Settings panel: `Jim's Forever AddOns -> Market`
 - Optional Battle.net feed: a Windows task reads the auction house from the Battle.net API every 30 minutes while you are away and ForeverMarket imports it at login ([`services/forever-market-feed`](services/forever-market-feed/README.md))
 - Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)

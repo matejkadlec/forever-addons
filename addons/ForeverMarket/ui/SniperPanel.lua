@@ -1,0 +1,689 @@
+local _, FM = ...
+
+-- The snipe window (/fm snipe, "FM: snipe" at the AH). Sniping itself lives in scan/Sniper.lua and runs
+-- while this window is open at the Auction House.
+--   left   the sniped items: "Name · price", click = load it into the form, the red X = stop sniping it
+--   right  the form: item search with up to 20 suggestions, price per unit in g / s / c, the item's own gold %,
+--          today's budget, and the universal gold threshold (bottom left). The ? explains the rules.
+-- Both parts move together (drag the right one).
+
+local type = type
+local ipairs = ipairs
+local pairs = pairs
+local tostring = tostring
+local tonumber = tonumber
+local math_floor = math.floor
+local math_max = math.max
+local string_format = string.format
+local string_lower = string.lower
+local string_find = string.find
+local string_sub = string.sub
+local table_sort = table.sort
+
+local FRAME_NAME = "ForeverMarketSnipe"
+local W, H = 380, 404
+local LIST_W, ROW_H = 236, 22
+local HINT_ROWS, HINT_H = 20, 18
+
+local GREY = "|cFF9D9D9D"
+local WHITE = "|cFFFFFFFF"
+local GREEN = "|cFF33FF66"
+local RED = "|cFFFF5555"
+local BLUE = "|cFF66CCFF"
+
+local frame
+local selected -- key loaded into the form
+local hintKeys = {}
+
+local function Settings()
+    return FM.GetSettings()
+end
+
+local function Name(key)
+    return FM.GetName(key)
+end
+
+local function Text(parent, font, point, x, y, relative, relPoint)
+    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
+    fs:SetPoint(point, relative or parent, relPoint or point, x or 0, y or 0)
+    return fs
+end
+
+local function Button(parent, label, width, onClick)
+    local b = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    b:SetSize(width, 22)
+    b:SetText(label)
+    if onClick then b:SetScript("OnClick", onClick) end
+    return b
+end
+
+local function Input(parent, width, maxLetters, numeric)
+    local box = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
+    box:SetSize(width, 22)
+    box:SetAutoFocus(false)
+    if maxLetters then box:SetMaxLetters(maxLetters) end
+    if numeric then box:SetNumeric(true) end
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    return box
+end
+
+-- Dark panel with a thin border (the item list and the suggestions)
+local function Panel(parent)
+    local p = CreateFrame("Frame", nil, parent)
+    local bg = p:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.04, 0.04, 0.04, 0.94)
+    local function edge(a1, a2, w, h)
+        local t = p:CreateTexture(nil, "BORDER")
+        t:SetColorTexture(0.45, 0.45, 0.45, 1)
+        t:SetPoint(a1)
+        t:SetPoint(a2)
+        if w then t:SetWidth(w) else t:SetHeight(h) end
+    end
+    edge("TOPLEFT", "TOPRIGHT", nil, 1)
+    edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
+    edge("TOPLEFT", "BOTTOMLEFT", 1, nil)
+    edge("TOPRIGHT", "BOTTOMRIGHT", 1, nil)
+    return p
+end
+
+local function SetBoxEnabled(box, enabled)
+    box:SetEnabled(enabled)
+    if enabled then
+        box:SetTextColor(1, 1, 1)
+    else
+        box:SetTextColor(0.5, 0.5, 0.5)
+        box:ClearFocus()
+    end
+end
+
+local function SetLabelEnabled(fs, enabled)
+    if enabled then fs:SetTextColor(1, 0.82, 0) else fs:SetTextColor(0.5, 0.5, 0.5) end
+end
+
+local function Message(text, color)
+    if not frame then return end
+    frame.message:SetText((color or WHITE) .. (text or "") .. "|r")
+end
+
+---------------------------------------------------------------- price boxes
+
+local function ReadPrice()
+    local g = tonumber(frame.gold:GetText()) or 0
+    local s = tonumber(frame.silver:GetText()) or 0
+    local c = tonumber(frame.copper:GetText()) or 0
+    if s > 99 or c > 99 then return nil end
+    return math_floor(g) * 10000 + math_floor(s) * 100 + math_floor(c)
+end
+
+local function WritePrice(copper)
+    if type(copper) ~= "number" or copper < 1 then
+        frame.gold:SetText("")
+        frame.silver:SetText("")
+        frame.copper:SetText("")
+        return
+    end
+    copper = math_floor(copper)
+    local g = math_floor(copper / 10000)
+    local s = math_floor((copper % 10000) / 100)
+    local c = copper % 100
+    frame.gold:SetText(g > 0 and tostring(g) or "")
+    frame.silver:SetText((g > 0 or s > 0) and tostring(s) or "")
+    frame.copper:SetText(tostring(c))
+    frame.gold:SetCursorPosition(0)
+    frame.silver:SetCursorPosition(0)
+    frame.copper:SetCursorPosition(0)
+end
+
+---------------------------------------------------------------- item search
+
+-- Up to 20 known items whose name contains the text, names that start with it first
+local function FindItems(text)
+    local found = {}
+    text = string_lower(text or "")
+    if #text < 2 then return found end
+    local names = FM.R().names
+    local candidates = {}
+    for key, name in pairs(names) do candidates[key] = name end
+    for _, key in ipairs(FM.SnipeList()) do candidates[key] = candidates[key] or Name(key) end
+    for key, name in pairs(candidates) do
+        if type(name) == "string" and string_sub(name, 1, 5) ~= "item:" then
+            local lower = string_lower(name)
+            local at = string_find(lower, text, 1, true)
+            if at then found[#found + 1] = { key = key, name = name, starts = at == 1 } end
+        end
+    end
+    table_sort(found, function(a, b)
+        if a.starts ~= b.starts then return a.starts end
+        if #a.name ~= #b.name then return #a.name < #b.name end
+        return a.name < b.name
+    end)
+    for i = #found, HINT_ROWS + 1, -1 do found[i] = nil end
+    return found
+end
+
+-- Exact (case-insensitive) name match, for a typed name without picking a suggestion
+local function ExactKey(text)
+    text = string_lower(text or "")
+    if text == "" then return nil end
+    for key, name in pairs(FM.R().names) do
+        if type(name) == "string" and string_lower(name) == text then return key end
+    end
+    for _, key in ipairs(FM.SnipeList()) do
+        if string_lower(Name(key)) == text then return key end
+    end
+    return nil
+end
+
+local function HideHints()
+    if frame then frame.hints:Hide() end
+end
+
+local function ItemIcon(key)
+    local id = FM.ItemIDFromKey(key)
+    local icon = id and C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)
+    if type(icon) ~= "number" and type(icon) ~= "string" then icon = 134400 end -- question mark
+    return icon
+end
+
+local Select -- defined below
+
+local function ShowHints(text)
+    local found = FindItems(text)
+    local hints = frame.hints
+    wipe(hintKeys)
+    if #found == 0 then
+        hints:Hide()
+        return
+    end
+    for i = 1, HINT_ROWS do
+        local b = hints.rows[i]
+        local f = found[i]
+        if f then
+            hintKeys[i] = f.key
+            b.icon:SetTexture(ItemIcon(f.key))
+            b.text:SetText(f.name .. (FM.IsSniped(f.key) and (GREY .. "  sniped|r") or ""))
+            b:Show()
+        else
+            b:Hide()
+        end
+    end
+    hints:SetHeight(#found * HINT_H + 6)
+    hints:Show()
+end
+
+---------------------------------------------------------------- form
+
+local function PctFromSaved(key)
+    local saved = key and FM.SnipeSaved(key)
+    return FM.SnipeClampPct(saved and saved.pct or Settings().snipeUniversalPct)
+end
+
+-- Load an item into the form (its saved price and %, if it was sniped before)
+Select = function(key)
+    if not frame then return end
+    selected = key
+    HideHints()
+    frame.search:SetText(key and Name(key) or "")
+    frame.search:SetCursorPosition(0)
+    frame.search:ClearFocus()
+    local saved = key and FM.SnipeSaved(key)
+    WritePrice(saved and saved.p)
+    frame.pct:SetText(tostring(PctFromSaved(key)))
+    frame.pct:SetCursorPosition(0)
+    Message("")
+    FM.RefreshSnipe()
+end
+
+local function SubmitSnipe()
+    local text = frame.search:GetText() or ""
+    local key = selected
+    if not key or string_lower(Name(key)) ~= string_lower(text) then key = ExactKey(text) end
+    if not key then
+        Message("Pick an item from the suggestions first.", RED)
+        return
+    end
+    if FM.SnipeKind(key) == "item" then
+        Message("Only stackable items (commodities) can be sniped.", RED)
+        return
+    end
+    local price = ReadPrice()
+    if not price or price < 1 then
+        Message("Enter a price per unit (silver and copper 0-99).", RED)
+        return
+    end
+    local pct
+    if Settings().snipeUniversal == false then
+        pct = tonumber(frame.pct:GetText())
+        if not pct or pct < 1 or pct > 100 then
+            Message("The gold limit is a percent between 1 and 100.", RED)
+            return
+        end
+    end
+    local wasSniped = FM.IsSniped(key)
+    if FM.SnipeSet(key, price, pct) then
+        selected = key
+        Message((wasSniped and "Updated: " or "Sniping: ") .. Name(key) .. " at up to " .. FM.FormatMoney(price), GREEN)
+    end
+end
+
+local function SaveUniversalPct()
+    local value = tonumber(frame.universalPct:GetText())
+    if value and value >= 1 and value <= 100 then
+        Settings().snipeUniversalPct = FM.SnipeClampPct(value)
+    end
+    frame.universalPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
+    frame.universalPct:SetCursorPosition(0)
+    FM.RefreshSnipe()
+end
+
+---------------------------------------------------------------- help
+
+local HELP = {
+    "Sniping runs while this window is open at the Auction House. It searches your items one after another (it pauses in combat, during a deep scan and while the AH shows a commodity's Buy or Sell page).",
+    "Scroll the mouse wheel (up or down) to buy: every wheel step buys the newest offer at or under an item's price. Keep the cursor off lists that scroll, for example over this window.",
+    "Before gold leaves, the server's price is checked: never more than the offers you saw, never more than your price per unit, never more than your gold limit. Anything else is cancelled.",
+    "Gold limit: a percent of your gold baseline, your gold when this window first opened after the daily reset (Reset budget sets a new one).",
+    "Universal threshold on: all items together share that percent; once it is spent, sniping stops until the daily reset. Sniping also never takes your gold under the baseline minus that percent, even when you spent gold elsewhere.",
+    "Universal threshold off: each item has its own percent, so three items at 50% may spend up to 150% together (never more than you have).",
+    "Only stackable items (commodities) can be sniped. Your own auctions are never bought.",
+    "If the server does not answer a purchase, its gold stays counted and nothing new is bought for a minute. While Blizzard's own buy window is open, sniping does not buy.",
+    "Shift-click a row in the market table while the AH is open to snipe its main material at the table's price."
+}
+
+local function ShowHelp(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine("|cFFFF8000Forever|r Market sniper")
+    for _, line in ipairs(HELP) do
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(line, 1, 1, 1, true)
+    end
+    GameTooltip:Show()
+end
+
+---------------------------------------------------------------- list
+
+local function RowTooltip(self)
+    local key = self.key
+    if not key then return end
+    local state = FM.SnipeItemState(key)
+    local saved = FM.SnipeSaved(key)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine(Name(key))
+    GameTooltip:AddDoubleLine("Your price", FM.FormatMoney(saved and saved.p), 1, 0.82, 0, 1, 1, 1)
+    if state.kind == "item" then
+        GameTooltip:AddLine("Sold per auction: only stackable items can be sniped.", 1, 0.35, 0.35, true)
+    end
+    local seen = state.seen
+    if seen then
+        GameTooltip:AddDoubleLine("Cheapest now", seen.min and FM.FormatMoney(seen.min) or "none listed", 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("At or under your price", FM.FormatCount(seen.units), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Searched", string_format("%ds ago", math_floor(state.seenAge or 0)), 1, 0.82, 0, 0.7, 0.7, 0.7)
+    end
+    if state.hit then
+        GameTooltip:AddLine(string_format("Scroll to buy %dx for %s", state.hit.qty, FM.FormatMoney(state.hit.total)), 0.2, 1, 0.4)
+    end
+    local budget = state.budget
+    if budget then
+        if budget.universal then
+            GameTooltip:AddDoubleLine("Spent today (all items)", string_format("%s of %s", FM.FormatMoney(budget.used),
+                FM.FormatMoney(budget.cap)), 1, 0.82, 0, 1, 1, 1)
+        else
+            GameTooltip:AddDoubleLine("Spent today", string_format("%s of %s (%d%%)", FM.FormatMoney(budget.used),
+                FM.FormatMoney(budget.cap), budget.pct), 1, 0.82, 0, 1, 1, 1)
+        end
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Click: load into the form   X: stop sniping it", 0.4, 0.75, 1)
+    GameTooltip:Show()
+end
+
+local function CreateRow(list, i)
+    local row = CreateFrame("Button", nil, list)
+    row:SetSize(LIST_W - 8, ROW_H)
+    row:SetPoint("TOPLEFT", list, "TOPLEFT", 4, -4 - (i - 1) * ROW_H)
+    row:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.text:SetPoint("LEFT", row, "LEFT", 4, 0)
+    row.text:SetPoint("RIGHT", row, "RIGHT", -22, 0)
+    row.text:SetJustifyH("LEFT")
+    row.text:SetWordWrap(false)
+    row:SetScript("OnClick", function(self) if self.key then Select(self.key) end end)
+    row:SetScript("OnEnter", RowTooltip)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local remove = CreateFrame("Button", nil, row)
+    remove:SetSize(16, 16)
+    remove:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    remove:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    remove:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up", "ADD")
+    remove:SetScript("OnClick", function()
+        local key = row.key
+        if not key then return end
+        FM.SnipeRemove(key)
+        Message("Stopped sniping " .. Name(key) .. ".", WHITE)
+        GameTooltip:Hide()
+    end)
+    remove:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Stop sniping " .. Name(row.key))
+        GameTooltip:AddLine("Its price and gold % are remembered for next time.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    remove:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row.remove = remove
+    return row
+end
+
+local function RefreshList()
+    local list = frame.list
+    local keys = FM.SnipeList()
+    for i, key in ipairs(keys) do
+        local row = list.rows[i] or CreateRow(list, i)
+        list.rows[i] = row
+        row.key = key
+        local saved = FM.SnipeSaved(key)
+        local state = FM.SnipeItemState(key)
+        local color = WHITE
+        if state.kind == "item" or (state.budget and state.budget.room <= 0) then
+            color = GREY
+        elseif state.buying then
+            color = BLUE
+        elseif state.hit then
+            color = GREEN
+        end
+        row.text:SetText(color .. Name(key) .. "|r" .. GREY .. " · |r" .. FM.FormatMoney(saved and saved.p))
+        row:Show()
+    end
+    for i = #keys + 1, #list.rows do
+        list.rows[i].key = nil
+        list.rows[i]:Hide()
+    end
+    list:SetHeight(#keys * ROW_H + 8)
+    list:SetShown(#keys > 0)
+end
+
+---------------------------------------------------------------- refresh
+
+local function RefreshBudget()
+    local info = FM.SnipeBudgetInfo(selected or FM.SnipeList()[1])
+    if not info then
+        frame.budget:SetText(GREY .. "The gold baseline is set when sniping starts at the AH.|r")
+        return
+    end
+    local lines = {}
+    lines[1] = string_format("Baseline: %s  %s(your gold at %s)|r", FM.FormatMoney(info.base), GREY,
+        date("%H:%M", info.since or FM.Now()))
+    if info.universal then
+        lines[2] = string_format("Spent today: %s of %s  %s(%d%%, all items)|r", FM.FormatMoney(info.total),
+            FM.FormatMoney(info.cap), GREY, info.pct)
+        lines[3] = string_format("Keeps at least: %s  %s(left now: %s)|r", FM.FormatMoney(math_max(0, info.floor or 0)),
+            GREY, FM.FormatMoney(info.room or 0))
+    else
+        lines[2] = string_format("Spent today: %s  %s(all items)|r", FM.FormatMoney(info.total), GREY)
+        if selected and FM.IsSniped(selected) then
+            lines[3] = string_format("%s: %s of %s  %s(%d%%)|r", Name(selected), FM.FormatMoney(info.used),
+                FM.FormatMoney(info.cap), GREY, info.pct)
+        end
+    end
+    frame.budget:SetText(table.concat(lines, "\n"))
+end
+
+local function RefreshThreshold()
+    local universal = Settings().snipeUniversal ~= false
+    frame.universal:SetChecked(universal)
+    SetBoxEnabled(frame.universalPct, universal)
+    SetLabelEnabled(frame.universalPctLabel, universal)
+    SetBoxEnabled(frame.pct, not universal)
+    SetLabelEnabled(frame.pctLabel, not universal)
+    SetLabelEnabled(frame.pctSuffix, not universal)
+    if not frame.universalPct:HasFocus() then
+        frame.universalPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
+        frame.universalPct:SetCursorPosition(0)
+    end
+end
+
+function FM.RefreshSnipe()
+    if not (frame and frame:IsShown()) then return end
+    local text, r, g, b = FM.SnipeStatus()
+    frame.status:SetText(text or "")
+    frame.status:SetTextColor(r or 1, g or 1, b or 1)
+    RefreshList()
+    RefreshBudget()
+    RefreshThreshold()
+end
+
+---------------------------------------------------------------- frame
+
+local function CreateWindow()
+    local ok, f = pcall(CreateFrame, "Frame", FRAME_NAME, UIParent, "BasicFrameTemplateWithInset")
+    if not ok or not f then
+        f = CreateFrame("Frame", FRAME_NAME, UIParent)
+        local bg = f:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.88)
+        local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+        close:SetPoint("TOPRIGHT", 2, 2)
+        f.CloseButton = close
+    end
+    frame = f
+    f:SetSize(W, H)
+    f:SetFrameStrata("HIGH")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:SetClampedToScreen(true)
+    f:SetClampRectInsets(-LIST_W, 0, 0, 0) -- keep the item list on the screen too
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(self) if not InCombatLockdown() then self:StartMoving() end end)
+    f:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        local point, _, relPoint, x, y = self:GetPoint()
+        Settings().snipePos = { point, relPoint, x, y }
+    end)
+    local pos = Settings().snipePos
+    f:ClearAllPoints()
+    if type(pos) == "table" and pos[1] then
+        f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+    else
+        f:SetPoint("CENTER", UIParent, "CENTER", 140, 40)
+    end
+    tinsert(UISpecialFrames, FRAME_NAME)
+
+    local title = Text(f, "GameFontNormal", "TOP", 0, -6)
+    title:SetText("|cFFFF8000Forever|r Market sniper")
+    if type(f.TitleText) == "table" and f.TitleText.SetText then f.TitleText:SetText("") end
+
+    -- the ? explains the rules
+    local help = CreateFrame("Button", nil, f)
+    help:SetSize(20, 20)
+    if f.CloseButton then
+        help:SetPoint("RIGHT", f.CloseButton, "LEFT", -2, 0)
+    else
+        help:SetPoint("TOPRIGHT", f, "TOPRIGHT", -30, -2)
+    end
+    help:SetFrameLevel(f:GetFrameLevel() + 5)
+    local q = help:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    q:SetPoint("CENTER")
+    q:SetText("?")
+    help:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    help:SetScript("OnEnter", ShowHelp)
+    help:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    f.status = Text(f, "GameFontHighlight", "TOPLEFT", 16, -32)
+    f.status:SetWidth(W - 32)
+    f.status:SetHeight(30)
+    f.status:SetJustifyH("LEFT")
+    f.status:SetJustifyV("TOP")
+
+    -- item search
+    local itemLabel = Text(f, "GameFontNormalSmall", "TOPLEFT", 18, -70)
+    itemLabel:SetText("Item")
+    local search = Input(f, W - 44, 80)
+    search:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -84)
+    search:SetScript("OnTextChanged", function(self, userInput)
+        if not userInput then return end
+        if selected and string_lower(Name(selected)) ~= string_lower(self:GetText() or "") then selected = nil end
+        ShowHints(self:GetText())
+    end)
+    search:SetScript("OnEnterPressed", function(self)
+        if frame.hints:IsShown() and hintKeys[1] then
+            Select(hintKeys[1])
+        else
+            self:ClearFocus()
+        end
+    end)
+    search:SetScript("OnEscapePressed", function(self)
+        HideHints()
+        self:ClearFocus()
+    end)
+    search:HookScript("OnEditFocusLost", function()
+        C_Timer.After(0.2, function() -- let a click on a suggestion land first
+            if frame and not frame.search:HasFocus() then HideHints() end
+        end)
+    end)
+    f.search = search
+
+    -- price per unit
+    local priceLabel = Text(f, "GameFontNormalSmall", "TOPLEFT", 18, -116)
+    priceLabel:SetText("Max price per unit")
+    f.gold = Input(f, 64, 6, true)
+    f.gold:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -130)
+    local gText = Text(f, "GameFontHighlightSmall", "LEFT", 4, 0, f.gold, "RIGHT")
+    gText:SetText("|cFFFFD700g|r")
+    f.silver = Input(f, 30, 2, true)
+    f.silver:SetPoint("LEFT", f.gold, "RIGHT", 22, 0)
+    local sText = Text(f, "GameFontHighlightSmall", "LEFT", 4, 0, f.silver, "RIGHT")
+    sText:SetText("|cFFC7C7CFs|r")
+    f.copper = Input(f, 30, 2, true)
+    f.copper:SetPoint("LEFT", f.silver, "RIGHT", 22, 0)
+    local cText = Text(f, "GameFontHighlightSmall", "LEFT", 4, 0, f.copper, "RIGHT")
+    cText:SetText("|cFFEDA55Fc|r")
+    f.gold:SetScript("OnTabPressed", function() f.silver:SetFocus() end)
+    f.silver:SetScript("OnTabPressed", function() f.copper:SetFocus() end)
+    f.copper:SetScript("OnTabPressed", function() f.gold:SetFocus() end)
+    for _, box in ipairs({ f.gold, f.silver, f.copper }) do
+        box:SetScript("OnEnterPressed", function(self)
+            self:ClearFocus()
+            SubmitSnipe()
+        end)
+    end
+
+    -- the item's own gold %
+    f.pctLabel = Text(f, "GameFontNormalSmall", "TOPLEFT", 18, -162)
+    f.pctLabel:SetText("Gold limit of this item")
+    f.pct = Input(f, 36, 3, true)
+    f.pct:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -176)
+    f.pct:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+        SubmitSnipe()
+    end)
+    f.pctSuffix = Text(f, "GameFontNormalSmall", "LEFT", 6, 0, f.pct, "RIGHT")
+    f.pctSuffix:SetText("% of the gold baseline")
+
+    -- actions
+    local snipe = Button(f, "Snipe / update", 130, SubmitSnipe)
+    snipe:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -208)
+    local clear = Button(f, "Clear", 70, function()
+        Select(nil)
+        frame.search:SetFocus()
+    end)
+    clear:SetPoint("LEFT", snipe, "RIGHT", 6, 0)
+    f.message = Text(f, "GameFontHighlightSmall", "TOPLEFT", 18, -236)
+    f.message:SetWidth(W - 36)
+    f.message:SetJustifyH("LEFT")
+
+    -- today's budget
+    local budgetHeader = Text(f, "GameFontNormal", "TOPLEFT", 18, -262)
+    budgetHeader:SetText("Today")
+    f.budget = Text(f, "GameFontHighlightSmall", "TOPLEFT", 18, -280)
+    f.budget:SetWidth(W - 36)
+    f.budget:SetJustifyH("LEFT")
+    f.budget:SetSpacing(3)
+    local reset = Button(f, "Reset budget", 110, function() FM.SnipeResetBudget() end)
+    reset:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -258)
+    reset:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Reset budget")
+        GameTooltip:AddLine("Your gold right now becomes the new baseline and today's spending starts at zero. It also resets by itself with the daily reset.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    reset:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- universal gold threshold (bottom left)
+    local universal = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    universal:SetSize(26, 26)
+    universal:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 12)
+    universal.Text:SetFontObject("GameFontHighlightSmall")
+    universal.Text:SetText("Universal gold threshold")
+    universal:SetScript("OnClick", function(self)
+        Settings().snipeUniversal = self:GetChecked() and true or false
+        FM.RefreshSnipe()
+    end)
+    f.universal = universal
+    f.universalPct = Input(f, 36, 3, true)
+    f.universalPct:SetPoint("LEFT", universal.Text, "RIGHT", 10, 0)
+    f.universalPct:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.universalPct:HookScript("OnEditFocusLost", SaveUniversalPct)
+    f.universalPctLabel = Text(f, "GameFontNormalSmall", "LEFT", 6, 0, f.universalPct, "RIGHT")
+    f.universalPctLabel:SetText("% (all items together)")
+
+    -- the sniped items, left of the window
+    local list = Panel(f)
+    list:SetSize(LIST_W, ROW_H + 8)
+    list:SetPoint("TOPRIGHT", f, "TOPLEFT", -2, -4)
+    list.rows = {}
+    f.list = list
+
+    -- suggestions under the search box, above everything else
+    local hints = Panel(f)
+    hints:SetFrameLevel(f:GetFrameLevel() + 20)
+    hints:SetWidth(W - 40)
+    hints:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -6, -2)
+    hints.rows = {}
+    for i = 1, HINT_ROWS do
+        local b = CreateFrame("Button", nil, hints)
+        b:SetSize(W - 48, HINT_H)
+        b:SetPoint("TOPLEFT", hints, "TOPLEFT", 4, -3 - (i - 1) * HINT_H)
+        b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetSize(14, 14)
+        b.icon:SetPoint("LEFT", b, "LEFT", 2, 0)
+        b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.text:SetPoint("LEFT", b.icon, "RIGHT", 6, 0)
+        b.text:SetPoint("RIGHT", b, "RIGHT", -4, 0)
+        b.text:SetJustifyH("LEFT")
+        b.text:SetWordWrap(false)
+        b:SetScript("OnClick", function() if hintKeys[i] then Select(hintKeys[i]) end end)
+        hints.rows[i] = b
+    end
+    hints:Hide()
+    f.hints = hints
+
+    f:SetScript("OnShow", function()
+        FM.snipeWindowShown = true
+        FM.SnipeStart()
+        FM.RefreshSnipe()
+    end)
+    f:SetScript("OnHide", function()
+        FM.snipeWindowShown = false
+        HideHints()
+        FM.SnipeStop()
+    end)
+    f:Hide()
+    return f
+end
+
+-- Open the window (key: load that item into the form)
+function FM.ShowSnipe(key)
+    if not frame then CreateWindow() end
+    if not frame:IsShown() then frame:Show() end
+    if key then Select(key) end
+    FM.RefreshSnipe()
+end
+
+function FM.ToggleSnipe()
+    if frame and frame:IsShown() then
+        frame:Hide()
+    else
+        FM.ShowSnipe()
+    end
+end

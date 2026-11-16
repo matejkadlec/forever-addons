@@ -706,6 +706,23 @@ local function PickStatus(row)
     end
 end
 
+-- What Shift-click snipes in this tab: the main AH material of a pick at the plan's highest price, a craft's
+-- main material at its max buy price, an AH resell item at its buy-up-to price
+local function SnipeTarget(row)
+    local tab = CurrentTab()
+    local key, price
+    row = row.reasonOf or row -- a pick's second line (its reasons) belongs to the pick above
+    if tab.picks then
+        key, price = row.mainKey, row.mainTop
+    elseif tab.crafts then
+        key, price = row.mainKey, row.maxMat
+    elseif tab.id == "flips" then
+        key, price = row.key, row.top
+    end
+    if type(key) ~= "string" or type(price) ~= "number" or price < 1 then return nil end
+    return key, math_floor(price)
+end
+
 local function ShowRowTooltip(button)
     local row = button.row
     if not row then return end
@@ -742,7 +759,14 @@ local function ShowRowTooltip(button)
         GameTooltip:AddLine(BLUE .. "Claude:|r " .. note, 1, 1, 1, true)
     end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
+    local snipeKey, snipePrice = nil, nil
+    if FM.ahOpen then snipeKey, snipePrice = SnipeTarget(row) end
+    if snipeKey then
+        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: snipe " .. Name(snipeKey) .. " at up to "
+            .. FM.FormatMoney(snipePrice), 0.4, 0.75, 1)
+    else
+        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
+    end
     GameTooltip:AddLine(FM.IsExcluded(row.key) and "Right-click: bring back into the table and picks"
         or "Right-click: exclude from the table and picks (food you eat, things you keep)", 0.4, 0.75, 1)
     GameTooltip:Show()
@@ -804,6 +828,13 @@ local function OnRowClick(button, mouseButton)
         return
     end
     if IsShiftKeyDown and IsShiftKeyDown() then
+        -- AH open: snipe the row's main material at the table's price (its gold % stays as it is)
+        local snipeKey, snipePrice = nil, nil
+        if FM.ahOpen and FM.SnipeFromTable then snipeKey, snipePrice = SnipeTarget(row) end
+        if snipeKey then
+            FM.SnipeFromTable(snipeKey, snipePrice)
+            return
+        end
         local link = ItemLink(row.key)
         if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
         return

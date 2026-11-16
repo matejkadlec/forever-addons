@@ -7,7 +7,7 @@ act as an AH advisor: what sells, how fast, at which price, what to craft or fli
 
 | Source | When | What |
 |---|---|---|
-| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`, button on the AH title bar) | every auction: item, stack, buyout, time left band (Forever hides the seller; yours are recognized from your auctions and posts) |
+| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller; yours are recognized from your auctions and posts) |
 | Auctionator replicate scan | if Auctionator is set to replicate full scans | same as deep scan |
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
@@ -27,6 +27,7 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
 * `/fm` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
 
 ## Market table (`/fm`, "FM: table" at the AH, settings button)
 
@@ -99,6 +100,46 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   it back; the "Excluded (n)" button shows only excluded items. `/fm exclude|include <links or IDs>`, `/fm excluded`.
   Stored in `ForeverMarketDB.settings.excluded`.
 
+## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
+
+Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
+
+* Window: the sniped items on the left (`Name · price`, click = load into the form, X = stop sniping it, its
+  price and % stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max price
+  per unit in g / s / c, the item's own gold %, today's budget, and the universal gold threshold (bottom left,
+  default on at 50%). The `?` explains the rules. Both parts move together.
+* Runs only while the window is open at the AH: the sniped items are searched round robin with
+  `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
+  AH throttle; pauses in combat, while a deep scan runs and while Blizzard shows a commodity's Buy or Sell page,
+  whose list and selection every search would reset). Units of other sellers at or under the price that fit
+  the budget become a hit (sound). Your own units are subtracted (`numOwnerItems`), like Blizzard's buy page
+  does; units of your other characters count as offers (the server sells them like any other).
+* While sniping, the mouse wheel (up and down) is an override binding that clicks a hidden button, a hardware
+  event: one step = `StartCommoditiesPurchase(itemID, qty)` for the newest hit (at most 8 s old; shrunk to the
+  gold left when another item was bought since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed only when
+  its total is not above what the search showed for those units and not under what the hit's cheapest units
+  cost (else it is another purchase's quote), its unit price not above your price, and it fits the budget and
+  your gold; else it is cancelled. One purchase at a time, a hit is used once.
+* The server's quotes and answers carry no item, so nothing new starts while an older one could still arrive:
+  after a purchase cancelled before its quote came (until that quote comes, at most 30 s), after a confirm
+  without answer in 15 s (60 s), and while Blizzard's buy window is open (answers while it is open are
+  Blizzard's). A confirm without answer stays counted; the next answer within 5 minutes is matched to it
+  (answers come in order), and a late failure still keeps its gold counted. "Reset budget" waits for it.
+* If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
+  forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
+  confirms in a row without answer stop sniping with one message until the window or the AH is opened again.
+* Budget per character `r.snipe.budget[name]`: `base` = gold when the window first opened after the daily
+  reset (or "Reset budget"), `total` / `spent[key]` = gold spent since. Universal on: all items share
+  `snipeUniversalPct`% of `base`, and sniping never takes your gold under `base` minus that (the floor, which
+  also catches gold spent elsewhere or anything the bookkeeping missed). Off: each item has its own %
+  (`saved.pct`), so 3 items at 50% may spend 150% together, never more than you have. Gold is counted when a
+  purchase is confirmed and only given back on `COMMODITY_PURCHASE_FAILED`.
+* Market table: with the AH open, Shift-click a row to snipe its main material at the table's price (Picks:
+  the plan's "up to" price of the main AH material, Latest / Past 3 days: the max material price, AH resell:
+  the buy up to price). The item keeps its saved %.
+* Only commodities: unstackable items (sold per auction) are refused.
+* While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
+
 ## Data format (ForeverMarketDB.realms["Realm-Faction"])
 
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
@@ -122,6 +163,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut`: on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
+  `budget[character] = { base, since, reset, total, spent[key] }`
 
 ## Claude's side
 

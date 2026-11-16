@@ -18,6 +18,7 @@ end
 local function PrintHelp()
     FM.Print("Available commands:")
     PrintHelpLine("", "Open or close the market table")
+    PrintHelpLine("snipe", "Open or close the snipe window (sniping runs while it is open at the AH)")
     PrintHelpLine("help", "This list")
     PrintHelpLine("status", "What is stored, last scans, Claude's advice")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
@@ -128,6 +129,8 @@ local function HandleSlash(msg)
 
     if command == "" or command == "table" then
         FM.ToggleTable()
+    elseif command == "snipe" then
+        FM.ToggleSnipe()
     elseif command == "help" then
         PrintHelp()
     elseif command == "status" then

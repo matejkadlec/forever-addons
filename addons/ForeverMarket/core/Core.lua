@@ -38,7 +38,10 @@ FM.DEFAULTS = {
     chatSummary = true, -- one chat line after each processed scan
     tableLearn = true, -- market table: show recipes you can still learn
     tableProfitOnly = false, -- market table: only rows that make a profit
-    tableNoOutliers = true -- market table: hide outliers (far off profit per 1g, junk vendor markups)
+    tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
+    snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
+    snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
+    snipeConfirmClick = false -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
 }
 
 FM.LIMITS = {
