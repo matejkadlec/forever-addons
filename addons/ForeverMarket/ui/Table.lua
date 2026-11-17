@@ -174,12 +174,19 @@ local function OnAH(row)
     return text
 end
 
--- Crafting time for 1g of materials (cast time + a short gap per craft): next to profit per 1g it shows what
--- pays per hour of crafting (1g per 1g in 30 min vs 50s per 1g in 10 min)
+-- Crafting time for 1g of materials (cast time + a short gap per craft)
 local function TimePer1g(r)
     local seconds = r.craft and FM.CraftSeconds and FM.CraftSeconds(r.craft)
     if not (seconds and r.cost and r.cost > 0) then return nil end
     return 10000 / r.cost * seconds
+end
+
+-- Profit of an hour of crafting = profit per 1g / time per 1g (1g per 1g in 30 min = 2g/h, 50s per 1g in
+-- 10 min = 3g/h): gold is the limited input, time isn't, so this ranks crafts
+local function ProfitPerHour(r)
+    local seconds = r.craft and FM.CraftSeconds and FM.CraftSeconds(r.craft)
+    if not (seconds and seconds > 0 and r.profit) then return nil end
+    return r.profit / seconds * 3600
 end
 
 local function Duration(seconds)
@@ -190,10 +197,13 @@ local function Duration(seconds)
 end
 
 local CRAFT_COLUMNS = {
-    { title = "Item", width = 250, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Item", width = 244, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Profit per hour", width = 120, text = function(r)
+        local v = ProfitPerHour(r)
+        return v and P1g(v, r.approx or (r.avg and r.avg.est > 0)) or (GREY .. "?|r")
+    end, sort = ProfitPerHour },
     { title = "Profit per 1g", width = 110, text = function(r) return P1g(r.p1g, r.approx or (r.avg and r.avg.est > 0)) end,
         sort = function(r) return r.p1g end },
-    { title = "Time per 1g", width = 100, text = function(r) return Duration(TimePer1g(r)) end, sort = TimePer1g, asc = true },
     { title = "Max mat buy", width = 130, text = MaxMatCell, sort = function(r) return r.maxMat end },
     { title = "Min item sell", width = 106, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
     { title = "On AH now", width = 92, text = OnAH, sort = function(r) return r.qty end },
@@ -352,7 +362,7 @@ end
 TABS[#TABS + 1] = { id = "favs", label = "Favorites", columns = FAV_COLUMNS, favs = true, group = 1 }
 TABS[#TABS + 1] = { id = "mats", label = "Materials", columns = MAT_COLUMNS, data = "mats", group = 1 }
 TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, data = "crafts", crafts = true, group = 2,
-    defaultSort = { { 2, true }, { 3, false } } } -- profit per 1g, then the shortest time
+    defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
@@ -767,9 +777,13 @@ local function CraftTooltip(row, past)
     end
     local seconds = FM.CraftSeconds and FM.CraftSeconds(row.craft)
     if seconds then
-        local per1g = row.cost and row.cost > 0 and 10000 / row.cost * seconds
+        local per1g = TimePer1g(row)
         Line("Craft time", string_format("%.1fs", seconds) .. GREY .. "  incl. 0.5s between crafts|r"
             .. (per1g and (GREY .. "  ·  |r" .. Duration(per1g) .. GREY .. " per 1g of materials|r") or ""))
+        local perHour = ProfitPerHour(row)
+        if perHour then Line("Profit per hour", P1g(perHour, row.approx) .. GREY .. "  of crafting|r") end
+    else
+        Line("Profit per hour", GREY .. "? (craft time unknown until the recipe is read in the profession window)|r")
     end
     if row.mainKey and row.maxMat then
         Line("Max " .. Name(row.mainKey), (row.maxMat > 0 and Money(row.maxMat) or (RED .. "none|r")) .. GREY .. "  keeps 10% profit|r")
@@ -1247,7 +1261,7 @@ local function FooterText(total)
     elseif tab.favs then
         text = text .. "  ·  right-click any row > Favorite adds it here; best use = highest profit per 1g of its tabs"
     elseif tab.crafts then
-        text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, time = crafting 1g of materials", FM.TRADE.BATCH)
+        text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, per hour = profit per craft / cast time + 0.5s", FM.TRADE.BATCH)
     elseif tab.id == "vendor" then
         text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
     elseif tab.id == "flips" then

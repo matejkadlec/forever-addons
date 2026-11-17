@@ -72,10 +72,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
   converted; a saved sort whose column titles no longer match goes back to the tab's default).
-* **Craft** "Time per 1g" (1.12): crafting time for 1g of materials = 1g / cost per craft x seconds per craft, where
-  seconds = the recipe spell's cast time (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID,
-  `craft.spell` from ForeverArtisan's `r.id`) + 0.5 s between crafts; "?" when the spell isn't known. Next to profit per
-  1g it shows what pays per hour of crafting. Default sort: profit per 1g, then the shortest time.
+* **Craft** columns: Item, **Profit per hour** (1.12), Profit per 1g, Max mat buy, Min item sell, On AH now,
+  Circulating. Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
+  the limited input, crafting time isn't), seconds = the recipe spell's cast time
+  (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
+  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: profit per hour. The
+  craft tooltip shows the craft time and the time per 1g of materials.
 * **Learn** = every recipe still to learn, losing ones too: Profession, Min skill (lowest skill of its routes; white
   when you have it, red when not), Recipe, Profit per 1g now (as in Craft) and over 7 days (usual prices = median
   daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
