@@ -45,8 +45,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
   `settings.excluded`; the "Ignored (n)" button shows only those, `/fm exclude|include|excluded`), **Track**
-  (TomTom arrow to the cheapest vendor with a known place that sells it, from ForeverArtisan_Contacts' `mapID`, `x`,
-  `y`; greyed when none). Favorite items get a star everywhere.
+  (TomTom arrow to the cheapest vendor with a known place that sells it; for a recipe still to learn, to the
+  cheapest trainer or recipe vendor with a known place that teaches it; `FM.TrackTarget`, places from
+  ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`; greyed when none). Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip (highest profit per 1g; Materials
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.

@@ -901,7 +901,8 @@ local function SearchAtAH(row)
 end
 
 -- Right-click menu of a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow
--- to the vendor that sells it; greyed when no vendor with a known place sells it)
+-- to the vendor that sells it, or for a recipe still to learn to who teaches it; greyed when nobody with a
+-- known place does)
 local function ShowRowMenu(button, key)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     MenuUtil.CreateContextMenu(button, function(_, root)
@@ -920,8 +921,11 @@ local function ShowRowMenu(button, key)
             FM.ComputeTrade(false) -- picks plan the gold again without it
             FM.RefreshTable()
         end)
-        local track = root:CreateButton("Track", function() FM.TrackVendor(key) end)
-        track:SetEnabled(FM.VendorWithPlace(key) ~= nil)
+        local place, why = FM.TrackTarget(key)
+        local label = "Track"
+        if place and place.npc then label = "Track: " .. place.npc .. (why == "learn" and " (learn)" or "") end
+        local track = root:CreateButton(label, function() FM.TrackVendor(key) end)
+        track:SetEnabled(place ~= nil)
     end)
 end
 

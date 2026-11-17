@@ -102,7 +102,8 @@ local function ReadContacts(profSkill)
                     if cap and req <= cap then
                         local list = routes[skill.name] or {}
                         routes[skill.name] = list
-                        list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry) }
+                        list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry),
+                            npc = entry.name or entry.n, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                     end
                 end
             end
@@ -116,7 +117,7 @@ local function ReadContacts(profSkill)
                     local limited = it.limited
                     if type(limited) ~= "number" or limited <= 0 then limited = nil end
                     local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited,
-                        npc = entry.name, mapID = entry.mapID, x = entry.x, y = entry.y }
+                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                     local v = vendors[key]
                     if not v then
                         v = { offers = {} }
@@ -140,7 +141,8 @@ local function ReadContacts(profSkill)
                                     local list = routes[recipe] or {}
                                     routes[recipe] = list
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
-                                        limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil }
+                                        limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
+                                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                                 end
                             end
                         end
@@ -338,23 +340,45 @@ function FM.VendorWithPlace(key)
     return best
 end
 
--- Track: a TomTom arrow to the vendor that sells the item (its place in chat without TomTom)
-function FM.TrackVendor(key)
+-- Where Track leads for an item: the cheapest vendor with a known place that sells it; else, for a recipe
+-- you can still learn, the cheapest trainer or recipe vendor with a known place that teaches it.
+-- Returns the place ({ npc, mapID, x, y, where }) and "buy" or "learn", or nil.
+function FM.TrackTarget(key)
     local offer = FM.VendorWithPlace(key)
-    if not offer then
-        FM.PrintError("Failed to track " .. FM.GetName(key) .. ": no vendor with a known place sells it.")
+    if offer then return offer, "buy" end
+    local best
+    for _, row in ipairs(FM.trade and FM.trade.crafts or {}) do
+        if row.key == key and row.learned == false and row.craft then
+            for _, route in ipairs(row.craft.learn or {}) do
+                if route.mapID and route.x and route.y and (not best or (route.price or 0) < (best.price or 0)) then
+                    best = route
+                end
+            end
+        end
+    end
+    if best then return best, "learn" end
+    return nil
+end
+
+-- Track: a TomTom arrow to that place (its place in chat without TomTom)
+function FM.TrackVendor(key)
+    local place, why = FM.TrackTarget(key)
+    if not place then
+        FM.PrintError("Failed to track " .. FM.GetName(key) .. ": no vendor or trainer with a known place sells or teaches it.")
         return
     end
+    local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
+    local what = why == "learn" and ("learn " .. FM.GetName(key)) or FM.GetName(key)
     local tomtom = _G.TomTom
     if tomtom and tomtom.AddWaypoint then
-        local ok = pcall(tomtom.AddWaypoint, tomtom, offer.mapID, offer.x / 100, offer.y / 100,
-            { title = (offer.npc or "Vendor") .. ": " .. FM.GetName(key), persistent = false })
+        local ok = pcall(tomtom.AddWaypoint, tomtom, place.mapID, place.x / 100, place.y / 100,
+            { title = who .. ": " .. what, persistent = false })
         if ok then
-            FM.Print("TomTom arrow to " .. (offer.npc or "the vendor") .. " for " .. FM.GetName(key) .. ":", offer.where)
+            FM.Print("TomTom arrow to " .. who .. " (" .. what .. "):", place.where)
             return
         end
     end
-    FM.Print(FM.GetName(key) .. " is sold by", offer.where)
+    FM.Print(who .. " (" .. what .. "):", place.where)
 end
 
 function FM.ExcludedCount()
