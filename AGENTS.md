@@ -229,12 +229,15 @@ When implementing features:
 
 ## Pull Requests and Code Review
 
-- Never commit to `master` directly: every change goes on its own branch from the latest `origin/master` and into a pull request
-- Every commit gets a code review by an independent agent (a fresh agent that did not write the change and only sees the diff, the repository and these rules) before its pull request is merged
+- Never commit to `master` directly: every new piece of work goes on its own branch from the latest `origin/master` and into a pull request; fixes for an open pull request go on its branch
+- Every commit gets a code review by an independent agent before its pull request is merged: a fresh agent that did not write the change; it gets the diff, the repository, these rules and the maintainer's request, but not the author's reasoning
   - The review checks correctness, Forever API use (verified against wow-ui-source `forever`), taint and secret value safety, Lua 5.1 compatibility, version bump and documentation
-  - Fix what the review finds, commit the fix, and have the new commit reviewed the same way until a review passes clean
-- Once the review of the last commit passes, merge the pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer, then delete the branch
+  - A review passes when no finding needs a change (nits are optional)
+  - Fix valid findings, commit the fix and have it reviewed the same way; the re-review also gets the earlier findings and checks the whole pull request diff against `master`
+  - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him, and the pull request stays open
+- Once the review of the last commit passes, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer; pull requests opened by other people are left to the maintainer
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
+- A merged change in `services/forever-market-feed/**` deploys the feed server (`.github/workflows/market-feed.yml`): say so and check the workflow run
 - The automatic sync into the game still happens after every change, before the review and merge
 
 ---
