@@ -7,7 +7,7 @@
   - `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT` (`18`), `.toc` interface version `16001` (client 1.60.x)
   - NOT WotLK 3.3.5a, NOT Classic Era, NOT plain retail: AddOn access to combat data is restricted (secret values, no combat log)
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
-- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format; in server mode `server.py` collects into PostgreSQL on the shared host `matejkadlec-cz1` (tenant `fmf-deploy`, API `https://market.matejkadlec.cz/v1/`) and the PC pulls from it; `.github/workflows/market-feed.yml` deploys master when `services/forever-market-feed/**` changes; the service README's Server section documents the tenant, secrets, deploys, backups and restore, and must be kept current with `compose.yml` and `deploy/`
+- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format; in server mode `server.py` collects into PostgreSQL on the shared host `matejkadlec-cz1` (tenant `fmf-deploy`, API `https://market.matejkadlec.cz/v1/`) and the PC pulls from it; `.github/workflows/market-feed.yml` deploys master when `services/forever-market-feed/**` or the workflow itself changes; the service README's Server section documents the tenant, secrets, deploys, backups and restore, and must be kept current with `compose.yml` and `deploy/`
 - There is no copy of the Blizzard UI source in this repository
 
 ---
@@ -223,6 +223,27 @@ When implementing features:
 5. Bump the `.toc` version of every changed AddOn
 6. Update `AGENTS.md` and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
 7. Sync the changed AddOns automatically (see Communication Rules)
+8. Ship it through a pull request (see Pull Requests and Code Review)
+
+---
+
+## Pull Requests and Code Review
+
+- Never commit to `master` directly: every new piece of work goes on its own branch from the latest `origin/master` and into a pull request; fixes for an open pull request go on its branch
+  - Work on an AddOn that still has an open pull request builds on that pull request's branch (or tell the maintainer), so the in-game sync and the version bump don't undo it, and is merged only after that pull request (or targets its branch)
+- Every commit gets a code review by an independent agent before its pull request is merged: a fresh agent that did not write the change; it gets the diff, the repository, these rules and the maintainer's request, but not the author's reasoning
+  - The review checks correctness, Forever API use (verified against wow-ui-source `forever`), taint and secret value safety, Lua 5.1 compatibility, version bump and documentation
+  - A review passes when the reviewer reports nothing that needs a change (nits are optional)
+  - Fix valid findings, commit the fix and have it reviewed the same way; the re-review also gets the earlier findings
+  - The last review before a merge always covers the whole pull request diff against `origin/master` (after a fetch, `git diff origin/master...<branch>`, three dots)
+  - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him and noted in a pull request comment; the pull request stays open until he answers
+- Once the review of the last commit passes and the pull request's checks are green, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer
+  - A pull request that needs the maintainer before it may be merged (a step on the host, a new secret or config file, his decision, a "do not merge before ..." note in its description) is not merged: leave it open and tell him what it waits for
+  - Your own = GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork) and the Claude Code attribution ends the description; anyone else's pull requests, made with Claude Code or not, are left to the maintainer
+  - Checks: the REST endpoint `repos/{owner}/{repo}/commits/{sha}/check-runs`; no checks reported counts as green (a pull request touching the `market-feed.yml` paths waits for its `Checks` run to appear), pending checks are waited for, failing checks keep the pull request open like a failed review
+- Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
+- A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server: say so, check the workflow run and report a failed run to the maintainer
+- The automatic sync into the game still happens after every change, before the review and merge
 
 ---
 
