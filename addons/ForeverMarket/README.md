@@ -186,7 +186,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
 
-* Window: the sniped items on the left (`Name · price`, click = load into the form, X = stop sniping it, its
+* Window (DIALOG strata, opaque: always above the market table, which is HIGH): the sniped items on the left (`Name · price`, click = load into the form, X = stop sniping it, its
   price and % stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max price
   per unit in g / s / c, the item's own gold %, today's budget, and the universal gold threshold (bottom left,
   default on at 50%). The `?` explains the rules. Both parts move together.
