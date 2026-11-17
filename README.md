@@ -116,17 +116,30 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 💰 Logs the Auction House over time and turns it into a market table: what to craft, buy and resell, and where to farm.
 
-- Deep scans of the whole AH (`/fm scan` or the `FM: scan` button at the AH, at most every 15 minutes); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
-- Your own posts, sales and invoices are logged too
-- Market table `/fm` (or `FM: table` at the AH), refreshed after every deep scan:
-  - **Picks**: what to do in the next 24 hours within your gold, ranked by expected profit, with the reasons in the tooltip (and why other rows are not picks)
-  - **Latest** and **Past 3 days**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
-  - **Vendor resell**, **AH resell** and **Materials**
+- Deep scans of the whole AH (by themselves at most every 15 minutes while the AH is open, or `/fm scan`); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
+- Your own posts, sales, invoices and AH purchases are logged too
+- Item tooltip: the market line, Claude's advice, and below them what the item costs you: material(s) price now (colored against what you paid), material(s) price when bought (purchases only, farmed items show "No data"; vendor items get one "Material price (vendor)" line instead of both), and the lowest 8h / 24h price per unit that doesn't sell under the item's AH value (after the cut and one lost deposit)
+- Sniper (`/fm snipe` or `FM: snipe` at the AH): while its window is open at the AH, your items are searched over and over and every mouse wheel step buys what someone just listed at or under your price
+  - Max price per unit in gold / silver / copper, the item list on the left (click to edit, X to stop sniping; price and gold % are remembered)
+  - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item
+  - The server's price is checked before any gold leaves; only stackable items (commodities)
+  - With the AH open, Shift-click a market table row to snipe its main material at the table's price
+- Market table `/fm`, the key `U` (or `FM: table` at the AH), refreshed after every deep scan:
+  - **Picks**: what to do in the next 24 hours, ranked by expected profit: first the plan that fits your gold, then further good picks beyond it; reasons in the tooltip (and why other rows are not picks); "Ignore stock" (on by default) plans as if your bags and bank were empty
+  - **Favorites**: your favorite items with their best use, price and market numbers
+  - **Materials**: sell a material or craft with it
+  - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per hour of crafting (from the recipe's cast time, the default sort), profit per 1g, max material price and min sell price
+  - **Vendor** (vendor items to resell at the AH) and **Flip** (cheap listings to relist under the next price level with 15%+ profit)
+  - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, profit per 1g now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
-  - Search, sortable columns, quick filters, right-click a row to exclude an item (food you eat, things you keep)
+  - Right-click a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn)
+  - Search, sortable columns (Shift-click a header to sort by more columns), profession dropdown, skill limits for recipes still to learn; the title bar shows how old the latest snapshot is
+  - Craft also shows what a recipe still costs to learn; min item sell includes a lost deposit (8h, or 24h for items under 100 circulating in 12h)
+  - Settings panel: hide outliers (on by default) and a minimum profit per item for the table
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
-- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
+- Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)
+- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
 - Settings panel: `Jim's Forever AddOns -> Market`
 - Optional Battle.net feed: a server collects the auction house from the Battle.net API around the clock, a Windows task downloads it every 30 minutes and ForeverMarket imports it at login; without the server the Windows task reads the API itself while the PC is on ([`services/forever-market-feed`](services/forever-market-feed/README.md))
 - Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)

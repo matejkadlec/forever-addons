@@ -86,7 +86,8 @@ local function Place(entry)
     return (entry.name or "?") .. ", " .. where
 end
 
--- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern)
+-- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern), at any
+-- skill of your professions (BuildSources tells "learnable now" from "at a higher skill")
 local function ReadContacts(profSkill)
     local vendors, routes = {}, {}
     local db = _G.ForeverArtisanContactsDB
@@ -98,11 +99,11 @@ local function ReadContacts(profSkill)
                 local prof, req = string_match(tostring(skill.skillReq or ""), "^(.-)%s+(%d+)$")
                 req = tonumber(req)
                 if prof and req and skill.status ~= "used" and type(skill.name) == "string" then
-                    local cap = profSkill[prof]
-                    if cap and req <= cap then
+                    if profSkill[prof] then
                         local list = routes[skill.name] or {}
                         routes[skill.name] = list
-                        list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry) }
+                        list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry),
+                            npc = entry.name or entry.n, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                     end
                 end
             end
@@ -115,7 +116,8 @@ local function ReadContacts(profSkill)
                     local stack = (type(it.stack) == "number" and it.stack > 0) and it.stack or 1
                     local limited = it.limited
                     if type(limited) ~= "number" or limited <= 0 then limited = nil end
-                    local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited }
+                    local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited,
+                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                     local v = vendors[key]
                     if not v then
                         v = { offers = {} }
@@ -135,11 +137,12 @@ local function ReadContacts(profSkill)
                         if not string_find(text, "Already known", 1, true) then
                             for prof, cap in pairs(profSkill) do
                                 local req = tonumber(string_match(text, prof .. " %((%d+)%)"))
-                                if req and req <= cap then
+                                if req then
                                     local list = routes[recipe] or {}
                                     routes[recipe] = list
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
-                                        limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil }
+                                        limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
+                                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
                                 end
                             end
                         end
@@ -214,6 +217,7 @@ function FM.BuildSources()
     local patterns = PatternKeys()
 
     local crafts, byKey = {}, {}
+    local laterList, laterByKey = {}, {}
     local tracked = FM.Tracked or {}
     local hidden = type(tracked.hide) == "table" and tracked.hide or {}
     for _, entry in ipairs(charRecipes) do
@@ -222,10 +226,12 @@ function FM.BuildSources()
             local product = type(r) == "table" and r.itemId and tostring(r.itemId)
             if product and not hidden[product] then
                 local learned = r.learned and true or false
-                local learn
+                local cap = profSkill[prof.name] or 0
+                -- every known way to learn it (learnAll), and those open up to your skill cap (learn)
+                local learn, learnAll
                 if not learned then
-                    learn = {}
-                    for _, route in ipairs(routes[recipeName] or {}) do learn[#learn + 1] = route end
+                    learn, learnAll = {}, {}
+                    for _, route in ipairs(routes[recipeName] or {}) do learnAll[#learnAll + 1] = route end
                     local patternKey = patterns[recipeName]
                     if patternKey then
                         -- the tooltip knows the skill; without it, estimate from where the recipe turns gray
@@ -234,12 +240,16 @@ function FM.BuildSources()
                         if not req and type(r.grayAt) == "number" then
                             req, est = r.grayAt - 25, true
                         end
-                        if req and req <= (profSkill[prof.name] or 0) then
-                            learn[#learn + 1] = { kind = "ah", key = patternKey, req = req, est = est }
+                        if req then
+                            learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est }
                         end
                     end
+                    for _, route in ipairs(learnAll) do
+                        if (route.req or 0) <= cap then learn[#learn + 1] = route end
+                    end
                 end
-                if learned or #learn > 0 then
+                local later = not learned and #learn == 0 and #learnAll > 0 -- only at a higher skill
+                if learned or #learn > 0 or later then
                     local reagents = {}
                     for _, g in ipairs(List(r.reagents)) do
                         if g.id then
@@ -256,25 +266,40 @@ function FM.BuildSources()
                         local craft = {
                             key = product, recipe = r.name or recipeName, prof = prof.short, profName = prof.name, tools = tools,
                             makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
-                            learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, reagents = reagents
+                            learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
+                            spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
+                            reagents = reagents, skillNow = data.skill, later = later or nil
                         }
-                        -- one row per product: the learned recipe wins over a second way to make it
-                        local old = byKey[product]
-                        if not old or (learned and not old.learned) then
-                            if old then
-                                for i, c in ipairs(crafts) do
-                                    if c == old then table.remove(crafts, i) break end
-                                end
+                        if later then
+                            -- the Learn tab only: no craft row, no picks
+                            if not laterByKey[product] then
+                                laterByKey[product] = craft
+                                laterList[#laterList + 1] = craft
                             end
-                            crafts[#crafts + 1] = craft
-                            byKey[product] = craft
+                        else
+                            -- one row per product: the learned recipe wins over a second way to make it
+                            local old = byKey[product]
+                            if not old or (learned and not old.learned) then
+                                if old then
+                                    for i, c in ipairs(crafts) do
+                                        if c == old then table.remove(crafts, i) break end
+                                    end
+                                end
+                                crafts[#crafts + 1] = craft
+                                byKey[product] = craft
+                            end
                         end
                     end
                 end
             end
         end
     end
-    FM.sources = { crafts = crafts, byKey = byKey, vendors = vendors, profs = profs, built = FM.Now() }
+    -- a product you can already make (or learn now) needs no recipe for later
+    local later = {}
+    for _, craft in ipairs(laterList) do
+        if not byKey[craft.key] then later[#later + 1] = craft end
+    end
+    FM.sources = { crafts = crafts, byKey = byKey, later = later, vendors = vendors, profs = profs, built = FM.Now() }
     return FM.sources
 end
 
@@ -292,6 +317,25 @@ function FM.VendorUnit(key, allowLimited)
     local price = AuctionatorVendorPrice(key)
     if price then return price, { unit = price, where = "a vendor (Auctionator saw it)" } end
     return nil
+end
+
+-- Seconds one craft takes: the recipe spell's cast time plus a short gap before the next cast of "Create All";
+-- nil while the spell isn't known
+local CRAFT_GAP = 0.5
+local castSeconds = {}
+function FM.CraftSeconds(craft)
+    local spell = craft and craft.spell
+    if not spell then return nil end
+    local seconds = castSeconds[spell]
+    if seconds then return seconds end
+    local api = C_Spell and C_Spell.GetSpellInfo
+    if not api then return nil end
+    local ok, info = pcall(api, spell)
+    local ms = ok and type(info) == "table" and info.castTime
+    if type(ms) ~= "number" or FM.IsSecret(ms) or ms < 0 then return nil end
+    seconds = ms / 1000 + CRAFT_GAP
+    castSeconds[spell] = seconds
+    return seconds
 end
 
 function FM.TrackedNote(key)
@@ -312,6 +356,70 @@ function FM.SetExcluded(key, on)
     local s = FM.GetSettings()
     if type(s.excluded) ~= "table" then s.excluded = {} end
     s.excluded[key] = on and true or nil
+end
+
+-- Favorite items (right-click a row): their own tab in the market table. Account wide.
+function FM.IsFavorite(key)
+    local favorites = FM.GetSettings().favorites
+    return type(favorites) == "table" and favorites[key] and true or false
+end
+
+function FM.SetFavorite(key, on)
+    local s = FM.GetSettings()
+    if type(s.favorites) ~= "table" then s.favorites = {} end
+    s.favorites[key] = on and true or nil
+end
+
+-- The vendor offer of an item that has a place on the map (the cheapest one), or nil
+function FM.VendorWithPlace(key)
+    local v = FM.Sources().vendors[key]
+    if not v then return nil end
+    local best
+    for _, offer in ipairs(v.offers or {}) do
+        if offer.mapID and offer.x and offer.y and (not best or offer.unit < best.unit) then best = offer end
+    end
+    return best
+end
+
+-- Where Track leads for an item: the cheapest vendor with a known place that sells it; else, for a recipe
+-- you can still learn, the cheapest trainer or recipe vendor with a known place that teaches it.
+-- Returns the place ({ npc, mapID, x, y, where }) and "buy" or "learn", or nil.
+function FM.TrackTarget(key)
+    local offer = FM.VendorWithPlace(key)
+    if offer then return offer, "buy" end
+    local best
+    for _, row in ipairs(FM.trade and (FM.trade.learn or FM.trade.crafts) or {}) do
+        if row.key == key and row.learned == false and row.craft then
+            for _, route in ipairs(row.craft.learnAll or row.craft.learn or {}) do
+                if route.mapID and route.x and route.y and (not best or (route.price or 0) < (best.price or 0)) then
+                    best = route
+                end
+            end
+        end
+    end
+    if best then return best, "learn" end
+    return nil
+end
+
+-- Track: a TomTom arrow to that place (its place in chat without TomTom)
+function FM.TrackVendor(key)
+    local place, why = FM.TrackTarget(key)
+    if not place then
+        FM.PrintError("Failed to track " .. FM.GetName(key) .. ": no vendor or trainer with a known place sells or teaches it.")
+        return
+    end
+    local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
+    local what = why == "learn" and ("learn " .. FM.GetName(key)) or FM.GetName(key)
+    local tomtom = _G.TomTom
+    if tomtom and tomtom.AddWaypoint then
+        local ok = pcall(tomtom.AddWaypoint, tomtom, place.mapID, place.x / 100, place.y / 100,
+            { title = who .. ": " .. what, persistent = false })
+        if ok then
+            FM.Print("TomTom arrow to " .. who .. " (" .. what .. "):", place.where)
+            return
+        end
+    end
+    FM.Print(who .. " (" .. what .. "):", place.where)
 end
 
 function FM.ExcludedCount()
@@ -451,6 +559,7 @@ local function BagIndex()
     if not bagIndex then bagIndex = Scan(BagIDs()) end
     return bagIndex
 end
+FM.BagIndex = BagIndex -- [itemID] = { all, free } of your bags (trade/Cost.lua measures deposits of them)
 
 local bankOpen = false
 local function ScanBank()

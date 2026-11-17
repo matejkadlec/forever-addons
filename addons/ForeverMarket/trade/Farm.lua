@@ -180,6 +180,17 @@ function FM.ComputeFarm(onDone)
         return value, src
     end
 
+    -- what one skin is worth per kill; the most valuable skin item goes to row.skinKey / row.skinPer
+    local function SkinValue(log, row)
+        local skin = 0
+        for key, n in pairs(log.items) do
+            local per = n / log.n * Value(key)
+            skin = skin + per
+            if per > (row.skinPer or 0) then row.skinKey, row.skinPer = key, per end
+        end
+        return skin
+    end
+
     -- your kills per hour
     local kph, kphOwn = DEFAULT_KPH, false
     if (farm.active or 0) >= MIN_ACTIVE and (farm.kills or 0) > 0 then
@@ -314,7 +325,7 @@ function FM.ComputeFarm(onDone)
                 if skinSkill > 0 and skinSkill >= SkinReq(maxL) then
                     local log = own and (own.s or 0) >= 5 and { n = own.s, items = own.sk } or skinByMob[name]
                     if log and log.n > 0 then
-                        for key, n in pairs(log.items) do skin = skin + n / log.n * Value(key) end
+                        skin = SkinValue(log, row)
                         row.skinSource = own and (own.s or 0) >= 5 and "your skins" or "ForeverArtisan"
                     end
                 end
@@ -340,8 +351,8 @@ function FM.ComputeFarm(onDone)
                         local log = skinByMob[name]
                         if not listed[name] and m.minL and m.maxL >= lo and m.minL <= hi and log and log.n > 0
                             and skinSkill >= SkinReq(m.maxL) then
-                            local skin = 0
-                            for key, n in pairs(log.items) do skin = skin + n / log.n * Value(key) end
+                            local skinRow = {}
+                            local skin = SkinValue(log, skinRow)
                             local ownId = farm.names and farm.names[name]
                             local own = ownId and mobs[ownId]
                             local kills = own and FM.FarmKills(own) or 0
@@ -350,7 +361,8 @@ function FM.ComputeFarm(onDone)
                                 rows[#rows + 1] = { mobName = name, minL = m.minL, maxL = m.maxL, zone = m.zone, uiMap = m.map,
                                     x = m.x, y = m.y, parts = {}, items = 0, coins = coins, trash = 0, skin = skin,
                                     skinSource = "ForeverArtisan", dropSource = "-", kills = kills, perKill = skin + coins,
-                                    kph = kph, gph = kph * (skin + coins), key = next(log.items) or "0" }
+                                    kph = kph, gph = kph * (skin + coins), key = skinRow.skinKey or next(log.items) or "0",
+                                    skinKey = skinRow.skinKey, skinPer = skinRow.skinPer }
                             end
                         end
                     end

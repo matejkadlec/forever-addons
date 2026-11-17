@@ -4,7 +4,7 @@ local _, FM = ...
 --   crafts  profit per 1g invested, max price of the main material, min sell price, listed, sold ~12h
 --   past    the same craft numbers averaged over the scans of the last 3 days
 --   vendor  items a vendor sells for clearly less than they go for on the AH (with buyers)
---   flips   AH listings far below the usual price with a real market above them
+--   flips   AH listings cheap enough to relist under the next real price level (15%+ profit after the cut)
 --   mats    every material of your crafts: sell it, or is it worth more crafted?
 -- Prices come from the exact ladders of the latest deep scan (r.last.fp, your own auctions left out).
 -- One compact line of craft numbers per deep scan is kept for 72h in r.track.h; "Past 3 days"
@@ -38,9 +38,10 @@ local CLEAN_GAP = 480    -- only scan intervals up to 8h tell sales apart from e
 local MIN_COVER = 120    -- a sales rate needs at least 2h of such intervals
 local VENDOR_MIN_PROFIT = 10
 local SELL_CAP = 1.25    -- a craft's list price above 125% of its usual price falls back to the usual price
-local FLIP_BELOW = 0.70
+local FLIP_MARGIN = 0.15  -- a flip buys at most at what it resells for (after the cut) / 1.15
+local FLIP_MAX_SHARE = 0.25 -- the cheap units are at most this share of all listed: else they are the market
 local FLIP_MIN_USUAL = 20
-local FLIP_MIN_PROFIT = 500
+local FLIP_MIN_PROFIT = 100
 local FLIP_MIN_QTY = 5
 
 FM.TRADE = { AH_CUT = AH_CUT, MARGIN = MARGIN, BATCH = BATCH }
@@ -207,6 +208,8 @@ local function BatchUnit(ladder, n)
     return (total + need * last) / n, true
 end
 
+FM.BatchUnit = BatchUnit
+
 local function AuctionatorPrice(key)
     local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
     if not (api and api.GetAuctionPriceByItemID) then return nil end
@@ -313,7 +316,9 @@ local function CraftRow(craft, view)
     row.cost = cost
     -- recipe still to learn: the cheapest way (trainer, vendor or the pattern on the AH)
     if not craft.learned then
-        for _, route in ipairs(craft.learn or {}) do
+        -- the routes open at your skill now; for a recipe above it, every route
+        local routes = (craft.learn and #craft.learn > 0) and craft.learn or craft.learnAll or {}
+        for _, route in ipairs(routes) do
             local price
             if route.kind == "ah" then
                 local pattern = view.Get(route.key)
@@ -562,72 +567,75 @@ local function UsualPrice(key, now)
 end
 FM.UsualPrice = UsualPrice
 
--- Quick test on the ladder alone: could any usual price make this a flip?
+-- The wall above the k cheapest price levels: the price where `need` units of others wait
+local function WallAbove(ladder, k, need)
+    local acc = 0
+    for j = k + 1, #ladder do
+        acc = acc + ladder[j][2]
+        if acc >= need then return ladder[j][1] end
+    end
+    return nil
+end
+
+-- Quick test on the ladder alone: are there cheap units under a wall they could be relisted below?
 local function MaybeFlip(ladder, qty)
-    local minPrice = ladder[1][1]
     local need = math_max(3, 0.1 * qty)
     local cum = 0
     for k = 1, #ladder - 1 do
         cum = cum + ladder[k][2]
-        if cum > 0.25 * qty then return false end
-        local acc = 0
-        for j = k + 1, #ladder do
-            acc = acc + ladder[j][2]
-            if acc >= need then
-                if ladder[j][1] * FLIP_BELOW >= minPrice * 0.85 then return true end
-                break
-            end
-        end
+        if cum > FLIP_MAX_SHARE * qty then return false end
+        local wall = WallAbove(ladder, k, need)
+        if not wall then return false end
+        if ladder[1][1] <= wall * (1 - AH_CUT) / (1 + FLIP_MARGIN) then return true end
     end
     return false
 end
 
+-- Buy the cheapest units, relist them just under the next real price level (the wall), never above 110% of
+-- the usual price (median daily low, last week). Every split of the ladder into cheap levels and the rest is
+-- tried; the most profitable one wins. The market above must be real: the wall at least 85% of the usual price.
 local function FlipRow(key, p, now)
     local usual, recent = UsualPrice(key, now)
     if not usual or usual < FLIP_MIN_USUAL then return nil end
     if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
-    local limit = usual * FLIP_BELOW
-    local cheap, above = {}, {}
-    local cheapQty = 0
-    for _, level in ipairs(p.ladder) do
-        if level[1] <= limit then
-            cheap[#cheap + 1] = level
-            cheapQty = cheapQty + level[2]
-        else
-            above[#above + 1] = level
-        end
-    end
-    if #cheap == 0 or #above == 0 or cheapQty > 0.25 * p.qty then return nil end
+    local ladder = p.ladder
     local need = math_max(3, 0.1 * p.qty)
-    local acc, wall = 0, nil
-    for _, level in ipairs(above) do
-        acc = acc + level[2]
-        if acc >= need then
-            wall = level[1]
-            break
+    local floor = FM.MinListPrice(key, p)
+    local best
+    local cheapQty = 0
+    for k = 1, #ladder - 1 do
+        cheapQty = cheapQty + ladder[k][2]
+        if cheapQty > FLIP_MAX_SHARE * p.qty then break end
+        local wall = WallAbove(ladder, k, need)
+        if not wall then break end
+        if wall >= 0.85 * usual then
+            local sell = math_max(floor, math_min(math_floor(usual * 1.1), wall) - 1)
+            local maxBuy = sell * (1 - AH_CUT) / (1 + FLIP_MARGIN)
+            if ladder[k][1] <= maxBuy then
+                -- units waiting at or under the wall: the queue to sell through, also how many to buy at most
+                local support = 0
+                for j = k + 1, #ladder do
+                    if ladder[j][1] <= wall then support = support + ladder[j][2] end
+                end
+                local cap = math_max(support, 5)
+                local units, cost, top = 0, 0, 0
+                for j = 1, k do
+                    local n = math_min(ladder[j][2], cap - units)
+                    if n <= 0 then break end
+                    units = units + n
+                    cost = cost + n * ladder[j][1]
+                    top = ladder[j][1]
+                end
+                local profit = units * sell * (1 - AH_CUT) - cost
+                if units > 0 and profit >= FLIP_MIN_PROFIT and (not best or profit > best.profit) then
+                    best = { key = key, top = top, units = units, cheapQty = cheapQty, cost = cost, sell = sell, profit = profit,
+                        p1g = profit / cost * 10000, usual = usual, recent = recent, wall = wall, support = support,
+                        qty = p.qty, own = p.own, minSell = math_floor(cost / units / (1 - AH_CUT) + 0.99) }
+                end
+            end
         end
     end
-    if not wall or wall < 0.85 * usual then return nil end
-    local support = 0
-    for _, level in ipairs(above) do
-        if level[1] <= wall then support = support + level[2] end
-    end
-    local sell = math_max(FM.MinListPrice(key, p), math_min(math_floor(usual * 1.1), wall) - 1)
-    local cap = math_max(support, 5)
-    local units, cost, top = 0, 0, 0
-    for _, level in ipairs(cheap) do
-        local n = math_min(level[2], cap - units)
-        if n <= 0 then break end
-        units = units + n
-        cost = cost + n * level[1]
-        top = level[1]
-    end
-    if units == 0 then return nil end
-    local profit = units * sell * (1 - AH_CUT) - cost
-    if profit < FLIP_MIN_PROFIT then return nil end
-    return { key = key, top = top, units = units, cheapQty = cheapQty, cost = cost, sell = sell, profit = profit,
-        p1g = profit / cost * 10000, usual = usual, recent = recent, wall = wall, support = support,
-        qty = p.qty, own = p.own, minSell = math_floor(cost / units / (1 - AH_CUT) + 0.99) }
+    return best
 end
 
 ---------------------------------------------------------------- the pass
@@ -709,6 +717,59 @@ CapSell = function(row)
         row.profit, row.p1g, row.maxMat, row.mainKey, row.payback = nil, nil, nil, nil, nil
         FM.DeriveCraft(row)
     end
+end
+
+-- Learn tab: the lowest skill any known way teaches it at, where to learn it (cheapest place first),
+-- and the profit per 1g at last week's usual prices (median daily lows; vendor materials at the vendor)
+local function LearnInfo(row)
+    local craft = row.craft
+    local minSkill, route
+    for _, r in ipairs(craft.learnAll or craft.learn or {}) do
+        if r.req and (not minSkill or r.req < minSkill) then minSkill = r.req end
+        -- a place you can walk to beats an AH pattern; among them the cheapest
+        local placed = r.kind ~= "ah"
+        if not route or (placed and route.kind == "ah") or (placed == (route.kind ~= "ah") and (r.price or 0) < (route.price or 0)) then
+            route = r
+        end
+    end
+    row.minSkill, row.route = minSkill, route
+    row.skillNow = craft.skillNow
+    local function Usual(key)
+        local usual = usualCache[key]
+        if usual == nil then
+            usual = UsualPrice(key, usualNow) or false
+            usualCache[key] = usual
+        end
+        return usual or nil
+    end
+    local sell7 = Usual(row.key)
+    if not sell7 then return end
+    local cost7 = 0
+    for _, g in ipairs(craft.reagents) do
+        local unit = FM.VendorUnit(g.key, false) or Usual(g.key)
+        if not unit then return end
+        cost7 = cost7 + unit * g.n
+    end
+    cost7 = cost7 / (craft.makes or 1)
+    if cost7 <= 0 then return end
+    row.sell7, row.cost7 = sell7, cost7
+    row.profit7 = sell7 * (1 - AH_CUT) - cost7
+    row.p1g7 = row.profit7 / cost7 * 10000
+end
+
+-- One lost deposit per unit, listed a stack at a time, added to the min item sell (and today's break-even)
+local function AddDeposit(row)
+    if row.depUnit or not row.minSell or not FM.Deposit then return end
+    local id = FM.ItemIDFromKey(row.key)
+    local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
+    if type(stack) ~= "number" or FM.IsSecret(stack) or stack < 1 then stack = 1 end
+    local duration = (type(row.sold12) == "number" and row.sold12 >= 100) and 2 or 3
+    local deposit = FM.Deposit(row.key, stack, duration)
+    if not deposit then return end
+    row.depUnit, row.depHours = deposit / stack, duration == 2 and 8 or 24
+    local add = row.depUnit / (1 - AH_CUT)
+    row.minSell = row.minSell + add
+    if row.breakEven then row.breakEven = row.breakEven + add end
 end
 
 FM.trade = nil
@@ -883,6 +944,26 @@ function FM.ComputeTrade(record, onDone)
             end), done)
         end,
         function(done)
+            -- Learn tab: every recipe still to learn, now or at a higher skill (sliced: usual prices parse records)
+            local rows = {}
+            for _, row in ipairs(out.crafts) do
+                if row.learned == false then rows[#rows + 1] = row end
+            end
+            for _, craft in ipairs(sources.later or {}) do
+                local row = CraftRow(craft, view)
+                CapSell(row)
+                rows[#rows + 1] = row
+            end
+            usualNow = now
+            FM.RunSliced(rows, 20, Safe(function(row)
+                LearnInfo(row)
+                if not row.sold12 then row.sold12, row.soldWide = Sold(row.key, WINDOW_12H) end
+            end), function()
+                out.learn = rows
+                done()
+            end)
+        end,
+        function(done)
             -- vendor resell: cheaper at a vendor than on the AH, with buyers in the last days
             local candidates = {}
             local hidden = FM.Tracked and FM.Tracked.hide or {}
@@ -946,6 +1027,21 @@ function FM.ComputeTrade(record, onDone)
                 out.flips = flips
                 done()
             end)
+        end,
+        function(done)
+            -- Min item sell includes one lost deposit for a stack: 8h when 100+ units circulate in 12h, else 24h
+            -- (it may well not sell in 8h); measured or estimated by trade/Cost.lua
+            local seen = {}
+            for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {} }) do
+                for _, row in ipairs(list) do
+                    if not seen[row] then
+                        seen[row] = true
+                        local ok = pcall(AddDeposit, row)
+                        if not ok then row.depUnit = nil end
+                    end
+                end
+            end
+            done()
         end,
         function(done)
             if FM.ComputePicks then

@@ -125,6 +125,8 @@ local function Save(key, kind, rows, full)
 end
 
 local function CaptureCommodity(itemID)
+    -- while sniping, a sniped item is searched every few seconds: log it once per 10 minutes only
+    if FM.SnipeSkipCapture and FM.SnipeSkipCapture(tostring(itemID)) then return end
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumCommoditySearchResults and ah.GetCommoditySearchResultInfo) then return end
     local n = ah.GetNumCommoditySearchResults(itemID)
@@ -144,7 +146,10 @@ local function CaptureCommodity(itemID)
             }
         end
     end
-    if #rows > 0 then Save(tostring(itemID), "c", rows, full) end
+    if #rows > 0 then
+        Save(tostring(itemID), "c", rows, full)
+        if FM.SnipeCaptured then FM.SnipeCaptured(tostring(itemID)) end
+    end
 end
 
 local function CaptureItem(itemKey)

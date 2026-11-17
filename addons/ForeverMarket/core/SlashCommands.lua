@@ -18,6 +18,7 @@ end
 local function PrintHelp()
     FM.Print("Available commands:")
     PrintHelpLine("", "Open or close the market table")
+    PrintHelpLine("snipe", "Open or close the snipe window (sniping runs while it is open at the AH)")
     PrintHelpLine("help", "This list")
     PrintHelpLine("status", "What is stored, last scans, Claude's advice")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
@@ -25,8 +26,8 @@ local function PrintHelp()
     PrintHelpLine("watch <item links or IDs>", "Keep full market depth for these items")
     PrintHelpLine("unwatch <item links or IDs>", "Stop watching items")
     PrintHelpLine("watchlist", "List watched items")
-    PrintHelpLine("exclude / include <item links or IDs>", "Hide items from the market table and picks (or right-click a row)")
-    PrintHelpLine("excluded", "List excluded items")
+    PrintHelpLine("exclude / include <item links or IDs>", "Ignore items in the market table and picks (or right-click a row > Ignore)")
+    PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("advice", "Show Claude's current advice")
     PrintHelpLine("item <item link or ID>", "Market summary of one item")
     PrintHelpLine("tooltip <on|off>", "Market line on tooltips")
@@ -128,6 +129,8 @@ local function HandleSlash(msg)
 
     if command == "" or command == "table" then
         FM.ToggleTable()
+    elseif command == "snipe" then
+        FM.ToggleSnipe()
     elseif command == "help" then
         PrintHelp()
     elseif command == "status" then
@@ -153,11 +156,11 @@ local function HandleSlash(msg)
             return
         end
         for _, key in ipairs(keys) do FM.SetExcluded(key, command == "exclude") end
-        FM.Print(command == "exclude" and "Excluded from the market table:" or "Back in the market table:", #keys .. " item(s)")
+        FM.Print(command == "exclude" and "Ignored in the market table:" or "Back in the market table:", #keys .. " item(s)")
         FM.ComputeTrade(false)
     elseif command == "excluded" then
         local excluded = FM.GetSettings().excluded or {}
-        FM.Print("Excluded from the market table:")
+        FM.Print("Ignored in the market table:")
         for key in pairs(excluded) do print("  " .. ORANGE .. FM.GetName(key) .. "|r") end
     elseif command == "watchlist" then
         local r = FM.R()

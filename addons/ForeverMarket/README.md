@@ -7,7 +7,7 @@ act as an AH advisor: what sells, how fast, at which price, what to craft or fli
 
 | Source | When | What |
 |---|---|---|
-| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`, button on the AH title bar) | every auction: item, stack, buyout, time left band (Forever hides the seller; yours are recognized from your auctions and posts) |
+| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller; yours are recognized from your auctions and posts) |
 | Auctionator replicate scan | if Auctionator is set to replicate full scans | same as deep scan |
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
@@ -23,23 +23,93 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 ## In game
 
-* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`
+* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
+  then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white).
+  "Materials" only when the price is of a craft with 2+ different materials, else "Material" (an item that is not
+  crafted is its own material):
+  * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: what the
+    vendor sells it for
+  * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials for that
+    many crafts, each from the vendor or the AH, or made yourself when the table found that cheaper; anything else:
+    the AH ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
+    auctions only) when it is newer than the latest snapshot, else from the snapshot. One scan is no fact: price
+    levels under 75% of the cheapest price of the scan before (deep / feed record or search, 5 min to 2 days older)
+    are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when every level is
+    that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap units (real buys).
+    White within 5% of
+    what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+  * **Material(s) price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
+    recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
+    `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
+    looted or skinned units are not counted: never bought = No data
+  * **8h / 24h min. price (n pcs)**: a guard against selling under price by mistake: the lowest price per unit
+    that still nets the units' AH value (the item's cheapest price of others, from the same freshest source, x n,
+    whatever you paid) after the 5% cut and one
+    lost deposit, n = your sellable units (else one stack). Deposit = max(1s, share x vendor sell price x units),
+    share 20% for 8h and 60% for 24h (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as
+    measured in game). `C_AuctionHouse.CalculateCommodityDeposit` replaces the estimate for the stackable items in
+    your bags whenever the AH opens (once a week, `R.deposits[key][2|3] = { rate, floor }`)
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
-* `/fm` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and sniper. The market
+  table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
+  (the chat says what); after that a rebind or a cleared key stays as the player set it (`settings.keyGiven`)
+* `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
 
-## Market table (`/fm`, "FM: table" at the AH, settings button)
+## Market table (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
 Refreshes by itself after every deep scan, nothing to maintain by hand:
 
 * Rows come from the ForeverArtisan AddOns of the logged in character: every recipe of its professions
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
-* Tabs: **Picks**, **Latest** and **Past 3 days** (crafts), **Vendor resell**, **AH resell** (flips), **Materials**, **Farm**.
+  Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
+* Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Learn**,
+  **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+  tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
+* Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
+  (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
+  skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
+  stock" (Picks). Buttons: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`; Craft, Picks, Learn),
+  "Ignored (n)". Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  (Options -> AddOns -> Jim's Forever AddOns -> Market).
+* Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
+  (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
+  `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
+  converted; a saved sort whose column titles no longer match goes back to the tab's default).
+* **Craft** columns: Item, **Profit per hour** (1.12), Profit per 1g, **Recipe cost** (1.13: what learning a recipe
+  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min item sell, On AH now, Circ. 12h.
+  Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
+  the Learn tab). Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
+  the limited input, crafting time isn't), seconds = the recipe spell's cast time
+  (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
+  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: profit per hour. The
+  craft tooltip shows the craft time and the time per 1g of materials.
+* **Learn** = every recipe still to learn, losing ones too: Profession, Min skill (lowest skill of its routes; white
+  when you have it, red when not), Recipe, Profit per 1g now (as in Craft) and over 7 days (usual prices = median
+  daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
+  trainer or vendor beats a pattern on the AH, then the cheapest). Default sort: profit now, then the lowest skill.
+  "Above current skill" (default on, `tableLearnHigher`): off hides recipes above your skill now; on shows them up
+  to "Max. above current skill" points above it (number box, default 10, `tableLearnMaxAbove`). Hover = the
+  craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
+* Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
+* Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
+  `settings.excluded`; the "Ignored (n)" button shows only those, `/fm exclude|include|excluded`), **Track**
+  (TomTom arrow to the cheapest vendor with a known place that sells it; for a recipe still to learn, to the
+  cheapest trainer or recipe vendor with a known place that teaches it; `FM.TrackTarget`, places from
+  ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`; greyed when none). Favorite items get a star everywhere.
+* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest profit per 1g; Materials
+  only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
+  row of its best use. Items in no tab show the latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
-  the tooltip. Order: your stock no pick uses (list it), the gold plan, recipes worth leveling for (info).
-  Your stock = bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are
-  used for crafting but never listed (bank: slots seen while it was open, else the bind type).
+  the tooltip. Order: the gold plan, then further good picks "beyond your gold now" (each judged on its own
+  with the plan's gold, up to 20 rows together; `pick.extra`, `FM.trade.pickPlan` = plan size), then recipes
+  worth leveling for (info). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
+  plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
+  AH listings always count); off: your stock is used first and counts as stock to sell. Your stock =
+  bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are used for crafting
+  but never listed (bank: slots seen while it was open, else the bind type).
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart since your first post, 3+ sales) when that is more.
@@ -52,8 +122,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     price, minus deposits lost on relists (share from your invoices, else 12%), must stay positive. Confidence
     (demand evidence, 3 day swing of uncapped prices, falling price today, cornered market, days of stock
     listed, estimates) scales the score; a pick needs at least max(2s, 1% of the plan's gold) expected.
-  * Every row of Latest / Vendor resell / AH resell says in its tooltip why it is or isn't a pick
-    (`FM.trade.pickRank`, `FM.trade.pickWhy`).
+  * Every row of Craft / Vendor / Flip says in its tooltip why it is or isn't a pick
+    (`FM.trade.pickRank`, `FM.trade.pickWhy`, `FM.trade.pickExtra`). Vendor picks also take buyers estimated
+    from older records (confidence 50%).
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
     the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average).
@@ -66,15 +137,28 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   max mat buy = main AH material price that still leaves 10% profit, min item sell = the price that still
   breaks even after the 5% cut when you bought that material at max mat buy (= sell / 1.1; the two work as a
   pair), or the break-even of today's material prices when that is higher (tooltip shows both).
-* Past 3 days = profit of the average cost and sell price of the scans of the last 72h (`r.track.h`, one line
-  per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated from records).
-* Circulating ~12h comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
+* 3 day history (`r.track.h`, one line per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated
+  from records): the 3 day ranges in tooltips and picks (the "Past 3 days" tab is gone since 1.10).
+* **Flip** (until 1.10 "AH resell"): buy the cheapest units and relist them 1c under the next real price level (the wall:
+  where max(3, 10% of all listed) units of others wait), never above 110% of the usual price (median daily low,
+  last week, 3+ days of history). A flip needs 15% profit after the 5% cut on every unit bought (buy <= list x
+  0.95 / 1.15), at least 1s in total, the cheap units at most 25% of all listed (else they are the market), the
+  wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
+  of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
+  Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
+* **Min item sell** (Craft, Vendor, Flip; 1.13) includes one lost deposit per unit for listing a stack: the 8h deposit
+  when 100+ units circulate in 12h, else (or unknown) the 24h one, since a slow item may not sell in 8h
+  (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
+* **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
+  inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
+* Circulating ~12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
   the AH before their time ran out, bought or taken down (Forever hides sellers, so both look the same).
   Grey = taken from the 3 day window.
 * **Farm** (trade/Farm.lua, scan/FarmLog.lua) = mobs at your level (-5..+2, no elites, hostile) ranked by gold per
   hour. Mobs, spawns and drop rates from Questie (Wowhead data for ~2000 items quests use: cloth, leather, meat),
   replaced by your own drops after 20 kills; coins and vendor trash from your kills (else your average at that
-  level); skins from your skins or ForeverArtisan's skinning log (also adds beasts without notable drops); prices
+  level); skins from your skins or ForeverArtisan's skinning log (also adds beasts without notable drops; "Best
+  drop" shows the skin when it is worth more per kill than the best drop); prices
   from the last deep scan (cheapest of others - 1c, the usual price when under 3 are listed, after the cut) or
   the vendor price. Kills per hour: yours after 30 min of farming, else 60, at most 12 per spawn point.
   Click = TomTom arrow to the middle of the spawns. Without Questie only your own kills and skins fill it.
@@ -92,12 +176,51 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   import cut short by a /reload is safe to repeat; deep scans wait while an import runs (`FM.feedImporting`).
   Only the realm bucket the feed was matched to imports (`bucket`), `ForeverMarketDB.feedImported[bucket]` tells
   the feed what the game already has.
-* "No outliers" (on by default) hides rows whose profit per 1g is beyond 3x the interquartile range of the tab,
-  and vendor items listed at over 10x the vendor price.
-* Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link.
-  Right-click: exclude the item from the table and the picks (food you eat, things you keep), again to bring
-  it back; the "Excluded (n)" button shows only excluded items. `/fm exclude|include <links or IDs>`, `/fm excluded`.
-  Stored in `ForeverMarketDB.settings.excluded`.
+* Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose profit per 1g is beyond 3x the
+  interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
+  (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
+* Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
+  snipe its main material). Right-click: the menu above.
+
+## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
+
+Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
+
+* Window (DIALOG strata, opaque: always above the market table, which is HIGH): the sniped items on the left (`Name · price`, click = load into the form, X = stop sniping it, its
+  price and % stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max price
+  per unit in g / s / c, the item's own gold %, today's budget, and the universal gold threshold (bottom left,
+  default on at 50%). The `?` explains the rules. Both parts move together.
+* Runs only while the window is open at the AH: the sniped items are searched round robin with
+  `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
+  AH throttle; pauses in combat, while a deep scan runs and while Blizzard shows a commodity's Buy or Sell page,
+  whose list and selection every search would reset). Units of other sellers at or under the price that fit
+  the budget become a hit (sound). Your own units are subtracted (`numOwnerItems`), like Blizzard's buy page
+  does; units of your other characters count as offers (the server sells them like any other).
+* While sniping, the mouse wheel (up and down) is an override binding that clicks a hidden button, a hardware
+  event: one step = `StartCommoditiesPurchase(itemID, qty)` for the newest hit (at most 8 s old; shrunk to the
+  gold left when another item was bought since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed only when
+  its total is not above what the search showed for those units and not under what the hit's cheapest units
+  cost (else it is another purchase's quote), its unit price not above your price, and it fits the budget and
+  your gold; else it is cancelled. One purchase at a time, a hit is used once.
+* The server's quotes and answers carry no item, so nothing new starts while an older one could still arrive:
+  after a purchase cancelled before its quote came (until that quote comes, at most 30 s), after a confirm
+  without answer in 15 s (60 s), and while Blizzard's buy window is open (answers while it is open are
+  Blizzard's). A confirm without answer stays counted; the next answer within 5 minutes is matched to it
+  (answers come in order), and a late failure still keeps its gold counted. "Reset budget" waits for it.
+* If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
+  forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
+  confirms in a row without answer stop sniping with one message until the window or the AH is opened again.
+* Budget per character `r.snipe.budget[name]`: `base` = gold when the window first opened after the daily
+  reset (or "Reset budget"), `total` / `spent[key]` = gold spent since. Universal on: all items share
+  `snipeUniversalPct`% of `base`, and sniping never takes your gold under `base` minus that (the floor, which
+  also catches gold spent elsewhere or anything the bookkeeping missed). Off: each item has its own %
+  (`saved.pct`), so 3 items at 50% may spend 150% together, never more than you have. Gold is counted when a
+  purchase is confirmed and only given back on `COMMODITY_PURCHASE_FAILED`.
+* Market table: with the AH open, Shift-click a row to snipe its main material at the table's price (Picks:
+  the plan's "up to" price of the main AH material, Craft: the max material price, Flip: the buy up to price,
+  Favorites: as in the tab of its best use). The item keeps its saved %.
+* Only commodities: unstackable items (sold per auction) are refused.
+* While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
 
 ## Data format (ForeverMarketDB.realms["Realm-Faction"])
 
@@ -122,6 +245,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut`: on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
+  `budget[character] = { base, since, reset, total, spent[key] }`
 
 ## Claude's side
 

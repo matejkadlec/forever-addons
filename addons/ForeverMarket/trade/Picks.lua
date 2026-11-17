@@ -11,6 +11,8 @@ local _, FM = ...
 --     are used first (valued at what they would sell for), nothing is bought that you are selling
 --   * no loss: at the lowest sell price of the last 3 days, minus deposits lost on relists, still a profit
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan
+--   * after the plan: further good picks, each judged on its own as if it had the plan's gold ("beyond your
+--     gold"), so there are options to choose from even when a few picks take all the gold
 
 local Dec = FM.Dec
 local type = type
@@ -38,7 +40,7 @@ local MIN_UNIT = 10             -- profit per item at least 10c...
 local MIN_UNIT_SHARE = 0.03     -- ...and 3% of its cost
 local MIN_SCORE = 200           -- 2s expected profit, or 1% of the plan's gold when that is more
 local MAX_PICKS = 12
-local MAX_STOCK = 6
+local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
 local MAX_UNITS = 100           -- per pick and day
 local VENDOR_LISTED_SHARE = 0.2 -- vendor goods: at most 20% of what others list
@@ -48,7 +50,6 @@ local CLEAN_GAP = 480
 local MIN_COVER = 120
 local WINDOW = 72 * 60
 local LEARN_DAYS = 3
-local STOCK_MIN_VALUE = 2000    -- "list your stock" from 20s
 local DAY0 = time({ year = 2020, month = 1, day = 1, hour = 0 })
 local EMPTY = {}
 
@@ -255,7 +256,9 @@ local function SellRate(key)
     return nil, nil, d
 end
 
+-- "Ignore stock" (default on): the plans treat your bags and bank as empty (tools you own still count)
 local function StockOf(key)
+    if P.ignoreStock then return 0 end
     local s = P.stock[key]
     if s == nil then
         s = ItemCount(key)
@@ -266,6 +269,7 @@ end
 
 -- Units of yours that will go to the AH before new ones sell (soulbound ones never do)
 local function SellableOf(key)
+    if P.ignoreStock then return 0 end
     local s = P.sellable[key]
     if s == nil then
         local _, n = FM.Owned(key)
@@ -582,6 +586,11 @@ local function EvaluateCraft(c)
         planText = planText .. string_format(", buy %s %s up to %s", Count(plan.trial.used[mainKey]), Name(mainKey), M(plan.trial.top[mainKey]))
     end
     pick.plan = planText
+    -- Shift-click in the table (AH open) snipes the main AH material at the plan's highest price
+    if mainKey and c.kind ~= "level" then
+        pick.mainKey = mainKey
+        pick.mainTop = plan.trial.top[mainKey]
+    end
     local why = { string_format("~%s bought/day", Count(d.perDay or V)), string_format("%s listed", Count(others)) }
     if row.rawMin and row.rawMax and (row.avgN or 0) >= 2 then
         why[#why + 1] = string_format("3d %s-%s", M(row.rawMin), M(row.rawMax))
@@ -642,39 +651,43 @@ end
 local function EvaluateVendor(c)
     local row = c.row
     local V, vSource, d = SellRate(row.key)
-    if not V or d.source == "estimated" then return nil end
+    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     local others = row.qty - (row.own or 0)
     local yours = Yours(row.key) + SellableOf(row.key)
     local vLeft = V - yours
+    if vLeft < 1 then return nil, "you already list or hold what buyers take in a day" end
+    local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
+    if saturation > 7 then return nil, "over 7 days of stock listed by others" end
     local unit = row.vendorUnit
     local cap = math_min(P.perPick, P.budgetLeft)
     local n = math_floor(math_min(MAX_UNITS, vLeft, row.offer.limited or math.huge,
         math_max(1, VENDOR_LISTED_SHARE * others), cap / unit))
-    if n < 1 then return nil end
+    if n < 1 then return nil, "no gold left for it in the plan" end
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
     local depositLoss = DepositPerItem(row.key, row.sell) * relists
     local pessSell = row.sell
     if row.usual then pessSell = math_min(pessSell, row.usual) end
     local pessProfit = pessSell * (1 - AH_CUT) - unit - depositLoss
-    if pessProfit <= 0 then return nil end
+    if pessProfit <= 0 then return nil, "could lose money at its usual price" end
     local unitProfit = row.sell * (1 - AH_CUT) - unit - depositLoss
-    if unitProfit < MIN_UNIT or unitProfit < MIN_UNIT_SHARE * unit then return nil end
+    if unitProfit < MIN_UNIT or unitProfit < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item after deposits" end
     local expected = unitProfit * n
     local notes = {}
-    local conf = vSource == "your sales" and 1 or 0.8
+    local conf = vSource == "your sales" and 1 or (vSource == "bought" and 0.8 or 0.5)
+    if vSource == "estimated" then notes[#notes + 1] = "buyers estimated from older records" end
     if row.usual and d.todayMedian and d.todayMedian < 0.8 * row.usual then
         conf = conf * 0.6
         notes[#notes + 1] = "price falling today"
     end
-    local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
-    if saturation > 7 then return nil end
     if saturation > 3 then
         conf = conf * 0.5
         notes[#notes + 1] = string_format("%.0f days of stock listed", saturation)
     end
     local score = expected * conf
-    if score < P.minScore then return nil end
+    if score < P.minScore then
+        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
+    end
     local where = row.offer.where
     local pick = { key = row.key, kind = "vendor", score = score, p1g = unitProfit / unit * 10000, invest = n * unit,
         unitProfit = unitProfit, cand = c, trial = NewTrial() }
@@ -705,12 +718,12 @@ end
 
 local function EvaluateFlip(c)
     local row = c.row
-    if Yours(row.key) > 0 then return nil end -- you sell it yourself
+    if Yours(row.key) > 0 then return nil, "you list it yourself" end
     local V, vSource, d = SellRate(row.key)
-    if not V then return nil end
+    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     -- the usual price must still hold today: no falling price, no flood of new listings
-    if d.todayMedian and d.todayMedian < 0.8 * row.usual then return nil end
-    if d.avgQty and row.qty > 2 * d.avgQty then return nil end
+    if d.todayMedian and d.todayMedian < 0.8 * row.usual then return nil, "price falling today" end
+    if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
     local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
     local skip = P.used[row.key] or 0
@@ -731,20 +744,26 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
-    if n < 1 then return nil end
+    if n < 1 then return nil, "no gold left for it in the plan" end
     local yours = SellableOf(row.key)
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
     local depositLoss = DepositPerItem(row.key, row.sell) * relists * n
     local expected = n * row.sell * (1 - AH_CUT) - cost - depositLoss
-    if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then return nil end
+    if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then
+        return nil, "no profit left after the cut and deposits"
+    end
     local timeFactor = n <= V and 1 or (n <= 3 * V and 0.6 or 0.3)
     local conf = (vSource == "your sales" and 1 or (vSource == "bought" and 0.9 or 0.6)) * timeFactor
     local score = expected * conf
-    if score < P.minScore then return nil end
+    if score < P.minScore then
+        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
+    end
     local pick = { key = row.key, kind = "flip", score = score, p1g = expected / cost * 10000, invest = cost,
         unitProfit = expected / n, cand = c, trial = trial }
     pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
+    pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
+    pick.mainTop = trial.top[row.key]
     pick.why = table_concat({ string_format("usual %s", M(row.usual)), string_format("~%s bought/day", Count(d.perDay or V)),
         string_format("%s wait at %s", Count(row.support), M(row.wall)) }, "  ·  ")
     pick.reasons = {
@@ -755,6 +774,7 @@ local function EvaluateFlip(c)
         { "l", "Expected profit", M(expected) },
         { "h", "Market" },
         { "l", "Usual price", M(row.usual) .. GREY .. "  median daily low, last week|r" },
+        { "l", "Profit per item", M(expected / n) },
         { "l", "Today", d.todayMedian and M(d.todayMedian) or "?" },
         { "l", "Buyers", string_format("~%s per day", Count(d.perDay or V)) },
         { "l", "Time to sell", string_format("~%s h", Count(hours)) },
@@ -851,58 +871,13 @@ local function Commit(pick)
     end
 end
 
--- Your own stock that no pick uses: list it
-local function StockPicks(out)
-    local seen, picks = {}, {}
-    local function consider(key, sell)
-        if seen[key] or not sell or FM.IsExcluded(key) then return end
-        seen[key] = true
-        if Yours(key) > 0 then return end
-        -- only what can go to the AH: not soulbound (what you wear isn't counted at all)
-        local _, sellable, bags = FM.Owned(key)
-        local left = math_min(P.stockLeft[key] or StockOf(key), sellable)
-        if left <= 0 then return end
-        local V, _, d = SellRate(key)
-        local n = V and math_min(left, math_max(1, math_floor(V))) or left
-        local value = n * sell * (1 - AH_CUT)
-        if value < STOCK_MIN_VALUE then return end
-        bags = math_min(bags, left)
-        local pick = { key = key, kind = "stock", score = value, invest = 0, unitProfit = sell * (1 - AH_CUT) }
-        pick.plan = string_format("list %s at %s", Count(n), M(sell))
-        pick.why = table_concat({
-            string_format("you have %s%s", Count(left), left > bags and string_format(" (%s in the bank)", Count(left - bags)) or ""),
-            V and string_format("~%s bought/day", Count(d.perDay or V)) or "buyers unknown",
-            string_format("%s listed by others", Count(OthersListed(key))) }, "  ·  ")
-        pick.reasons = {
-            { "h", "Plan" },
-            { "l", "List", string_format("%s at %s", Count(n), M(sell)) },
-            { "l", "Brings", M(value) .. GREY .. "  after the 5% cut|r" },
-            { "l", "You have", string_format("%s (%s in bags)", Count(left), Count(bags)) },
-            { "n", "Nothing in the plan uses these. Listing more than buyers take in a day means relisting (deposits).", GREY },
-        }
-        picks[#picks + 1] = pick
-    end
-    for _, row in ipairs(out.crafts or EMPTY) do
-        if row.sell and row.sellSrc ~= "last" then consider(row.key, row.sell) end
-    end
-    for _, m in ipairs(out.mats or EMPTY) do
-        if m.sell and m.sellSrc ~= "last" then
-            local usual = FM.UsualPrice(m.key, P.now)
-            local sell = usual and math_min(m.sell, math_floor(usual)) or m.sell
-            consider(m.key, math_max(FM.MinListPrice(m.key, P.view.Get(m.key)), sell))
-        end
-    end
-    table_sort(picks, function(a, b) return a.score > b.score end)
-    for i = #picks, MAX_STOCK + 1, -1 do picks[i] = nil end
-    return picks
-end
-
 function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
     local gold = GetMoney and GetMoney() or 0
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, ownListed = OwnListed(),
-        ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares() }
+        ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
+        ignoreStock = FM.GetSettings().tableIgnoreStock ~= false }
     P.budget = gold * GOLD_SHARE
     P.budgetLeft = P.budget
     P.perPick = math_max(P.budget * PICK_SHARE, 0)
@@ -911,7 +886,7 @@ function FM.ComputePicks(out, ctx, done)
 
     local why = {}
     local candidates = Candidates(out, why)
-    local cache = {}
+    local cache, first = {}, {}
     local chosen, levels = {}, {}
     local taken = {}
     local iteration = 0
@@ -927,6 +902,7 @@ function FM.ComputePicks(out, ctx, done)
                 end
                 cache[i] = pick
                 if iteration == 1 then
+                    first[i] = pick -- judged on its own, with all the plan's gold
                     if pick then c.valid = true elseif reason then why[c.row.key] = reason end
                 end
                 if pick and c.kind ~= "level" and (not best or pick.score > cache[best].score) then best = i end
@@ -950,13 +926,31 @@ function FM.ComputePicks(out, ctx, done)
             C_Timer.After(0, Step)
             return
         end
-        -- done: your stock first, then the plan, then recipes to level for
-        for _, c in ipairs(candidates) do
-            if c.valid and not why[c.row.key] then why[c.row.key] = "a good candidate, but the gold went to better picks" end
+        -- done: the plan, further good picks beyond your gold (each on its own), then recipes to level for
+        local shown = {}
+        for _, p in ipairs(chosen) do shown[p.key] = true end
+        local extra = {}
+        for i, c in ipairs(candidates) do
+            local p = first[i]
+            if p and c.kind ~= "level" and not shown[p.key] then extra[#extra + 1] = p end
         end
+        table_sort(extra, function(a, b) return a.score > b.score end)
         local picks = {}
-        for _, p in ipairs(StockPicks(out)) do picks[#picks + 1] = p end
         for _, p in ipairs(chosen) do picks[#picks + 1] = p end
+        for _, p in ipairs(extra) do
+            if #picks >= MAX_SHOWN then break end
+            if not shown[p.key] then
+                shown[p.key] = true
+                p.extra = true
+                picks[#picks + 1] = p
+            end
+        end
+        for _, c in ipairs(candidates) do
+            if c.valid and not why[c.row.key] and not shown[c.row.key] then
+                why[c.row.key] = "a good candidate, but others earn more"
+            end
+        end
+        out.pickPlan = #chosen
         for _, p in ipairs(levels) do picks[#picks + 1] = p end
         for i, p in ipairs(picks) do
             p.rank = i
@@ -965,9 +959,10 @@ function FM.ComputePicks(out, ctx, done)
         out.picks = picks
         out.pickBudget = P.budget
         out.pickWhy = why
-        out.pickRank = {}
+        out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
-            if p.kind ~= "stock" then out.pickRank[p.key] = p.rank end
+            out.pickRank[p.key] = p.rank
+            if p.extra then out.pickExtra[p.key] = true end
         end
         P = nil
         done()
