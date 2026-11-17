@@ -201,12 +201,64 @@ local function View()
     return view
 end
 
--- Buying n units now on the AH: walk the ladder (a single cheap unit hides the real price)
-local function BuyNow(key, n)
+-- Others' auctions of the item's last AH search (item.a, saved whenever the AH shows that item) and its time
+local function SearchLadder(key)
+    local items = FM.R().items
+    local a = items and items[key] and items[key].a
+    if type(a) ~= "string" or a == "" then return nil end
+    local stamp, list = a:match("^([^|]*)|[^|]*|(.*)$")
+    local at = stamp and FM.Unstamp(stamp)
+    if not at then return nil end
+    local levels = {}
+    for entry in list:gmatch("[^,]+") do
+        local _, q, b, _, owner = entry:match("^([^:]*):([^:]*):([^:]*):([^:]*):(.*)$")
+        local qty, buyout = FM.Dec(q) or 1, FM.Dec(b) or 0
+        if owner and owner ~= "@" and qty > 0 and buyout > 0 then
+            local unit = FM.UnitPrice(qty, buyout)
+            levels[unit] = (levels[unit] or 0) + qty
+        end
+    end
+    local ladder = FM.SortedLevels(levels)
+    if not ladder[1] then return nil end
+    return ladder, at
+end
+
+-- The freshest ladder of others' auctions: your last AH search of the item when it is newer than the
+-- latest snapshot (cheap units in an hour old snapshot are often long gone), else the snapshot
+local function FreshLadder(key)
     local v = View()
     local p = v and v.Get(key)
-    if p and p.ladder[1] and FM.BatchUnit then return FM.BatchUnit(p.ladder, n) end
+    local snapshot = p and p.ladder[1] and p.ladder or nil
+    local searched, at = SearchLadder(key)
+    if searched and (not snapshot or at > (FM.R().last.t or 0)) then return searched end
+    return snapshot
+end
+
+-- Buying n units now on the AH: walk the ladder (a single cheap unit hides the real price)
+local function BuyNow(key, n)
+    local ladder = FreshLadder(key)
+    if ladder and FM.BatchUnit then return FM.BatchUnit(ladder, n) end
     return nil
+end
+
+-- Materials of n crafted units now: each material from the vendor or the freshest ladder; making an
+-- intermediate yourself (as the table found it) when that is cheaper; nil when a material has no price
+local function CraftNow(row, n)
+    local craft = row.craft
+    local makes = craft.makes or 1
+    local runs = math.ceil(n / makes)
+    local sum = 0
+    for i, g in ipairs(craft.reagents) do
+        local unit = FM.VendorUnit and FM.VendorUnit(g.key, false)
+        local ah = BuyNow(g.key, g.n * runs)
+        if ah and (not unit or ah < unit) then unit = ah end
+        local part = row.parts and row.parts[i]
+        if part and part.src == "craft" and part.unit and (not unit or part.unit < unit) then unit = part.unit end
+        if not unit and part then unit = part.unit end
+        if not unit then return nil end
+        sum = sum + unit * g.n
+    end
+    return sum / makes
 end
 
 local function LearnedCraft(key)
@@ -220,7 +272,8 @@ end
 --   n      units it is about: your sellable units, else one stack
 --   owned  true when n are yours
 --   vendor true for an item a vendor sells without limit: now = the vendor price (one line in the tooltip)
---   now    materials price per unit now (a crafted item: its materials; anything else: buying it)
+--   now    materials price per unit now (a crafted item: its materials; anything else: buying it), from the
+--          freshest prices: your last AH search of an item when it is newer than the latest snapshot
 --   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data
 --   plural true when the price is of 2+ different materials (a crafted item), else the item is its own material
 --   min8 / min24  lowest price per unit for n units listed for 8h / 24h: (latest AH price x n + deposit) / 0.95 n
@@ -239,10 +292,10 @@ function FM.CostInfo(key)
         -- sold by a vendor: its price is the price
         info.vendor = true
         info.now = vendor
-    elseif craft and craft.cost then
+    elseif craft then
         -- crafted: its materials now, and what you paid for them (all of them, or no data)
         local makes = craft.craft.makes or 1
-        info.now = craft.cost / makes
+        info.now = CraftNow(craft, n)
         local sum = 0
         for _, g in ipairs(craft.craft.reagents) do
             local need = g.n * math.ceil(n / makes)
@@ -262,8 +315,9 @@ function FM.CostInfo(key)
     end
     local f = FM.LatestRecord(key)
     if not info.now and not info.paid and not f then return nil end
-    -- the minimum always starts from the item's own latest AH price, whatever you paid
-    local market = f and FM.Dec(f[2])
+    -- the minimum always starts from the item's own latest AH price (cheapest of others), whatever you paid
+    local ladder = FreshLadder(key)
+    local market = ladder and ladder[1][1] or (f and FM.Dec(f[2]))
     if market and market > 0 then
         info.market = market
         for _, d in ipairs(DURATIONS) do

@@ -29,15 +29,18 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
   crafted is its own material):
   * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: what the
     vendor sells it for
-  * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials, as in Craft;
-    anything else: the AH ladder walked for that many units). White within 5% of
+  * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials for that
+    many crafts, each from the vendor or the AH, or made yourself when the table found that cheaper; anything else:
+    the AH ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
+    auctions only) when it is newer than the latest snapshot, else from the snapshot. White within 5% of
     what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
   * **Material(s) price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
     recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
     `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
     looted or skinned units are not counted: never bought = No data
   * **8h / 24h min. price (n pcs)**: a guard against selling under price by mistake: the lowest price per unit
-    that still nets the units' AH value (the item's latest AH price x n, whatever you paid) after the 5% cut and one
+    that still nets the units' AH value (the item's cheapest price of others, from the same freshest source, x n,
+    whatever you paid) after the 5% cut and one
     lost deposit, n = your sellable units (else one stack). Deposit = max(1s, share x vendor sell price x units),
     share 20% for 8h and 60% for 24h (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as
     measured in game). `C_AuctionHouse.CalculateCommodityDeposit` replaces the estimate for the stackable items in
