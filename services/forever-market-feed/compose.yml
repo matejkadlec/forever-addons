@@ -1,76 +1,146 @@
-# ForeverMarket feed server. A draft for the shared host's tenant pattern (rootless Docker per project, no
-# published ports, the API reached only through the project's own Cloudflare Tunnel, secrets in /etc/<project>).
-# Image names, limits, backups and the tunnel service follow the host's existing projects when deployed.
+# ForeverMarket feed server: PostgreSQL, the collector, the read API and the Cloudflare Tunnel connector.
+# README.md (section Server) is its documentation.
+#
+# No port is published on the host. The tunnel is the only way in and reaches the API as http://api:8080;
+# the connector runs only with `--profile tunnel`. PostgreSQL is on an internal network with no route out.
+#
+# deploy/forever-market-feed-deploy is how production runs this file. It sets the two variables read here,
+# RELEASE (the commit) and FMF_CONFIG_DIRECTORY (the private configuration directory). Nothing else is
+# interpolated: every name below is a literal, so no environment variable can point the stack elsewhere.
 name: forever-market-feed
 
-x-logging: &logging
-  driver: local                 # rotated by Docker: an internet flood of requests cannot fill the disk
-  options: { max-size: "10m", max-file: "3" }
+x-hardening: &hardening
+  restart: unless-stopped        # also the start order after a reboot, where depends_on is not applied
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  logging:
+    driver: local                # rotated by Docker: a flood of requests cannot fill the disk
+    options: { max-size: "10m", max-file: "3" }
+
+x-feed: &feed
+  <<: *hardening
+  image: forever-market-feed:${RELEASE:?set RELEASE to the commit being deployed}
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
 
 services:
   db:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    env_file: /etc/forever-market-feed/db.env           # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB (0600)
+    <<: *hardening
+    image: postgres:18.6-bookworm@sha256:f1ea2a1a4fb7b68d4836be1fdcb8a6466a89b072158bf9d97663600538c294c5
+    # Fixed, so the backup and restore commands address exactly this container.
+    container_name: forever-market-feed-db
+    # The official entrypoint starts as root to hand the data directory to the postgres user; these five
+    # capabilities are exactly that step.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    read_only: true
+    env_file:
+      - ${FMF_CONFIG_DIRECTORY:?set FMF_CONFIG_DIRECTORY to the private configuration directory}/postgres.env
+    environment:
+      POSTGRES_USER: feed
+      POSTGRES_DB: feed
     volumes:
-      - db-data:/var/lib/postgresql/data
-      - ./deploy/readonly-role.sql:/docker-entrypoint-initdb.d/10-readonly-role.sql:ro
-    networks: [backend]
+      - postgres_data:/var/lib/postgresql
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/postgresql:rw,noexec,nosuid,size=16m
+    shm_size: 128m
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 30s
       timeout: 5s
       retries: 5
-    logging: *logging
-    deploy:
-      resources:
-        limits: { cpus: "1.0", memory: 512M }
+      start_period: 30s
+      start_interval: 2s
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [backend]
 
   collector:
+    <<: *feed
     build: .
-    image: forever-market-feed:latest
+    container_name: forever-market-feed-collector
     command: ["collect"]
-    restart: unless-stopped
+    # SIGTERM only ends the wait between cycles; a cycle's writes are one transaction.
     stop_grace_period: 30s
-    env_file: /etc/forever-market-feed/collector.env    # DATABASE_URL (owner role), BLIZZARD_*, FEED_* (0600)
+    # Owner of the tables (POSTGRES_USER); the password comes from postgres.env (PGPASSWORD).
+    env_file:
+      - ${FMF_CONFIG_DIRECTORY}/postgres.env
+      - ${FMF_CONFIG_DIRECTORY}/collector.env       # BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET
+    environment:
+      PGHOST: db
+      PGUSER: feed
+      PGDATABASE: feed
+      FEED_REGION: eu
+      FEED_RULESET: "1"                             # PvP
+      FEED_HOUSE: "110"                             # Alliance Auction House of EU PvP
+      FEED_FACTION: Alliance
+      FEED_BUCKET: CAMWOW EU4 Realm 2 PvP-Alliance
+      FEED_RECORD_HOURS: "4"
+      FEED_INTERVAL: "1800"
+      FEED_KEEP_DAYS: "90"
+    mem_limit: 768m                                 # a cycle peaks at ~300 MB (two ~10 MB API answers)
+    cpus: 1.0
     networks: [backend, egress]
-    depends_on:
-      db: { condition: service_healthy }
-    logging: *logging
-    deploy:
-      resources:
-        limits: { cpus: "1.0", memory: 768M }       # a cycle peaks at ~300 MB (two ~10 MB API answers)
 
   api:
-    image: forever-market-feed:latest
+    <<: *feed
+    pull_policy: never                              # built as the collector's image
+    container_name: forever-market-feed-api
     command: ["serve"]
-    restart: unless-stopped
-    env_file: /etc/forever-market-feed/api.env          # DATABASE_URL (read-only role), FEED_API_TOKEN (0600)
-    networks: [backend, frontend]
-    depends_on:
-      db: { condition: service_healthy }
+    # The read-only role feed_api (deploy/readonly-role.sql): it never sees the Battle.net secret.
+    env_file:
+      - ${FMF_CONFIG_DIRECTORY}/api-database.env    # PGPASSWORD of feed_api
+      - ${FMF_CONFIG_DIRECTORY}/api.env             # FEED_API_TOKEN
+    environment:
+      PGHOST: db
+      PGUSER: feed_api
+      PGDATABASE: feed
     healthcheck:
-      # the process answers (503 = no fresh snapshot is the collector's problem, not the API's)
+      # The process answers; a 503 (no fresh snapshot) is the collector's problem, not the API's.
       test: ["CMD", "python", "-c", "import urllib.request as u, urllib.error as e\ntry: u.urlopen('http://127.0.0.1:8080/healthz', timeout=5)\nexcept e.HTTPError: pass"]
       interval: 60s
       timeout: 10s
       retries: 3
-    logging: *logging
-    deploy:
-      resources:
-        limits: { cpus: "0.5", memory: 512M }       # at most two 72 h downloads at once, ~160 MB each
+      start_period: 30s
+      start_interval: 2s
+    mem_limit: 512m                                 # at most two 72 h downloads at once, ~160 MB each
+    cpus: 0.5
+    networks: [backend, frontend]
 
-  tunnel:
-    image: cloudflare/cloudflared:latest            # pin to the version tag the host's other tunnels use
-    command: ["tunnel", "--no-autoupdate", "run"]
-    restart: unless-stopped
-    env_file: /etc/forever-market-feed/tunnel.env       # TUNNEL_TOKEN of the project's own tunnel (0600)
+  cloudflared:
+    <<: *hardening
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    container_name: forever-market-feed-cloudflared
+    read_only: true
+    # Root only inside the deployment account's rootless user namespace (no authority on the host); needed to
+    # read the mode-0600 token file.
+    user: "0:0"
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "run", "--token-file", "/run/secrets/cloudflared-token"]
+    secrets:
+      - source: cloudflared_token
+        target: cloudflared-token
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+    mem_limit: 128m
+    cpus: 0.25
     networks: [frontend, egress]                    # reaches the API, never the database
-    depends_on: [api]
-    logging: *logging
-    deploy:
-      resources:
-        limits: { cpus: "0.25", memory: 128M }
+
+secrets:
+  cloudflared_token:
+    file: ${FMF_CONFIG_DIRECTORY}/cloudflared-token
 
 networks:
   backend: { internal: true }                       # database traffic only, no way out
@@ -78,4 +148,8 @@ networks:
   egress: {}                                        # outgoing HTTPS: Battle.net (collector), Cloudflare (tunnel)
 
 volumes:
-  db-data:
+  # The only place this name is written. `external` makes Compose refuse to start when the volume is missing
+  # instead of creating an empty one; only `forever-market-feed-deploy init` creates it.
+  postgres_data:
+    name: forever-market-feed-postgres-data
+    external: true

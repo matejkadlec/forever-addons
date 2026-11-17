@@ -128,7 +128,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
 - Slash commands: `/fm` opens the table, `/fm help` lists the rest (`scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
 - Settings panel: `Jim's Forever AddOns -> Market`
-- Optional Battle.net feed: a Windows task reads the auction house from the Battle.net API every 30 minutes while you are away and ForeverMarket imports it at login ([`services/forever-market-feed`](services/forever-market-feed/README.md))
+- Optional Battle.net feed: a server collects the auction house from the Battle.net API around the clock, a Windows task downloads it every 30 minutes and ForeverMarket imports it at login; without the server the Windows task reads the API itself while the PC is on ([`services/forever-market-feed`](services/forever-market-feed/README.md))
 - Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)
 
 ## 🧩 Backported AddOns

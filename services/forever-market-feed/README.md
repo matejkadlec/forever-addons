@@ -77,15 +77,34 @@ standard library is needed (Python 3.8+).
 
 ## Server (`server.py`)
 
-One image (`Dockerfile`), the command picks the role; `compose.yml` is a draft for a shared host where every project
-has its own rootless Docker, no published ports and its own Cloudflare Tunnel:
+Production is `https://market.matejkadlec.cz` on `matejkadlec-cz1`, a FORPSI server shared with the owner's other
+sites. The feed server is one tenant there and owns exactly this, nothing else on the host belongs to it:
 
-| Service | Command | |
-| ------- | ------- | - |
-| `db` | PostgreSQL | tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it); network `backend` only |
-| `collector` | `python server.py collect` | owns the tables; every `FEED_INTERVAL` (1800 s): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction (session advisory lock, the download happens outside it); a failed cycle retries after 5 minutes; snapshots older than `FEED_KEEP_DAYS` (90) are deleted |
-| `api` | `python server.py serve` | port 8080 on `frontend`, read-only database role `feed_api` (`deploy/readonly-role.sql`), at most two `/v1/feed` builds at once (503 otherwise), `/healthz` cached for 30 s |
-| `tunnel` | cloudflared | the project's own tunnel, routes the public hostname to `http://api:8080`; reaches the API, never the database |
+- the locked account `fmf-deploy` (no password, no sudo, no extra groups, its own subordinate ID range) with its own
+  rootless Docker daemon, kept running across reboots by lingering
+- a CPU and memory ceiling on that account's systemd slice (2 cores, 3 GB), so an image build or a runaway process
+  cannot starve the other sites
+- `/srv/forever-market-feed/` (repository mirror, releases, state, database dumps) and `/etc/forever-market-feed/`
+  (private configuration)
+- `/usr/local/libexec/forever-market-feed-deploy` and `/usr/local/libexec/forever-market-feed-backup`, root-owned
+  copies of the two commands in `deploy/`
+- the Cloudflare Tunnel `forever-market-feed-production`
+
+[`deploy/provision-server.sh`](deploy/provision-server.sh) creates all of it and can be run again; it installs no
+package and changes no host-wide setting. Ask the owner before anything host-wide (packages, SSH daemon, firewall,
+Cloudflare zone settings, other accounts).
+
+### The stack
+
+[`compose.yml`](compose.yml) is the only definition of the stack. One image (`Dockerfile`), the command picks the
+role. No service publishes a host port.
+
+| Service | What it is | Networks |
+| ------- | ---------- | -------- |
+| `db` | PostgreSQL 18: tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it) | `backend` (no route out) |
+| `collector` | `python server.py collect`: owns the tables; every `FEED_INTERVAL` (1800 s, the first cycle at start): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction (session advisory lock, the download happens outside it); a failed cycle retries after 5 minutes; snapshots older than `FEED_KEEP_DAYS` (90) are deleted | `backend`, `egress` |
+| `api` | `python server.py serve`: port 8080, read-only database role `feed_api`, at most two `/v1/feed` builds at once (503 otherwise), `/healthz` cached for 30 s | `backend`, `frontend` (no route out) |
+| `cloudflared` | Tunnel connector, the only way in; runs once the token file exists | `frontend`, `egress` |
 
 API (bearer token `FEED_API_TOKEN`, gzip when asked):
 - `GET /healthz` without token: 200 when the newest snapshot is under 3 hours old, else 503
@@ -93,19 +112,176 @@ API (bearer token `FEED_API_TOKEN`, gzip when asked):
 - `GET /v1/feed?since=<unix>`: snapshots newer than `since` (at most 72 hours back), the newest fingerprints and the
   variant items, the shape `render_feed` writes into the AddOn
 
-Secrets live in env files outside the repository, one per service (`deploy/*.env.example` list the variables):
-the collector gets the database owner and the Battle.net client, the API only the read-only role and
-`FEED_API_TOKEN` (`openssl rand -hex 32`), the tunnel its token. The server has no SavedVariables to match the house
-with, so `FEED_HOUSE`, `FEED_RULESET`, `FEED_FACTION` and `FEED_BUCKET` are set there. `python server.py once` runs
-one cycle by hand. Backups: `pg_dump` from the `db` container (the data directory belongs to a subordinate UID under
-rootless Docker). Logs are rotated by Docker (`local` driver).
+Decisions that are not obvious from the files:
+
+- **One public route.** The tunnel's published application is `market.matejkadlec.cz` with the path `^/v1/` to
+  `http://api:8080`; everything else ends at the tunnel's 404. `/healthz` is only checked inside the host.
+- **The database volume.** `forever-market-feed-postgres-data` is declared `external`: only `init` creates it, and a
+  deployment refuses a missing volume or a database without tables instead of starting on an empty one. Never run
+  `docker compose down --volumes` or `docker volume rm` here.
+- **Settings in the Compose file.** The server has no SavedVariables to match the house with, so `FEED_HOUSE` (110),
+  `FEED_RULESET` (1, PvP), `FEED_FACTION` and `FEED_BUCKET` are set in `compose.yml`, like the other non-secret
+  settings. Only secrets live in `/etc/forever-market-feed`.
+- **Reboots.** Docker starts the containers again on its own (`restart: unless-stopped`) but ignores `depends_on`
+  then: a collector that starts before PostgreSQL exits and is restarted until the database answers; the API needs
+  the database only per request.
+- **Hardening.** The collector and the API run as UID 10001 on a read-only root filesystem with all capabilities
+  dropped, `no-new-privileges`, bounded PIDs, memory, CPU and logs (`local` driver, 3 × 10 MB). PostgreSQL keeps the
+  five capabilities its entrypoint needs. Base images and cloudflared are pinned by digest (the same cloudflared
+  and PostgreSQL as the host's other tenants), psycopg comes from `requirements.lock` with hashes.
+
+### Private configuration
+
+`/etc/forever-market-feed/` is owned by `fmf-deploy` with mode 0700, each file 0600. Nothing in it enters Git,
+GitHub, an image, a log or a chat.
+
+| File | Content | Written by |
+| ---- | ------- | ---------- |
+| `postgres.env` | `POSTGRES_PASSWORD` and `PGPASSWORD` (the same value: the owner role `feed`, used by PostgreSQL and the collector) | provisioning, generated |
+| `api-database.env` | `PGPASSWORD` of the read-only role `feed_api`; `init` sets it on the role | provisioning, generated |
+| `restic-password` | backup repository password | provisioning, generated |
+| `collector.env` | `BLIZZARD_CLIENT_ID`, `BLIZZARD_CLIENT_SECRET` ([example](deploy/collector.env.example)) | the owner |
+| `api.env` | `FEED_API_TOKEN` ([example](deploy/api.env.example)) | the owner |
+| `cloudflared-token` | tunnel token | the owner |
+| `backup.env` | bucket and its credentials ([example](deploy/backup.env.example)) | the owner |
+
+Provisioning never replaces an existing file. Nobody needs the database passwords (only the containers use them,
+the PC talks to the API with `FEED_API_TOKEN`); the database password is also stored inside the volume. The restic
+password is the only key to the backups: **keep a copy of `restic-password` in a password manager.**
+
+To write a secret without showing it, run this on the host and paste the value at the silent prompt (here the
+token; `collector.env` takes two lines, `backup.env` four):
+
+```bash
+read -rsp 'FEED_API_TOKEN: ' VALUE && echo && printf 'FEED_API_TOKEN=%s\n' "$VALUE" | sudo -u fmf-deploy sh -c \
+  'umask 077 && cat > /etc/forever-market-feed/api.env' && unset VALUE
+```
+
+### Deploying
+
+A push to `master` that changes `services/forever-market-feed/**` runs the `Market feed` workflow
+([`.github/workflows/market-feed.yml`](../../.github/workflows/market-feed.yml)). When its checks pass, it connects
+with the SSH key of the GitHub environment `production`, which admits `master` only and holds:
+
+| Kind | Name |
+| ---- | ---- |
+| Secret | `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_SSH_HOST`, `DEPLOY_SSH_HOST_KEY` |
+| Variable | `DEPLOY_SSH_USER`, `DEPLOY_SSH_PORT` |
+
+The host and its key line are secrets because the repository's workflow logs are public.
+
+On the server the key can run one thing, the forced command `forever-market-feed-deploy`, with `deploy <commit>`
+or `status`. The command:
+
+1. fetches the commit from GitHub over HTTPS, requires it to be on `master` and unpacks only this folder of it;
+2. skips the rest when the commit changed nothing the containers are built from (`Dockerfile`, `requirements.lock`,
+   `feed.py`, `server.py`, `compose.yml`);
+3. builds the image, with the old release still running;
+4. dumps the database to `/srv/forever-market-feed/backups/pre-deploy/` (the newest three are kept);
+5. starts the release and waits for the health checks, then checks inside the API container that it reaches the
+   database as `feed_api` and refuses a request without the token;
+6. on failure, starts the previous release again and fails the workflow.
+
+The workflow then requests `/v1/status` through Cloudflare and expects the API's own 401. By hand, "Run workflow"
+redeploys `master`. On the host:
+
+```bash
+sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-deploy status
+sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-deploy deploy <commit> [<branch>]   # also a rollback
+sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-deploy logs collector [<lines>]    # db, collector, api, cloudflared
+```
+
+Changing a command in `deploy/`, a unit or the deploy key is deliberately not automated: copy `deploy/` to the
+host and run `sudo ./provision-server.sh ./deploy-key.pub` again.
+
+First deployment on a new host:
+
+```bash
+sudo ./provision-server.sh ./deploy-key.pub
+# the owner writes collector.env, api.env and cloudflared-token (above)
+sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-deploy init <commit> [<branch>]
+# restore a backup here, if any (Backups below), while the collector is not running
+sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-deploy deploy <commit> [<branch>]
+```
+
+`init` creates the volume, starts PostgreSQL, creates `feed_api` with its generated password
+([`deploy/readonly-role.sql`](deploy/readonly-role.sql)) and the tables, and leaves the collector and the API
+stopped. The collector takes its first snapshot as soon as the deployment starts it.
+
+### Backups
+
+[`forever-market-feed-backup`](deploy/forever-market-feed-backup) writes encrypted `restic` snapshots of a
+`pg_dump -Fc` (never the data directory: it belongs to a subordinate UID and is not consistent while running) to
+FORPSI Object Storage, into a bucket or prefix of the feed alone with its own access key. Three systemd user timers
+of `fmf-deploy` run it (Europe/Prague, up to ten minutes of jitter):
+
+| Timer | When | Operation |
+| ----- | ---- | --------- |
+| `forever-market-feed-backup` | daily 03:40 | Dump, validate, upload; keep 7 daily, 4 weekly, 12 monthly |
+| `forever-market-feed-backup-check` | daily 09:50 | Last backup under 26 hours old, present remotely, 5% of the data read back |
+| `forever-market-feed-restore-rehearsal` | monthly, the 3rd, 05:10 | Restore the latest snapshot into a throwaway PostgreSQL with no network; compare tables, rows and the newest snapshot time |
+
+Each operation records its outcome in `/srv/forever-market-feed/state/backups/` (a failure replaces the earlier
+success) and `forever-market-feed-deploy status` prints them.
+
+Setting up storage, once per bucket or credential rotation: create a private bucket (or prefix) and an access key
+limited to it, write `backup.env` with the no-echo pattern above, run `init`, `run`, `check` and `rehearse` once
+each (`sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-backup <operation>`), and only then enable the
+timers as `fmf-deploy` (the `fmf` helper from Monitoring and logs):
+`fmf systemctl --user enable --now forever-market-feed-backup.timer forever-market-feed-backup-check.timer forever-market-feed-restore-rehearsal.timer`.
+
+Restoring production is deliberately not a command. Rehearse first, then (with the `fmf` helper from Monitoring
+and logs):
+
+```bash
+# the dump: a pre-deployment dump in /srv/forever-market-feed/backups/pre-deploy/, or the latest backup:
+fmf bash -c 'set -a && . /etc/forever-market-feed/backup.env && set +a &&
+  export RESTIC_PASSWORD_FILE=/etc/forever-market-feed/restic-password RESTIC_CACHE_DIR=/srv/forever-market-feed/state/restic-cache &&
+  restic restore latest:/srv/forever-market-feed/backups/scheduled --host forever-market-feed --target /srv/forever-market-feed/backups/restore'
+fmf docker stop forever-market-feed-collector forever-market-feed-api
+fmf sh -c 'docker exec -i --user postgres forever-market-feed-db pg_restore --username feed --dbname feed --clean --if-exists --exit-on-error < /srv/forever-market-feed/backups/restore/forever-market-feed.dump'
+fmf docker start forever-market-feed-collector forever-market-feed-api
+fmf rm -rf /srv/forever-market-feed/backups/restore
+```
+
+The dump carries the grants for `feed_api`; the role itself is created by `init`. The collector continues from the
+restored state.
+
+### Monitoring and logs
+
+The user timer `forever-market-feed-monitor` runs `forever-market-feed-deploy monitor` every 15 minutes: every
+container running and healthy, and the API's `/healthz` (inside the container) answering 200, i.e. the newest
+snapshot under 3 hours old. The outcome goes to `/srv/forever-market-feed/state/monitor` (printed by `status`) and a
+failed check leaves the unit failed (enable it once the first deployment is healthy:
+`fmf systemctl --user enable --now forever-market-feed-monitor.timer`). Nothing sends an alert yet, like on the host's other tenants: look at `status`
+after changing anything.
+
+Anything more is done as the account against its own daemon:
+
+```bash
+fmf() { (cd / && sudo -u fmf-deploy env XDG_RUNTIME_DIR=/run/user/$(id -u fmf-deploy) DOCKER_HOST=unix:///run/user/$(id -u fmf-deploy)/docker.sock "$@"); }
+fmf systemctl --user list-timers 'forever-market-feed-*'
+fmf systemctl --user status forever-market-feed-monitor.service
+fmf docker logs --tail 100 forever-market-feed-collector
+```
+
+Never print a container's environment, and never run `docker compose config` without `--quiet` against production:
+both show the private values.
+
+### Dependencies
+
+After changing the psycopg version (or to pick up updates) regenerate the lock and commit it:
+`echo 'psycopg[binary]==<version>' | uv pip compile - --generate-hashes --python-version 3.12 --python-platform x86_64-manylinux_2_28 --no-header -o requirements.lock`.
+Update the base image, PostgreSQL and cloudflared by changing the tag and the digest together.
+
+### The PC
 
 The PC trusts nothing it downloads: `feed.py` only accepts https (or localhost), never follows a redirect with the
 token, and checks every value before it goes into the Lua file the game runs (numbers, item keys, record
 characters).
 
-On the PC, server mode needs two lines in `.env.market-feed`; the Windows task stays the same:
+Server mode needs two lines in `.env.market-feed`; the Windows task stays the same:
 ```
-FEED_SERVER_URL=https://<the API hostname>
+FEED_SERVER_URL=https://market.matejkadlec.cz
 FEED_API_TOKEN=<the same token as on the server>
 ```
