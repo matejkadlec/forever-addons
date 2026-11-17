@@ -115,7 +115,8 @@ local function ReadContacts(profSkill)
                     local stack = (type(it.stack) == "number" and it.stack > 0) and it.stack or 1
                     local limited = it.limited
                     if type(limited) ~= "number" or limited <= 0 then limited = nil end
-                    local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited }
+                    local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited,
+                        npc = entry.name, mapID = entry.mapID, x = entry.x, y = entry.y }
                     local v = vendors[key]
                     if not v then
                         v = { offers = {} }
@@ -312,6 +313,48 @@ function FM.SetExcluded(key, on)
     local s = FM.GetSettings()
     if type(s.excluded) ~= "table" then s.excluded = {} end
     s.excluded[key] = on and true or nil
+end
+
+-- Favorite items (right-click a row): their own tab in the market table. Account wide.
+function FM.IsFavorite(key)
+    local favorites = FM.GetSettings().favorites
+    return type(favorites) == "table" and favorites[key] and true or false
+end
+
+function FM.SetFavorite(key, on)
+    local s = FM.GetSettings()
+    if type(s.favorites) ~= "table" then s.favorites = {} end
+    s.favorites[key] = on and true or nil
+end
+
+-- The vendor offer of an item that has a place on the map (the cheapest one), or nil
+function FM.VendorWithPlace(key)
+    local v = FM.Sources().vendors[key]
+    if not v then return nil end
+    local best
+    for _, offer in ipairs(v.offers or {}) do
+        if offer.mapID and offer.x and offer.y and (not best or offer.unit < best.unit) then best = offer end
+    end
+    return best
+end
+
+-- Track: a TomTom arrow to the vendor that sells the item (its place in chat without TomTom)
+function FM.TrackVendor(key)
+    local offer = FM.VendorWithPlace(key)
+    if not offer then
+        FM.PrintError("Failed to track " .. FM.GetName(key) .. ": no vendor with a known place sells it.")
+        return
+    end
+    local tomtom = _G.TomTom
+    if tomtom and tomtom.AddWaypoint then
+        local ok = pcall(tomtom.AddWaypoint, tomtom, offer.mapID, offer.x / 100, offer.y / 100,
+            { title = (offer.npc or "Vendor") .. ": " .. FM.GetName(key), persistent = false })
+        if ok then
+            FM.Print("TomTom arrow to " .. (offer.npc or "the vendor") .. " for " .. FM.GetName(key) .. ":", offer.where)
+            return
+        end
+    end
+    FM.Print(FM.GetName(key) .. " is sold by", offer.where)
 end
 
 function FM.ExcludedCount()

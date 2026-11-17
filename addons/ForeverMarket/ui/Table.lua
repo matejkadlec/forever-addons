@@ -1,10 +1,11 @@
 local _, FM = ...
 
--- The market table (/fm, the "FM: table" button at the AH, or the settings panel).
--- Tabs: Latest and Past 3 days (your crafts), Vendor resell, AH resell, Materials.
+-- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
+-- Tabs in three groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
--- through Auctionator, Shift-click = link it in chat. Column headers sort.
+-- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorite,
+-- Ignore, Track (TomTom arrow to the vendor). Column headers sort.
 
 local type = type
 local ipairs = ipairs
@@ -153,7 +154,8 @@ local function NameCell(row)
         text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r"
     end
     if FM.TrackedNote(row.key) then text = text .. BLUE .. " *|r" end
-    if FM.IsExcluded and FM.IsExcluded(row.key) then text = text .. GREY .. " (excluded)|r" end
+    if FM.IsFavorite(row.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
+    if FM.IsExcluded and FM.IsExcluded(row.key) then text = text .. GREY .. " (ignored)|r" end
     return text
 end
 
@@ -276,17 +278,38 @@ local PICK_COLUMNS = {
         sort = function(p) return p.plan or "" end }
 }
 
-local TABS = {
-    { id = "latest", label = "Latest", columns = CRAFT_COLUMNS, data = "crafts", crafts = true },
-    { id = "past", label = "Past 3 days", columns = CRAFT_COLUMNS, data = "past", crafts = true },
-    { id = "vendor", label = "Vendor resell", columns = VENDOR_COLUMNS, data = "vendor" },
-    { id = "flips", label = "AH resell", columns = FLIP_COLUMNS, data = "flips" },
-    { id = "mats", label = "Materials", columns = MAT_COLUMNS, data = "mats" },
-    { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true }
+-- Favorites: one row per item, its best use among the tabs (highest profit per 1g; a material only when
+-- it is nothing else), the market numbers of that row
+local USE_LABEL = { latest = GREEN .. "Craft|r", vendor = YELLOW .. "Vendor|r", flips = YELLOW .. "Flip|r", mats = BLUE .. "Material|r" }
+local USE_SHORT = { latest = "Craft", vendor = "Vendor", flips = "Flip", mats = "Materials" }
+
+local FAV_COLUMNS = {
+    { title = "Item", width = 262, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Best use", width = 90, text = function(r) return r.use and USE_LABEL[r.use] or (GREY .. "-|r") end,
+        sort = function(r) return r.use or "" end },
+    { title = "Profit per 1g", width = 116, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    { title = "Sell now", width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
+    { title = "On AH now", width = 100, text = OnAH, sort = function(r) return r.qty end },
+    { title = "Circulating ~12h", width = 124, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
+    { title = "In tabs", width = 140, align = "LEFT", text = function(r)
+        local names = {}
+        for _, id in ipairs(r.tabs or {}) do names[#names + 1] = USE_SHORT[id] end
+        return GREY .. (#names > 0 and table.concat(names, ", ") or "none right now") .. "|r"
+    end, sort = function(r) return #(r.tabs or {}) end }
 }
+
+-- group 1 blue, group 2 red (the button's own color), group 3 green; each group starts after a gap
+local TABS = {}
 if FM.PICKS_READY then
-    table.insert(TABS, 1, { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true })
+    TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1 }
 end
+TABS[#TABS + 1] = { id = "favs", label = "Favorites", columns = FAV_COLUMNS, favs = true, group = 1 }
+TABS[#TABS + 1] = { id = "mats", label = "Materials", columns = MAT_COLUMNS, data = "mats", group = 1 }
+TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, data = "crafts", crafts = true, group = 2 }
+TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
+TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
+TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
+local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
 
@@ -364,15 +387,62 @@ local function IsOutlier(row, tab, lo, hi)
     return false
 end
 
+local FAV_TABS = { "latest", "vendor", "flips", "mats" }
+
+local function FavoriteRows(trade)
+    local out = {}
+    local favorites = Settings().favorites
+    if type(favorites) ~= "table" then return out end
+    local hits = {}
+    for _, id in ipairs(FAV_TABS) do
+        for _, row in ipairs(trade and trade[TAB_BY_ID[id].data] or {}) do
+            if favorites[row.key] then
+                hits[row.key] = hits[row.key] or {}
+                local list = hits[row.key]
+                list[#list + 1] = { id = id, row = row }
+            end
+        end
+    end
+    for key in pairs(favorites) do
+        local fav = { key = key, fav = true, tabs = {} }
+        local seenTab = {}
+        for _, hit in ipairs(hits[key] or {}) do
+            local row = hit.row
+            if not seenTab[hit.id] then
+                seenTab[hit.id] = true
+                fav.tabs[#fav.tabs + 1] = hit.id
+            end
+            if hit.id ~= "mats" and type(row.p1g) == "number" and (not fav.p1g or row.p1g > fav.p1g) then
+                fav.use, fav.src, fav.p1g = hit.id, row, row.p1g
+            end
+            if hit.id ~= "flips" and not fav.sell then fav.sell = row.sell end -- a flip's sell is its relist price
+            if not fav.qty then fav.qty, fav.own = row.qty, row.own end
+            if not fav.sold12 then fav.sold12, fav.soldWide = row.sold12, row.soldWide end
+        end
+        if not fav.use and hits[key] then fav.use, fav.src = hits[key][1].id, hits[key][1].row end
+        if not fav.sell or not fav.qty then
+            -- in no tab right now: the latest record
+            local f = FM.LatestRecord(key)
+            if f then
+                fav.sell = fav.sell or FM.Dec(f[2])
+                fav.qty = fav.qty or FM.Dec(f[3])
+            end
+        end
+        out[#out + 1] = fav
+    end
+    return out
+end
+
 local function BuildRows()
     local tab = CurrentTab()
     local trade = FM.trade
-    local source = tab.farm and (FM.farm and FM.farm.rows or {}) or (trade and trade[tab.data] or {})
+    local source = tab.farm and (FM.farm and FM.farm.rows or {})
+        or (tab.favs and FavoriteRows(trade) or (trade and trade[tab.data] or {}))
     local s = Settings()
     local needle = view.filter ~= "" and string_lower(view.filter) or nil
     local prof = ProfFilter()
     local out = {}
-    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and tab.id ~= "mats"
+    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and tab.id ~= "mats"
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     view.outliers = 0
@@ -393,11 +463,11 @@ local function BuildRows()
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             if keep and s.tableProfitOnly and tab.crafts and not (row.p1g and row.p1g > 0) then keep = false end
             local minProfit = s.tableMinProfit
-            if keep and minProfit and tab.id ~= "mats" then
+            if keep and minProfit and tab.id ~= "mats" and not tab.favs then
                 local per = tab.picks and row.unitProfit or ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
-            -- excluded items: hidden, or the only ones shown in the "Excluded" view
+            -- ignored items: hidden, or the only ones shown in the "Ignored" view
             if keep then
                 local excluded = FM.IsExcluded(row.key)
                 if view.showExcluded then keep = excluded elseif excluded then keep = false end
@@ -711,12 +781,24 @@ local function PickStatus(row)
     end
 end
 
--- What Shift-click snipes in this tab: the main AH material of a pick at the plan's highest price, a craft's
--- main material at its max buy price, an AH resell item at its buy-up-to price
-local function SnipeTarget(row)
+-- The tab a row's numbers come from and that row: a favorite stands for its best use
+local function RowSource(row)
     local tab = CurrentTab()
+    if tab.favs then
+        if row.src and row.use then return TAB_BY_ID[row.use], row.src end
+        return nil, row
+    end
+    return tab, row
+end
+
+-- What Shift-click snipes in this tab: the main AH material of a pick at the plan's highest price, a craft's
+-- main material at its max buy price, a flip at its buy-up-to price
+local function SnipeTarget(row)
     local key, price
     row = row.reasonOf or row -- a pick's second line (its reasons) belongs to the pick above
+    local tab
+    tab, row = RowSource(row)
+    if not tab then return nil end
     if tab.picks then
         key, price = row.mainKey, row.mainTop
     elseif tab.crafts then
@@ -733,27 +815,34 @@ local function ShowRowTooltip(button)
     if not row then return end
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     GameTooltip:AddLine(IconText(row.key) .. QualityColor(row.key) .. Name(row.key) .. "|r")
-    local tab = CurrentTab()
-    if tab.farm then
+    if CurrentTab().farm then
         FarmTooltip(row)
         GameTooltip:Show()
         return
-    elseif tab.id == "picks" then
-        PickTooltip(row)
-    elseif tab.id == "latest" then
-        CraftTooltip(row, false)
-    elseif tab.id == "past" then
-        CraftTooltip(row, true)
-    elseif tab.id == "vendor" then
-        VendorTooltip(row)
-    elseif tab.id == "flips" then
-        FlipTooltip(row)
-    elseif tab.id == "mats" then
-        MatTooltip(row)
     end
-    if tab.id == "latest" or tab.id == "vendor" or tab.id == "flips" then PickStatus(row) end
+    local tab, src = RowSource(row)
+    if CurrentTab().favs then
+        Note(row.use and ("Best use: " .. USE_SHORT[row.use] .. GREY .. "  (highest profit per 1g of its tabs)|r") or
+            "In no tab right now (no profitable craft, vendor resell or flip).", LABEL)
+    end
+    if not tab then
+        Header("Market")
+        Line("Cheapest now", Money(row.sell))
+        Line("On AH now", OnAH(row))
+    elseif tab.id == "picks" then
+        PickTooltip(src)
+    elseif tab.id == "latest" then
+        CraftTooltip(src, false)
+    elseif tab.id == "vendor" then
+        VendorTooltip(src)
+    elseif tab.id == "flips" then
+        FlipTooltip(src)
+    elseif tab.id == "mats" then
+        MatTooltip(src)
+    end
+    if tab and (tab.id == "latest" or tab.id == "vendor" or tab.id == "flips") then PickStatus(src) end
     local have, sellable = FM.OwnedCount(row.key)
-    if have and have > 0 and tab.id ~= "picks" then
+    if have and have > 0 and not CurrentTab().picks then
         GameTooltip:AddLine(" ")
         Line("You have", FM.FormatCount(have) .. GREY .. "  bags and bank" ..
             ((sellable or have) < have and string_format(", %s soulbound", FM.FormatCount(have - sellable)) or "") .. "|r")
@@ -772,8 +861,7 @@ local function ShowRowTooltip(button)
     else
         GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
     end
-    GameTooltip:AddLine(FM.IsExcluded(row.key) and "Right-click: bring back into the table and picks"
-        or "Right-click: exclude from the table and picks (food you eat, things you keep)", 0.4, 0.75, 1)
+    GameTooltip:AddLine("Right-click: Favorite, Ignore, Track (TomTom arrow to its vendor)", 0.4, 0.75, 1)
     GameTooltip:Show()
 end
 
@@ -798,7 +886,9 @@ local function SearchAtAH(row)
         end
     end
     add(row.key)
-    local tab = CurrentTab()
+    local tab
+    tab, row = RowSource(row)
+    tab = tab or {}
     if tab.picks then
         for _, key in ipairs(row.searchKeys or {}) do add(key) end
     elseif tab.crafts and row.craft then
@@ -808,6 +898,31 @@ local function SearchAtAH(row)
     end
     local ok, err = pcall(api.MultiSearchExact, "ForeverMarket", names)
     if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end
+end
+
+-- Right-click menu of a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow
+-- to the vendor that sells it; greyed when no vendor with a known place sells it)
+local function ShowRowMenu(button, key)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(button, function(_, root)
+        root:CreateTitle(Name(key))
+        root:CreateCheckbox("Favorite", function() return FM.IsFavorite(key) end, function()
+            local on = not FM.IsFavorite(key)
+            FM.SetFavorite(key, on)
+            FM.Print(Name(key) .. (on and " added to the favorites." or " removed from the favorites."))
+            FM.RefreshTable()
+        end)
+        root:CreateCheckbox("Ignore", function() return FM.IsExcluded(key) end, function()
+            local on = not FM.IsExcluded(key)
+            FM.SetExcluded(key, on)
+            FM.Print(on and (Name(key) .. " ignored: hidden from the market table and the picks. The Ignored button shows them.")
+                or (Name(key) .. " is back in the market table."))
+            FM.ComputeTrade(false) -- picks plan the gold again without it
+            FM.RefreshTable()
+        end)
+        local track = root:CreateButton("Track", function() FM.TrackVendor(key) end)
+        track:SetEnabled(FM.VendorWithPlace(key) ~= nil)
+    end)
 end
 
 local function OnRowClick(button, mouseButton)
@@ -823,13 +938,8 @@ local function OnRowClick(button, mouseButton)
         return
     end
     if mouseButton == "RightButton" then
-        local now = not FM.IsExcluded(row.key)
-        FM.SetExcluded(row.key, now)
-        FM.Print(now and (Name(row.key) .. " excluded from the market table and picks. The Excluded button shows them.")
-            or (Name(row.key) .. " is back in the market table."))
         GameTooltip:Hide()
-        FM.ComputeTrade(false) -- picks plan the gold again without it
-        FM.RefreshTable()
+        ShowRowMenu(button, row.key)
         return
     end
     if IsShiftKeyDown and IsShiftKeyDown() then
@@ -939,16 +1049,25 @@ local function LayoutColumns()
     end
 end
 
+-- "5m", "1h", "1h 25m"
+local function Age(seconds)
+    local minutes = math_floor(math_max(0, seconds) / 60)
+    if minutes < 60 then return minutes .. "m" end
+    local hours, rest = math_floor(minutes / 60), minutes % 60
+    if rest == 0 then return hours .. "h" end
+    return string_format("%dh %dm", hours, rest)
+end
+
+-- Title bar, right: how old the market data is (a deep scan or a Battle.net snapshot, whichever is newer)
 local function StatusText()
     local trade = FM.trade
     local r = FM.R()
     local last = r.last and r.last.t
     local parts = {}
     if last then
-        local source = r.last.source == "api" and "Battle.net snapshot" or "Deep scan"
-        parts[#parts + 1] = string_format("%s %s ago (%s)", source, FM.FormatAge(FM.Now() - last), date("%a %H:%M", last))
+        parts[#parts + 1] = "Latest snapshot " .. Age(FM.Now() - last) .. " ago"
     else
-        parts[#parts + 1] = "No deep scan yet"
+        parts[#parts + 1] = "No snapshot yet"
     end
     if FM.TradeBusy and FM.TradeBusy() or (trade and trade.busy) or (FM.FarmBusy and FM.FarmBusy()) then parts[#parts + 1] = YELLOW .. "computing...|r" end
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
@@ -967,7 +1086,7 @@ local function FooterText(total)
         return "No deep scan yet: open the Auction House and click \"FM: scan\"."
     end
     if view.showExcluded then
-        text = text .. "  ·  " .. YELLOW .. "only excluded items|r" .. GREY .. ", right-click brings one back"
+        text = text .. "  ·  " .. YELLOW .. "only ignored items|r" .. GREY .. ", right-click > Ignore brings one back"
     end
     if (view.outliers or 0) > 0 then
         text = text .. string_format("  ·  %d outliers hidden", view.outliers)
@@ -983,12 +1102,8 @@ local function FooterText(total)
         local plan = trade and trade.pickPlan
         text = text .. "  ·  expected profit in the next 24h" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
             .. (gold and (" (" .. Money(gold) .. ")") or "") or "") .. ", the rest is beyond it  ·  hover for why"
-    elseif tab.id == "past" and trade and trade.pastScans then
-        text = text .. string_format("  ·  averages of %d scans since %s", trade.pastScans,
-            trade.pastSince and date("%a %H:%M", trade.pastSince) or "?")
-        if (trade.pastEstimated or 0) > 0 then
-            text = text .. string_format(" (%d estimated from older records, ~)", trade.pastEstimated)
-        end
+    elseif tab.favs then
+        text = text .. "  ·  right-click any row > Favorite adds it here; best use = highest profit per 1g of its tabs"
     elseif tab.crafts then
         text = text .. string_format("  ·  materials priced for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit", FM.TRADE.BATCH)
     elseif tab.id == "vendor" then
@@ -1044,20 +1159,25 @@ Render = function()
     frame.learn:SetChecked(Settings().tableLearn and true or false)
     frame.profit:SetChecked(Settings().tableProfitOnly and true or false)
     frame.profit:SetShown(tab.crafts and true or false)
+    frame.stock:SetChecked(Settings().tableIgnoreStock ~= false)
+    frame.stock:SetShown(tab.picks and true or false)
     frame.outliers:SetChecked(Settings().tableNoOutliers and true or false)
-    frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm)
+    frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm and not tab.favs)
     local prof = ProfFilter()
     frame.prof:SetText(prof and prof or "All professions")
     local minProfit = Settings().tableMinProfit
     frame.minProfit:SetText("Min profit: " .. (minProfit and Money(minProfit) or "any"))
-    frame.minProfit:SetShown(tab.id ~= "mats" and not tab.farm)
+    frame.minProfit:SetShown(tab.id ~= "mats" and not tab.farm and not tab.favs)
     frame.excluded:SetShown(not tab.farm)
-    frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Excluded (%d)", FM.ExcludedCount()))
+    frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
     if total == 0 and not (FM.trade and FM.trade.empty) then
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
+        if tab.favs and not busy and not view.showExcluded then
+            text = "No favorites yet: right-click a row in any tab > Favorite."
+        end
         if tab.farm and not busy and FM.farm and FM.farm.questie == false then
             text = "No Questie mob data: the tab fills from your own kills as you farm."
         end
@@ -1144,13 +1264,37 @@ local function CreateTable()
     local version = Text(f, "GameFontDisableSmall", "TOPLEFT", 12, -9)
     version:SetText("v" .. FM.GetVersion())
 
-    f.status = Text(f, "GameFontHighlightSmall", "TOPRIGHT", -16, -34)
+    -- title bar, right: how old the market data is
+    f.status = Text(f, "GameFontDisableSmall", "TOPRIGHT", -32, -9)
+    if f.CloseButton then
+        f.status:ClearAllPoints()
+        f.status:SetPoint("RIGHT", f.CloseButton, "LEFT", -4, 0)
+    end
     f.status:SetJustifyH("RIGHT")
 
+    -- tabs in groups with a gap between; Farm at the right end of the row
     f.tabs = {}
-    for i, t in ipairs(TABS) do
+    local x, group = 14, nil
+    for _, t in ipairs(TABS) do
         local b = Button(f, t.label, 98, function() SelectTab(t.id) end)
-        b:SetPoint("TOPLEFT", f, "TOPLEFT", 14 + (i - 1) * 102, -30)
+        if t.group == 3 then
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -30)
+        else
+            if group and t.group ~= group then x = x + 24 end
+            b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
+            x = x + 102
+        end
+        group = t.group
+        local color = GROUP_COLOR[t.group]
+        if color then
+            -- the red panel button, made grey and tinted (stays tinted through its up/down/disabled textures)
+            for _, part in ipairs({ b.Left, b.Middle, b.Right }) do
+                if part then
+                    part:SetDesaturated(true)
+                    part:SetVertexColor(color[1], color[2], color[3])
+                end
+            end
+        end
         f.tabs[t.id] = b
     end
 
@@ -1170,9 +1314,23 @@ local function CreateTable()
     searchLabel:SetText("Filter by name")
     f.search = search
 
-    f.learn = Check(f, "To learn", 206, "tableLearn")
-    f.profit = Check(f, "Profitable", 300, "tableProfitOnly")
-    f.outliers = Check(f, "No outliers", 404, "tableNoOutliers")
+    f.learn = Check(f, "To learn", 202, "tableLearn")
+    f.profit = Check(f, "Profitable", 290, "tableProfitOnly")
+    f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
+    f.stock:SetScript("OnClick", function(self)
+        Settings().tableIgnoreStock = self:GetChecked() and true or false
+        view.offset = 0
+        FM.ComputeTrade(false) -- the picks plan again
+        FM.RefreshTable()
+    end)
+    f.stock:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Ignore stock")
+        GameTooltip:AddLine("On: the picks plan as if your bags and bank were empty (all materials bought, nothing of yours to sell). Off: your own materials are used first and your units count as stock to sell. Your auctions on the AH count either way.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.stock:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.outliers = Check(f, "No outliers", 384, "tableNoOutliers")
     f.outliers:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Hide outliers")
@@ -1181,7 +1339,6 @@ local function CreateTable()
     end)
     f.outliers:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.prof = Button(f, "All professions", 122, CycleProf)
-    f.prof:SetPoint("TOPLEFT", f, "TOPLEFT", 522, FILTER_Y)
     f.prof:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Profession filter")
@@ -1190,17 +1347,15 @@ local function CreateTable()
     end)
     f.prof:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.minProfit = Button(f, "Min profit: any", 128, CycleMinProfit)
-    f.minProfit:SetPoint("TOPLEFT", f, "TOPLEFT", 648, FILTER_Y)
-    f.excluded = Button(f, "Excluded", 96, function()
+    f.excluded = Button(f, "Ignored", 96, function()
         view.showExcluded = not view.showExcluded
         view.offset = 0
         FM.RefreshTable()
     end)
-    f.excluded:SetPoint("TOPLEFT", f, "TOPLEFT", 774, FILTER_Y)
     f.excluded:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Excluded items")
-        GameTooltip:AddLine("Shows only the items you excluded (right-click a row to exclude it or bring it back). Click again for the normal view. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
+        GameTooltip:AddLine("Ignored items")
+        GameTooltip:AddLine("Shows only the items you ignored (right-click a row > Ignore, again to bring it back). Click again for the normal view. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f.excluded:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1217,6 +1372,10 @@ local function CreateTable()
         FM.RefreshTable()
     end)
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, FILTER_Y)
+    -- right to left from Refresh, with a gap between the buttons
+    f.excluded:SetPoint("RIGHT", refresh, "LEFT", -10, 0)
+    f.minProfit:SetPoint("RIGHT", f.excluded, "LEFT", -10, 0)
+    f.prof:SetPoint("RIGHT", f.minProfit, "LEFT", -10, 0)
     refresh:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Recompute")

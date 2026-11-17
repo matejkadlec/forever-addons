@@ -256,7 +256,9 @@ local function SellRate(key)
     return nil, nil, d
 end
 
+-- "Ignore stock" (default on): the plans treat your bags and bank as empty (tools you own still count)
 local function StockOf(key)
+    if P.ignoreStock then return 0 end
     local s = P.stock[key]
     if s == nil then
         s = ItemCount(key)
@@ -267,6 +269,7 @@ end
 
 -- Units of yours that will go to the AH before new ones sell (soulbound ones never do)
 local function SellableOf(key)
+    if P.ignoreStock then return 0 end
     local s = P.sellable[key]
     if s == nil then
         local _, n = FM.Owned(key)
@@ -873,7 +876,8 @@ function FM.ComputePicks(out, ctx, done)
     local gold = GetMoney and GetMoney() or 0
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, ownListed = OwnListed(),
-        ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares() }
+        ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
+        ignoreStock = FM.GetSettings().tableIgnoreStock ~= false }
     P.budget = gold * GOLD_SHARE
     P.budgetLeft = P.budget
     P.perPick = math_max(P.budget * PICK_SHARE, 0)

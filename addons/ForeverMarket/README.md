@@ -39,11 +39,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Rows come from the ForeverArtisan AddOns of the logged in character: every recipe of its professions
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
-* Tabs: **Picks**, **Latest** and **Past 3 days** (crafts), **Vendor resell**, **AH resell** (flips), **Materials**, **Farm**.
+* Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Farm**
+  (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+  tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
+* Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
+* Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
+  `settings.excluded`; the "Ignored (n)" button shows only those, `/fm exclude|include|excluded`), **Track**
+  (TomTom arrow to the cheapest vendor with a known place that sells it, from ForeverArtisan_Contacts' `mapID`, `x`,
+  `y`; greyed when none). Favorite items get a star everywhere.
+* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip (highest profit per 1g; Materials
+  only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
+  row of its best use. Items in no tab show the latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
   the tooltip. Order: the gold plan, then further good picks "beyond your gold now" (each judged on its own
   with the plan's gold, up to 20 rows together; `pick.extra`, `FM.trade.pickPlan` = plan size), then recipes
-  worth leveling for (info). No "list your stock" rows (1.9): your stock only feeds the plans. Your stock =
+  worth leveling for (info). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
+  plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
+  AH listings always count); off: your stock is used first and counts as stock to sell. Your stock =
   bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are used for crafting
   but never listed (bank: slots seen while it was open, else the bind type).
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
@@ -58,7 +70,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     price, minus deposits lost on relists (share from your invoices, else 12%), must stay positive. Confidence
     (demand evidence, 3 day swing of uncapped prices, falling price today, cornered market, days of stock
     listed, estimates) scales the score; a pick needs at least max(2s, 1% of the plan's gold) expected.
-  * Every row of Latest / Vendor resell / AH resell says in its tooltip why it is or isn't a pick
+  * Every row of Craft / Vendor / Flip says in its tooltip why it is or isn't a pick
     (`FM.trade.pickRank`, `FM.trade.pickWhy`, `FM.trade.pickExtra`). Vendor picks also take buyers estimated
     from older records (confidence 50%).
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
@@ -73,16 +85,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   max mat buy = main AH material price that still leaves 10% profit, min item sell = the price that still
   breaks even after the 5% cut when you bought that material at max mat buy (= sell / 1.1; the two work as a
   pair), or the break-even of today's material prices when that is higher (tooltip shows both).
-* Past 3 days = profit of the average cost and sell price of the scans of the last 72h (`r.track.h`, one line
-  per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated from records).
-* **AH resell** (flips): buy the cheapest units and relist them 1c under the next real price level (the wall:
+* 3 day history (`r.track.h`, one line per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated
+  from records): the 3 day ranges in tooltips and picks (the "Past 3 days" tab is gone since 1.10).
+* **Flip** (until 1.10 "AH resell"): buy the cheapest units and relist them 1c under the next real price level (the wall:
   where max(3, 10% of all listed) units of others wait), never above 110% of the usual price (median daily low,
   last week, 3+ days of history). A flip needs 15% profit after the 5% cut on every unit bought (buy <= list x
   0.95 / 1.15), at least 1s in total, the cheap units at most 25% of all listed (else they are the market), the
   wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
   of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
-* "Profitable" (Latest, Past 3 days) hides crafts that lose money; vendor and AH resell rows always make a profit.
+* "Profitable" (Craft) hides crafts that lose money; vendor and flip rows always make a profit.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
 * Circulating ~12h comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
@@ -112,10 +124,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the feed what the game already has.
 * "No outliers" (on by default) hides rows whose profit per 1g is beyond 3x the interquartile range of the tab,
   and vendor items listed at over 10x the vendor price.
-* Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link.
-  Right-click: exclude the item from the table and the picks (food you eat, things you keep), again to bring
-  it back; the "Excluded (n)" button shows only excluded items. `/fm exclude|include <links or IDs>`, `/fm excluded`.
-  Stored in `ForeverMarketDB.settings.excluded`.
+* Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
+  snipe its main material). Right-click: the menu above.
 
 ## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
 
@@ -152,8 +162,8 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   (`saved.pct`), so 3 items at 50% may spend 150% together, never more than you have. Gold is counted when a
   purchase is confirmed and only given back on `COMMODITY_PURCHASE_FAILED`.
 * Market table: with the AH open, Shift-click a row to snipe its main material at the table's price (Picks:
-  the plan's "up to" price of the main AH material, Latest / Past 3 days: the max material price, AH resell:
-  the buy up to price). The item keeps its saved %.
+  the plan's "up to" price of the main AH material, Craft: the max material price, Flip: the buy up to price,
+  Favorites: as in the tab of its best use). The item keeps its saved %.
 * Only commodities: unstackable items (sold per auction) are refused.
 * While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
 
