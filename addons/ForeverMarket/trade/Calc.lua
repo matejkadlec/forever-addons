@@ -208,6 +208,8 @@ local function BatchUnit(ladder, n)
     return (total + need * last) / n, true
 end
 
+FM.BatchUnit = BatchUnit
+
 local function AuctionatorPrice(key)
     local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
     if not (api and api.GetAuctionPriceByItemID) then return nil end
@@ -314,7 +316,9 @@ local function CraftRow(craft, view)
     row.cost = cost
     -- recipe still to learn: the cheapest way (trainer, vendor or the pattern on the AH)
     if not craft.learned then
-        for _, route in ipairs(craft.learn or {}) do
+        -- the routes open at your skill now; for a recipe above it, every route
+        local routes = (craft.learn and #craft.learn > 0) and craft.learn or craft.learnAll or {}
+        for _, route in ipairs(routes) do
             local price
             if route.kind == "ah" then
                 local pattern = view.Get(route.key)
@@ -715,6 +719,44 @@ CapSell = function(row)
     end
 end
 
+-- Learn tab: the lowest skill any known way teaches it at, where to learn it (cheapest place first),
+-- and the profit per 1g at last week's usual prices (median daily lows; vendor materials at the vendor)
+local function LearnInfo(row)
+    local craft = row.craft
+    local minSkill, route
+    for _, r in ipairs(craft.learnAll or craft.learn or {}) do
+        if r.req and (not minSkill or r.req < minSkill) then minSkill = r.req end
+        -- a place you can walk to beats an AH pattern; among them the cheapest
+        local placed = r.kind ~= "ah"
+        if not route or (placed and route.kind == "ah") or (placed == (route.kind ~= "ah") and (r.price or 0) < (route.price or 0)) then
+            route = r
+        end
+    end
+    row.minSkill, row.route = minSkill, route
+    row.skillNow = craft.skillNow
+    local function Usual(key)
+        local usual = usualCache[key]
+        if usual == nil then
+            usual = UsualPrice(key, usualNow) or false
+            usualCache[key] = usual
+        end
+        return usual or nil
+    end
+    local sell7 = Usual(row.key)
+    if not sell7 then return end
+    local cost7 = 0
+    for _, g in ipairs(craft.reagents) do
+        local unit = FM.VendorUnit(g.key, false) or Usual(g.key)
+        if not unit then return end
+        cost7 = cost7 + unit * g.n
+    end
+    cost7 = cost7 / (craft.makes or 1)
+    if cost7 <= 0 then return end
+    row.sell7, row.cost7 = sell7, cost7
+    row.profit7 = sell7 * (1 - AH_CUT) - cost7
+    row.p1g7 = row.profit7 / cost7 * 10000
+end
+
 FM.trade = nil
 local running = false
 local queued = false
@@ -885,6 +927,26 @@ function FM.ComputeTrade(record, onDone)
             FM.RunSliced(mats, 40, Safe(function(m)
                 m.sold12, m.soldWide = Sold(m.key, WINDOW_12H)
             end), done)
+        end,
+        function(done)
+            -- Learn tab: every recipe still to learn, now or at a higher skill (sliced: usual prices parse records)
+            local rows = {}
+            for _, row in ipairs(out.crafts) do
+                if row.learned == false then rows[#rows + 1] = row end
+            end
+            for _, craft in ipairs(sources.later or {}) do
+                local row = CraftRow(craft, view)
+                CapSell(row)
+                rows[#rows + 1] = row
+            end
+            usualNow = now
+            FM.RunSliced(rows, 20, Safe(function(row)
+                LearnInfo(row)
+                if not row.sold12 then row.sold12, row.soldWide = Sold(row.key, WINDOW_12H) end
+            end), function()
+                out.learn = rows
+                done()
+            end)
         end,
         function(done)
             -- vendor resell: cheaper at a vendor than on the AH, with buyers in the last days

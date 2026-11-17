@@ -23,7 +23,20 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 ## In game
 
-* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`
+* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
+  then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white):
+  * **Materials price**: buying your units now (a learned craft that you never bought: its materials, as in Craft;
+    anything else: the AH ladder walked for that many units, or the vendor when cheaper). White within 5% of
+    what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+  * **Materials price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
+    recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
+    `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
+    looted or skinned units are not counted: never bought = No data
+  * **8h / 24h min. price (n pcs)**: the lowest price per unit that pays back what you paid plus one lost deposit
+    after the 5% cut, n = your sellable units (else one stack). Deposits per item and duration are measured with
+    `C_AuctionHouse.CalculateCommodityDeposit` whenever the AH opens (stackable items in your bags, once a week,
+    `R.deposits[key][2|3] = { rate, floor }`): deposit = max(floor, rate x units), e.g. Medium Leather 8h 1s up to 10
+    units, then 10c a unit
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
@@ -39,16 +52,26 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Rows come from the ForeverArtisan AddOns of the logged in character: every recipe of its professions
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
-* Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Farm**
-  (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+  Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
+* Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Learn**,
+  **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
+* Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
+  (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
+  `settings.tableSort[tab] = { list = { { col, desc }, ... } }` (1.10's `{ col, desc }` is converted).
+* **Learn** = every recipe still to learn, losing ones too: Profession, Min skill (lowest skill of its routes; white
+  when you have it, red when not), Recipe, Profit per 1g now (as in Craft) and over 7 days (usual prices = median
+  daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
+  trainer or vendor beats a pattern on the AH, then the cheapest). Default sort: profit now, then the lowest skill.
+  "Include higher skill" (default on, `tableLearnHigher`): off hides recipes above your skill now. Hover = the
+  craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
   `settings.excluded`; the "Ignored (n)" button shows only those, `/fm exclude|include|excluded`), **Track**
   (TomTom arrow to the cheapest vendor with a known place that sells it; for a recipe still to learn, to the
   cheapest trainer or recipe vendor with a known place that teaches it; `FM.TrackTarget`, places from
   ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`; greyed when none). Favorite items get a star everywhere.
-* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip (highest profit per 1g; Materials
+* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest profit per 1g; Materials
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in

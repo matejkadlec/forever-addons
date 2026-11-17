@@ -86,7 +86,8 @@ local function Place(entry)
     return (entry.name or "?") .. ", " .. where
 end
 
--- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern)
+-- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern), at any
+-- skill of your professions (BuildSources tells "learnable now" from "at a higher skill")
 local function ReadContacts(profSkill)
     local vendors, routes = {}, {}
     local db = _G.ForeverArtisanContactsDB
@@ -98,8 +99,7 @@ local function ReadContacts(profSkill)
                 local prof, req = string_match(tostring(skill.skillReq or ""), "^(.-)%s+(%d+)$")
                 req = tonumber(req)
                 if prof and req and skill.status ~= "used" and type(skill.name) == "string" then
-                    local cap = profSkill[prof]
-                    if cap and req <= cap then
+                    if profSkill[prof] then
                         local list = routes[skill.name] or {}
                         routes[skill.name] = list
                         list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry),
@@ -137,7 +137,7 @@ local function ReadContacts(profSkill)
                         if not string_find(text, "Already known", 1, true) then
                             for prof, cap in pairs(profSkill) do
                                 local req = tonumber(string_match(text, prof .. " %((%d+)%)"))
-                                if req and req <= cap then
+                                if req then
                                     local list = routes[recipe] or {}
                                     routes[recipe] = list
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
@@ -217,6 +217,7 @@ function FM.BuildSources()
     local patterns = PatternKeys()
 
     local crafts, byKey = {}, {}
+    local laterList, laterByKey = {}, {}
     local tracked = FM.Tracked or {}
     local hidden = type(tracked.hide) == "table" and tracked.hide or {}
     for _, entry in ipairs(charRecipes) do
@@ -225,10 +226,12 @@ function FM.BuildSources()
             local product = type(r) == "table" and r.itemId and tostring(r.itemId)
             if product and not hidden[product] then
                 local learned = r.learned and true or false
-                local learn
+                local cap = profSkill[prof.name] or 0
+                -- every known way to learn it (learnAll), and those open up to your skill cap (learn)
+                local learn, learnAll
                 if not learned then
-                    learn = {}
-                    for _, route in ipairs(routes[recipeName] or {}) do learn[#learn + 1] = route end
+                    learn, learnAll = {}, {}
+                    for _, route in ipairs(routes[recipeName] or {}) do learnAll[#learnAll + 1] = route end
                     local patternKey = patterns[recipeName]
                     if patternKey then
                         -- the tooltip knows the skill; without it, estimate from where the recipe turns gray
@@ -237,12 +240,16 @@ function FM.BuildSources()
                         if not req and type(r.grayAt) == "number" then
                             req, est = r.grayAt - 25, true
                         end
-                        if req and req <= (profSkill[prof.name] or 0) then
-                            learn[#learn + 1] = { kind = "ah", key = patternKey, req = req, est = est }
+                        if req then
+                            learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est }
                         end
                     end
+                    for _, route in ipairs(learnAll) do
+                        if (route.req or 0) <= cap then learn[#learn + 1] = route end
+                    end
                 end
-                if learned or #learn > 0 then
+                local later = not learned and #learn == 0 and #learnAll > 0 -- only at a higher skill
+                if learned or #learn > 0 or later then
                     local reagents = {}
                     for _, g in ipairs(List(r.reagents)) do
                         if g.id then
@@ -259,25 +266,39 @@ function FM.BuildSources()
                         local craft = {
                             key = product, recipe = r.name or recipeName, prof = prof.short, profName = prof.name, tools = tools,
                             makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
-                            learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, reagents = reagents
+                            learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
+                            reagents = reagents, skillNow = data.skill, later = later or nil
                         }
-                        -- one row per product: the learned recipe wins over a second way to make it
-                        local old = byKey[product]
-                        if not old or (learned and not old.learned) then
-                            if old then
-                                for i, c in ipairs(crafts) do
-                                    if c == old then table.remove(crafts, i) break end
-                                end
+                        if later then
+                            -- the Learn tab only: no craft row, no picks
+                            if not laterByKey[product] then
+                                laterByKey[product] = craft
+                                laterList[#laterList + 1] = craft
                             end
-                            crafts[#crafts + 1] = craft
-                            byKey[product] = craft
+                        else
+                            -- one row per product: the learned recipe wins over a second way to make it
+                            local old = byKey[product]
+                            if not old or (learned and not old.learned) then
+                                if old then
+                                    for i, c in ipairs(crafts) do
+                                        if c == old then table.remove(crafts, i) break end
+                                    end
+                                end
+                                crafts[#crafts + 1] = craft
+                                byKey[product] = craft
+                            end
                         end
                     end
                 end
             end
         end
     end
-    FM.sources = { crafts = crafts, byKey = byKey, vendors = vendors, profs = profs, built = FM.Now() }
+    -- a product you can already make (or learn now) needs no recipe for later
+    local later = {}
+    for _, craft in ipairs(laterList) do
+        if not byKey[craft.key] then later[#later + 1] = craft end
+    end
+    FM.sources = { crafts = crafts, byKey = byKey, later = later, vendors = vendors, profs = profs, built = FM.Now() }
     return FM.sources
 end
 
@@ -347,9 +368,9 @@ function FM.TrackTarget(key)
     local offer = FM.VendorWithPlace(key)
     if offer then return offer, "buy" end
     local best
-    for _, row in ipairs(FM.trade and FM.trade.crafts or {}) do
+    for _, row in ipairs(FM.trade and (FM.trade.learn or FM.trade.crafts) or {}) do
         if row.key == key and row.learned == false and row.craft then
-            for _, route in ipairs(row.craft.learn or {}) do
+            for _, route in ipairs(row.craft.learnAll or row.craft.learn or {}) do
                 if route.mapID and route.x and route.y and (not best or (route.price or 0) < (best.price or 0)) then
                     best = route
                 end
@@ -518,6 +539,7 @@ local function BagIndex()
     if not bagIndex then bagIndex = Scan(BagIDs()) end
     return bagIndex
 end
+FM.BagIndex = BagIndex -- [itemID] = { all, free } of your bags (trade/Cost.lua measures deposits of them)
 
 local bankOpen = false
 local function ScanBank()

@@ -2,17 +2,30 @@ local _, FM = ...
 
 -- Item tooltip lines: the latest market state and Claude's advice. Lines are added synchronously
 -- with AddLine (no right column, no wrapping), so they never fight with other tooltip AddOns.
+-- Below them, after a blank line, what the item costs you (trade/Cost.lua) with right-aligned values.
 
 local Dec = FM.Dec
 local math_floor = math.floor
+local math_ceil = math.ceil
 local string_format = string.format
 local string_sub = string.sub
 local type = type
+local ipairs = ipairs
 
 local cache = {}
 local cacheVersion = -1
 
 local SEP = " |cFF9D9D9D·|r "
+
+-- Materials price now against what you paid: white within 5%, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+local CHEAPER, MUCH_CHEAPER, DEARER = 0.05, 0.15, 0.05
+local WHITE = { 1, 1, 1 }
+local ORANGE = { 1, 0.5, 0 }
+local RED = { 1, 0.2, 0.2 }
+local GREEN = { 0.2, 1, 0.2 }
+local LABEL = { 1, 0.82, 0 }
+local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
+local costCache = {}
 
 local function MarketLine(key)
     local f = FM.LatestRecord(key)
@@ -68,9 +81,44 @@ local function AdviceLine(key)
     return line
 end
 
+local function NowColor(now, paid)
+    if not (now and paid and paid > 0) then return WHITE end
+    local diff = (now - paid) / paid
+    if diff < -MUCH_CHEAPER then return RED end
+    if diff < -CHEAPER then return ORANGE end
+    if diff > DEARER then return GREEN end
+    return WHITE
+end
+
+local function Money(v, up)
+    if not v then return "No data" end
+    v = up and math_ceil(v - 0.001) or math_floor(v + 0.5)
+    return FM.FormatMoney(math.max(1, v))
+end
+
+-- { label, value, color } lines of the cost section, or false
+local function CostLines(key)
+    local entry = costCache[key]
+    if entry and GetTime() - entry.at <= COST_AGE then return entry.lines end
+    local lines = false
+    local info = FM.CostInfo and FM.CostInfo(key)
+    if info then
+        local n = FM.FormatCount(info.n)
+        lines = {
+            { "Materials price", Money(info.now), NowColor(info.now, info.paid) },
+            { "Materials price when bought", Money(info.paid), WHITE },
+            { string_format("8h min. price (%s pcs)", n), Money(info.min8, true), WHITE },
+            { string_format("24h min. price (%s pcs)", n), Money(info.min24, true), WHITE }
+        }
+    end
+    costCache[key] = { lines = lines, at = GetTime() }
+    return lines
+end
+
 local function LinesFor(key)
     if cacheVersion ~= FM.dataVersion then
         cache = {}
+        costCache = {}
         cacheVersion = FM.dataVersion
     end
     local entry = cache[key]
@@ -107,6 +155,14 @@ local function OnItemTooltip(tooltip, data)
     local market, advice = LinesFor(key)
     if settings.tooltip and market then tooltip:AddLine(market, 1, 1, 1) end
     if settings.adviceLine and advice then tooltip:AddLine(advice, 1, 1, 1) end
+    local cost = settings.tooltip and CostLines(key)
+    if cost then
+        tooltip:AddLine(" ")
+        for _, line in ipairs(cost) do
+            local c = line[3]
+            tooltip:AddDoubleLine(line[1], line[2], LABEL[1], LABEL[2], LABEL[3], c[1], c[2], c[3])
+        end
+    end
 end
 
 local function Clear(tooltip)

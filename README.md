@@ -117,7 +117,8 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 💰 Logs the Auction House over time and turns it into a market table: what to craft, buy and resell, and where to farm.
 
 - Deep scans of the whole AH (by themselves at most every 15 minutes while the AH is open, or `/fm scan`); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
-- Your own posts, sales and invoices are logged too
+- Your own posts, sales, invoices and AH purchases are logged too
+- Item tooltip: the market line, Claude's advice, and below them what the item costs you: materials price now (colored against what you paid), materials price when bought (purchases only, farmed items show "No data"), and the lowest 8h / 24h price per unit that still pays with one lost deposit
 - Sniper (`/fm snipe` or `FM: snipe` at the AH): while its window is open at the AH, your items are searched over and over and every mouse wheel step buys what someone just listed at or under your price
   - Max price per unit in gold / silver / copper, the item list on the left (click to edit, X to stop sniping; price and gold % are remembered)
   - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item
@@ -129,9 +130,10 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - **Materials**: sell a material or craft with it
   - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
   - **Vendor** (vendor items to resell at the AH) and **Flip** (cheap listings to relist under the next price level with 15%+ profit)
+  - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, profit per 1g now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
   - Right-click a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn)
-  - Search, sortable columns, quick filters; the title bar shows how old the latest snapshot is
+  - Search, sortable columns (Shift-click a header to sort by more columns), quick filters; the title bar shows how old the latest snapshot is
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
 - Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)

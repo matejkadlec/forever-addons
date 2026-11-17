@@ -298,6 +298,36 @@ local FAV_COLUMNS = {
     end, sort = function(r) return #(r.tabs or {}) end }
 }
 
+-- Learn: every recipe you can still learn; skill red when it is above your skill now
+local function SkillCell(r)
+    if not r.minSkill then return GREY .. "?|r" end
+    return (((r.skillNow or 0) >= r.minSkill) and WHITE or RED) .. r.minSkill .. "|r"
+end
+
+local function WhereCell(r)
+    local route = r.route
+    if not route then return GREY .. "-|r" end
+    if route.kind == "ah" then
+        local f = FM.LatestRecord(route.key)
+        local price = f and FM.Dec(f[2])
+        return GREY .. "Pattern on the AH" .. (price and (" from " .. Money(price)) or "") .. "|r"
+    end
+    -- the place without its coordinates (the tooltip has them)
+    local where = (route.where or "?"):gsub("%s*%([%d%.]+, [%d%.]+%)$", "")
+    return GREY .. where .. "|r"
+end
+
+local LEARN_COLUMNS = {
+    { title = "Profession", width = 96, align = "LEFT", text = function(r) return r.craft.profName or r.craft.prof or "?" end,
+        sort = function(r) return r.craft.profName or r.craft.prof or "" end },
+    { title = "Min skill", width = 72, text = SkillCell, sort = function(r) return r.minSkill end, asc = true },
+    { title = "Recipe", width = 214, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Profit per 1g (current)", width = 164, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
+    { title = "Profit per 1g (7 days)", width = 156, text = function(r) return P1g(r.p1g7) end, sort = function(r) return r.p1g7 end },
+    { title = "Where to get", width = 230, align = "LEFT", text = WhereCell,
+        sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end }
+}
+
 -- group 1 blue, group 2 red (the button's own color), group 3 green; each group starts after a gap
 local TABS = {}
 if FM.PICKS_READY then
@@ -308,6 +338,8 @@ TABS[#TABS + 1] = { id = "mats", label = "Materials", columns = MAT_COLUMNS, dat
 TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, data = "crafts", crafts = true, group = 2 }
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
+TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
+    defaultSort = { { 4, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
 local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 } }
 local TAB_BY_ID = {}
@@ -321,17 +353,59 @@ local function CurrentTab()
     return TAB_BY_ID[view.tab] or TABS[1]
 end
 
+-- Sort levels of a tab: { list = { { col, desc }, ... } }, the first level decides first. Click a header to
+-- sort by it alone, Shift-click to add it as the next level (or flip it when it is one already).
+local function DefaultDesc(col)
+    if col.asc then return false end
+    return col.align ~= "LEFT" -- names A-Z, numbers big first
+end
+
 local function SortState(tab)
     local s = Settings()
     if type(s.tableSort) ~= "table" then s.tableSort = {} end
     local state = s.tableSort[tab.id]
-    if type(state) ~= "table" or not tab.columns[state.col] then
-        for i, col in ipairs(tab.columns) do
-            if col.default then state = { col = i, desc = true } end
-        end
-        s.tableSort[tab.id] = state
+    if type(state) == "table" and state.col and not state.list then
+        state = { list = { { col = state.col, desc = state.desc } } } -- saved before 1.11
     end
+    local valid = type(state) == "table" and type(state.list) == "table" and #state.list > 0
+    if valid then
+        for _, level in ipairs(state.list) do
+            if type(level) ~= "table" or not tab.columns[level.col] then valid = false end
+        end
+    end
+    if not valid then
+        state = { list = {} }
+        for _, d in ipairs(tab.defaultSort or {}) do state.list[#state.list + 1] = { col = d[1], desc = d[2] } end
+        if #state.list == 0 then
+            for i, col in ipairs(tab.columns) do
+                if col.default then state.list[1] = { col = i, desc = true } end
+            end
+        end
+        if #state.list == 0 then state.list[1] = { col = 1, desc = DefaultDesc(tab.columns[1]) } end
+    end
+    s.tableSort[tab.id] = state
     return state
+end
+
+-- Header click: one level, or with Shift a further level
+local function SortBy(tab, i, addLevel)
+    local state = SortState(tab)
+    local list = state.list
+    local at
+    for k, level in ipairs(list) do
+        if level.col == i then at = k end
+    end
+    if addLevel then
+        if at then
+            list[at].desc = not list[at].desc
+        else
+            list[#list + 1] = { col = i, desc = DefaultDesc(tab.columns[i]) }
+        end
+    elseif at and #list == 1 then
+        list[1].desc = not list[1].desc
+    else
+        state.list = { { col = i, desc = DefaultDesc(tab.columns[i]) } }
+    end
 end
 
 ---------------------------------------------------------------- rows
@@ -387,7 +461,7 @@ local function IsOutlier(row, tab, lo, hi)
     return false
 end
 
-local FAV_TABS = { "latest", "vendor", "flips", "mats" }
+local FAV_TABS = { "latest", "vendor", "flips", "learn", "mats" }
 
 local function FavoriteRows(trade)
     local out = {}
@@ -442,7 +516,7 @@ local function BuildRows()
     local needle = view.filter ~= "" and string_lower(view.filter) or nil
     local prof = ProfFilter()
     local out = {}
-    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and tab.id ~= "mats"
+    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn and tab.id ~= "mats"
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     view.outliers = 0
@@ -455,6 +529,10 @@ local function BuildRows()
         if tab.farm then
             if needle and not string_find(string_lower((row.mobName or "") .. " " .. (row.zone or "")), needle, 1, true) then keep = false end
         else
+            if tab.learn then
+                if prof and row.craft.prof ~= prof then keep = false end
+                if keep and s.tableLearnHigher == false and row.minSkill and row.minSkill > (row.skillNow or 0) then keep = false end
+            end
             if tab.crafts or tab.picks then
                 if row.learned == false and not s.tableLearn then keep = false end
                 local rowProf = row.prof or (row.craft and row.craft.prof)
@@ -463,7 +541,7 @@ local function BuildRows()
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             if keep and s.tableProfitOnly and tab.crafts and not (row.p1g and row.p1g > 0) then keep = false end
             local minProfit = s.tableMinProfit
-            if keep and minProfit and tab.id ~= "mats" and not tab.favs then
+            if keep and minProfit and tab.id ~= "mats" and not tab.favs and not tab.learn then
                 local per = tab.picks and row.unitProfit or ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
@@ -480,20 +558,29 @@ local function BuildRows()
         end
         if keep then out[#out + 1] = row end
     end
-    local state = SortState(tab)
-    local col = tab.columns[state.col]
-    local desc = state.desc
+    -- sort by every level in turn; empty values last, the name breaks ties
+    local levels = SortState(tab).list
     local values = {}
-    for _, row in ipairs(out) do values[row] = col.sort(row) end
+    for _, row in ipairs(out) do
+        local v = {}
+        for k, level in ipairs(levels) do v[k] = tab.columns[level.col].sort(row) end
+        values[row] = v
+    end
     table_sort(out, function(a, b)
         local va, vb = values[a], values[b]
-        if va == nil and vb == nil then return Name(a.key) < Name(b.key) end
-        if va == nil then return false end
-        if vb == nil then return true end
-        if type(va) ~= type(vb) then va, vb = tostring(va), tostring(vb) end
-        if va == vb then return Name(a.key) < Name(b.key) end
-        if desc then return va > vb end
-        return va < vb
+        for k, level in ipairs(levels) do
+            local x, y = va[k], vb[k]
+            if x ~= nil or y ~= nil then
+                if x == nil then return false end
+                if y == nil then return true end
+                if type(x) ~= type(y) then x, y = tostring(x), tostring(y) end
+                if x ~= y then
+                    if level.desc then return x > y end
+                    return x < y
+                end
+            end
+        end
+        return Name(a.key) < Name(b.key)
     end)
     if tab.picks then
         -- every pick takes two lines: the numbers, then why
@@ -549,7 +636,7 @@ local function SellText(row)
 end
 
 local function LearnLines(craft)
-    for i, route in ipairs(craft.learn or {}) do
+    for i, route in ipairs(craft.learnAll or craft.learn or {}) do
         if i > 4 then break end
         if route.kind == "ah" then
             local f = FM.LatestRecord(route.key)
@@ -557,7 +644,9 @@ local function LearnLines(craft)
             Line("Pattern on the AH", (price and ("from " .. Money(price)) or "?") ..
                 (route.req and (GREY .. string_format("  skill %d%s", route.req, route.est and " (estimated)" or "") .. "|r") or ""))
         else
-            local text = Money(route.price) .. GREY .. string_format("  %s, skill %d", route.where or "?", route.req or 0)
+            local high = (route.req or 0) > (craft.skillNow or 0)
+            local text = Money(route.price) .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
+                .. (high and RED or GREY) .. string_format("skill %d", route.req or 0) .. "|r" .. GREY
             if route.limited then text = text .. ", limited stock" end
             if route.rep then text = text .. ", needs reputation" end
             Line(route.kind == "trainer" and "Trainer" or "Vendor", text .. "|r")
@@ -801,7 +890,7 @@ local function SnipeTarget(row)
     if not tab then return nil end
     if tab.picks then
         key, price = row.mainKey, row.mainTop
-    elseif tab.crafts then
+    elseif tab.crafts or tab.learn then
         key, price = row.mainKey, row.maxMat
     elseif tab.id == "flips" then
         key, price = row.key, row.top
@@ -833,6 +922,16 @@ local function ShowRowTooltip(button)
         PickTooltip(src)
     elseif tab.id == "latest" then
         CraftTooltip(src, false)
+    elseif tab.id == "learn" then
+        CraftTooltip(src, false)
+        Header("Last 7 days")
+        if src.p1g7 then
+            Line("Sells for", Money(src.sell7) .. GREY .. "  usual price (median daily low)|r")
+            Line("Materials", Money(src.cost7) .. GREY .. "  usual prices, vendor ones at the vendor|r")
+            Line("Profit per 1g", P1g(src.p1g7))
+        else
+            Note("Not enough price history yet (3 days of the product and every AH material).")
+        end
     elseif tab.id == "vendor" then
         VendorTooltip(src)
     elseif tab.id == "flips" then
@@ -840,7 +939,7 @@ local function ShowRowTooltip(button)
     elseif tab.id == "mats" then
         MatTooltip(src)
     end
-    if tab and (tab.id == "latest" or tab.id == "vendor" or tab.id == "flips") then PickStatus(src) end
+    if tab and (tab.id == "latest" or tab.id == "vendor" or tab.id == "flips" or tab.id == "learn") then PickStatus(src) end
     local have, sellable = FM.OwnedCount(row.key)
     if have and have > 0 and not CurrentTab().picks then
         GameTooltip:AddLine(" ")
@@ -891,7 +990,7 @@ local function SearchAtAH(row)
     tab = tab or {}
     if tab.picks then
         for _, key in ipairs(row.searchKeys or {}) do add(key) end
-    elseif tab.crafts and row.craft then
+    elseif (tab.crafts or tab.learn) and row.craft then
         for _, g in ipairs(row.craft.reagents or {}) do add(g.key) end
     elseif tab.id == "mats" and row.best then
         add(row.best.key)
@@ -1004,10 +1103,14 @@ end
 local function LayoutColumns()
     local tab = CurrentTab()
     local columns = tab.columns
-    local state = SortState(tab)
+    local levels = SortState(tab).list
     for i, header in ipairs(frame.headers) do
         local col = columns[i]
         if col then
+            local level, order
+            for k, l in ipairs(levels) do
+                if l.col == i then level, order = l, k end
+            end
             local x = ColumnX(columns, i)
             header:ClearAllPoints()
             header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, TOP + 24)
@@ -1016,15 +1119,17 @@ local function LayoutColumns()
             local align = col.align or "RIGHT"
             header.text:SetPoint(align, header, align, align == "LEFT" and 2 or -2, 0)
             header.text:SetJustifyH(align)
-            local sorted = state.col == i
-            header.text:SetText((sorted and WHITE or YELLOW) .. col.title .. "|r")
+            local sorted = level ~= nil
+            -- with more sort levels, each sorted header shows its place
+            header.text:SetText((sorted and WHITE or YELLOW) .. col.title .. "|r"
+                .. ((sorted and #levels > 1) and (GREY .. " " .. order .. "|r") or ""))
             header.arrow:ClearAllPoints()
             if align == "LEFT" then
                 header.arrow:SetPoint("LEFT", header.text, "RIGHT", 2, 0)
             else
                 header.arrow:SetPoint("RIGHT", header.text, "LEFT", -2, 0)
             end
-            header.arrow:SetTexture(state.desc and "Interface\\Buttons\\Arrow-Down-Up" or "Interface\\Buttons\\Arrow-Up-Up")
+            header.arrow:SetTexture((level and level.desc) and "Interface\\Buttons\\Arrow-Down-Up" or "Interface\\Buttons\\Arrow-Up-Up")
             header.arrow:SetShown(sorted)
             header:Show()
         else
@@ -1116,6 +1221,8 @@ local function FooterText(total)
         text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut"
     elseif tab.id == "mats" then
         text = text .. "  ·  craft value = what one unit is worth inside your best learned recipe"
+    elseif tab.learn then
+        text = text .. "  ·  every recipe you can still learn, losing ones too  ·  7 days = usual prices"
     end
     return GREY .. text .. "|r"
 end
@@ -1159,19 +1266,21 @@ Render = function()
     end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     frame.learn:SetShown((tab.crafts or tab.picks) and true or false)
-    frame.prof:SetShown((tab.crafts or tab.picks) and true or false)
+    frame.prof:SetShown((tab.crafts or tab.picks or tab.learn) and true or false)
     frame.learn:SetChecked(Settings().tableLearn and true or false)
     frame.profit:SetChecked(Settings().tableProfitOnly and true or false)
     frame.profit:SetShown(tab.crafts and true or false)
     frame.stock:SetChecked(Settings().tableIgnoreStock ~= false)
     frame.stock:SetShown(tab.picks and true or false)
+    frame.higher:SetChecked(Settings().tableLearnHigher ~= false)
+    frame.higher:SetShown(tab.learn and true or false)
     frame.outliers:SetChecked(Settings().tableNoOutliers and true or false)
-    frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm and not tab.favs)
+    frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm and not tab.favs and not tab.learn)
     local prof = ProfFilter()
     frame.prof:SetText(prof and prof or "All professions")
     local minProfit = Settings().tableMinProfit
     frame.minProfit:SetText("Min profit: " .. (minProfit and Money(minProfit) or "any"))
-    frame.minProfit:SetShown(tab.id ~= "mats" and not tab.farm and not tab.favs)
+    frame.minProfit:SetShown(tab.id ~= "mats" and not tab.farm and not tab.favs and not tab.learn)
     frame.excluded:SetShown(not tab.farm)
     frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
@@ -1279,10 +1388,17 @@ local function CreateTable()
     -- tabs in groups with a gap between; Farm at the right end of the row
     f.tabs = {}
     local x, group = 14, nil
+    local rightCount = 0
+    for _, t in ipairs(TABS) do
+        if t.group == 3 then rightCount = rightCount + 1 end
+    end
+    local rightIndex = 0
     for _, t in ipairs(TABS) do
         local b = Button(f, t.label, 98, function() SelectTab(t.id) end)
         if t.group == 3 then
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -30)
+            -- the green group sits at the right end of the row, Farm last
+            rightIndex = rightIndex + 1
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 102, -30)
         else
             if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
@@ -1321,6 +1437,15 @@ local function CreateTable()
     f.learn = Check(f, "To learn", 202, "tableLearn")
     f.profit = Check(f, "Profitable", 290, "tableProfitOnly")
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
+    f.higher = Check(f, "Include higher skill", 202, "tableLearnHigher")
+    f.higher:SetChecked(Settings().tableLearnHigher ~= false)
+    f.higher:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Include higher skill")
+        GameTooltip:AddLine("Also recipes that need more skill than you have now (their skill is red).", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.higher:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.stock:SetScript("OnClick", function(self)
         Settings().tableIgnoreStock = self:GetChecked() and true or false
         view.offset = 0
@@ -1396,17 +1521,17 @@ local function CreateTable()
         header.arrow = header:CreateTexture(nil, "OVERLAY")
         header.arrow:SetSize(12, 12)
         header:SetScript("OnClick", function()
-            local tab = CurrentTab()
-            local state = SortState(tab)
-            if state.col == i then
-                state.desc = not state.desc
-            else
-                state.col = i
-                state.desc = i ~= 1 -- names A-Z, numbers big first
-            end
+            SortBy(CurrentTab(), i, IsShiftKeyDown and IsShiftKeyDown())
             rowsCache = nil
             Render()
         end)
+        header:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine("Click: sort by this column")
+            GameTooltip:AddLine("Shift-click: sort by it next (after the columns already sorted); again to flip it", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        header:SetScript("OnLeave", function() GameTooltip:Hide() end)
         f.headers[i] = header
     end
     local line = f:CreateTexture(nil, "ARTWORK")
