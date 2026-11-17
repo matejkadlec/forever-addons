@@ -267,6 +267,7 @@ function FM.BuildSources()
                             key = product, recipe = r.name or recipeName, prof = prof.short, profName = prof.name, tools = tools,
                             makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
                             learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
+                            spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
                             reagents = reagents, skillNow = data.skill, later = later or nil
                         }
                         if later then
@@ -316,6 +317,25 @@ function FM.VendorUnit(key, allowLimited)
     local price = AuctionatorVendorPrice(key)
     if price then return price, { unit = price, where = "a vendor (Auctionator saw it)" } end
     return nil
+end
+
+-- Seconds one craft takes: the recipe spell's cast time plus a short gap before the next cast of "Create All";
+-- nil while the spell isn't known
+local CRAFT_GAP = 0.5
+local castSeconds = {}
+function FM.CraftSeconds(craft)
+    local spell = craft and craft.spell
+    if not spell then return nil end
+    local seconds = castSeconds[spell]
+    if seconds then return seconds end
+    local api = C_Spell and C_Spell.GetSpellInfo
+    if not api then return nil end
+    local ok, info = pcall(api, spell)
+    local ms = ok and type(info) == "table" and info.castTime
+    if type(ms) ~= "number" or FM.IsSecret(ms) or ms < 0 then return nil end
+    seconds = ms / 1000 + CRAFT_GAP
+    castSeconds[spell] = seconds
+    return seconds
 end
 
 function FM.TrackedNote(key)

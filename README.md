@@ -128,7 +128,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - **Picks**: what to do in the next 24 hours, ranked by expected profit: first the plan that fits your gold, then further good picks beyond it; reasons in the tooltip (and why other rows are not picks); "Ignore stock" (on by default) plans as if your bags and bank were empty
   - **Favorites**: your favorite items with their best use, price and market numbers
   - **Materials**: sell a material or craft with it
-  - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, max material price and min sell price
+  - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per 1g, time per 1g (crafting time for 1g of materials), max material price and min sell price
   - **Vendor** (vendor items to resell at the AH) and **Flip** (cheap listings to relist under the next price level with 15%+ profit)
   - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, profit per 1g now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
