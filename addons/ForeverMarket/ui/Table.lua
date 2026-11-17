@@ -568,7 +568,9 @@ local function BuildRows()
         else
             if tab.learn then
                 if prof and row.craft.prof ~= prof then keep = false end
-                if keep and s.tableLearnHigher == false and row.minSkill and row.minSkill > (row.skillNow or 0) then keep = false end
+                -- above your skill now: none, or up to the "Max. above current skill" points
+                local above = s.tableLearnHigher == false and 0 or (tonumber(s.tableLearnMaxAbove) or 10)
+                if keep and row.minSkill and row.minSkill > (row.skillNow or 0) + above then keep = false end
             end
             if tab.crafts or tab.picks then
                 if row.learned == false and not s.tableLearn then keep = false end
@@ -1139,6 +1141,35 @@ local function Check(parent, label, x, settingKey)
     return c
 end
 
+-- Filter row of a tab: the shown checkboxes (and the Learn tab's number box) line up from the search box to
+-- the right, the shown buttons from Refresh to the left, so nothing floats in the middle
+local function LayoutFilters(f)
+    local x = 202
+    for _, c in ipairs({ f.learn, f.profit, f.stock, f.higher, f.maxAbove, f.outliers }) do
+        if c:IsShown() then
+            local labelWidth = c.label and c.label:GetStringWidth()
+            if type(labelWidth) ~= "number" or labelWidth <= 0 then labelWidth = #(c.label and c.label:GetText() or "") * 7 end
+            c:ClearAllPoints()
+            if c == f.maxAbove then
+                -- its label sits left of the box
+                c:SetPoint("TOPLEFT", f, "TOPLEFT", x + labelWidth + 8, FILTER_Y)
+                x = x + labelWidth + 8 + 36 + 22
+            else
+                c:SetPoint("TOPLEFT", f, "TOPLEFT", x, FILTER_Y + 1)
+                x = x + 22 + labelWidth + 22
+            end
+        end
+    end
+    local anchor = f.refresh
+    for _, b in ipairs({ f.excluded, f.minProfit, f.prof }) do
+        if b:IsShown() then
+            b:ClearAllPoints()
+            b:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
+            anchor = b
+        end
+    end
+end
+
 local Render
 
 local function ColumnX(columns, index)
@@ -1321,6 +1352,13 @@ Render = function()
     frame.stock:SetShown(tab.picks and true or false)
     frame.higher:SetChecked(Settings().tableLearnHigher ~= false)
     frame.higher:SetShown(tab.learn and true or false)
+    frame.maxAbove:SetShown(tab.learn and true or false)
+    frame.maxAbove.label:SetShown(tab.learn and true or false)
+    if not frame.maxAbove:HasFocus() then frame.maxAbove:SetText(tostring(Settings().tableLearnMaxAbove or 10)) end
+    -- greyed while recipes above your skill are off
+    local higherOn = Settings().tableLearnHigher ~= false
+    frame.maxAbove:SetEnabled(higherOn)
+    frame.maxAbove.label:SetTextColor(higherOn and 1 or 0.5, higherOn and 1 or 0.5, higherOn and 1 or 0.5)
     frame.outliers:SetChecked(Settings().tableNoOutliers and true or false)
     frame.outliers:SetShown(tab.id ~= "mats" and not tab.picks and not tab.farm and not tab.favs and not tab.learn)
     local prof = ProfFilter()
@@ -1329,6 +1367,7 @@ Render = function()
     frame.minProfit:SetText("Min profit: " .. (minProfit and Money(minProfit) or "any"))
     frame.minProfit:SetShown(tab.id ~= "mats" and not tab.farm and not tab.favs and not tab.learn)
     frame.excluded:SetShown(not tab.farm)
+    LayoutFilters(frame)
     frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
@@ -1484,15 +1523,41 @@ local function CreateTable()
     f.learn = Check(f, "To learn", 202, "tableLearn")
     f.profit = Check(f, "Profitable", 290, "tableProfitOnly")
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
-    f.higher = Check(f, "Include higher skill", 202, "tableLearnHigher")
+    f.higher = Check(f, "Above current skill", 202, "tableLearnHigher")
     f.higher:SetChecked(Settings().tableLearnHigher ~= false)
     f.higher:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Include higher skill")
-        GameTooltip:AddLine("Also recipes that need more skill than you have now (their skill is red).", 1, 1, 1, true)
+        GameTooltip:AddLine("Above current skill")
+        GameTooltip:AddLine("Also recipes that need more skill than you have now (their skill is red), up to \"Max. above current skill\" points above it.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f.higher:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- how far above your skill now the Learn tab still lists recipes (whole points)
+    local maxAbove = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    maxAbove:SetSize(36, 22)
+    maxAbove:SetAutoFocus(false)
+    maxAbove:SetNumeric(true)
+    maxAbove:SetMaxLetters(3)
+    maxAbove.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, maxAbove, "LEFT")
+    maxAbove.label:SetText("Max. above current skill")
+    local function SaveMaxAbove(self)
+        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableLearnMaxAbove or 10)
+        Settings().tableLearnMaxAbove = n
+        self:SetText(tostring(n))
+        view.offset = 0
+        FM.RefreshTable()
+    end
+    maxAbove:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    maxAbove:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    maxAbove:HookScript("OnEditFocusLost", SaveMaxAbove)
+    maxAbove:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Max. above current skill")
+        GameTooltip:AddLine("Recipes that need at most this many points more than your skill now (default 10). Enter to apply.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    maxAbove:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.maxAbove = maxAbove
     f.stock:SetScript("OnClick", function(self)
         Settings().tableIgnoreStock = self:GetChecked() and true or false
         view.offset = 0
@@ -1548,10 +1613,7 @@ local function CreateTable()
         FM.RefreshTable()
     end)
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, FILTER_Y)
-    -- right to left from Refresh, with a gap between the buttons
-    f.excluded:SetPoint("RIGHT", refresh, "LEFT", -10, 0)
-    f.minProfit:SetPoint("RIGHT", f.excluded, "LEFT", -10, 0)
-    f.prof:SetPoint("RIGHT", f.minProfit, "LEFT", -10, 0)
+    f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
     refresh:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Recompute")

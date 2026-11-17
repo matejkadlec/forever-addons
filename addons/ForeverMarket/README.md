@@ -68,6 +68,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Learn**,
   **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
+* Filter row: the tab's checkboxes line up from the search box to the right, its buttons from Refresh to the left
+  (only the shown ones, `LayoutFilters`).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
@@ -82,7 +84,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   when you have it, red when not), Recipe, Profit per 1g now (as in Craft) and over 7 days (usual prices = median
   daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
   trainer or vendor beats a pattern on the AH, then the cheapest). Default sort: profit now, then the lowest skill.
-  "Include higher skill" (default on, `tableLearnHigher`): off hides recipes above your skill now. Hover = the
+  "Above current skill" (default on, `tableLearnHigher`): off hides recipes above your skill now; on shows them up
+  to "Max. above current skill" points above it (number box, default 10, `tableLearnMaxAbove`). Hover = the
   craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
