@@ -80,8 +80,12 @@ local OPTIONS = {
     { key = "adviceLine", label = "Claude's advice line on item tooltips" },
     { key = "reloadPopup", label = "Offer a UI reload after the AH closes, so Claude gets the new data" },
     { key = "alerts", label = "Chat alerts: you were undercut, an advised buy price was hit" },
-    { key = "chatSummary", label = "One chat line after each saved scan" }
+    { key = "chatSummary", label = "One chat line after each saved scan" },
+    { key = "tableNoOutliers", label = "Market table: hide outliers (profit per 1g far off the rest of a tab, vendor items listed at 10x+)" }
 }
+
+-- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
+local MIN_PROFIT_STEPS = { { false, "Any" }, { 10, "10c" }, { 100, "1s" }, { 500, "5s" }, { 2000, "20s" }, { 10000, "1g" } }
 
 local function Refresh()
     if not panel then return end
@@ -89,6 +93,7 @@ local function Refresh()
     for _, checkbox in ipairs(checkboxes) do
         checkbox:SetChecked(settings[checkbox.settingKey] and true or false)
     end
+    if panel.minProfit and panel.minProfit.GenerateMenu then panel.minProfit:GenerateMenu() end
     if infoText and FM.realm then
         local r = FM.realm
         local items = 0
@@ -126,11 +131,30 @@ function FM.RegisterSettingsPanel()
         checkbox:SetScript("OnClick", function(self)
             FM.GetSettings()[self.settingKey] = self:GetChecked() and true or false
             FM.dataVersion = FM.dataVersion + 1 -- refresh tooltip lines
+            if FM.RefreshTable then FM.RefreshTable() end
         end)
         checkboxes[#checkboxes + 1] = checkbox
     end
 
-    local y = -64 - #OPTIONS * 30 - 12
+    local y = -64 - #OPTIONS * 30 - 6
+    local minLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    minLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
+    minLabel:SetText("Market table: minimum profit per item")
+    local minProfit = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    minProfit:SetWidth(100)
+    minProfit:SetPoint("LEFT", minLabel, "RIGHT", 12, 0)
+    if minProfit.SetupMenu then
+        minProfit:SetupMenu(function(_, root)
+            local function IsSelected(value) return (FM.GetSettings().tableMinProfit or false) == value end
+            local function SetSelected(value)
+                FM.GetSettings().tableMinProfit = value or nil
+                if FM.RefreshTable then FM.RefreshTable() end
+            end
+            for _, step in ipairs(MIN_PROFIT_STEPS) do root:CreateRadio(step[2], IsSelected, SetSelected, step[1]) end
+        end)
+    end
+    panel.minProfit = minProfit
+    y = y - 40
     local saveButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     saveButton:SetSize(220, 24)
     saveButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y)

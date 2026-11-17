@@ -133,7 +133,9 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, profit per 1g now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
   - Right-click a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn)
-  - Search, sortable columns (Shift-click a header to sort by more columns), quick filters; the title bar shows how old the latest snapshot is
+  - Search, sortable columns (Shift-click a header to sort by more columns), profession dropdown, skill limits for recipes still to learn; the title bar shows how old the latest snapshot is
+  - Craft also shows what a recipe still costs to learn; min item sell includes a lost deposit (8h, or 24h for items under 100 circulating in 12h)
+  - Settings panel: hide outliers (on by default) and a minimum profit per item for the table
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
 - Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)

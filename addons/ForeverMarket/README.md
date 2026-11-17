@@ -68,14 +68,20 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Learn**,
   **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
-* Filter row: the tab's checkboxes line up from the search box to the right, its buttons from Refresh to the left
-  (only the shown ones, `LayoutFilters`).
+* Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
+  (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
+  skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
+  stock" (Picks). Buttons: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`; Craft, Picks, Learn),
+  "Ignored (n)". Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
   converted; a saved sort whose column titles no longer match goes back to the tab's default).
-* **Craft** columns: Item, **Profit per hour** (1.12), Profit per 1g, Max mat buy, Min item sell, On AH now,
-  Circulating. Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
+* **Craft** columns: Item, **Profit per hour** (1.12), Profit per 1g, **Recipe cost** (1.13: what learning a recipe
+  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min item sell, On AH now, Circ. 12h.
+  Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
+  the Learn tab). Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
   `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: profit per hour. The
@@ -140,10 +146,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
   of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
-* "Profitable" (Craft) hides crafts that lose money; vendor and flip rows always make a profit.
+* **Min item sell** (Craft, Vendor, Flip; 1.13) includes one lost deposit per unit for listing a stack: the 8h deposit
+  when 100+ units circulate in 12h, else (or unknown) the 24h one, since a slow item may not sell in 8h
+  (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
-* Circulating ~12h comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
+* Circulating ~12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
   the AH before their time ran out, bought or taken down (Forever hides sellers, so both look the same).
   Grey = taken from the 3 day window.
 * **Farm** (trade/Farm.lua, scan/FarmLog.lua) = mobs at your level (-5..+2, no elites, hostile) ranked by gold per
@@ -168,8 +176,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   import cut short by a /reload is safe to repeat; deep scans wait while an import runs (`FM.feedImporting`).
   Only the realm bucket the feed was matched to imports (`bucket`), `ForeverMarketDB.feedImported[bucket]` tells
   the feed what the game already has.
-* "No outliers" (on by default) hides rows whose profit per 1g is beyond 3x the interquartile range of the tab,
-  and vendor items listed at over 10x the vendor price.
+* Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose profit per 1g is beyond 3x the
+  interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
+  (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.
 

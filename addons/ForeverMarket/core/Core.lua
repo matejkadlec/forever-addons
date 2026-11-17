@@ -37,7 +37,6 @@ FM.DEFAULTS = {
     alerts = true, -- chat alerts: undercuts and advice buy prices
     chatSummary = true, -- one chat line after each processed scan
     tableLearn = true, -- market table: show recipes you can still learn
-    tableProfitOnly = false, -- market table: only rows that make a profit
     tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
     tableIgnoreStock = true, -- picks: plan as if your bags and bank were empty
     tableLearnHigher = true, -- Learn tab: also recipes above your skill now
