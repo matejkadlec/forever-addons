@@ -223,6 +223,19 @@ When implementing features:
 5. Bump the `.toc` version of every changed AddOn
 6. Update `AGENTS.md` and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
 7. Sync the changed AddOns automatically (see Communication Rules)
+8. Ship it through a pull request (see Pull Requests and Code Review)
+
+---
+
+## Pull Requests and Code Review
+
+- Never commit to `master` directly: every change goes on its own branch from the latest `origin/master` and into a pull request
+- Every commit gets a code review by an independent agent (a fresh agent that did not write the change and only sees the diff, the repository and these rules) before its pull request is merged
+  - The review checks correctness, Forever API use (verified against wow-ui-source `forever`), taint and secret value safety, Lua 5.1 compatibility, version bump and documentation
+  - Fix what the review finds, commit the fix, and have the new commit reviewed the same way until a review passes clean
+- Once the review of the last commit passes, merge the pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer, then delete the branch
+- Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
+- The automatic sync into the game still happens after every change, before the review and merge
 
 ---
 
