@@ -27,8 +27,8 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
   then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white).
   "Materials" only when the price is of a craft with 2+ different materials, else "Material" (an item that is not
   crafted is its own material):
-  * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: the vendor
-    price; the min. prices below use it too (or what you paid on the AH, if you did)
+  * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: what the
+    vendor sells it for
   * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials, as in Craft;
     anything else: the AH ladder walked for that many units). White within 5% of
     what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
@@ -36,11 +36,12 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
     recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
     `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
     looted or skinned units are not counted: never bought = No data
-  * **8h / 24h min. price (n pcs)**: the lowest price per unit that pays back what you paid plus one lost deposit
-    after the 5% cut, n = your sellable units (else one stack). Deposits per item and duration are measured with
-    `C_AuctionHouse.CalculateCommodityDeposit` whenever the AH opens (stackable items in your bags, once a week,
-    `R.deposits[key][2|3] = { rate, floor }`): deposit = max(floor, rate x units), e.g. Medium Leather 8h 1s up to 10
-    units, then 10c a unit
+  * **8h / 24h min. price (n pcs)**: a guard against selling under price by mistake: the lowest price per unit
+    that still nets the units' AH value (the item's latest AH price x n, whatever you paid) after the 5% cut and one
+    lost deposit, n = your sellable units (else one stack). Deposit = max(1s, share x vendor sell price x units),
+    share 20% for 8h and 60% for 24h (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as
+    measured in game). `C_AuctionHouse.CalculateCommodityDeposit` replaces the estimate for the stackable items in
+    your bags whenever the AH opens (once a week, `R.deposits[key][2|3] = { rate, floor }`)
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market

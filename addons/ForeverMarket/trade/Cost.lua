@@ -3,10 +3,12 @@ local _, FM = ...
 -- What things cost you, for the item tooltip (ui/Tooltip.lua):
 --   * your AH purchases of commodities, from any window (Blizzard's, Auctionator, the sniper): the confirm call
 --     is hooked, the server's quote gives the price, COMMODITY_PURCHASE_SUCCEEDED makes it real
---   * the deposit of an auction: max(floor, rate x quantity) per duration, measured with Blizzard's deposit
---     calculator for the stackable items in your bags whenever the AH opens
---   * per item: the materials price now, what you paid for them, and the lowest price that still pays when
---     you list all your units for 8h / 24h (one lost deposit included: the deposit comes back when it sells)
+--   * the deposit of an auction: max(1s, share x vendor sell price x quantity), share 20% for 8h and 60% for 24h
+--     (Medium Leather sells to vendors for 50c: 10c a unit for 8h, 1s up to 10 units, as measured in game);
+--     Blizzard's deposit calculator replaces the estimate for the stackable items in your bags when the AH opens
+--   * per item: the materials price now, what you paid for them, and the lowest price per unit for listing all
+--     your units for 8h / 24h that still nets their AH value (latest price x units) after the cut and one lost
+--     deposit (it comes back when the auction sells): a guard against selling under price by mistake
 -- Units you did not buy (skinned, looted, crafted from those) are not counted: no purchases, no price.
 --
 -- R.buys     { "t,key,qty,total", ... }  newest last, 30 days
@@ -29,6 +31,8 @@ local PENDING_AGE = 60     -- a confirm without the server's answer after this i
 local MEASURE_AGE = 7 * 86400 -- deposits are measured again after a week
 local PROBE = 1000         -- units for the per unit rate (far above any floor)
 local DURATIONS = { 2, 3 } -- 8h, 24h on Forever (1 = 2h)
+local DEPOSIT_SHARE = { [2] = 0.2, [3] = 0.6 } -- of the vendor sell price per unit and duration
+local DEPOSIT_FLOOR = 100 -- 1s
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
@@ -164,12 +168,25 @@ FM.On("AUCTION_HOUSE_SHOW", function()
     end)
 end)
 
--- Deposit of one auction of n units for a duration index (2 = 8h, 3 = 24h), nil when never measured
+-- What a vendor pays for one unit (0 = nothing), nil while the item isn't cached
+local function VendorSell(id)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not getInfo then return nil end
+    local ok, _, _, _, _, _, _, _, _, _, _, price = pcall(getInfo, id)
+    if ok and IsNumber(price) then return price end
+    return nil
+end
+
+-- Deposit of one auction of n units for a duration index (2 = 8h, 3 = 24h): measured at the AH, else from the
+-- vendor sell price; nil when neither is known
 function FM.Deposit(key, n, duration)
     local entry = Deposits()[key]
     local d = type(entry) == "table" and entry[duration]
-    if type(d) ~= "table" or not d[1] then return nil end
-    return math_max(d[2] or 0, d[1] * n)
+    if type(d) == "table" and d[1] then return math_max(d[2] or 0, d[1] * n) end
+    local id = FM.ItemIDFromKey(key)
+    local sell = id and VendorSell(id)
+    if not sell then return nil end
+    return math_max(DEPOSIT_FLOOR, DEPOSIT_SHARE[duration] * sell * n)
 end
 
 ---------------------------------------------------------------- tooltip numbers
@@ -204,10 +221,9 @@ end
 --   owned  true when n are yours
 --   vendor true for an item a vendor sells without limit: now = the vendor price (one line in the tooltip)
 --   now    materials price per unit now (a crafted item: its materials; anything else: buying it)
---   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data;
---          a vendor item you never bought on the AH: the vendor price
+--   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data
 --   plural true when the price is of 2+ different materials (a crafted item), else the item is its own material
---   min8 / min24  lowest price per unit that pays for n units listed for 8h / 24h, one lost deposit included
+--   min8 / min24  lowest price per unit for n units listed for 8h / 24h: (latest AH price x n + deposit) / 0.95 n
 function FM.CostInfo(key)
     local id = FM.ItemIDFromKey(key)
     if not id then return nil end
@@ -220,10 +236,9 @@ function FM.CostInfo(key)
     local vendor = FM.VendorUnit and FM.VendorUnit(key, false)
     local craft = not paid and not vendor and LearnedCraft(key)
     if vendor then
-        -- sold by a vendor: its price is the price, what you paid on the AH (if you did) still counts for the minimum
+        -- sold by a vendor: its price is the price
         info.vendor = true
         info.now = vendor
-        info.paid = paid or vendor
     elseif craft and craft.cost then
         -- crafted: its materials now, and what you paid for them (all of them, or no data)
         local makes = craft.craft.makes or 1
@@ -245,12 +260,16 @@ function FM.CostInfo(key)
         info.now = BuyNow(key, n)
         info.paid = paid
     end
-    if not info.now and not info.paid and not FM.LatestRecord(key) then return nil end
-    if info.paid then
+    local f = FM.LatestRecord(key)
+    if not info.now and not info.paid and not f then return nil end
+    -- the minimum always starts from the item's own latest AH price, whatever you paid
+    local market = f and FM.Dec(f[2])
+    if market and market > 0 then
+        info.market = market
         for _, d in ipairs(DURATIONS) do
             local deposit = FM.Deposit(key, n, d)
             if deposit then
-                info["min" .. (d == 2 and 8 or 24)] = (info.paid * n + deposit) / (n * (1 - AH_CUT))
+                info["min" .. (d == 2 and 8 or 24)] = (market * n + deposit) / (n * (1 - AH_CUT))
             end
         end
     end
