@@ -230,18 +230,18 @@ When implementing features:
 ## Pull Requests and Code Review
 
 - Never commit to `master` directly: every new piece of work goes on its own branch from the latest `origin/master` and into a pull request; fixes for an open pull request go on its branch
-  - Work on an AddOn that still has an open pull request builds on that pull request's branch (or tell the maintainer), so the in-game sync and the version bump don't undo it
+  - Work on an AddOn that still has an open pull request builds on that pull request's branch (or tell the maintainer), so the in-game sync and the version bump don't undo it, and is merged only after that pull request (or targets its branch)
 - Every commit gets a code review by an independent agent before its pull request is merged: a fresh agent that did not write the change; it gets the diff, the repository, these rules and the maintainer's request, but not the author's reasoning
   - The review checks correctness, Forever API use (verified against wow-ui-source `forever`), taint and secret value safety, Lua 5.1 compatibility, version bump and documentation
   - A review passes when the reviewer reports nothing that needs a change (nits are optional)
   - Fix valid findings, commit the fix and have it reviewed the same way; the re-review also gets the earlier findings
-  - The last review before a merge always covers the whole pull request diff against `origin/master`
-  - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him, and the pull request stays open
+  - The last review before a merge always covers the whole pull request diff against `origin/master` (after a fetch, `git diff origin/master...HEAD`, three dots)
+  - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him and noted in a pull request comment; the pull request stays open until he answers
 - Once the review of the last commit passes and the pull request's checks are green, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer
-  - Your own = opened by Claude Code (its attribution ends the description; GitHub shows the maintainer as the author either way); pull requests opened by other people are left to the maintainer
-  - Failing checks keep the pull request open, like a failed review
+  - Your own = GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork) and the Claude Code attribution ends the description; anyone else's pull requests, made with Claude Code or not, are left to the maintainer
+  - Checks: the REST endpoint `repos/{owner}/{repo}/commits/{sha}/check-runs`; no checks reported counts as green, pending checks are waited for, failing checks keep the pull request open like a failed review
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
-- A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server (`market-feed.yml`): say so, check the workflow run and report a failed run to the maintainer
+- A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server: say so, check the workflow run and report a failed run to the maintainer
 - The automatic sync into the game still happens after every change, before the review and merge
 
 ---
