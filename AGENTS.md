@@ -7,7 +7,7 @@
   - `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT` (`18`), `.toc` interface version `16001` (client 1.60.x)
   - NOT WotLK 3.3.5a, NOT Classic Era, NOT plain retail: AddOn access to combat data is restricted (secret values, no combat log)
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
-- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format; in server mode `server.py` collects into PostgreSQL on the shared host `matejkadlec-cz1` (tenant `fmf-deploy`, API `https://market.matejkadlec.cz/v1/`) and the PC pulls from it; `.github/workflows/market-feed.yml` deploys master when `services/forever-market-feed/**` changes; the service README's Server section documents the tenant, secrets, deploys, backups and restore, and must be kept current with `compose.yml` and `deploy/`
+- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format; in server mode `server.py` collects into PostgreSQL on the shared host `matejkadlec-cz1` (tenant `fmf-deploy`, API `https://market.matejkadlec.cz/v1/`) and the PC pulls from it; `.github/workflows/market-feed.yml` deploys master when `services/forever-market-feed/**` or the workflow itself changes; the service README's Server section documents the tenant, secrets, deploys, backups and restore, and must be kept current with `compose.yml` and `deploy/`
 - There is no copy of the Blizzard UI source in this repository
 
 ---
@@ -230,14 +230,18 @@ When implementing features:
 ## Pull Requests and Code Review
 
 - Never commit to `master` directly: every new piece of work goes on its own branch from the latest `origin/master` and into a pull request; fixes for an open pull request go on its branch
+  - Work on an AddOn that still has an open pull request builds on that pull request's branch (or tell the maintainer), so the in-game sync and the version bump don't undo it
 - Every commit gets a code review by an independent agent before its pull request is merged: a fresh agent that did not write the change; it gets the diff, the repository, these rules and the maintainer's request, but not the author's reasoning
   - The review checks correctness, Forever API use (verified against wow-ui-source `forever`), taint and secret value safety, Lua 5.1 compatibility, version bump and documentation
-  - A review passes when no finding needs a change (nits are optional)
-  - Fix valid findings, commit the fix and have it reviewed the same way; the re-review also gets the earlier findings and checks the whole pull request diff against `master`
+  - A review passes when the reviewer reports nothing that needs a change (nits are optional)
+  - Fix valid findings, commit the fix and have it reviewed the same way; the re-review also gets the earlier findings
+  - The last review before a merge always covers the whole pull request diff against `origin/master`
   - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him, and the pull request stays open
-- Once the review of the last commit passes, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer; pull requests opened by other people are left to the maintainer
+- Once the review of the last commit passes and the pull request's checks are green, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer
+  - Your own = opened by Claude Code (its attribution ends the description; GitHub shows the maintainer as the author either way); pull requests opened by other people are left to the maintainer
+  - Failing checks keep the pull request open, like a failed review
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
-- A merged change in `services/forever-market-feed/**` deploys the feed server (`.github/workflows/market-feed.yml`): say so and check the workflow run
+- A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server (`market-feed.yml`): say so, check the workflow run and report a failed run to the maintainer
 - The automatic sync into the game still happens after every change, before the review and merge
 
 ---
