@@ -32,7 +32,11 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
   * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials for that
     many crafts, each from the vendor or the AH, or made yourself when the table found that cheaper; anything else:
     the AH ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
-    auctions only) when it is newer than the latest snapshot, else from the snapshot. White within 5% of
+    auctions only) when it is newer than the latest snapshot, else from the snapshot. One scan is no fact: price
+    levels under 75% of the cheapest price of the scan before (deep / feed record or search, 5 min to 2 days older)
+    are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when every level is
+    that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap units (real buys).
+    White within 5% of
     what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
   * **Material(s) price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
     recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on

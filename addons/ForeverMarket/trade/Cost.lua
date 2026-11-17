@@ -33,6 +33,9 @@ local PROBE = 1000         -- units for the per unit rate (far above any floor)
 local DURATIONS = { 2, 3 } -- 8h, 24h on Forever (1 = 2h)
 local DEPOSIT_SHARE = { [2] = 0.2, [3] = 0.6 } -- of the vendor sell price per unit and duration
 local DEPOSIT_FLOOR = 100 -- 1s
+local OUTLIER_DROP = 0.75 -- a cheapest price under 75% of the scan before counts only once a later scan shows it too
+local CONFIRM_GAP = 5 * 60 -- a confirming scan is at least 5 min older than the one it confirms
+local CONFIRM_AGE = 2 * 86400 -- scans older than 2 days confirm nothing (prices move)
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
@@ -223,15 +226,51 @@ local function SearchLadder(key)
     return ladder, at
 end
 
+-- Cheapest price of others in the item's last scan before time t (deep / feed records, AH searches), or nil
+local function PreviousMin(key, before)
+    local items = FM.R().items
+    local item = items and items[key]
+    if not item then return nil end
+    local bestT, bestMin
+    for _, f in ipairs(FM.DetailRecords(item)) do
+        if f and f[1] and f[1]:sub(1, 1) == "r" then
+            local t = FM.Unstamp(f[1]:sub(2))
+            local m = FM.Dec(f[21]) or FM.Dec(f[2]) -- others' cheapest when the record has it
+            if t and m and t <= before and (not bestT or t > bestT) then bestT, bestMin = t, m end
+        end
+    end
+    for record in (type(item.s) == "string" and item.s or ""):gmatch("[^;]+") do
+        local stamp, ladder = record:match("^s([^,]*),[^,]*,[^,]*,[^,]*,([^,]*)")
+        local t = stamp and FM.Unstamp(stamp)
+        local m = ladder and FM.Dec(ladder:match("^([^:/]+)"))
+        if t and m and t <= before and (not bestT or t > bestT) then bestT, bestMin = t, m end
+    end
+    return bestMin, bestT
+end
+
+-- One scan is no fact: price levels far under the scan before (8-10c for hours, then 2c once) are left out
+-- until a later scan shows them too; when every level is that cheap, the whole market moved and counts
+local function Confirmed(key, ladder, at)
+    local prev, prevT = PreviousMin(key, at - CONFIRM_GAP)
+    if not prev or at - prevT > CONFIRM_AGE then return ladder end
+    local floor = prev * OUTLIER_DROP
+    if ladder[1][1] >= floor then return ladder end
+    local kept = {}
+    for _, level in ipairs(ladder) do
+        if level[1] >= floor then kept[#kept + 1] = level end
+    end
+    return kept[1] and kept or ladder
+end
+
 -- The freshest ladder of others' auctions: your last AH search of the item when it is newer than the
--- latest snapshot (cheap units in an hour old snapshot are often long gone), else the snapshot
+-- latest snapshot (cheap units in an hour old snapshot are often long gone), else the snapshot; outliers out
 local function FreshLadder(key)
     local v = View()
     local p = v and v.Get(key)
     local snapshot = p and p.ladder[1] and p.ladder or nil
     local searched, at = SearchLadder(key)
-    if searched and (not snapshot or at > (FM.R().last.t or 0)) then return searched end
-    return snapshot
+    if searched and (not snapshot or at > (FM.R().last.t or 0)) then return Confirmed(key, searched, at) end
+    return snapshot and Confirmed(key, snapshot, FM.R().last.t or FM.Now()) or nil
 end
 
 -- Buying n units now on the AH: walk the ladder (a single cheap unit hides the real price)
