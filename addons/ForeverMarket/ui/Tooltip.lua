@@ -104,12 +104,18 @@ local function CostLines(key)
     local info = FM.CostInfo and FM.CostInfo(key)
     if info then
         local n = FM.FormatCount(info.n)
-        lines = {
-            { "Materials price", Money(info.now), NowColor(info.now, info.paid) },
-            { "Materials price when bought", Money(info.paid), WHITE },
-            { string_format("8h min. price (%s pcs)", n), Money(info.min8, true), WHITE },
-            { string_format("24h min. price (%s pcs)", n), Money(info.min24, true), WHITE }
-        }
+        -- "Materials" only for a craft of 2+ different materials; anything else is its own material
+        local noun = info.plural and "Materials" or "Material"
+        lines = {}
+        if info.vendor then
+            -- a vendor item: one fixed price, nothing to compare
+            lines[1] = { noun .. " price (vendor)", Money(info.now), WHITE }
+        else
+            lines[1] = { noun .. " price", Money(info.now), NowColor(info.now, info.paid) }
+            lines[2] = { noun .. " price when bought", Money(info.paid), WHITE }
+        end
+        lines[#lines + 1] = { string_format("8h min. price (%s pcs)", n), Money(info.min8, true), WHITE }
+        lines[#lines + 1] = { string_format("24h min. price (%s pcs)", n), Money(info.min24, true), WHITE }
     end
     costCache[key] = { lines = lines, at = GetTime() }
     return lines

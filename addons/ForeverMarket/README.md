@@ -24,11 +24,15 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 ## In game
 
 * Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
-  then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white):
-  * **Materials price**: buying your units now (a learned craft that you never bought: its materials, as in Craft;
-    anything else: the AH ladder walked for that many units, or the vendor when cheaper). White within 5% of
+  then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white).
+  "Materials" only when the price is of a craft with 2+ different materials, else "Material" (an item that is not
+  crafted is its own material):
+  * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: the vendor
+    price; the min. prices below use it too (or what you paid on the AH, if you did)
+  * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials, as in Craft;
+    anything else: the AH ladder walked for that many units). White within 5% of
     what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
-  * **Materials price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
+  * **Material(s) price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
     recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
     `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
     looted or skinned units are not counted: never bought = No data

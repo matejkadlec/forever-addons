@@ -118,7 +118,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 - Deep scans of the whole AH (by themselves at most every 15 minutes while the AH is open, or `/fm scan`); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
 - Your own posts, sales, invoices and AH purchases are logged too
-- Item tooltip: the market line, Claude's advice, and below them what the item costs you: materials price now (colored against what you paid), materials price when bought (purchases only, farmed items show "No data"), and the lowest 8h / 24h price per unit that still pays with one lost deposit
+- Item tooltip: the market line, Claude's advice, and below them what the item costs you: material(s) price now (colored against what you paid), material(s) price when bought (purchases only, farmed items show "No data"; vendor items get one "Material price (vendor)" line instead of both), and the lowest 8h / 24h price per unit that still pays with one lost deposit
 - Sniper (`/fm snipe` or `FM: snipe` at the AH): while its window is open at the AH, your items are searched over and over and every mouse wheel step buys what someone just listed at or under your price
   - Max price per unit in gold / silver / copper, the item list on the left (click to edit, X to stop sniping; price and gold % are remembered)
   - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item

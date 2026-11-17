@@ -184,18 +184,12 @@ local function View()
     return view
 end
 
--- Buying n units now: walk the AH ladder (a single cheap unit hides the real price), or the vendor if cheaper
+-- Buying n units now on the AH: walk the ladder (a single cheap unit hides the real price)
 local function BuyNow(key, n)
-    local best
-    local unit = FM.VendorUnit and FM.VendorUnit(key, false)
-    if unit then best = unit end
     local v = View()
     local p = v and v.Get(key)
-    if p and p.ladder[1] and FM.BatchUnit then
-        local ah = FM.BatchUnit(p.ladder, n)
-        if ah and (not best or ah < best) then best = ah end
-    end
-    return best
+    if p and p.ladder[1] and FM.BatchUnit then return FM.BatchUnit(p.ladder, n) end
+    return nil
 end
 
 local function LearnedCraft(key)
@@ -208,8 +202,11 @@ end
 -- The tooltip section of an item, or nil:
 --   n      units it is about: your sellable units, else one stack
 --   owned  true when n are yours
+--   vendor true for an item a vendor sells without limit: now = the vendor price (one line in the tooltip)
 --   now    materials price per unit now (a crafted item: its materials; anything else: buying it)
---   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data
+--   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data;
+--          a vendor item you never bought on the AH: the vendor price
+--   plural true when the price is of 2+ different materials (a crafted item), else the item is its own material
 --   min8 / min24  lowest price per unit that pays for n units listed for 8h / 24h, one lost deposit included
 function FM.CostInfo(key)
     local id = FM.ItemIDFromKey(key)
@@ -220,8 +217,14 @@ function FM.CostInfo(key)
     local n = owned and sellable or (IsNumber(stack) and stack > 0 and stack or 1)
     local info = { n = n, owned = owned }
     local paid = FM.BoughtUnit(key, n)
-    local craft = not paid and LearnedCraft(key)
-    if craft and craft.cost then
+    local vendor = FM.VendorUnit and FM.VendorUnit(key, false)
+    local craft = not paid and not vendor and LearnedCraft(key)
+    if vendor then
+        -- sold by a vendor: its price is the price, what you paid on the AH (if you did) still counts for the minimum
+        info.vendor = true
+        info.now = vendor
+        info.paid = paid or vendor
+    elseif craft and craft.cost then
         -- crafted: its materials now, and what you paid for them (all of them, or no data)
         local makes = craft.craft.makes or 1
         info.now = craft.cost / makes
@@ -237,6 +240,7 @@ function FM.CostInfo(key)
         end
         info.paid = sum and sum / makes or nil
         info.crafted = true
+        info.plural = #craft.craft.reagents > 1
     else
         info.now = BuyNow(key, n)
         info.paid = paid
