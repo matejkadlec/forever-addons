@@ -212,7 +212,9 @@ stopped. The collector takes its first snapshot as soon as the deployment starts
 
 [`forever-market-feed-backup`](deploy/forever-market-feed-backup) writes encrypted `restic` snapshots of a
 `pg_dump -Fc` (never the data directory: it belongs to a subordinate UID and is not consistent while running) to
-FORPSI Object Storage, into a bucket or prefix of the feed alone with its own access key. Three systemd user timers
+FORPSI Object Storage (endpoint `r1-cz.storage.forpsicloud.cz`, region `R1-CZ`), under the prefix
+`forever-market-feed` of a bucket in a storage account of the feed alone (FORPSI has no separate S3 keys: the
+account name and password are the key pair). Three systemd user timers
 of `fmf-deploy` run it (Europe/Prague, up to ten minutes of jitter):
 
 | Timer | When | Operation |
@@ -224,8 +226,8 @@ of `fmf-deploy` run it (Europe/Prague, up to ten minutes of jitter):
 Each operation records its outcome in `/srv/forever-market-feed/state/backups/` (a failure replaces the earlier
 success) and `forever-market-feed-deploy status` prints them.
 
-Setting up storage, once per bucket or credential rotation: create a private bucket (or prefix) and an access key
-limited to it, write `backup.env` with the no-echo pattern above, run `init`, `run`, `check` and `rehearse` once
+Setting up storage, once per storage account or password change: write `backup.env` with the no-echo pattern above
+(`init` creates the bucket), run `init`, `run`, `check` and `rehearse` once
 each (`sudo -u fmf-deploy /usr/local/libexec/forever-market-feed-backup <operation>`), and only then enable the
 timers as `fmf-deploy` (the `fmf` helper from Monitoring and logs):
 `fmf systemctl --user enable --now forever-market-feed-backup.timer forever-market-feed-backup-check.timer forever-market-feed-restore-rehearsal.timer`.

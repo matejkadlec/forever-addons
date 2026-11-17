@@ -131,15 +131,23 @@ require_private_file() {
 require_private_file "$BACKUP_ENV"
 require_private_file "$PASSWORD_FILE"
 
-while IFS='=' read -r name value; do
+# Split at the first '=' only: `IFS='=' read` would drop a single trailing '=' (base64-style secrets end in one).
+while IFS= read -r line || [[ -n "$line" ]]; do
+  case "$line" in
+    '' | '#'*) continue ;;
+    *=*) ;;
+    *) die "$BACKUP_ENV has an unexpected line; see deploy/backup.env.example" ;;
+  esac
+  name="${line%%=*}"
+  value="${line#*=}"
   case "$name" in
     RESTIC_REPOSITORY | AWS_ACCESS_KEY_ID | AWS_SECRET_ACCESS_KEY | AWS_DEFAULT_REGION)
       export "$name=$value"
       ;;
-    '' | '#'*) ;;
     *) die "$BACKUP_ENV has an unexpected line; see deploy/backup.env.example" ;;
   esac
 done <"$BACKUP_ENV"
+unset line name value
 [[ "${RESTIC_REPOSITORY:-}" == s3:https://* ]] || die "RESTIC_REPOSITORY must be an s3:https:// repository"
 [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]] || die "$BACKUP_ENV has no access key"
 export RESTIC_PASSWORD_FILE="$PASSWORD_FILE"
