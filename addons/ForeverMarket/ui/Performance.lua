@@ -22,7 +22,8 @@ local AXIS_H = 18 -- date labels under the chart
 local PAD_LEFT, PAD_RIGHT = 84, 18
 local INSET = 14 -- first and last dot from the plot's edges
 local DOT, DOT_HOVER = 8, 13
-local LIST_MAX = 8 -- rows per list in a tooltip
+local TOP = 3 -- rows per list in a tooltip (all of them with Shift)
+local LABEL_RGB = { 1, 0.82, 0 }
 
 local panel
 local series -- the series on screen
@@ -73,46 +74,49 @@ end
 
 ---------------------------------------------------------------- tooltip
 
-local function List(title, list, row)
+-- A list under a header: the top 3, all of them while Shift is held
+local function List(title, list, row, color)
     if #list == 0 then return end
-    GameTooltip:AddLine(title, 1, 0.82, 0)
-    for i = 1, math_min(#list, LIST_MAX) do
-        GameTooltip:AddLine("  " .. row(list[i]), 1, 1, 1)
-    end
-    if #list > LIST_MAX then GameTooltip:AddLine(string_format("  +%d more", #list - LIST_MAX), 0.62, 0.62, 0.62) end
+    local c = color or LABEL_RGB
+    GameTooltip:AddLine(title, c[1], c[2], c[3])
+    local all = IsShiftKeyDown and IsShiftKeyDown()
+    local n = all and #list or math_min(#list, TOP)
+    for i = 1, n do GameTooltip:AddLine("  " .. row(list[i]), 1, 1, 1) end
+    if #list > n then GameTooltip:AddLine(string_format("  +%d more (hold Shift)", #list - n), 0.62, 0.62, 0.62) end
 end
 
 local function Item(e)
     return string_format("%sx %s (%s)", FM.FormatCount(e.qty), e.name, Coins(e.money))
 end
 
+local LOSS_LABEL = { under = "Sold under cost", over = "Paid over the usual price", deposit = "Expired deposit" }
+
+-- The real losses of a period in one list, largest first
+local function Losses(p)
+    local list = {}
+    for kind, label in pairs(LOSS_LABEL) do
+        for _, e in ipairs(p.losses[kind]) do list[#list + 1] = { label = label, e = e } end
+    end
+    table.sort(list, function(a, b)
+        if a.e.money ~= b.e.money then return a.e.money > b.e.money end
+        return a.e.name < b.e.name
+    end)
+    return list
+end
+
 local function ShowPeriod(owner, p, mode)
     GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
-    GameTooltip:AddLine(PeriodTitle(p, mode))
+    local total = ChangeColor(p.value)
+    GameTooltip:AddDoubleLine(PeriodTitle(p, mode), "Total gains: " .. Signed(p.value), 1, 1, 1, total[1], total[2], total[3])
     local c = ChangeColor(p.change)
     GameTooltip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
-    GameTooltip:AddLine(string_format("AH result since the first dot: %s%s", Signed(p.value),
-        p.pct and "  ·  % of your gold before" or ""), 0.62, 0.62, 0.62)
-    List("Sold:", p.sold, Item)
-    List("Bought:", p.bought, Item)
-    List("Not sold (expired):", p.expired, function(e)
-        local qty = e.qty > 0 and (FM.FormatCount(e.qty) .. "x ") or ""
-        return qty .. e.name .. (e.money > 0 and (" (deposit " .. Coins(e.money) .. " lost)") or "")
-    end)
-    if p.lossTotal >= 0.5 then
-        GameTooltip:AddLine("Real losses: -" .. Coins(p.lossTotal), RED_RGB[1], RED_RGB[2], RED_RGB[3])
-        local function Loss(label, list)
-            for i = 1, math_min(#list, LIST_MAX) do
-                local e = list[i]
-                GameTooltip:AddLine(string_format("  %s: %sx %s (-%s)", label, FM.FormatCount(e.qty), e.name, Coins(e.money)), 1, 1, 1)
-            end
-        end
-        Loss("Sold under cost", p.losses.under)
-        Loss("Paid over the usual price", p.losses.over)
-        Loss("Expired deposit", p.losses.deposit)
-    end
-    if #p.sold + #p.bought + #p.expired == 0 then
-        GameTooltip:AddLine("Nothing sold, bought or expired", 0.62, 0.62, 0.62)
+    List("Sold", p.sold, Item)
+    List("Bought", p.bought, Item)
+    List("Real losses", Losses(p), function(l)
+        return string_format("%s: %sx %s (-%s)", l.label, FM.FormatCount(l.e.qty), l.e.name, Coins(l.e.money))
+    end, RED_RGB)
+    if #p.sold + #p.bought == 0 and p.lossTotal < 0.5 then
+        GameTooltip:AddLine("Nothing sold or bought", 0.62, 0.62, 0.62)
     end
     GameTooltip:Show()
 end
@@ -217,7 +221,11 @@ local function CreatePanel(parent, geo)
                 local d = math_abs(dot - x)
                 if not dist or d < dist then best, dist = i, d end
             end
-            if best ~= p.hover then FM.PerfHover(best) end
+            local shift = IsShiftKeyDown and IsShiftKeyDown() or false
+            if best ~= p.hover or shift ~= p.shift then
+                p.shift = shift
+                FM.PerfHover(best)
+            end
         end)
     end)
     p.hit:SetScript("OnLeave", function(self)
@@ -279,7 +287,9 @@ local function Render()
         lo, hi = math_min(lo, per.value), math_max(hi, per.value)
     end
     local span = math_max(hi - lo, 100)
-    lo, hi = lo - span * 0.12, hi + span * 0.12
+    -- room above and below the line, but none under 0 when nothing goes there (the line starts at 0)
+    if lo < 0 then lo = lo - span * 0.12 end
+    hi = hi + span * 0.12
     local function Y(v) return p.plotBottom + (v - lo) / (hi - lo) * (p.plotTop - p.plotBottom) end
     for k = 0, 3 do
         local v = lo + (hi - lo) * k / 3
@@ -338,6 +348,7 @@ function FM.PerfFooter()
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
     parts[#parts + 1] = "AH only: sales after the cut, less overpaying, selling under cost and lost deposits; buying and posting move gold into items"
+    parts[#parts + 1] = "% of what you spent on the AH plus the result before"
     if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end
     parts[#parts + 1] = "hover a dot"
     return GREY .. table.concat(parts, "  ·  ") .. "|r"

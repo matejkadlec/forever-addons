@@ -97,9 +97,10 @@ local function Readings(r, char)
     for _, line in ipairs(type(list) == "table" and list or {}) do
         local f = FM.Split(line, ",")
         local t, gold, held = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
-        if t and gold and held and (f[4] or ""):sub(1, 1) == "h" then points[#points + 1] = { t, gold, held, f[4] } end
+        if t and gold and held and (f[4] or ""):sub(1, 1) == "h" then points[#points + 1] = { t, gold, held, f[4], #points } end
     end
-    table_sort(points, function(a, b) return a[1] < b[1] end)
+    -- minute stamps can tie (an anchor and the next reading): the order they were saved in decides
+    table_sort(points, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[5] < b[5]) end)
     return points
 end
 
@@ -288,6 +289,16 @@ local function Build(r, char, mode, now)
         end
     end
     for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
+    -- all you spent on the AH (purchases, won auctions, deposits): the capital the percentages start from
+    local spent = 0
+    for _, b in ipairs(buys) do spent = spent + b.total end
+    for _, inv in ipairs(invoices) do
+        if inv.won then spent = spent + inv.money end
+    end
+    for key, list in pairs(posts) do
+        for _, post in ipairs(list) do spent = spent + (FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0) end
+    end
+    series.spent = spent
     for _, inv in ipairs(invoices) do
         if inv.kind == "seller" then
             -- the sale and its deposit back (before the first reading: less what the units cost you)
@@ -439,16 +450,17 @@ function FM.PerfSeries(modeId, now)
     last.gold = liveGold or GoldAt(series.golds, now + 1)
     series.heldNow = liveHeld or (lastReading and lastReading[3])
     series.goldNow = last.gold
-    -- change against the end of the period before (the first: against its start)
-    local prevFlow, prevGold = series.startFlow, series.startGold
+    -- change against the end of the period before (the first: against its start); the percent is of the capital
+    -- before it: as if you had started with all you spent on the AH, plus the AH result until then
+    local prevFlow = series.startFlow
     local value = 0
     for _, p in ipairs(periods) do
         p.change = (p.flow - prevFlow) + p.heldDelta + (p == last and liveStep or 0)
+        local before = (series.spent or 0) + value
         value = value + p.change
         p.value = value
-        p.pct = (prevGold and prevGold > 0) and p.change / prevGold * 100 or nil -- of your gold before
+        p.pct = before > 0 and p.change / before * 100 or nil
         prevFlow = p.flow
-        if p.gold then prevGold = p.gold end
     end
     series.change = value
     return series

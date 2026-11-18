@@ -229,11 +229,14 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it
   needs 3 snapshots (`strict`); for what you hold 1-2 still give a price, and none the latest one before.
 * Header: the AH result over the dots shown (green / red), what you hold from the AH and your gold. The line is green
-  when the range went up, red when down; each dot green / red by its own change.
-* Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`), the change and its % of your gold
-  before, the AH result since the first dot, then **Sold** (sale invoices, after the cut), **Bought** (commodity
-  purchases and won auctions), **Not sold (expired)** (expired auction mails: the mail's units, their share of the
-  post's deposit lost) and **Real losses**:
+  when the range went up, red when down; each dot green / red by its own change. The axis starts at 0 unless the
+  line goes under it.
+* Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`) with **Total gains** (the AH result since
+  the first dot) on the right, the change and its % (of the capital before it: as if you had started with all you
+  spent on the AH, purchases, won auctions and deposits, plus the AH result until then), then the top 3 of **Sold**
+  (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and **Real losses** (one list,
+  largest first); hold **Shift** for all of their items. Expired auctions show only as their lost deposit. Real
+  losses:
   * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
     before it cost
   * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
@@ -242,7 +245,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     least the mail's units first, then the end nearest to the mail; measured or estimated, 2h = a quarter of the
     8h deposit)
 * Readings (`R.worth`): 40 s after login, every 15 minutes (at most every 10), when the AH, mailbox, bank, a vendor
-  or a trade closes and at logout; one line per hour. The last dot always uses a reading of right now. The periods
+  or a trade closes and at logout; about one line per hour (the first reading that saw something new stays as its own
+  line, readings of the same minute keep the order they were saved in). The last dot always uses a reading of right
+  now. The periods
   and what happened in them are cached until a log changes; gold or bag changes redraw at most every 2 seconds.
   1.15.0-1.15.1 kept an hourly money log (`R.money`, removed at login) and readings of all items (left out).
 
