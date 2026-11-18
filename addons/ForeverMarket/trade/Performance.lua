@@ -241,7 +241,8 @@ local function Signature(r, char, mode, lastStart)
     return table.concat(parts, "|")
 end
 
--- Periods with the AH's money and what you held (all but the last), and what happened in them
+-- Periods with the AH's money, the steps of what you held (the reading of right now is added per call), and what
+-- happened in them
 local function Build(r, char, mode, now)
     local readings = Readings(r, char)
     local golds = GoldPoints(r, char, readings)

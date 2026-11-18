@@ -203,26 +203,26 @@ This character's **AH result** as a line from 0 with one dot per day, week or mo
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
 
-* AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit
-  back (from the sale mails), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own
-  mail left out) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now):
-  the units of each item bought there and not sold there since (purchases of a year and won auctions less your
-  sale mails, in time order: a sale before a purchase sold farmed units, not bought ones; purchases are this
-  character's, the ones logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as
-  scanned this session, else as last seen), mailbox (as last seen), purchases made after the last look into the
-  mailbox (they wait in the mail) and your auctions, at the usual AH price; plus the deposits of your running
-  auctions and the money of sold ones still on its way. So buying and posting move gold into items and deposits
-  and don't move the line; overpaying, selling under cost, the AH cut and lost deposits do, and so does the usual
-  price of what you hold. An item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there,
-  all of its money; materials bought there and crafted leave the line until the product sells.
-* Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or
-  cancelled since (oldest first); sold and ended ones count as on their way by mail only after the last look into
-  the mailbox (without any mailbox reading: since login).
+* AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit back
+  (from the sale mails), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own mail
+  left out) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now): the units
+  of each item bought there and not sold there since (purchases of a year and won auctions less your sale mails, in
+  time order: a sale before a purchase sold farmed units, not bought ones; purchases are this character's, the ones
+  logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as scanned this
+  session, else as last seen), mailbox (as last seen), purchases made after the last look into the mailbox (they wait
+  in the mail) and your auctions, at the usual AH price; plus the deposits of your running auctions and the money of
+  sold ones still on its way. So buying and posting move gold into items and deposits and don't move the line;
+  overpaying, selling under cost, the AH cut and lost deposits do, and so does the usual price of what you hold. An
+  item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
+  bought there and crafted leave the line until the product sells.
+* Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
+  since (oldest first; the sale mails of auctions the list already shows sold take nothing off); sold and ended ones
+  count as on their way by mail only after the last look into the mailbox (without any mailbox reading: since login).
 * Before the first reading of what you hold (1.15.2 on) purchases count as neutral, and a sale counts its money
   less what its units cost you (your purchases before it). What you hold counts step by step between consecutive
   readings (the stored ones and one of right now), each step in the period of its later reading; the first reading
   is the baseline, and a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox,
-  e.g. the first look at the bank) counts nothing.
+  e.g. the first look at the bank) counts nothing; such a reading doesn't replace the earlier one of its hour.
 * **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
   left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
   rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it

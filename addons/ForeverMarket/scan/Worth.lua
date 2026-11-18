@@ -402,9 +402,11 @@ function FM.RecordWorth(force)
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
     local line = FM.Stamp(now) .. "," .. Enc(gold) .. "," .. Enc(held) .. "," .. seen
-    -- one line per hour: a later reading of the same hour replaces it
-    local lastT = list[#list] and FM.Unstamp(list[#list]:match("^(%w+),"))
-    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) then
+    -- one line per hour: a later reading of the same hour that saw the same replaces it (one that saw more, e.g.
+    -- the first look at the mailbox, is kept apart so the steps before it still count)
+    local last = list[#list]
+    local lastT = last and FM.Unstamp(last:match("^(%w+),"))
+    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and last:match(",([^,]*)$") == seen then
         list[#list] = line
     else
         FM.CapList(list, WORTH_MAX)
