@@ -78,27 +78,31 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
   converted; a saved sort whose column titles no longer match goes back to the tab's default).
-* **Craft** columns: Item, **Profit per hour** (1.12), Profit per 1g, **Recipe cost** (1.13: what learning a recipe
-  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min item sell, On AH now, Circ. 12h.
+* Column names (1.14): **PPG** = profit per 1g invested, **PPH** = profit per hour of crafting, **Min. price** (was
+  "Min item sell"), **On AH** (was "On AH now"); every short header explains itself on hover.
+* **Craft** columns: Item, **PPH** (1.12), PPG, **Recipe cost** (1.13: what learning a recipe
+  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min. price, On AH, Circ. 12h.
   Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
   the Learn tab). Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
   `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: profit per hour. The
   craft tooltip shows the craft time and the time per 1g of materials.
-* **Learn** = every recipe still to learn, losing ones too: Profession, Min skill (lowest skill of its routes; white
-  when you have it, red when not), Recipe, Profit per 1g now (as in Craft) and over 7 days (usual prices = median
+* **Learn** = every recipe still to learn, losing ones too: Profession, Min (lowest skill of its routes; white
+  when you have it, red when not), Recipe, PPG now (as in Craft) and PPG 7d (usual prices = median
   daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
   trainer or vendor beats a pattern on the AH, then the cheapest). Default sort: profit now, then the lowest skill.
   "Above current skill" (default on, `tableLearnHigher`): off hides recipes above your skill now; on shows them up
   to "Max. above current skill" points above it (number box, default 10, `tableLearnMaxAbove`). Hover = the
   craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
-* Right-click a row: **Favorite** (`settings.favorites`), **Ignore** (hidden from the table and the picks,
-  `settings.excluded`; the "Ignored (n)" button shows only those, `/fm exclude|include|excluded`), **Track**
-  (TomTom arrow to the cheapest vendor with a known place that sells it; for a recipe still to learn, to the
-  cheapest trainer or recipe vendor with a known place that teaches it; `FM.TrackTarget`, places from
-  ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`; greyed when none). Favorite items get a star everywhere.
+* Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
+  this item** (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
+  `/fm exclude|include|excluded`), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
+  it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
+  `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
+  such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Favorite items get a star
+  everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest profit per 1g; Materials
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.
@@ -115,7 +119,14 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     of the buyers, or your own pace (osold/opart since your first post, 3+ sales) when that is more.
     Time to sell = your listings + bag/bank units + the new ones over that rate; the queue of others at the
     same price counts only at the 1s floor (elsewhere you undercut it).
-  * One plan for 90% of your gold, at most 35% per pick, chosen greedily: each pick buys from what the
+  * Columns: Pick, **Expected 8h**, **Expected 24h** (1.14: one listing of the pick's units for that long, at its
+    confidence: what buyers take in that time earns the profit, the deposit of the rest is lost when the auction
+    expires; deposits from trade/Cost.lua; the better one white, the worse grey, a tie goes to 8h), PPG, Plan (the
+    gold it needs, then what to do). The rank still follows a day's expected profit (the score).
+  * "% to invest" (1.14, number box left of the professions, default 90, `tableInvestPct`): the most of your gold
+    one pick may use (before 1.14: 35% of the plan). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
+    without vendor resells. Both recompute the picks.
+  * One plan for 90% of your gold, one pick at most "% to invest" of it, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
   * No loss: profit at the usual price (median daily low of the last week) when that is under the sell
@@ -146,7 +157,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
   of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
-* **Min item sell** (Craft, Vendor, Flip; 1.13) includes one lost deposit per unit for listing a stack: the 8h deposit
+* **Min. price** (Craft, Vendor, Flip; 1.13, until 1.14 "Min item sell") includes one lost deposit per unit for listing a stack: the 8h deposit
   when 100+ units circulate in 12h, else (or unknown) the 24h one, since a slow item may not sell in 8h
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth

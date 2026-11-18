@@ -80,6 +80,9 @@ local function Count(n)
     return FM.FormatCount(math_floor(n + 0.5))
 end
 
+local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to resell)."
+local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
+local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 12h, else 24h)."
 local CIRC_TIP = "Circulating ~12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
 
 -- Circulating ~12h: "?" without enough coverage, grey when it had to come from the 3 day window
@@ -200,12 +203,12 @@ local function Duration(seconds)
 end
 
 local CRAFT_COLUMNS = {
-    { title = "Item", width = 230, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "Profit per hour", width = 112, text = function(r)
+    { title = "Item", width = 250, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "PPH", tip = PPH_TIP, width = 100, text = function(r)
         local v = ProfitPerHour(r)
         return v and P1g(v, r.approx or (r.avg and r.avg.est > 0)) or (GREY .. "?|r")
     end, sort = ProfitPerHour },
-    { title = "Profit per 1g", width = 104, text = function(r) return P1g(r.p1g, r.approx or (r.avg and r.avg.est > 0)) end,
+    { title = "PPG", tip = PPG_TIP, width = 96, text = function(r) return P1g(r.p1g, r.approx or (r.avg and r.avg.est > 0)) end,
         sort = function(r) return r.p1g end },
     -- a recipe still to learn costs that first: a big profit may not pay now
     { title = "Recipe cost", width = 96, tip = "What learning the recipe costs (the cheapest trainer, vendor or pattern on the AH); empty when you know it.",
@@ -217,32 +220,32 @@ local CRAFT_COLUMNS = {
             return r.learnCost and -r.learnCost or nil
         end },
     { title = "Max mat buy", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
-    { title = "Min item sell", width = 100, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
-    { title = "On AH now", width = 84, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 86, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
+    { title = "Min. price", tip = MIN_TIP, width = 96, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
+    { title = "On AH", width = 84, text = OnAH, sort = function(r) return r.qty end },
+    { title = "Circ. 12h", tip = CIRC_TIP, width = 90, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
 local VENDOR_COLUMNS = {
-    { title = "Item", width = 236, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "Profit per 1g", width = 114, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    { title = "Item", width = 250, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Vendor price", width = 100, text = function(r) return Money(r.vendorUnit) end, sort = function(r) return r.vendorUnit end },
-    { title = "Min item sell", width = 104, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
-    { title = "On AH now", width = 90, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 126, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
-    { title = "Vendor", width = 160, align = "LEFT", text = function(r)
+    { title = "Min. price", tip = MIN_TIP, width = 100, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
+    { title = "On AH", width = 80, text = OnAH, sort = function(r) return r.qty end },
+    { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
+    { title = "Vendor", width = 182, align = "LEFT", text = function(r)
         local where = r.offer and r.offer.where or "?"
         return GREY .. where .. "|r"
     end, sort = function(r) return r.offer and r.offer.where or "" end }
 }
 
 local FLIP_COLUMNS = {
-    { title = "Item", width = 262, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "Profit per 1g", width = 120, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    { title = "Item", width = 300, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Buy up to", width = 110, text = function(r) return Money(r.top) end, sort = function(r) return r.top end },
     { title = "List at", width = 110, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "Units", width = 66, text = function(r) return Count(r.units) end, sort = function(r) return r.units end },
-    { title = "On AH now", width = 104, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 130, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
+    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
+    { title = "Circ. 12h", tip = CIRC_TIP, width = 126, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
 local function MatBetter(r)
@@ -270,7 +273,7 @@ local MAT_COLUMNS = {
         if not r.best then return GREY .. "-|r" end
         return GREY .. (r.via and (Name(r.via) .. " > ") or "") .. Name(r.best.key) .. "|r"
     end, sort = function(r) return r.best and Name(r.best.key) or "" end },
-    { title = "On AH now", width = 90, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
@@ -305,15 +308,36 @@ local KIND_LABEL = {
     flip = YELLOW .. "Flip|r"
 }
 
+-- Expected 8h / 24h of a pick: the better listing white, the worse one grey
+local EXPECTED_TIP = "Expected profit of one listing of the pick's units for 8h or for 24h: what buyers take in that time, minus the deposit lost on what doesn't sell (8h: smaller deposit, fewer buyers in time; 24h: bigger deposit, more buyers). The better one is white."
+
+local function GreyP1g(value)
+    if type(value) ~= "number" then return GREY .. "-|r" end
+    local text = Money(math_abs(value)):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return GREY .. (value < 0 and "-" or "+") .. text .. "|r"
+end
+
+local function Expected(p, mine, other)
+    local value, rival = p[mine], p[other]
+    if type(value) ~= "number" then return GREY .. "-|r" end
+    -- a tie goes to 8h: the smaller deposit and the gold back sooner
+    local better = type(rival) ~= "number" or value > rival + 0.5 or (math_abs(value - rival) <= 0.5 and mine == "exp8")
+    return better and P1g(value) or GreyP1g(value)
+end
+
 local PICK_COLUMNS = {
-    { title = "Pick", width = 340, align = "LEFT", text = function(p)
+    { title = "Pick", width = 320, align = "LEFT", text = function(p)
         return string_format("%s%d.|r %s %s", GREY, p.rank or 0, KIND_LABEL[p.kind] or p.kind, QualityColor(p.key) .. Name(p.key) .. "|r")
     end, sort = function(p) return -(p.rank or 999) end, default = true },
-    { title = "Expected 24h", width = 120, text = function(p) return P1g(p.score) end, sort = function(p) return p.score end },
-    { title = "Profit per 1g", width = 116, text = function(p) return P1g(p.p1g) end, sort = function(p) return p.p1g end },
-    { title = "Invest", width = 100, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
-    { title = "Plan", width = 250, align = "LEFT", text = function(p) return p.plan or "" end,
-        sort = function(p) return p.plan or "" end }
+    { title = "Expected 8h", tip = EXPECTED_TIP, width = 104, text = function(p) return Expected(p, "exp8", "exp24") end,
+        sort = function(p) return p.exp8 end },
+    { title = "Expected 24h", tip = EXPECTED_TIP, width = 104, text = function(p) return Expected(p, "exp24", "exp8") end,
+        sort = function(p) return p.exp24 end },
+    { title = "PPG", tip = PPG_TIP, width = 90, text = function(p) return P1g(p.p1g) end, sort = function(p) return p.p1g end },
+    -- the gold the pick needs leads its plan
+    { title = "Plan", width = 314, align = "LEFT", text = function(p)
+        return p.invest and (Money(p.invest) .. GREY .. ":|r " .. (p.plan or "")) or (p.plan or "")
+    end, sort = function(p) return p.invest end }
 }
 
 -- Favorites: one row per item, its best use among the tabs (highest profit per 1g; a material only when
@@ -325,9 +349,9 @@ local FAV_COLUMNS = {
     { title = "Item", width = 262, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
     { title = "Best use", width = 90, text = function(r) return r.use and USE_LABEL[r.use] or (GREY .. "-|r") end,
         sort = function(r) return r.use or "" end },
-    { title = "Profit per 1g", width = 116, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Sell now", width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
-    { title = "On AH now", width = 100, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 124, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
     { title = "In tabs", width = 140, align = "LEFT", text = function(r)
         local names = {}
@@ -358,11 +382,13 @@ end
 local LEARN_COLUMNS = {
     { title = "Profession", width = 96, align = "LEFT", text = function(r) return r.craft.profName or r.craft.prof or "?" end,
         sort = function(r) return r.craft.profName or r.craft.prof or "" end },
-    { title = "Min skill", width = 72, text = SkillCell, sort = function(r) return r.minSkill end, asc = true },
-    { title = "Recipe", width = 214, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "Profit per 1g (current)", width = 164, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
-    { title = "Profit per 1g (7 days)", width = 156, text = function(r) return P1g(r.p1g7) end, sort = function(r) return r.p1g7 end },
-    { title = "Where to get", width = 230, align = "LEFT", text = WhereCell,
+    { title = "Min", tip = "The lowest skill any trainer, vendor or pattern asks for (white: you have it, red: not yet).", width = 56,
+        text = SkillCell, sort = function(r) return r.minSkill end, asc = true },
+    { title = "Recipe", width = 260, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "PPG", tip = PPG_TIP .. " At the prices now.", width = 110, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
+    { title = "PPG 7d", tip = "PPG at the usual prices of the last 7 days (median daily low of the product and every AH material).", width = 110,
+        text = function(r) return P1g(r.p1g7) end, sort = function(r) return r.p1g7 end },
+    { title = "Where to get", width = 300, align = "LEFT", text = WhereCell,
         sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end }
 }
 
@@ -734,10 +760,10 @@ local function CraftTooltip(row, past)
             Line("Sell price", Money(a.sell))
             Line("Max mat buy", Money(a.maxMat))
             if row.breakEven and row.minSell and row.minSell > row.breakEven + 0.5 then
-                Line("Min item sell", Money(row.minSell) .. GREY .. "  covers materials bought at up to the max price|r")
+                Line("Min. price", Money(row.minSell) .. GREY .. "  covers materials bought at up to the max price|r")
                 Line("Break-even", Money(row.breakEven) .. GREY .. "  at the average material prices|r")
             else
-                Line("Min item sell", Money(row.minSell) .. GREY .. "  break-even|r")
+                Line("Min. price", Money(row.minSell) .. GREY .. "  break-even|r")
             end
             Line("On AH (average)", Count(a.qty))
             Line("Circulating per 12h", row.sold12 and Count(row.sold12) or (GREY .. "?|r"))
@@ -798,10 +824,10 @@ local function CraftTooltip(row, past)
     end
     if row.minSell then
         if row.breakEven and row.minSell > row.breakEven + 0.5 then
-            Line("Min item sell", Money(row.minSell) .. GREY .. "  covers materials bought at up to the max price|r" .. DepNote(row))
+            Line("Min. price", Money(row.minSell) .. GREY .. "  covers materials bought at up to the max price|r" .. DepNote(row))
             Line("Break-even today", Money(row.breakEven) .. GREY .. "  with today's material prices|r")
         else
-            Line("Min item sell", Money(row.minSell) .. GREY .. "  break-even|r" .. DepNote(row))
+            Line("Min. price", Money(row.minSell) .. GREY .. "  break-even|r" .. DepNote(row))
         end
     end
     Header("Market")
@@ -820,7 +846,7 @@ local function VendorTooltip(row)
     Line("Sell at", SellText(row))
     if row.usual then Line("Usual price", Money(row.usual) .. GREY .. "  median daily low, last week|r") end
     Line("Profit per unit", P1g(row.profit))
-    Line("Min item sell", Money(row.minSell) .. GREY .. "  break-even|r" .. DepNote(row))
+    Line("Min. price", Money(row.minSell) .. GREY .. "  break-even|r" .. DepNote(row))
     Header("Market")
     MarketLines(row)
 end
@@ -836,7 +862,7 @@ local function FlipTooltip(row)
     Header("Sell")
     Line("List at", Money(row.sell) .. GREY .. string_format("  %s wait at %s", FM.FormatCount(row.support), Money(row.wall)) .. "|r")
     Line("Expected profit", P1g(row.profit))
-    Line("Min item sell", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
+    Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
     Header("Market")
     MarketLines(row)
     Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
@@ -1057,29 +1083,40 @@ end
 -- Right-click menu of a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow
 -- to the vendor that sells it, or for a recipe still to learn to who teaches it; greyed when nobody with a
 -- known place does)
+-- Right-click menu of a row: plain actions; Track only where there is an NPC to go to (a vendor that sells it,
+-- a trainer or vendor that teaches it), disabled without TomTom
 local function ShowRowMenu(button, key)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(Name(key))
-        root:CreateCheckbox("Favorite", function() return FM.IsFavorite(key) end, function()
-            local on = not FM.IsFavorite(key)
-            FM.SetFavorite(key, on)
-            FM.Print(Name(key) .. (on and " added to the favorites." or " removed from the favorites."))
+        local favorite = FM.IsFavorite(key)
+        root:CreateButton(favorite and "Unfavorize this item" or "Favorize this item", function()
+            FM.SetFavorite(key, not favorite)
+            FM.Print(Name(key) .. (favorite and " removed from the favorites." or " added to the favorites."))
             FM.RefreshTable()
         end)
-        root:CreateCheckbox("Ignore", function() return FM.IsExcluded(key) end, function()
-            local on = not FM.IsExcluded(key)
-            FM.SetExcluded(key, on)
-            FM.Print(on and (Name(key) .. " ignored: hidden from the market table and the picks. The Ignored button shows them.")
-                or (Name(key) .. " is back in the market table."))
+        local ignored = FM.IsExcluded(key)
+        root:CreateButton(ignored and "Stop ignoring this item" or "Ignore this item", function()
+            FM.SetExcluded(key, not ignored)
+            FM.Print(ignored and (Name(key) .. " is back in the market table.")
+                or (Name(key) .. " ignored: hidden from the market table and the picks. The Ignored button shows them."))
             FM.ComputeTrade(false) -- picks plan the gold again without it
             FM.RefreshTable()
         end)
         local place, why = FM.TrackTarget(key)
-        local label = "Track"
-        if place and place.npc then label = "Track: " .. place.npc .. (why == "learn" and " (learn)" or "") end
-        local track = root:CreateButton(label, function() FM.TrackVendor(key) end)
-        track:SetEnabled(place ~= nil)
+        if place then
+            local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
+            local track = root:CreateButton("Track " .. who .. (why == "learn" and " (learn)" or ""), function() FM.TrackVendor(key) end)
+            local tomtom = _G.TomTom
+            if not (tomtom and tomtom.AddWaypoint) then
+                track:SetEnabled(false)
+                if track.SetTooltip then
+                    track:SetTooltip(function(tooltip)
+                        GameTooltip_SetTitle(tooltip, "Install TomTom to enable NPC tracking")
+                    end)
+                end
+            end
+        end
     end)
 end
 
@@ -1151,7 +1188,7 @@ end
 -- the right, the shown buttons from Refresh to the left, so nothing floats in the middle
 local function LayoutFilters(f)
     local x = 192
-    for _, c in ipairs({ f.higher, f.maxAbove, f.learn, f.stock }) do
+    for _, c in ipairs({ f.higher, f.maxAbove, f.learn, f.vendorOff, f.stock }) do
         if c:IsShown() then
             local labelWidth = c.label and c.label:GetStringWidth()
             if type(labelWidth) ~= "number" or labelWidth <= 0 then labelWidth = #(c.label and c.label:GetText() or "") * 7 end
@@ -1167,11 +1204,11 @@ local function LayoutFilters(f)
         end
     end
     local anchor = f.refresh
-    for _, b in ipairs({ f.excluded, f.prof }) do
+    for _, b in ipairs({ f.excluded, f.prof, f.invest }) do
         if b:IsShown() then
             b:ClearAllPoints()
             b:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
-            anchor = b
+            anchor = b == f.invest and b.label or b -- the box's label sits left of it
         end
     end
 end
@@ -1293,7 +1330,7 @@ local function FooterText(total)
     if tab.picks then
         local gold = trade and trade.pickGold
         local plan = trade and trade.pickPlan
-        text = text .. "  ·  expected profit in the next 24h" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
+        text = text .. "  ·  rank = a day's profit, Expected = one listing" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
             .. (gold and (" (" .. Money(gold) .. ")") or "") or "") .. ", the rest is beyond it  ·  hover for why"
     elseif tab.favs then
         text = text .. "  ·  right-click any row > Favorite adds it here; best use = highest profit per 1g of its tabs"
@@ -1354,6 +1391,11 @@ Render = function()
     frame.learn:SetChecked(Settings().tableLearn and true or false)
     frame.stock:SetChecked(Settings().tableIgnoreStock ~= false)
     frame.stock:SetShown(tab.picks and true or false)
+    frame.vendorOff:SetChecked(Settings().tableIgnoreVendor == true)
+    frame.vendorOff:SetShown(tab.picks and true or false)
+    frame.invest:SetShown(tab.picks and true or false)
+    frame.invest.label:SetShown(tab.picks and true or false)
+    if not frame.invest:HasFocus() then frame.invest:SetText(tostring(Settings().tableInvestPct or 90)) end
     -- skill limits on Learn and Craft (recipes still to learn)
     local skillTab = (tab.learn or tab.crafts) and true or false
     frame.higher:SetChecked(Settings().tableLearnHigher ~= false)
@@ -1503,6 +1545,49 @@ local function CreateTable()
 
     f.learn = Check(f, "Not learned", 202, "tableLearn")
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
+    -- picks without vendor resells (the gold goes to the other picks)
+    f.vendorOff = Check(f, "Ignore vendor", 290, "tableIgnoreVendor")
+    f.vendorOff:SetScript("OnClick", function(self)
+        Settings().tableIgnoreVendor = self:GetChecked() and true or false
+        view.offset = 0
+        FM.ComputeTrade(false) -- the picks plan again
+        FM.RefreshTable()
+    end)
+    f.vendorOff:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Ignore vendor")
+        GameTooltip:AddLine("The picks plan without buying from vendors to resell; their gold goes to the other picks.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.vendorOff:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- "% to invest": the most of your gold one pick may use (whole percent, 1-100)
+    local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    invest:SetSize(36, 22)
+    invest:SetAutoFocus(false)
+    invest:SetNumeric(true)
+    invest:SetMaxLetters(3)
+    invest.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, invest, "LEFT")
+    invest.label:SetText("% to invest")
+    invest:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    invest:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    invest:HookScript("OnEditFocusLost", function(self)
+        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPct or 90)
+        n = math_max(1, math_min(100, n))
+        self:SetText(tostring(n))
+        if n == Settings().tableInvestPct then return end
+        Settings().tableInvestPct = n
+        view.offset = 0
+        FM.ComputeTrade(false) -- the picks plan again
+        FM.RefreshTable()
+    end)
+    invest:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("% to invest")
+        GameTooltip:AddLine("The most of your gold one pick may use (default 90). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter to apply.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    invest:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.invest = invest
     f.higher = Check(f, "Above current skill", 202, "tableLearnHigher")
     f.higher:SetChecked(Settings().tableLearnHigher ~= false)
     f.higher:SetScript("OnEnter", function(self)

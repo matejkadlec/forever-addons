@@ -125,14 +125,14 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - The server's price is checked before any gold leaves; only stackable items (commodities)
   - With the AH open, Shift-click a market table row to snipe its main material at the table's price
 - Market table `/fm`, the key `U` (or `FM: table` at the AH), refreshed after every deep scan:
-  - **Picks**: what to do in the next 24 hours, ranked by expected profit: first the plan that fits your gold, then further good picks beyond it; reasons in the tooltip (and why other rows are not picks); "Ignore stock" (on by default) plans as if your bags and bank were empty
+  - **Picks**: what to do in the next 24 hours, ranked by expected profit: first the plan that fits your gold, then further good picks beyond it; Expected 8h / 24h shows which listing duration pays better; reasons in the tooltip (and why other rows are not picks); "% to invest" (default 90) caps one pick's share of your gold; "Ignore vendor" plans without vendor resells; "Ignore stock" (on by default) plans as if your bags and bank were empty
   - **Favorites**: your favorite items with their best use, price and market numbers
   - **Materials**: sell a material or craft with it
   - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, profit per hour of crafting (from the recipe's cast time, the default sort), profit per 1g, max material price and min sell price
   - **Vendor** (vendor items to resell at the AH) and **Flip** (cheap listings to relist under the next price level with 15%+ profit)
   - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, profit per 1g now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
-  - Right-click a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn)
+  - Right-click a row: Favorize, Ignore (hidden from the table and the picks), Track <NPC> (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn; only where there is such an NPC, needs TomTom)
   - Search, sortable columns (Shift-click a header to sort by more columns), profession dropdown, skill limits for recipes still to learn; the title bar shows how old the latest snapshot is
   - Craft also shows what a recipe still costs to learn; min item sell includes a lost deposit (8h, or 24h for items under 100 circulating in 12h)
   - Settings panel: hide outliers (on by default) and a minimum profit per item for the table
@@ -190,6 +190,7 @@ All AddOns are standalone, install only the ones you want to use.
 This project is under active development as of November 2026.
 
 - If you encounter a bug or have a feature request for an existing AddOn, open a GitHub issue
+- The maintainer tracks the work in Jira (project FRV, https://envelopment.atlassian.net/jira/software/projects/FRV/boards/100/backlog)
 - If you have an AddOn idea, you can email me at `info@matejkadlec.cz`
   - If I find it interesting, there's a good chance I will create it for you for a voluntary donation
   - If I don't find it interesting, I can still do it for a fixed price (I can provide an invoice)
