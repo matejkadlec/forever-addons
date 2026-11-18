@@ -218,13 +218,14 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
   bought there and crafted leave the line until the product sells.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
-  since (oldest first). What the lists saw change (`osold` gone from the list, `opart`, `ocancel`, `ogone`) is
-  matched to the mails you read of the item (sent after the list before it and by the list that saw it, a sale's
-  up to 2 hours later): a matched mail takes nothing off the running auctions, and so do the sale mails of auctions
-  the list still shows sold. Sold, ended and cancelled ones count as on their way by mail when they happened after
-  the last look into the mailbox (without any mailbox reading: since login) and their mail isn't read: a sale's
-  money after the cut and deposit, the units of a cancelled one or one gone while you were away (most likely
-  expired; its deposit is gone).
+  since (oldest first). What the lists saw change (`osold`, also an auction still shown sold, `opart`, `ocancel`,
+  `ogone`) is matched to the mails you read of the item (sent after the list before it and by the list that saw
+  it, a sale's up to 2 hours later): a matched mail takes nothing off the running auctions. A change whose mail
+  you haven't read is on its way by mail while that mail can't have been in the mailbox at your last look (without
+  any mailbox reading: since login): a sale until 2 hours after the list saw it (its mail goes out up to an hour
+  after the sale), an ended or cancelled one if it happened after the look. On its way: a sale's money after the
+  cut and deposit, the units of a cancelled one or one gone while you were away (most likely expired; its deposit
+  is gone).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
   `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
   counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
