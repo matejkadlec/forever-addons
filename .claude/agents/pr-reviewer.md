@@ -20,7 +20,7 @@ You share no history with the session that wrote the change. Judge only the evid
 
 ## Inputs
 
-You receive absolute paths to the review bundle (the whole diff against the base, a metadata file with the maintainer's request and the head, and for a later round the diff since the last reviewed head and the earlier findings), the worktree root, and the path of a clone of wow-ui-source (`forever` branch). Read the whole diff first. In a later round look hardest at what changed since, but review the whole diff, and check that each earlier finding was really fixed.
+You receive absolute paths to the review bundle (the whole diff against the base, a metadata file with the maintainer's request and the head, and for a later round the diff since the last reviewed head and the earlier findings), the worktree root, and the path of a clone of wow-ui-source (`forever` branch). Read the whole diff first. In a later round look hardest at what changed since, but review the whole diff, and check that each earlier finding was really fixed. Do not report again a finding the bundle marks as rejected and confirmed by the maintainer, unless the code it concerns changed.
 
 ## What to review
 
