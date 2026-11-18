@@ -34,16 +34,16 @@ The run is not finished at a clean review or a green check. It ends only at one 
 
 ## Review round
 
-1. **Build the review bundle** in the session's scratchpad directory, never inside the repository: the whole diff `git diff origin/<base>...HEAD` (three dots, after a fetch); for a later round also the diff since the last reviewed head and the earlier findings with what was done about each; a short metadata file with the pull request's title, the tickets' descriptions (the maintainer's request), the head SHA, the worktree path and the path of a wow-ui-source `forever` clone (`untracked/wow-ui-source` in the main checkout; clone it when it is missing).
+1. **Build the review bundle** in the session's scratchpad directory, never inside the repository: the whole diff `git diff origin/<base>...HEAD` (three dots, after a fetch); for a later round also the diff since the last reviewed head and the earlier findings with what was done about each; a short metadata file with the pull request's title, the tickets' descriptions and comments (the maintainer's request, his `qa2` feedback included), the head SHA, the worktree path and the path of a wow-ui-source `forever` clone (`untracked/wow-ui-source` in the main checkout; clone it when it is missing).
 2. **Start a fresh reviewer:** the Agent tool with `subagent_type: pr-reviewer`, one new agent per round, never a continued one and never a fork. Give it the bundle paths and the worktree root, and nothing of your own reasoning about why the change is right.
    - A session that started before `.claude/agents/pr-reviewer.md` existed cannot start that type. Then use a fresh general-purpose agent, give it `.claude/agents/pr-reviewer.md` to read as its instructions and tell it that it is read-only.
 3. **Verify every finding** against the code yourself before acting on it:
    - valid P1 and P2: fix on the branch, one commit per root cause;
    - valid P3: fix it when it is small and inside the pull request's scope, else create a follow-up ticket (flow document, _Issues_, Follow-ups) or drop it with a concrete technical reason;
-   - wrong, or against the maintainer's request, or needing his decision: do not apply it. Note it in a pull request comment with your reason. For a P1 or P2 the round has then not passed and the pull request stays open until the maintainer answers: stop under User needed (`AGENTS.md`: you never overrule the reviewer alone). A rejected P3 needs only its recorded reason.
+   - wrong, or against the maintainer's request, or needing his decision: do not apply it. Note it in a pull request comment with your reason. For a P1 or P2 the round has then not passed and the pull request stays open until the maintainer answers: stop under User needed (`AGENTS.md`: you never overrule the reviewer alone). When he confirms the rejection, record his answer in that pull request comment; the round then counts as passed for that head. When he sides with the reviewer, fix it and run a new round. A rejected P3 needs only its recorded reason; a P3 that needs his decision becomes a follow-up ticket labelled `decision` and does not hold the merge.
 4. **After fixes:** run the gate (flow document, _Implementation and verification_), bump versions where AddOn files changed, sync the changed AddOns into the game, push once, read the remote head back, and run another round on the new head.
 5. **A round passes** when the reviewer reports nothing that needs a change (no P1 and no P2; a round with a rejected P1 or P2 has not passed). The last passing round before a merge must have covered the whole diff against `origin/master` on the exact head that is merged. After five rounds without a pass, stop under User needed with the open findings.
-6. **Record the pass:** a pull request comment `Independent review clean on <sha> (whole diff against origin/master)`. In a later session that record counts as the passing round for the same head; a new round runs only when the head moved.
+6. **Record the pass:** a pull request comment `Independent review clean on <sha> (whole diff against origin/master)` that also lists each round's findings and what was done about them (fixed in `<sha>`, ticketed, dropped or rejected with the reason), so a later session can give them to the next reviewer. In a later session that record counts as the passing round for the same head; a new round runs only when the head moved.
 
 ## Checks
 
@@ -69,7 +69,7 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 
 - **Merged** (and a feed deploy finished): report and stop.
 - **Handed over** for the in-game test: report in the What to test shape and stop until `qa1` or `qa2`.
-- **User needed:** a maintainer hold, a rejected P1 or P2 finding, a finding that needs his decision, five rounds without a pass, a failing check that needs something only he can change, a failed deploy. Say exactly what he has to do and where; the pull request stays open.
+- **User needed:** a maintainer hold, a rejected P1 or P2 finding, a P1 or P2 finding that needs his decision, five rounds without a pass, a failing check that needs something only he can change, a failed deploy. Say exactly what he has to do and where; the pull request stays open.
 - **Not your own pull request:** report the review, change nothing.
 - **Closed unmerged, or merged by someone else:** report; after a foreign merge still do After the merge.
 
