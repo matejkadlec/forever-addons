@@ -339,7 +339,7 @@ function FM.FinalizeSnapshot(snap, onDone)
 
         if FM.GetSettings().chatSummary then
             local sinceText = useDiff
-                and string.format(", ~%s sold across %d items in the last %s", FM.FormatCount(totals.sold), totals.soldItems, FM.FormatAge(gap))
+                and string.format(", %s sold across %d items in the last %s", FM.FormatCount(totals.sold), totals.soldItems, FM.FormatAge(gap))
                 or ""
             local auctionatorText = (snap.auctionatorWritten or 0) > 0 and ", Auctionator prices updated" or ""
             FM.Print(string.format("Deep scan saved: %s auctions, %s items%s%s.",

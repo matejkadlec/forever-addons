@@ -23,7 +23,7 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 ## In game
 
-* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
+* Tooltip: `Market 3s 50c · 374 listed · 120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
   then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
   price or deposit estimate):
@@ -38,7 +38,8 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
       older) are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when
       every level is that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap
       units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
-    * **you paid**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days, recorded from
+    * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
+      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; recorded from
       any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
       `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
       looted or skinned units are not counted: never bought = "-"
@@ -65,8 +66,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
-* Tabs in three groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Learn**,
-  **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+* Tabs in groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
+  (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
 * Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
   (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
@@ -163,7 +164,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
-* Circulating ~12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
+* Circulating 12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
   the AH before their time ran out, bought or taken down (Forever hides sellers, so both look the same).
   Grey = taken from the 3 day window.
 * **Farm** (trade/Farm.lua, scan/FarmLog.lua) = mobs at your level (-5..+2, no elites, hostile) ranked by gold per
@@ -193,6 +194,75 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.
+
+* No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
+  (material prices from short or stored ladders, farm gold per hour before your own data).
+
+## Profit tab (1.15, named Performance until 1.15.11: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
+
+This character's **AH result** as a line from 0 with one dot per day, week or month (**Daily** / **Weekly** /
+**Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
+Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
+
+* AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit back
+  (from the sale mails, counted when you read the mail: until then the readings still hold the auction or its sold
+  money; mails read before 1.15.13 count when they were sent), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own mail
+  left out, also counted when its mail was read) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now): the units
+  of each item bought there and not sold there since (purchases of a year and won auctions less your sale mails, in
+  time order: a sale before a purchase sold farmed units, not bought ones; purchases are this character's, the ones
+  logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as scanned this
+  session, else as last seen), mailbox (as last seen), purchases made after the last look into the mailbox (they wait
+  in the mail) and your auctions, at the usual AH price; plus the deposits of your running auctions and the money of
+  sold ones still on its way. So buying and posting move gold into items and deposits and don't move the line;
+  overpaying, selling under cost, the AH cut and lost deposits do, and so does the usual price of what you hold. An
+  item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
+  bought there and crafted leave the line until the product sells.
+* Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
+  since (oldest first). What the lists saw change (`osold`, also an auction still shown sold, `opart`, `ocancel`,
+  `ogone`) is matched to the mails you read of the item (sent after the list before it and by the list that saw
+  it, a sale's up to 2 hours later): a matched mail takes nothing off the running auctions. A change whose mail
+  you haven't read is on its way by mail while that mail can't have been in the mailbox at your last look (without
+  any mailbox reading: since login): a sale until 2 hours after the list saw it (its mail goes out up to an hour
+  after the sale), an ended or cancelled one if it happened after the look. On its way: a sale's money after the
+  cut and deposit, the units of a cancelled one or one gone while you were away (most likely expired; its deposit
+  is gone).
+* Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
+  `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
+  counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
+  look held again. Units bought before that and still held leave what you hold when it passes them.
+* Before the first reading of what you hold (1.15.2 on) purchases count as neutral, and a sale counts its money
+  less what its units cost you (your purchases before it). What you hold counts step by step between consecutive
+  readings (the stored ones and one of right now), each step in the period of its later reading; the first reading
+  is the baseline, and a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox,
+  e.g. the first look at the bank) counts nothing; such a reading doesn't replace the earlier one of its hour.
+* **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
+  left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
+  rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it
+  needs 3 snapshots (`strict`); for what you hold 1-2 still give a price, and none the latest one before.
+* Header: the AH result over the dots shown (green / red), what you hold from the AH and your gold. The line is green
+  when the range went up, red when down; each dot green / red by its own change. The axis starts at 0 unless the
+  line goes under it.
+* Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`) with the AH result up to that dot in
+  small grey text in the top right corner, `+80g 93s 55c since 11/15/2026` (the start of tracking: your first reading
+  or AH money, or the first dot's start when the range begins later; the graph has its own tooltip for that), the
+  change and its % (of the dot's capital: what you had spent on the AH by its end, purchases, won auctions and
+  deposits, as if you had started with it, plus the AH result before it; later purchases don't change an older dot's
+  %), then the top 3 of **Sold** (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and
+  **Real losses** (one list, largest first); hold **Shift** for all of their items. Expired auctions show only as
+  their lost deposit. Real losses:
+  * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
+    before it cost
+  * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
+    the units
+  * expired deposit: the mail's share of the deposit of the post it belongs to (a post that ended by then, of at
+    least the mail's units first, then the end nearest to the mail; measured or estimated, 2h = a quarter of the
+    8h deposit)
+* Readings (`R.worth`): 40 s after login, every 15 minutes (at most every 10), when the AH, mailbox, bank, a vendor
+  or a trade closes and at logout; about one line per hour (the first reading that saw something new stays as its own
+  line, readings of the same minute keep the order they were saved in). The last dot always uses a reading of right
+  now. The periods
+  and what happened in them are cached until a log changes; gold or bag changes redraw at most every 2 seconds.
+  1.15.0-1.15.1 kept an hourly money log (`R.money`, removed at login) and readings of all items (left out).
 
 ## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
 
@@ -252,11 +322,17 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new`
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
-* `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID` (buyout is the unit
-  price for commodities), chat `sold|expired|removed|won|outbid,item`, mail `mexpired|mcancelled,item`, `blocked,function`
-* `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut`: on Forever `bid` is the sale total
+* `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
+  before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
+  `mexpired|mcancelled,item`, `blocked,function`
+* `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
+  1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
+* `worth[char]` readings `t,gold,held,seen` (about one per hour, the first that saw something new kept apart;
+  `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
+  `t|money|id:count,...` as last seen
+* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`
 

@@ -45,7 +45,8 @@ FM.DEFAULTS = {
     tableInvestPct = 90, -- picks: the most of your gold one pick may use, in percent
     snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
     snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
-    snipeConfirmClick = false -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
+    snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
+    perfMode = "day" -- Profit tab: one dot per day, week or month
 }
 
 FM.LIMITS = {
@@ -55,9 +56,9 @@ FM.LIMITS = {
     searchRecords = 40, -- per item
     diffMaxGapHours = 48, -- scans further apart than this are not diffed
     scansMax = 1500,
-    postsMax = 3000,
+    postsMax = 10000, -- posts and invoices about as long as the purchases (a year), for the Profit tab
     eventsMax = 4000,
-    invoicesMax = 3000,
+    invoicesMax = 10000,
     goldMax = 2000,
     replicateCooldown = 15 * 60,
     ladderLevels = 12 -- price levels stored for watched items
@@ -172,7 +173,8 @@ function FM.RealmKey()
     return tostring(realm) .. "-" .. tostring(faction)
 end
 
-local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm" }
+local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
+    "worth", "bank", "mailbox" }
 
 -- Data of the current realm and faction (the AH is per realm and faction)
 function FM.R()

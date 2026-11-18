@@ -11,7 +11,8 @@ local _, FM = ...
 --     deposit (it comes back when the auction sells): a guard against selling under price by mistake
 -- Units you did not buy (skinned, looted, crafted from those) are not counted: no purchases, no price.
 --
--- R.buys     { "t,key,qty,total", ... }  newest last, 30 days
+-- R.buys     { "t,key,qty,total,char", ... }  newest last, a year (the Profit tab holds bought items);
+--             lines before 1.15.5 have no character and count for every character
 -- R.deposits [key] = { t = seconds, [2] = { rate, floor }, [3] = { rate, floor } }  (duration 2 = 8h, 3 = 24h)
 
 local type = type
@@ -24,8 +25,10 @@ local math_max = math.max
 local table_remove = table.remove
 
 local AH_CUT = 0.05
-local KEEP_DAYS = 30
-local MAX_BUYS = 3000
+local KEEP_DAYS = 365
+local MAX_BUYS = 10000
+FM.BUYS_KEEP_DAYS, FM.BUYS_MAX = KEEP_DAYS, MAX_BUYS
+local PAID_DAYS = 30 -- "you paid" looks at this many days
 local QUOTE_AGE = 20       -- a quote older than this does not price a confirm
 local PENDING_AGE = 60     -- a confirm without the server's answer after this is dropped
 local MEASURE_AGE = 7 * 86400 -- deposits are measured again after a week
@@ -97,7 +100,7 @@ FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     local p = NextPending()
     if not (p and p.total) then return end
     local buys = Buys()
-    buys[#buys + 1] = string.format("%d,%s,%d,%d", FM.Now(), p.key, p.qty, math_floor(p.total + 0.5))
+    buys[#buys + 1] = string.format("%d,%s,%d,%d,%s", FM.Now(), p.key, p.qty, math_floor(p.total + 0.5), FM.PlayerName())
     Prune()
 end)
 
@@ -110,9 +113,12 @@ end)
 function FM.BoughtUnit(key, n)
     local buys = Buys()
     local qty, total = 0, 0
+    local since = FM.Now() - PAID_DAYS * 86400
+    local char = FM.PlayerName()
     for i = #buys, 1, -1 do
-        local _, k, q, cost = buys[i]:match("^(%d+),([^,]+),(%d+),(%d+)$")
-        if k == key then
+        local t, k, q, cost, who = buys[i]:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        if tonumber(t) and tonumber(t) < since then break end
+        if k == key and (who == "" or who == char) then
             q, cost = tonumber(q), tonumber(cost)
             qty, total = qty + q, total + cost
             if n and qty >= n then break end

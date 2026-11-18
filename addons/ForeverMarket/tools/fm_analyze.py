@@ -1369,7 +1369,7 @@ def cmd_flips(m, args):
         for r in rows[:args.advise]:
             entry = adv['items'].get(r['key'], {})
             entry.update({'name': m.name(r['key']), 'buyBelow': r['top'], 'list': r['sell'],
-                          'note': 'flip, usual ~%s' % money_plain(r['ref'])})
+                          'note': 'flip, usual %s' % money_plain(r['ref'])})
             adv['items'][r['key']] = entry
         save_advice(args, adv)
 

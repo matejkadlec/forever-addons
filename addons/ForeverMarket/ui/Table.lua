@@ -1,7 +1,8 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in three groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Farm (green).
+-- Tabs in groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of
+-- your AH result, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
 -- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
@@ -72,7 +73,7 @@ local function P1g(value, approx)
     elseif value > 0 then
         text = GREEN .. "+|r" .. text
     end
-    return text .. (approx and (GREY .. "~|r") or "")
+    return text .. (approx and (GREY .. "*|r") or "") -- * = some material prices are estimates
 end
 
 local function Count(n)
@@ -85,7 +86,7 @@ local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to rese
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
 local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 12h, else 24h)."
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
-local CIRC_TIP = "Circulating ~12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
+local CIRC_TIP = "Circulating 12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
 
 -- Circulating ~12h: "?" without enough coverage, grey when it had to come from the 3 day window
 local function Sold(n, wide)
@@ -291,7 +292,7 @@ local FARM_COLUMNS = {
     { title = "Zone", width = 190, align = "LEFT", text = function(r) return GREY .. (r.zone or "?") .. "|r" end,
         sort = function(r) return r.zone or "" end },
     { title = "Level", width = 64, text = FarmLevel, sort = function(r) return r.minL end },
-    { title = "Gold/h", width = 112, text = function(r) return Money(r.gph, GREEN) .. (r.estimated and (GREY .. "~|r") or "") end,
+    { title = "Gold/h", width = 112, text = function(r) return Money(r.gph, GREEN) .. (r.estimated and (GREY .. "*|r") or "") end,
         sort = function(r) return r.gph end, default = true },
     { title = "Per kill", width = 96, text = function(r) return Money(r.perKill) end, sort = function(r) return r.perKill end },
     { title = "Best drop", width = 230, align = "LEFT", text = function(r)
@@ -395,7 +396,8 @@ local LEARN_COLUMNS = {
         sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end }
 }
 
--- group 1 blue, group 2 red (the button's own color), group 3 green; each group starts after a gap
+-- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
+-- (Profit) and group 3 green (Learn, Farm)
 local TABS = {}
 if FM.PICKS_READY then
     TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1 }
@@ -406,10 +408,11 @@ TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, dat
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
+TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, group = 4 } -- no table: a graph
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
     defaultSort = { { 4, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
-local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 } }
+local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
 
@@ -725,9 +728,9 @@ end
 local function MarketLines(row)
     Line("On AH", OnAH(row) .. ((row.own or 0) > 0 and (GREY .. "  (yours in brackets)|r") or ""))
     if row.sold12 then
-        Line("Circulating ~12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
+        Line("Circulating 12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
     else
-        Line("Circulating ~12h", GREY .. "not enough scans yet|r")
+        Line("Circulating 12h", GREY .. "not enough scans yet|r")
     end
     if row.sold3d and not row.soldWide then Line("Per 12h over 3 days", Count(row.sold3d)) end
     Note("Circulating = units that left the AH before their time ran out: bought, or taken down by the seller (Forever hides sellers, so both look the same).")
@@ -748,7 +751,7 @@ local function CraftTooltip(row, past)
         LearnLines(craft)
         if row.learnCost and not past then
             Line("Cheapest", Money(row.learnCost) ..
-                (row.payback and (GREY .. string_format("  pays back after ~%d crafts", math.ceil(row.payback)) .. "|r") or ""))
+                (row.payback and (GREY .. string_format("  pays back after %d crafts", math.ceil(row.payback)) .. "|r") or ""))
         end
     end
     if past then
@@ -789,7 +792,7 @@ local function CraftTooltip(row, past)
     Header(string_format("Materials (priced for %d crafts)", FM.TRADE.BATCH))
     for _, m in ipairs(row.parts or {}) do
         local note = SRC_LABEL[m.src] or m.src
-        if m.src == "ah" and m.approx then note = note .. " ~" end
+        if m.src == "ah" and m.approx then note = note .. " *" end
         if m.src == "craft" then
             note = "craft it" .. (m.buy and (", buying costs " .. Money(m.buy.unit)) or "")
         end
@@ -835,7 +838,7 @@ local function CraftTooltip(row, past)
     end
     Header("Market")
     MarketLines(row)
-    if row.approx then Note("~ some material prices are estimates (short or stored ladders).") end
+    if row.approx then Note("* some material prices are estimates (short or stored ladders).") end
 end
 
 local function VendorTooltip(row)
@@ -1357,9 +1360,33 @@ local function FooterText(total)
     return GREY .. text .. "|r"
 end
 
+-- Where the Profit graph sits: from under the filter row to above the footer
+local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
+
+-- The Profit tab: no table, no filters, the graph panel instead
+local function RenderGraph(tab)
+    for _, header in ipairs(frame.headers) do header:Hide() end
+    for _, button in ipairs(frame.rows) do button:Hide() end
+    for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty }) do
+        w:Hide()
+    end
+    for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
+    FM.PerfShow(frame, true, GRAPH_GEO)
+    frame.status:SetText(StatusText())
+    frame.footer:SetText(FM.PerfFooter())
+end
+
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
+    local graph = (tab.graph and FM.PerfShow) and true or false
+    frame.search:SetShown(not graph)
+    frame.searchLabel:SetShown(not graph)
+    frame.headerLine:SetShown(not graph)
+    frame.refresh:SetShown(not graph) -- it reads recipes and vendors again: nothing for the graph
+    if graph then return RenderGraph(tab) end
+    if FM.PerfShow then FM.PerfShow(frame, false) end
     if not rowsCache then rowsCache = BuildRows() end
     local total = #rowsCache
     view.offset = math_max(0, math_min(view.offset, math_max(0, total - ROWS)))
@@ -1503,24 +1530,24 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Farm at the right end of the row
+    -- tabs in groups with a gap between; Profit, Learn and Farm at the right end of the row
     f.tabs = {}
     local x, group = 14, nil
     local rightCount = 0
     for _, t in ipairs(TABS) do
-        if t.group == 3 then rightCount = rightCount + 1 end
+        if t.group >= 3 then rightCount = rightCount + 1 end
     end
     local rightIndex = 0
     for _, t in ipairs(TABS) do
-        local b = Button(f, t.label, 98, function() SelectTab(t.id) end)
-        if t.group == 3 then
-            -- the green group sits at the right end of the row, Farm last
+        local b = Button(f, t.label, 94, function() SelectTab(t.id) end)
+        if t.group >= 3 then
+            -- the gold and green groups sit at the right end of the row, Farm last
             rightIndex = rightIndex + 1
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 102, -30)
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
         else
             if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
-            x = x + 102
+            x = x + 98
         end
         group = t.group
         local color = GROUP_COLOR[t.group]
@@ -1551,6 +1578,7 @@ local function CreateTable()
     local searchLabel = Text(f, "GameFontDisableSmall", "BOTTOMLEFT", 0, 2, search, "TOPLEFT")
     searchLabel:SetText("Filter by name")
     f.search = search
+    f.searchLabel = searchLabel
 
     f.learn = Check(f, "Not learned", 202, "tableLearn")
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
@@ -1725,6 +1753,7 @@ local function CreateTable()
     line:SetPoint("TOPLEFT", f, "TOPLEFT", 14, TOP + 1)
     line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, TOP + 1)
     line:SetHeight(1)
+    f.headerLine = line
 
     -- rows
     f.rows = {}
