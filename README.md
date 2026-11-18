@@ -118,7 +118,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 - Deep scans of the whole AH (by themselves at most every 15 minutes while the AH is open, or `/fm scan`); each scan is compared with the previous one to estimate what was bought, relisted or newly posted
 - Your own posts, sales, invoices and AH purchases are logged too
-- Item tooltip: the market line, Claude's advice, and below them two groups: **Cost (n pcs)** (**Craft cost** for a learned craft's materials) with the price now (colored against what you paid) and what you paid (purchases only, farmed items show "-"; vendor items get one "vendor" row instead of both), and **Sell at least (n pcs)** with the lowest 8h / 24h listing price per unit that doesn't sell under the item's AH value (after the cut and one lost deposit)
+- Item tooltip: Claude's advice and below it two groups (the AH price itself is Auctionator's own `Auction` line at the top, which ForeverMarket keeps fed from its data, so the two never disagree): **Cost (n pcs)** (**Craft cost** for a learned craft's materials) with the price now (colored against what you paid) and what you paid (purchases only, farmed items show "-"; vendor items get one "vendor" row instead of both), and **Sell at least (n pcs)** with the lowest 8h / 24h listing price per unit that doesn't sell under the item's AH value (after the cut and one lost deposit)
 - Sniper (`/fm snipe` or `FM: snipe` at the AH): while its window is open at the AH, your items are searched over and over and every mouse wheel step buys what someone just listed at or under your price
   - Max price per unit in gold / silver / copper, the item list on the left (click to edit, X to stop sniping; price and gold % are remembered)
   - Gold limit: a % of your gold when you first opened it today, either one universal % for all items (default 50%) or a % per item
@@ -138,7 +138,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Craft also shows what a recipe still costs to learn; min. price includes a lost deposit (8h, or 24h for items under 100 circulating in 12h)
   - Settings panel: hide outliers (on by default) and a minimum profit per item for the table
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
-- Optional: copies deep scan prices into Auctionator; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
+- Optional: keeps Auctionator's prices fed from every refresh of its data (deep scans, Battle.net feed imports, item searches), so Auctionator's `Auction` tooltip line, selling tab and price history never go stale next to ForeverMarket's numbers; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
 - Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)
 - Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
 - Settings panel: `Jim's Forever AddOns -> Market`

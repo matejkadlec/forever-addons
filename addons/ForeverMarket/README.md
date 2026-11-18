@@ -23,7 +23,9 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 ## In game
 
-* Tooltip: `Market 3s 50c · 374 listed · 120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
+* Tooltip (1.16: the own "Market ..." line is gone, the hover only prices now): the AH price is Auctionator's own
+  `Auction` line at the top, which ForeverMarket keeps fed from every refresh of its data (below), so it never
+  disagrees with ours; then `Claude list at 3s 45c (90% in 8h)`,
   then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
   price or deposit estimate):
@@ -50,6 +52,12 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
     8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
     replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
     `R.deposits[key][2|3] = { rate, floor }`)
+* Auctionator's price database (`scan/Auctionator.lua`, setting "Save deep scan prices into Auctionator too"):
+  every refresh of our data writes the lowest unit price and the quantity per item ID into it the way
+  Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and item searches (1.16, the
+  price only: a search without the full ladder doesn't know the quantity). Auctionator's own scans are left alone,
+  it already stored them itself. This is what keeps its `Auction` tooltip line, selling tab and price history in
+  step with ours instead of showing a price from the last in-game deep scan
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
@@ -82,7 +90,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Column names (1.14): **PPG** = profit per 1g invested, **PPH** = profit per hour of crafting, **Min. price** (was
   "Min item sell"), **On AH** (was "On AH now"); every short header explains itself on hover.
 * **Craft** columns: Item, **PPH** (1.12), PPG, **Recipe cost** (1.13: what learning a recipe
-  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min. price, On AH, Circ. 12h.
+  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min. price, On AH, C/8h, C/24h.
   Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
   the Learn tab). PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
@@ -164,9 +172,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
-* Circulating 12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
-  the AH before their time ran out, bought or taken down (Forever hides sellers, so both look the same).
-  Grey = taken from the 3 day window.
+* **C/8h** and **C/24h** (1.16, until then one "Circ. 12h" column) come from the deep scan diffs (intervals up to
+  8h, at least 2h covered): units that left the AH before their time ran out, bought or taken down (Forever hides
+  sellers, so both look the same). One measured rate shown over both listing durations, so a row says straight away
+  whether an 8h or a 24h listing sells. Grey = taken from the 3 day window.
 * **Farm** (trade/Farm.lua, scan/FarmLog.lua) = mobs at your level (-5..+2, no elites, hostile) ranked by gold per
   hour. Mobs, spawns and drop rates from Questie (Wowhead data for ~2000 items quests use: cloth, leather, meat),
   replaced by your own drops after 20 kills; coins and vendor trash from your kills (else your average at that

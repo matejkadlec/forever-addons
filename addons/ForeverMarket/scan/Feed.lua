@@ -121,6 +121,7 @@ local function Import(data)
     local game = LatestGameScan(r)
     local nowMinutes = MinutesOf(FM.Now())
     local lastOf = {} -- item key -> minutes of its newest stored record (false = none)
+    local touched, touchedSet = {}, {} -- items the import moved on, for Auctionator's price database
     local added, covered = 0, 0
     local index, pos = 1, 1
 
@@ -144,6 +145,8 @@ local function Import(data)
         FM.ResetSignatures()
         FM.dataVersion = FM.dataVersion + 1
         FM.feedImporting = nil
+        -- the feed is a refresh of our data like a deep scan: Auctionator's prices follow it
+        FM.FeedAuctionatorKeys(touched)
         if #snapshots > 0 then
             FM.Print(string.format("Battle.net feed: %d snapshots imported, newest %s old, %s item records%s",
                 #snapshots, FM.FormatAge(FM.Now() - snapshots[#snapshots].t), FM.FormatCount(added),
@@ -181,6 +184,10 @@ local function Import(data)
                         FM.AppendDetail(key, record, nowMinutes)
                         lastOf[key] = minutes
                         added = added + 1
+                        if not touchedSet[key] then
+                            touchedSet[key] = true
+                            touched[#touched + 1] = key
+                        end
                     end
                 end
                 pos = stop + 1

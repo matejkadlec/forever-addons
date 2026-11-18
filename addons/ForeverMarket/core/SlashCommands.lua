@@ -30,7 +30,7 @@ local function PrintHelp()
     PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("advice", "Show Claude's current advice")
     PrintHelpLine("item <item link or ID>", "Market summary of one item")
-    PrintHelpLine("tooltip <on|off>", "Market line on tooltips")
+    PrintHelpLine("tooltip <on|off>", "Cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
     PrintHelpLine("auctionator <on|off>", "Save deep scan prices into Auctionator too")
@@ -174,7 +174,7 @@ local function HandleSlash(msg)
     elseif command == "item" then
         ItemSummary(rest)
     elseif command == "tooltip" then
-        Toggle("tooltip", arg, "Tooltip market line")
+        Toggle("tooltip", arg, "Tooltip cost and sell prices")
     elseif command == "autoscan" then
         Toggle("autoDeepScan", arg, "Auto deep scan")
     elseif command == "rescan" then

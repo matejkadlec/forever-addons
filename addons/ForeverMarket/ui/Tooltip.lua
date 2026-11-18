@@ -1,15 +1,15 @@
 local _, FM = ...
 
--- Item tooltip lines: the latest market state and Claude's advice. Lines are added synchronously
--- with AddLine (no right column, no wrapping), so they never fight with other tooltip AddOns.
--- Below them, after a blank line, what the item costs you and the least to sell it for (trade/Cost.lua),
--- in two groups with a gold header and indented rows with right-aligned values.
+-- Item tooltip lines: Claude's advice, and below it, after a blank line, what the item costs you and
+-- the least to sell it for (trade/Cost.lua), in two groups with a gold header and indented rows with
+-- right-aligned values. Lines are added synchronously with AddLine (no right column, no wrapping),
+-- so they never fight with other tooltip AddOns.
+-- The AH price itself is Auctionator's own "Auction" line at the top of the tooltip, which
+-- scan/Auctionator.lua keeps fed from every refresh of our data.
 
-local Dec = FM.Dec
 local math_floor = math.floor
 local math_ceil = math.ceil
 local string_format = string.format
-local string_sub = string.sub
 local type = type
 local ipairs = ipairs
 
@@ -30,35 +30,6 @@ local NONE = { 0.5, 0.5, 0.5 } -- the grey "-" of a value with nothing to show
 local INDENT = "  " -- rows under a group header, like a set's items in Blizzard's item tooltip
 local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
 local costCache = {}
-
-local function MarketLine(key)
-    local f = FM.LatestRecord(key)
-    if not f then return nil end
-    local kind = string_sub(f[1], 1, 1)
-    local at = FM.Unstamp(string_sub(f[1], 2))
-    local minPrice = Dec(f[2])
-    local qty = Dec(f[3]) or 0
-    local parts = {}
-    if minPrice then
-        -- random suffix items: the price is the cheapest of all variants ("of Spirit" next to "of the Eagle")
-        parts[#parts + 1] = FM.FormatMoney(minPrice) .. (FM.HasVariants(key) and " (any suffix)" or "")
-        parts[#parts + 1] = FM.FormatCount(qty) .. " listed"
-    else
-        parts[#parts + 1] = "none listed"
-    end
-    local perDay = FM.SoldPerDay(key)
-    if perDay then
-        parts[#parts + 1] = (perDay > 0 and perDay < 1 and "<1" or FM.FormatCount(perDay)) .. " circulating/day"
-    end
-    if kind == "r" then
-        local own = Dec(f[8])
-        if own and own > 0 then parts[#parts + 1] = "yours " .. FM.FormatCount(own) end
-    end
-    if at then
-        parts[#parts + 1] = "|cFF9D9D9D" .. FM.FormatAge(FM.Now() - at) .. " ago|r"
-    end
-    return FM.COLOR.ORANGE .. "Market|r " .. table.concat(parts, SEP)
-end
 
 local function AdviceLine(key)
     local advice = FM.Advice
@@ -138,14 +109,11 @@ local function LinesFor(key)
         cacheVersion = FM.dataVersion
     end
     local entry = cache[key]
-    if not entry then
-        entry = { market = MarketLine(key) or false, advice = AdviceLine(key) or false, at = GetTime() }
+    if entry == nil then -- false = this item has no advice
+        entry = AdviceLine(key) or false
         cache[key] = entry
-    elseif GetTime() - entry.at > 60 then
-        entry.market = MarketLine(key) or false -- keep "x ago" fresh
-        entry.at = GetTime()
     end
-    return entry.market, entry.advice
+    return entry
 end
 
 local function KeyOfTooltip(tooltip, data)
@@ -168,8 +136,7 @@ local function OnItemTooltip(tooltip, data)
     local key = KeyOfTooltip(tooltip, data)
     if not key then return end
     tooltip.__fmDone = true
-    local market, advice = LinesFor(key)
-    if settings.tooltip and market then tooltip:AddLine(market, 1, 1, 1) end
+    local advice = LinesFor(key)
     if settings.adviceLine and advice then tooltip:AddLine(advice, 1, 1, 1) end
     local cost = settings.tooltip and CostLines(key)
     if cost then

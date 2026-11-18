@@ -26,7 +26,7 @@ local FRAME_NAME = "ForeverMarketTable"
 local W, ROW_H, ROWS = 960, 22, 20
 local TOP = -148 -- first row
 local FILTER_Y = -88 -- search box, checkboxes and filter buttons
-local MAX_COLUMNS = 8
+local MAX_COLUMNS = 9
 local H = -TOP + ROWS * ROW_H + 44
 
 local GREY = "|cFF9D9D9D"
@@ -34,6 +34,7 @@ local GREEN = "|cFF33FF66"
 local RED = "|cFFFF5555"
 local YELLOW = "|cFFFFD100"
 local BLUE = "|cFF66CCFF"
+local INFO_COLOR = CreateColor and CreateColor(0.4, 0.75, 1) -- the light blue of the right-click hint
 local WHITE = "|cFFFFFFFF"
 
 local frame
@@ -86,12 +87,15 @@ local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to rese
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
 local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 12h, else 24h)."
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
-local CIRC_TIP = "Circulating 12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
+local C8_TIP = "C/8h: units that leave the AH in about 8 hours, bought or taken down (Forever hides sellers). From the measured circulation rate, so it says whether an 8h listing sells. Grey = from the 3 day window."
+local C24_TIP = "C/24h: the same over about 24 hours, so it says whether a 24h listing sells. Grey = from the 3 day window."
 
--- Circulating ~12h: "?" without enough coverage, grey when it had to come from the 3 day window
-local function Sold(n, wide)
+-- Units circulating over `hours`, from the measured ~12h rate (sold12): "?" without enough coverage,
+-- grey when the rate had to come from the 3 day window
+local function Sold(n, wide, hours)
     if type(n) ~= "number" then return GREY .. "?|r" end
-    local text = (n > 0 and n < 1) and "<1" or FM.FormatCount(math_floor(n + 0.5))
+    local v = n * hours / 12
+    local text = (v > 0 and v < 1) and "<1" or FM.FormatCount(math_floor(v + 0.5))
     return wide and (GREY .. text .. "|r") or text
 end
 
@@ -206,7 +210,7 @@ local function Duration(seconds)
 end
 
 local CRAFT_COLUMNS = {
-    { title = "Item", width = 250, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Item", width = 240, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
     { title = "PPH", tip = PPH_TIP, width = 100, text = function(r)
         local v = ProfitPerHour(r)
         return v and P1g(v, r.approx or (r.avg and r.avg.est > 0)) or (GREY .. "?|r")
@@ -225,7 +229,8 @@ local CRAFT_COLUMNS = {
     { title = "Max mat buy", tip = "Max mat buy: the highest price for the main AH material that still leaves 10% profit (its icon shows which material).", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
     { title = "Min. price", tip = MIN_TIP, width = 96, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
     { title = "On AH", tip = ON_AH_TIP, width = 84, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 90, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
+    { title = "C/8h", tip = C8_TIP, width = 50, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 50, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
 }
 
 local VENDOR_COLUMNS = {
@@ -234,7 +239,8 @@ local VENDOR_COLUMNS = {
     { title = "Vendor price", width = 100, text = function(r) return Money(r.vendorUnit) end, sort = function(r) return r.vendorUnit end },
     { title = "Min. price", tip = MIN_TIP, width = 100, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
     { title = "On AH", tip = ON_AH_TIP, width = 80, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
+    { title = "C/8h", tip = C8_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end },
     { title = "Vendor", width = 182, align = "LEFT", text = function(r)
         local where = r.offer and r.offer.where or "?"
         return GREY .. where .. "|r"
@@ -248,7 +254,8 @@ local FLIP_COLUMNS = {
     { title = "List at", width = 110, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "Units", width = 66, text = function(r) return Count(r.units) end, sort = function(r) return r.units end },
     { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 126, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
+    { title = "C/8h", tip = C8_TIP, width = 63, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 63, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
 }
 
 local function MatBetter(r)
@@ -277,7 +284,8 @@ local MAT_COLUMNS = {
         return GREY .. (r.via and (Name(r.via) .. " > ") or "") .. Name(r.best.key) .. "|r"
     end, sort = function(r) return r.best and Name(r.best.key) or "" end },
     { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
+    { title = "C/8h", tip = C8_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
 }
 
 local function FarmLevel(r)
@@ -356,7 +364,8 @@ local FAV_COLUMNS = {
     { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Sell now", width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
-    { title = "Circ. 12h", tip = CIRC_TIP, width = 124, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
+    { title = "C/8h", tip = C8_TIP, width = 62, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 62, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end },
     { title = "In tabs", width = 140, align = "LEFT", text = function(r)
         local names = {}
         for _, id in ipairs(r.tabs or {}) do names[#names + 1] = USE_SHORT[id] end
@@ -728,11 +737,13 @@ end
 local function MarketLines(row)
     Line("On AH", OnAH(row) .. ((row.own or 0) > 0 and (GREY .. "  (yours in brackets)|r") or ""))
     if row.sold12 then
-        Line("Circulating 12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
+        local from3d = row.soldWide and (GREY .. "  from 3 days|r") or ""
+        Line("C/8h", Count(row.sold12 * 8 / 12) .. from3d)
+        Line("C/24h", Count(row.sold12 * 2) .. from3d)
     else
-        Line("Circulating 12h", GREY .. "not enough scans yet|r")
+        Line("C/8h", GREY .. "not enough scans yet|r")
     end
-    if row.sold3d and not row.soldWide then Line("Per 12h over 3 days", Count(row.sold3d)) end
+    if row.sold3d and not row.soldWide then Line("C/24h over 3 days", Count(row.sold3d * 2)) end
     Note("Circulating = units that left the AH before their time ran out: bought, or taken down by the seller (Forever hides sellers, so both look the same).")
 end
 
@@ -772,7 +783,7 @@ local function CraftTooltip(row, past)
                 Line("Min. price", Money(row.minSell) .. GREY .. "  break-even|r")
             end
             Line("On AH (average)", Count(a.qty))
-            Line("Circulating per 12h", row.sold12 and Count(row.sold12) or (GREY .. "?|r"))
+            Line("C/24h", row.sold12 and Count(row.sold12 * 2) or (GREY .. "?|r"))
         end
         local latest
         for _, r in ipairs(FM.trade and FM.trade.crafts or {}) do
@@ -1128,6 +1139,9 @@ local function ShowRowMenu(button, key)
                     end)
                 end
             end
+        elseif FM.RecipeOnAH and FM.RecipeOnAH(key) then
+            -- a pattern on the AH has no NPC to walk to: say where the recipe comes from instead
+            root:CreateTitle("Recipe on AH", INFO_COLOR)
         end
     end)
 end

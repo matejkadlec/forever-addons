@@ -401,6 +401,19 @@ function FM.TrackTarget(key)
     return nil
 end
 
+-- True when a recipe you can still learn is sold as a pattern on the AH. The row menu says so where
+-- Track would be, because a pattern on the AH has no NPC to send a TomTom arrow to.
+function FM.RecipeOnAH(key)
+    for _, row in ipairs(FM.trade and (FM.trade.learn or FM.trade.crafts) or {}) do
+        if row.key == key and row.learned == false and row.craft then
+            for _, route in ipairs(row.craft.learnAll or row.craft.learn or {}) do
+                if route.kind == "ah" then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- Track: a TomTom arrow to that place (its place in chat without TomTom)
 function FM.TrackVendor(key)
     local place, why = FM.TrackTarget(key)
