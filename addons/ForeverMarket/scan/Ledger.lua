@@ -7,7 +7,7 @@ local _, FM = ...
 -- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID]"    kind: i item, c commodity, b bid only
 -- R.events   "t,char,kind,..."
 --              chat:  sold | expired | removed | won | outbid  ,itemName
---              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID
+--              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev  (prev = the list before, 1.15.14 on)
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
@@ -136,7 +136,9 @@ local function SnapshotOwned()
         -- was cancelled (sold ones stay in the list with the sold status until their mail goes out)
         local watching = FM.ahOpen and FM.ahOpenedAt and previous.t >= FM.ahOpenedAt
         local function log(kind, aid, e, qty)
-            FM.Log("events", table_concat({ stamp, char, kind, e.key, qty or e.qty, e.buyout, aid }, ","), FM.LIMITS.eventsMax)
+            -- prev: the list before this one, the change happened between the two
+            FM.Log("events", table_concat({ stamp, char, kind, e.key, qty or e.qty, e.buyout, aid, FM.Stamp(previous.t) }, ","),
+                FM.LIMITS.eventsMax)
         end
         for aid, e in pairs(current) do
             local old = before[aid]

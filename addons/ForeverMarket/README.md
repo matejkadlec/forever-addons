@@ -218,9 +218,13 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
   bought there and crafted leave the line until the product sells.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
-  since (oldest first; the sale mails of auctions the list already shows sold take nothing off); sold, ended and
-  cancelled ones (`ocancel`) count as on their way by mail only after the last look into the mailbox (without any
-  mailbox reading: since login), the cancelled ones' deposit is gone.
+  since (oldest first). What the lists saw change (`osold` gone from the list, `opart`, `ocancel`, `ogone`) is
+  matched to the mails you read of the item (sent after the list before it and by the list that saw it, a sale's
+  up to 2 hours later): a matched mail takes nothing off the running auctions, and so do the sale mails of auctions
+  the list still shows sold. Sold, ended and cancelled ones count as on their way by mail when they happened after
+  the last look into the mailbox (without any mailbox reading: since login) and their mail isn't read: a sale's
+  money after the cut and deposit, the units of a cancelled one or one gone while you were away (most likely
+  expired; its deposit is gone).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
   `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
   counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
@@ -317,8 +321,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new`
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
-* `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID` (buyout is the unit
-  price for commodities), chat `sold|expired|removed|won|outbid,item`, mail `mexpired|mcancelled,item`, `blocked,function`
+* `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
+  before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
+  `mexpired|mcancelled,item`, `blocked,function`
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)

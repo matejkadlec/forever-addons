@@ -36,6 +36,7 @@ local MIN_GAP = 600 -- seconds between readings that are not forced
 local AH_CUT = 0.05
 local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 } -- posts store the duration index
 local POSTS_BACK = 3 * 86400 -- posts older than this have ended and come back long ago
+local MAIL_LATE = 2 * 3600 -- a sale's mail may go out this long after a list showed the sale
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
@@ -182,8 +183,10 @@ end
 --   sold after the last look into the mailbox: the money after the cut and the deposit, on their way by mail
 --   ended or cancelled after the last look into the mailbox: their units, on their way back by mail
 -- Without any mailbox reading, "after the last look" is "since login" (opening it would have made one).
--- Sales, expiries and cancels read from your mail since the list take their units off the running ones,
--- oldest first. Returns the deposits and money counted.
+-- What the lists saw change (osold gone from the list, opart, ocancel, ogone) is matched to the mails you read
+-- of the item: a matched mail is that change's, an unmatched change made after the last look is still on its way
+-- (money for sales, units for cancels and ogone). Other sales, expiries and cancels read from your mail since
+-- the list take their units off the running ones, oldest first. Returns the deposits and money counted.
 local function Auctions(r, char, now, mailT, add)
     local lookT = mailT or FM.loginAt or now
     local owned = type(r.owned) == "table" and r.owned[char]
@@ -224,19 +227,57 @@ local function Auctions(r, char, now, mailT, add)
             end
         end
     end
-    -- auctions cancelled after the last look into the mailbox (their units come back by mail) or since the list
-    -- (no running one even if posted in the list's minute); events are logged in time order, mail ones by sent time
-    local cancelled, back = {}, {}
-    local events = r.events or {}
-    local oldest = math_min(lookT, (listT or now) - 60)
-    for i = #events, 1, -1 do
-        local f = FM.Split(events[i], ",")
-        local t = FM.Unstamp(f[1])
-        if t and t < oldest and f[3] ~= "mexpired" and f[3] ~= "mcancelled" then break end
-        if t and f[2] == char and f[3] == "ocancel" and f[4] then
-            if f[7] then cancelled[f[7]] = true end
-            if t >= lookT then back[#back + 1] = { key = f[4], qty = Dec(f[5]) or 1 } end
+    -- the mails you read of each item, oldest first: sales (invoices) and returns (expired, cancelled)
+    local nameKeys = NameKeys(r)
+    local mails = {} -- key -> { { t = sent, qty, sale, used }, ... }
+    local function Mail(name, qty, t, sale)
+        local key = name and nameKeys[name]
+        if key and t then
+            mails[key] = mails[key] or {}
+            local list = mails[key]
+            list[#list + 1] = { t = t, qty = qty, sale = sale, used = 0 }
         end
+    end
+    for _, line in ipairs(r.invoices or {}) do
+        local f = FM.Split(line, ",")
+        if f[2] == char and f[3] == "seller" and f[4] then Mail(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]), true) end
+    end
+    -- what the lists saw change since shortly before the last mailbox look or the list (a sale still shown sold is
+    -- in soldInList); a change's mail went out after the list before it (prev, 1.15.14 on; before: up to MAIL_LATE
+    -- earlier) and by the list that saw it, a sale's up to MAIL_LATE later
+    local changes, cancelled = {}, {}
+    local oldest = math_min(lookT, (listT or now) - MAIL_LATE)
+    for _, line in ipairs(r.events or {}) do
+        local f = FM.Split(line, ",")
+        local kind, t = f[3], FM.Unstamp(f[1])
+        if f[2] == char and f[4] and t then
+            if kind == "mexpired" or kind == "mcancelled" then
+                local name, count = f[4]:match("^(.-) %((%d+)%)$")
+                Mail(name or f[4], tonumber(count) or 1, t)
+            elseif (kind == "osold" or kind == "opart" or kind == "ocancel" or kind == "ogone") and t >= oldest
+                and not (kind == "osold" and f[7] and inList[f[7]]) then
+                local prev = FM.Unstamp(f[8])
+                local sale = kind == "osold" or kind == "opart"
+                if kind == "ocancel" and f[7] then cancelled[f[7]] = true end
+                changes[#changes + 1] = { t = t, kind = kind, key = f[4], qty = Dec(f[5]) or 1, unit = Dec(f[6]) or 0,
+                    aid = f[7], sale = sale, any = kind == "ogone", from = prev and prev - 60 or t - MAIL_LATE,
+                    to = t + (sale and MAIL_LATE or 60) }
+            end
+        end
+    end
+    for _, list in pairs(mails) do table_sort(list, function(a, b) return a.t < b.t end) end
+    table_sort(changes, function(a, b) return a.t < b.t end)
+    -- each change takes the oldest fitting mails of its item (ogone: a sale or a return)
+    for _, c in ipairs(changes) do
+        local need = c.qty
+        for _, m in ipairs(mails[c.key] or {}) do
+            if need <= 0 then break end
+            if m.used < m.qty and m.t >= c.from and m.t <= c.to and (c.any or (not m.sale) == (not c.sale)) then
+                local n = math_min(need, m.qty - m.used)
+                m.used, need = m.used + n, need - n
+            end
+        end
+        c.open = need
     end
     for _, post in ipairs(posts) do
         -- posted after the list (minute stamps: one of the same minute may be in it already, its ID tells)
@@ -247,29 +288,19 @@ local function Auctions(r, char, now, mailT, add)
         end
     end
     table_sort(running, function(a, b) return a.t < b.t end)
-    -- what the mail took off them since
+    -- what the other mails took off them since
     local since = listT or (running[1] and running[1].t)
     if since and #running > 0 then
-        local nameKeys = NameKeys(r)
         local taken = {}
-        local function Take(name, qty, t)
-            local key = nameKeys[name]
-            if key and t >= since - 60 then taken[key] = (taken[key] or 0) + qty end
-        end
-        for _, line in ipairs(r.invoices or {}) do
-            local f = FM.Split(line, ",")
-            if f[2] == char and f[3] == "seller" and f[4] then Take(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]) or 0) end
-        end
-        -- the sale mails of auctions the list already shows sold took nothing off the running ones
-        for key, qty in pairs(soldInList) do
-            if taken[key] then taken[key] = math_max(0, taken[key] - qty) end
-        end
-        for _, line in ipairs(r.events or {}) do
-            local f = FM.Split(line, ",")
-            if f[2] == char and (f[3] == "mexpired" or f[3] == "mcancelled") and f[4] then
-                local name, count = f[4]:match("^(.-) %((%d+)%)$")
-                Take(name or f[4], tonumber(count) or 1, FM.Unstamp(f[1]) or 0)
+        for key, list in pairs(mails) do
+            local sold, back = 0, 0
+            for _, m in ipairs(list) do
+                if m.t >= since - 60 then
+                    if m.sale then sold = sold + m.qty - m.used else back = back + m.qty - m.used end
+                end
             end
+            -- the sale mails of auctions the list already shows sold took nothing off the running ones
+            taken[key] = math_max(0, sold - (soldInList[key] or 0)) + back
         end
         for _, a in ipairs(running) do
             local off = math_min(a.qty, taken[a.key] or 0)
@@ -277,6 +308,19 @@ local function Auctions(r, char, now, mailT, add)
                 taken[a.key] = taken[a.key] - off
                 a.deposit = a.deposit * (a.qty - off) / a.qty
                 a.qty = a.qty - off
+            end
+        end
+    end
+    -- changes after the last look whose mail you haven't read: on their way by mail
+    for _, c in ipairs(changes) do
+        if c.open > 0 and c.t > lookT then
+            if c.sale then
+                -- the unit price (commodities) or the auction's buyout (one item), and a sold auction's deposit
+                local post = c.kind == "osold" and c.aid and byAid[c.aid]
+                local deposit = post and PostDeposit(c.key, post.qty, post.duration) * c.open / math_max(post.qty, 1) or 0
+                total = total + c.unit * c.open * (1 - AH_CUT) + deposit
+            else
+                add(c.key, c.open) -- cancelled or gone (most likely expired): the units, the deposit is gone
             end
         end
     end
@@ -290,7 +334,6 @@ local function Auctions(r, char, now, mailT, add)
             end
         end
     end
-    for _, c in ipairs(back) do add(c.key, c.qty) end -- cancelled: coming back by mail, the deposit is gone
     return total
 end
 
