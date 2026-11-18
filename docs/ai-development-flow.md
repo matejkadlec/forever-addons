@@ -25,7 +25,7 @@ They are entry points into this document, not a second source of truth: every ru
 - Project `FRV` on `envelopment.atlassian.net`; statuses To Do -> In Progress -> In Review -> Done ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)). There are no other statuses: do not look for or create any
 - The tools attach a few minutes after a session starts: wait and retry each minute, as that section says
 - Move a ticket by the transition whose target is the wanted status, and read the returned status: it must be the target
-- Labels: the AddOn (`forever-marketplace` for ForeverMarket, `tooling` for the repository itself), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
+- Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn (`forever-marketplace` for ForeverMarket, `tooling` for the repository itself), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
 
 ### Status model
 
@@ -34,7 +34,7 @@ They are entry points into this document, not a second source of truth: every ru
 | To Do | Not started. The board's order is the priority | The maintainer, `flow2` |
 | In Progress | Claimed: a session is working on it on a branch | The claim |
 | In Review | Its pull request is open: under independent review, or (label `in-game-qa`) waiting for the maintainer's test | Publication |
-| Done | Its pull request is merged | `finalize-pr`, after the merge |
+| Done | Its pull request is merged (an analysis without file changes: its result is recorded) | `finalize-pr`, after the merge |
 
 A ticket is **in flight** while it is In Progress or In Review. It belongs to the batch that claimed it: no other run changes it, its branch or its pull request.
 
@@ -92,15 +92,16 @@ A batch has one kind: the strictest of its tickets. Prefer not to mix a gated ti
 
 ## Intake and batch selection
 
-1. **Reconcile first:** a ticket in In Review whose pull request is already merged goes to Done (with a `🤖 Claude QA` line naming the merge commit). One that cannot be matched to a pull request is left alone and named in the response
-2. **Look at what is in flight:** tickets In Progress and In Review, open pull requests, `git branch -a`, `git worktree list`. Their AddOns and files are taken
+1. **Reconcile first:** a ticket in In Review whose pull request is already merged goes to Done (with a `🤖 Claude QA` line naming the merge commit) and loses the label `in-game-qa`. One that cannot be matched to a pull request is left alone and named in the response
+2. **Look at what is in flight:** tickets In Progress and In Review, open pull requests, `git branch -a`, `git worktree list`. Their AddOns and files are taken. A ticket In Progress with no branch or open pull request behind it (a session that ended after its claim) is not taken over: name it in the batch announcement for the maintainer
 3. **Read the candidates** in To Do in board order (`project = FRV AND status = "To Do" ORDER BY Rank ASC`), with comments
-4. **Set aside** tickets waiting on the maintainer, tickets with an unmet dependency that cannot be pulled in, `fable-5.2` tickets when this session runs another model, and tickets the run location cannot do
+4. **Set aside** Epics (never claimed: their child tickets are the work; an Epic goes to Done when the maintainer closes it), tickets waiting on the maintainer, tickets with an unmet dependency that cannot be pulled in, `fable-5.2` tickets when this session runs another model, and tickets the run location cannot do
 5. **One AddOn, one open piece of work:** the game holds one copy of each AddOn, and a sync from another branch would replace what the maintainer is testing. A ticket for an AddOn that has an open pull request is deferred, or built on that pull request's branch when the maintainer asked for it or the work belongs together ([AGENTS.md](../AGENTS.md#pull-requests-and-code-review))
 6. **Select one coherent batch** from the top of what is left: work that one session can implement and verify precisely and one reviewer can read
    - Group by AddOn, then by QA kind. Rough scale, not a limit: one larger ticket, or up to five small ones for the same AddOn, or a handful of documentation and tooling tickets
    - Priority is the board order; skipping a ticket needs one of the reasons above
    - A ticket too big for one pull request is split into Subtasks or part Tasks first, each with its own acceptance criteria
+   - An `Analysis:` ticket is delivered as its result: a comment on the ticket (or a document in `docs/` through a pull request when the finding is durable) plus a follow-up ticket for each change it proposes. An analysis that changes no file needs no branch and no pull request: after the claim and the result comment it goes straight to Done
 7. **Announce** the batch: the tickets, the QA kind, the run location, what was set aside and why
 
 ### Claim
@@ -120,7 +121,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 - Follow [AGENTS.md](../AGENTS.md) (Development Workflow, Coding Rules, API verification) and the nearest nested guide; keep the guides and `README.md` current in the same batch
 - **The gate**, run before every push and reported command by command:
   - `luac5.1 -p` on every changed Lua file (a file with a byte order mark through `tail -c +4`)
-  - The `pre-commit` hook passed on every commit: each changed AddOn has its `## Version:` bump. Never `--no-verify`
+  - The version bump, checked directly (the Git hooks are optional and may not be installed): every AddOn with a changed file in `git diff --name-only origin/master...HEAD` (its top level `AGENTS.md` and `CLAUDE.md` aside) has a changed `## Version:` in its `.toc`, Skada in all three tocs. Running `.githooks/pre-commit` on the staged change does the same check; report the hook only when it actually ran. Never `--no-verify`
   - For `services/forever-market-feed/`: the checks in [its guide](../services/forever-market-feed/AGENTS.md)
   - `git diff --check`, and for Markdown the relative links
 - The gate proves syntax, not behavior: say so in Verification. A check that needs the game is the maintainer's
@@ -146,7 +147,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 
 For a gated batch `finalize-pr` stops before the merge, once the independent review of the head is clean and the checks are green:
 
-1. Each ticket gets the label `in-game-qa` and a `🎮 In-game QA handoff` comment: the head, what to test, and whether the game needs `/reload` or a restart
+1. Each ticket gets the label `in-game-qa` and a `🎮 In-game QA handoff` comment: the head, `independent review clean on <sha>` (the record a later session's `qa1` relies on), what to test, and whether the game needs `/reload` or a restart
 2. The response ends in the shape of [AGENTS.md, Ending a response](../AGENTS.md#ending-a-response) with `What to test (needed before the merge)`, and its last line tells him how to answer: `qa1` when it works, `qa2` with what is wrong
 3. The branch, the worktree and the pull request stay as they are. The game keeps the synced copy of that branch: no other branch of the same AddOn is synced until he has answered
 
@@ -158,15 +159,15 @@ For a gated batch `finalize-pr` stops before the merge, once the independent rev
 
 ### qa2: changes needed
 
-- Find the batch as `qa1` does. Feedback that changes the plan or needs his decision goes back to him as a question first
+- Find the batch as `qa1` does, and remove the label `in-game-qa` from its tickets: they wait for the agent now. Feedback that changes the plan or needs his decision goes back to him as a question first
 - Stay on the same branch: no new branch, no new pull request. Apply his feedback and nothing beyond it, run the gate, sync, push
-- The new head gets its independent review through `finalize-pr`, then a new `🎮 In-game QA handoff` limited to what the revision changed. The tickets stay In Review; the label `in-game-qa` is set again when the fix waits for his retest
+- The new head gets its independent review through `finalize-pr`, then a new `🎮 In-game QA handoff` limited to what the revision changed. The tickets stay In Review; the handoff sets the label `in-game-qa` again
 
 ---
 
 ## After publication
 
-`finalize-pr` is the only skill that merges. It follows [AGENTS.md, Pull Requests and Code Review](../AGENTS.md#pull-requests-and-code-review): a fresh, independent reviewer for every head, fixes for valid findings, the whole diff against `origin/master` in the last review, green checks, a merge commit, only your own pull requests. A pull request that needs the maintainer (his in-game test, a step on the host, a secret, his decision) stays open and the response says what it waits for. After the merge: the tickets go to Done, a merge that touches the feed's paths is followed to the end of its deploy run, and the session removes its own worktree and branch.
+`finalize-pr` is the only skill that merges. It follows [AGENTS.md, Pull Requests and Code Review](../AGENTS.md#pull-requests-and-code-review): a fresh, independent reviewer for every head, fixes for valid findings, the whole diff against `origin/master` in the last review, green checks, a merge commit, only your own pull requests. A pull request that needs the maintainer (his in-game test, a step on the host, a secret, his decision) stays open and the response says what it waits for. After the merge: the tickets go to Done, a merge that touches the feed's paths is followed to the end of its deploy run, and the session removes the batch's worktree and branch.
 
 ---
 

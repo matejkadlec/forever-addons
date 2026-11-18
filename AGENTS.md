@@ -195,7 +195,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
   - When a task needs Jira and the tools are missing, wait and check again every minute, and start the Jira work as soon as they are there
   - Never report Jira as unavailable and never skip or postpone the Jira step because of a first failed check; work that needs no Jira can go on while waiting
   - When the tools are still missing after 10 checks (10 minutes), tell the maintainer and keep checking every minute
-- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket; `tooling` for work on the repository itself); a ticket whose pull request waits for his in-game test also carries `in-game-qa` (see In-Game QA)
+- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket; `tooling` for work on the repository itself); a ticket whose pull request waits for his in-game test also carries `in-game-qa` (see In-Game QA); a ticket that waits for the maintainer's decision carries `decision` and is never implemented before he has decided
 - Work types: Epic (a larger goal), Task (a change or an analysis; analyses start with `Analysis:`), Bug, Subtask; label `fable-5.2` = must be done with the Fable 5.2 model
 - Statuses: To Do -> In Progress (work started) -> In Review (pull request open, under review) -> Done (merged)
 - Work on a ticket happens on a branch named after it (for example `frv-13-table-batch`); commit messages and the pull request title start with the key (`FRV-13: ...`), the pull request links the ticket
@@ -214,7 +214,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
 - Never switch, reset, stash or clean a checkout that holds uncommitted changes you did not make, and never discard work you did not create
 - Stage explicit paths and read `git diff --staged` before each commit; never commit `.env` files (only the `.example` templates), logs or secrets; let the hooks run, never `--no-verify`
 - Push only your own branch; force-push only your own branch and only with `--force-with-lease`; never force-push `master`
-- After the merge, remove only what you created: `git worktree remove <path>` (never `--force` over uncommitted changes), `git branch -d <branch>`, `git worktree prune`
+- After the merge, remove only what you created, or the worktree and branch of the batch you merged (a later session that carries another session's pull request to its merge): `git worktree remove <path>` (never `--force` over uncommitted changes), `git branch -d <branch>`, `git worktree prune`
 
 ---
 
