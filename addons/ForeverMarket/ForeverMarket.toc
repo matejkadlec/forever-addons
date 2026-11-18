@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.15.1
+## Version: 1.15.2
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverMarketDB
 ## OptionalDeps: Auctionator
@@ -20,7 +20,6 @@ scan\DeepScan.lua
 scan\Auctionator.lua
 scan\Search.lua
 scan\Ledger.lua
-scan\Money.lua
 scan\Worth.lua
 scan\FarmLog.lua
 scan\Feed.lua

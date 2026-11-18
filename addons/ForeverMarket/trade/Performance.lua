@@ -1,9 +1,12 @@
 local _, FM = ...
 
--- Numbers of the Performance tab (ui/Performance.lua): your worth (gold + items, scan/Worth.lua) at the end of
--- each day, week or month, and what happened in it: what sold, what you bought, what expired unsold, real
--- losses (sold under what you paid, paid over the usual price, lost deposits) and gold from elsewhere
--- (loot, quests, vendors... from scan/Money.lua). Before the item readings start, worth is your gold alone.
+-- Numbers of the Performance tab (ui/Performance.lua): your AH result at the end of each day, week or month and
+-- what happened in it. AH result = the AH's money (sales after the cut and their deposit back, less purchases,
+-- won auctions and deposits paid) + what you hold from the AH (scan/Worth.lua: items bought there at the usual
+-- price, running auctions' deposits). So buying and posting don't move it, overpaying, selling under cost, the
+-- cut and lost deposits do; loot, quests, vendors and trainers never count. The line starts at 0 at the first
+-- dot shown. What happened: what sold, what you bought, what expired unsold and the real losses (sold under
+-- what you paid, paid over the usual price, lost deposits).
 
 local Dec = FM.Dec
 local type = type
@@ -70,40 +73,31 @@ FM.PerfStart, FM.PerfNextStart = Start, NextStart
 
 ---------------------------------------------------------------- history
 
--- Gold over time: { { t, copper }, ... } oldest first, from the ledger's gold records until the money log
--- starts and the money log's hourly closes after; also the parsed money log lines
-local function GoldPoints(r, char, now)
-    local entries = {}
-    local list = type(r.money) == "table" and r.money[char]
-    for _, line in ipairs(type(list) == "table" and list or {}) do
-        local e = FM.ParseMoneyLine(line)
-        if e then entries[#entries + 1] = e end
-    end
-    table_sort(entries, function(a, b) return a.hour < b.hour end)
-    local logStart = entries[1] and entries[1].hour * 3600 or nil
+-- Your gold over time (for the percent of a change): { { t, copper }, ... } from the ledger's gold records and
+-- the readings, oldest first
+local function GoldPoints(r, char, readings)
     local points = {}
     for _, line in ipairs(type(r.gold) == "table" and r.gold or {}) do
         local stamp, who, copper = line:match("^(%w+),([^,]*),(%w+)$")
         if who == char then
             local t, c = FM.Unstamp(stamp), Dec(copper)
-            if t and c and (not logStart or t < logStart) then points[#points + 1] = { t, c } end
+            if t and c then points[#points + 1] = { t, c } end
         end
     end
-    for _, e in ipairs(entries) do
-        points[#points + 1] = { math_min(e.hour * 3600 + 3599, now), e.close }
-    end
+    for _, reading in ipairs(readings) do points[#points + 1] = { reading[1], reading[2] } end
     table_sort(points, function(a, b) return a[1] < b[1] end)
-    return points, entries
+    return points
 end
 
--- Worth readings: { { t, gold, items, seen }, ... } oldest first (seen "?" for readings before 1.15.1)
+-- Readings of what you hold from the AH: { { t, gold, held, seen }, ... } oldest first (1.15.0-1.15.1 readings
+-- of all items, without the "h", are left out)
 local function Readings(r, char)
     local points = {}
     local list = type(r.worth) == "table" and r.worth[char]
     for _, line in ipairs(type(list) == "table" and list or {}) do
         local f = FM.Split(line, ",")
-        local t, gold, items = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
-        if t and gold and items then points[#points + 1] = { t, gold, items, f[4] or "?" } end
+        local t, gold, held = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
+        if t and gold and held and (f[4] or ""):sub(1, 1) == "h" then points[#points + 1] = { t, gold, held, f[4] } end
     end
     table_sort(points, function(a, b) return a[1] < b[1] end)
     return points
@@ -124,13 +118,23 @@ local function At(points, t)
     return found
 end
 
--- Your gold and items at t: the last reading before it (gold and items of one moment), before the first
--- reading the gold alone
-local function ValuesAt(golds, readings, t)
+-- What you held from the AH at t and what that reading saw (nil before the first reading)
+local function HeldAt(readings, t)
     local reading = At(readings, t)
-    if reading then return reading[2], reading[3], reading[4] end
+    if reading then return reading[3], reading[4] end
+    return nil, nil
+end
+
+-- Your gold at t (nil before the first record)
+local function GoldAt(golds, t)
     local g = At(golds, t)
-    return g and g[2] or nil, nil, nil
+    return g and g[2] or nil
+end
+
+-- The AH's money up to t: flows sorted by time with running sums
+local function FlowAt(flows, t)
+    local f = At(flows, t)
+    return f and f[3] or 0
 end
 
 ---------------------------------------------------------------- what happened
@@ -238,22 +242,88 @@ local function Signature(r, char, mode, lastStart)
         end
         parts[#parts + 1] = #list .. ":" .. tostring(list[#list])
     end
-    add(type(r.money) == "table" and r.money[char])
     add(type(r.worth) == "table" and r.worth[char])
     for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts" }) do add(r[name]) end
     return table.concat(parts, "|")
 end
 
--- Periods with their gold and items (all but the last) and what happened in them
+-- Periods with the AH's money and what you held (all but the last), and what happened in them
 local function Build(r, char, mode, now)
-    local golds, entries = GoldPoints(r, char, now)
     local readings = Readings(r, char)
-    local series = { mode = mode, periods = {}, itemsSince = readings[1] and readings[1][1] or nil, golds = golds, readings = readings }
-    local firstT = golds[1] and golds[1][1]
+    local golds = GoldPoints(r, char, readings)
+    local series = { mode = mode, periods = {}, heldSince = readings[1] and readings[1][1] or nil, golds = golds,
+        readings = readings }
+    local nameKeys = FM.NameKeys(r)
+    local buysByKey, buys = Purchases(r)
+    local posts = Posts(r, char)
+    local flows = {} -- { t, copper } of the AH's money
+    -- before the first reading of what you hold, purchases can't be set against held items: they count as
+    -- neutral then, and a sale of bought units counts its profit over what they cost
+    local readStart = readings[1] and readings[1][1] or now
+
+    local invoices = {}
+    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+        local f = FM.Split(line, ",")
+        local t = FM.Unstamp(f[1])
+        if f[2] == char and t then
+            invoices[#invoices + 1] = { t = t, kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
+                money = Dec(f[7]) or 0, deposit = Dec(f[9]) or 0, cut = Dec(f[10]) or 0 }
+        end
+    end
+    -- won auctions from your mail; a commodity purchase is in the purchase log already (its mail is skipped)
+    for _, inv in ipairs(invoices) do
+        if inv.kind == "buyer" then
+            local key = nameKeys[inv.name]
+            local logged
+            for _, b in ipairs(key and buysByKey[key] or {}) do
+                if not b.mailed and b.qty == inv.qty and math_abs(b.t - inv.t) <= MAIL_MATCH then
+                    b.mailed, logged = true, true
+                    break
+                end
+            end
+            if not logged then
+                inv.won = true
+                if inv.t >= readStart then flows[#flows + 1] = { inv.t, -inv.money } end
+                if key then
+                    -- also the cost of a later sale of the item
+                    buysByKey[key] = buysByKey[key] or {}
+                    table_insert(buysByKey[key], { t = inv.t, qty = inv.qty, total = inv.money })
+                end
+            end
+        end
+    end
+    for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
+    for _, inv in ipairs(invoices) do
+        if inv.kind == "seller" then
+            -- the sale and its deposit back (before the first reading: less what the units cost you)
+            local cost = 0
+            local key = inv.t < readStart and nameKeys[inv.name]
+            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.t)
+            if unit then cost = unit * inv.qty end
+            flows[#flows + 1] = { inv.t, inv.money - inv.cut + inv.deposit - cost }
+        end
+    end
+    for _, b in ipairs(buys) do
+        if b.t >= readStart then flows[#flows + 1] = { b.t, -b.total } end
+    end
+    for key, list in pairs(posts) do
+        for _, post in ipairs(list) do
+            local deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0
+            if deposit > 0 then flows[#flows + 1] = { post.t, -deposit } end
+        end
+    end
+    table_sort(flows, function(a, b) return a[1] < b[1] end)
+    local sum = 0
+    for _, f in ipairs(flows) do
+        sum = sum + f[2]
+        f[3] = sum
+    end
+    series.flows = flows
+
+    -- the periods back from now, starting with the one of the first AH money or reading
+    local firstT = flows[1] and flows[1][1]
     if readings[1] and (not firstT or readings[1][1] < firstT) then firstT = readings[1][1] end
     firstT = firstT or now
-
-    -- the periods back from now, starting with the one of the first data
     local starts = {}
     local s = Start(mode, now)
     for _ = 1, MODES[mode].count do
@@ -264,11 +334,14 @@ local function Build(r, char, mode, now)
     local periods = series.periods
     for i, from in ipairs(starts) do
         local p = { from = from, to = NextStart(mode, from), sold = {}, bought = {}, expired = {},
-            losses = { under = {}, over = {}, deposit = {} }, lossTotal = 0, other = {} }
-        p.gold, p.items, p.seen = ValuesAt(golds, readings, p.to)
+            losses = { under = {}, over = {}, deposit = {} }, lossTotal = 0 }
+        p.flow, p.gold = FlowAt(flows, p.to), GoldAt(golds, p.to)
+        p.held, p.seen = HeldAt(readings, p.to)
         periods[i] = p
     end
-    series.startGold, series.startItems, series.startSeen = ValuesAt(golds, readings, periods[1].from)
+    local from = periods[1].from
+    series.startFlow, series.startGold = FlowAt(flows, from), GoldAt(golds, from)
+    series.startHeld, series.startSeen = HeldAt(readings, from)
 
     -- which period a moment is in
     local first, last = periods[1].from, periods[#periods].to
@@ -282,43 +355,12 @@ local function Build(r, char, mode, now)
         return periods[lo]
     end
 
-    local nameKeys = FM.NameKeys(r)
-    local buysByKey, buys = Purchases(r)
-    local invoices = {}
-    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
-        local f = FM.Split(line, ",")
-        if f[2] == char then
-            invoices[#invoices + 1] = { t = FM.Unstamp(f[1]), kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
-                money = Dec(f[7]) or 0, cut = Dec(f[10]) or 0 }
-        end
-    end
-    -- won auctions from your mail; a commodity purchase is in the purchase log already (its mail is skipped)
     for _, inv in ipairs(invoices) do
-        if inv.kind == "buyer" and inv.t then
-            local key = nameKeys[inv.name]
-            local logged
-            for _, b in ipairs(key and buysByKey[key] or {}) do
-                if not b.mailed and b.qty == inv.qty and math_abs(b.t - inv.t) <= MAIL_MATCH then
-                    b.mailed, logged = true, true
-                    break
-                end
-            end
-            if not logged then
-                local p = PeriodOf(inv.t)
-                if p then Add(p.bought, inv.name, inv.qty, inv.money) end
-                if key then
-                    -- also the cost of a later sale of the item
-                    buysByKey[key] = buysByKey[key] or {}
-                    table_insert(buysByKey[key], { t = inv.t, qty = inv.qty, total = inv.money })
-                end
-            end
-        end
-    end
-    for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
-    -- sales from your mail, and the ones under what you paid
-    for _, inv in ipairs(invoices) do
-        local p = inv.kind == "seller" and PeriodOf(inv.t)
-        if p then
+        local p = PeriodOf(inv.t)
+        if p and inv.won then
+            Add(p.bought, inv.name, inv.qty, inv.money)
+        elseif p and inv.kind == "seller" then
+            -- sales, and the ones under what you paid
             local net = inv.money - inv.cut
             Add(p.sold, inv.name, inv.qty, net)
             local key = nameKeys[inv.name]
@@ -340,7 +382,6 @@ local function Build(r, char, mode, now)
         end
     end
     -- auctions that expired unsold: the mail's units, their share of the post's deposit is lost
-    local posts = Posts(r, char)
     for _, line in ipairs(type(r.events) == "table" and r.events or {}) do
         local f = FM.Split(line, ",")
         if f[2] == char and f[3] == "mexpired" and f[4] then
@@ -359,19 +400,6 @@ local function Build(r, char, mode, now)
             end
         end
     end
-    -- gold from elsewhere (the AH and the mail are the lists above)
-    for _, e in ipairs(entries) do
-        local p = PeriodOf(e.hour * 3600)
-        if p then
-            for id, c in pairs(e.cats) do
-                if id ~= "a" and id ~= "m" then
-                    local o = p.other[id] or { 0, 0 }
-                    o[1], o[2] = o[1] + c[1], o[2] + c[2]
-                    p.other[id] = o
-                end
-            end
-        end
-    end
     for _, p in ipairs(periods) do
         p.sold, p.bought, p.expired = Sorted(p.sold), Sorted(p.bought), Sorted(p.expired)
         p.losses.under, p.losses.over, p.losses.deposit = Sorted(p.losses.under), Sorted(p.losses.over), Sorted(p.losses.deposit)
@@ -381,8 +409,9 @@ end
 
 local cache = {} -- mode -> { sig, series }
 
--- { mode, periods = { { from, to, gold, items, seen, worth, change, pct, sold, bought, expired, losses,
--- lossTotal, other } }, change, pct, itemsSince }; the last period ends now with a live reading
+-- { mode, periods = { { from, to, value, change, pct, flow, held, seen, gold, sold, bought, expired, losses,
+-- lossTotal } }, change, heldSince, heldNow, goldNow }: value = the AH result since the first dot's start; the
+-- last period ends now with a live reading
 function FM.PerfSeries(modeId, now)
     now = now or FM.Now()
     local mode = MODES[modeId] and modeId or "day"
@@ -399,33 +428,31 @@ function FM.PerfSeries(modeId, now)
     end
     local periods = series.periods
     local last = periods[#periods]
-    -- the last period: a reading of right now
-    local liveGold, liveItems, liveSeen
-    if FM.WorthNow then liveGold, liveItems, liveSeen = FM.WorthNow() end
+    -- the last period: the AH's money until now and a reading of right now
+    last.flow = FlowAt(series.flows, now + 1)
+    local liveGold, liveHeld, liveSeen
+    if FM.WorthNow then liveGold, liveHeld, liveSeen = FM.WorthNow() end
     if liveGold then
-        last.gold, last.items, last.seen = liveGold, liveItems, liveSeen
-        series.itemsSince = series.itemsSince or now
+        last.gold, last.held, last.seen = liveGold, liveHeld, liveSeen
     else
-        last.gold, last.items, last.seen = ValuesAt(series.golds, series.readings, now + 1)
+        last.gold = GoldAt(series.golds, now + 1)
+        last.held, last.seen = HeldAt(series.readings, now + 1)
     end
-    -- change against the end of the period before (the first: against its start); items count only where
-    -- both ends saw the same (the first reading, or the first look at the bank, is no gain)
-    local prevGold, prevItems, prevSeen = series.startGold, series.startItems, series.startSeen
-    local total, base = 0, nil
+    series.heldNow, series.goldNow = last.held, last.gold
+    -- change against the end of the period before (the first: against its start); what you hold counts only
+    -- where both ends saw the same (the first reading, or the first look at the bank, is no gain)
+    local prevFlow, prevHeld, prevSeen, prevGold = series.startFlow, series.startHeld, series.startSeen, series.startGold
+    local value = 0
     for _, p in ipairs(periods) do
-        p.worth = p.gold and (p.gold + (p.items or 0)) or nil
-        p.change, p.pct = nil, nil
-        if p.gold and prevGold then
-            local itemsChange = (p.items and prevItems and p.seen == prevSeen) and (p.items - prevItems) or 0
-            p.change = (p.gold - prevGold) + itemsChange
-            local prevWorth = prevGold + (prevItems or 0)
-            p.pct = prevWorth > 0 and p.change / prevWorth * 100 or nil
-            total = total + p.change
-            base = base or prevWorth
-        end
-        if p.gold then prevGold, prevItems, prevSeen = p.gold, p.items, p.seen end
+        local heldChange = (p.held and prevHeld and p.seen == prevSeen) and (p.held - prevHeld) or 0
+        p.change = (p.flow - prevFlow) + heldChange
+        value = value + p.change
+        p.value = value
+        p.pct = (prevGold and prevGold > 0) and p.change / prevGold * 100 or nil -- of your gold before
+        prevFlow = p.flow
+        if p.held then prevHeld, prevSeen = p.held, p.seen end
+        if p.gold then prevGold = p.gold end
     end
-    series.change = base and total or nil
-    series.pct = (base and base > 0) and total / base * 100 or nil
+    series.change = value
     return series
 end

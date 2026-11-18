@@ -174,7 +174,7 @@ function FM.RealmKey()
 end
 
 local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
-    "money", "worth", "bank", "mailbox" }
+    "worth", "bank", "mailbox" }
 
 -- Data of the current realm and faction (the AH is per realm and faction)
 function FM.R()

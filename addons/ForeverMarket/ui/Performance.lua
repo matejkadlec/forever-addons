@@ -1,8 +1,8 @@
 local _, FM = ...
 
--- The Performance tab of the market table: your worth (gold + items) as a line with one dot per day, week or
--- month (trade/Performance.lua). Hover a dot for that period: the change, what sold, what you bought, what
--- expired unsold, real losses and gold from elsewhere. Daily / Weekly / Monthly sit in the filter row.
+-- The Performance tab of the market table: your AH result as a line from 0 with one dot per day, week or month
+-- (trade/Performance.lua). Hover a dot for that period: the change, what sold, what you bought, what expired
+-- unsold and the real losses. Daily / Weekly / Monthly sit in the filter row.
 
 local type = type
 local ipairs = ipairs
@@ -17,7 +17,7 @@ local GREEN_RGB = { 0.2, 1, 0.4 }
 local RED_RGB = { 1, 0.33, 0.33 }
 local GREY_RGB = { 0.62, 0.62, 0.62 }
 
-local HEADER_H = 52 -- worth now and its change above the chart
+local HEADER_H = 52 -- the AH result and what you hold above the chart
 local AXIS_H = 18 -- date labels under the chart
 local PAD_LEFT, PAD_RIGHT = 84, 18
 local INSET = 14 -- first and last dot from the plot's edges
@@ -89,14 +89,10 @@ end
 local function ShowPeriod(owner, p, mode)
     GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
     GameTooltip:AddLine(PeriodTitle(p, mode))
-    if p.change then
-        local c = ChangeColor(p.change)
-        GameTooltip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
-    end
-    if p.worth then
-        local split = p.items and string_format("gold %s, items %s", Coins(p.gold), Coins(p.items)) or "gold only, items not counted yet"
-        GameTooltip:AddLine(string_format("Worth %s  ·  %s", Coins(p.worth), split), 0.62, 0.62, 0.62)
-    end
+    local c = ChangeColor(p.change)
+    GameTooltip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
+    GameTooltip:AddLine(string_format("AH result since the first dot: %s%s", Signed(p.value),
+        p.pct and "  ·  % of your gold before" or ""), 0.62, 0.62, 0.62)
     List("Sold:", p.sold, Item)
     List("Bought:", p.bought, Item)
     List("Not sold (expired):", p.expired, function(e)
@@ -115,16 +111,7 @@ local function ShowPeriod(owner, p, mode)
         Loss("Paid over the usual price", p.losses.over)
         Loss("Expired deposit", p.losses.deposit)
     end
-    local other = {}
-    for _, s in ipairs(FM.MONEY_SOURCES or {}) do
-        local o = p.other[s.id]
-        if o and o[1] - o[2] ~= 0 then other[#other + 1] = s.name .. " " .. Signed(o[1] - o[2]) end
-    end
-    if #other > 0 then
-        GameTooltip:AddLine("Other gold:", 1, 0.82, 0)
-        for _, text in ipairs(other) do GameTooltip:AddLine("  " .. text, 1, 1, 1) end
-    end
-    if #p.sold + #p.bought + #p.expired == 0 and #other == 0 then
+    if #p.sold + #p.bought + #p.expired == 0 then
         GameTooltip:AddLine("Nothing sold, bought or expired", 0.62, 0.62, 0.62)
     end
     GameTooltip:Show()
@@ -177,10 +164,10 @@ local function CreatePanel(parent, geo)
         p.modes[id] = b
     end
 
-    -- header: worth now, its change over the dots shown, gold and items
+    -- header: the AH result over the dots shown, what you hold from the AH, your gold
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     p.title:SetPoint("TOPLEFT", p, "TOPLEFT", 4, -2)
-    p.title:SetText("Worth")
+    p.title:SetText("AH result")
     p.value = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     p.value:SetPoint("TOPLEFT", p.title, "BOTTOMLEFT", 0, -4)
     p.change = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -275,41 +262,24 @@ local function Render()
     if p.hover then FM.PerfHover(nil) end
 
     local periods = series.periods
-    local last = periods[#periods]
-    if not (last and last.worth) then
-        p.value:SetText("")
-        p.change:SetText("")
-        p.split:SetText("")
-        p.empty:SetText(GREY .. "Nothing recorded yet: your gold and items are recorded from now on.|r")
-        p.empty:Show()
-        for _, pool in ipairs({ p.grid, p.labels, p.lines, p.dots }) do HideRest(pool) end
-        return
-    end
+
+    -- header: the AH result over the dots shown, what you hold from the AH and your gold
+    local c = ChangeColor(series.change)
+    p.value:SetText(Signed(series.change))
+    p.value:SetTextColor(c[1], c[2], c[3])
+    p.change:SetText(GREY .. "over the " .. #periods .. " " .. (mode == "day" and "day" or mode) .. (#periods == 1 and "" or "s")
+        .. " shown|r")
+    p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%sitems bought there (usual price) and your auctions' deposits|r",
+        series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY))
     p.empty:Hide()
 
-    -- header
-    p.value:SetText(Coins(last.worth))
-    if series.change then
-        local c = ChangeColor(series.change)
-        p.change:SetText(Signed(series.change) .. Percent(series.pct) .. GREY .. "  over the "
-            .. #periods .. " " .. (mode == "day" and "days" or mode == "week" and "weeks" or "months") .. " shown|r")
-        p.change:SetTextColor(c[1], c[2], c[3])
-    else
-        p.change:SetText("")
-    end
-    p.split:SetText(last.items and string_format("Gold %s  ·  Items %s|n%sbags, bank, mailbox and your auctions at the usual AH price|r",
-        Coins(last.gold), Coins(last.items), GREY) or ("Gold " .. Coins(last.gold)))
-
-    -- y scale over the worth shown
-    local lo, hi
+    -- y scale over the line, 0 included (it starts there)
+    local lo, hi = 0, 0
     for _, per in ipairs(periods) do
-        if per.worth then
-            lo = lo and math_min(lo, per.worth) or per.worth
-            hi = hi and math_max(hi, per.worth) or per.worth
-        end
+        lo, hi = math_min(lo, per.value), math_max(hi, per.value)
     end
     local span = math_max(hi - lo, 100)
-    lo, hi = math_max(0, lo - span * 0.12), hi + span * 0.12
+    lo, hi = lo - span * 0.12, hi + span * 0.12
     local function Y(v) return p.plotBottom + (v - lo) / (hi - lo) * (p.plotTop - p.plotBottom) end
     for k = 0, 3 do
         local v = lo + (hi - lo) * k / 3
@@ -318,38 +288,32 @@ local function Render()
         g:ClearAllPoints()
         g:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", p.plotLeft, y)
         g:SetPoint("BOTTOMRIGHT", p, "BOTTOMLEFT", p.plotRight, y)
-        Label(Coins(v, 2), p.plotLeft - 8, y, "RIGHT")
+        Label(math_abs(v) < 0.5 and "0" or (v < 0 and "-" or "") .. Coins(v, 2), p.plotLeft - 8, y, "RIGHT")
     end
 
     -- dots, the line through them (green when the range went up, red when down) and date labels
     local n = #periods
     local width = p.plotRight - p.plotLeft - 2 * INSET
     local function X(i) return n == 1 and (p.plotLeft + p.plotRight) / 2 or p.plotLeft + INSET + (i - 1) * width / (n - 1) end
-    local trend = ChangeColor(series.change or 0)
-    local prevX, prevY
+    local trend = ChangeColor(series.change)
+    local prevX, prevY = p.plotLeft, Y(0) -- the line starts at 0 at the first dot's start
     local step = math_max(1, math.ceil(n / 7))
     for i, per in ipairs(periods) do
         local x = X(i)
         p.dotX[i] = x
         if (n - i) % step == 0 then Label(AxisLabel(per, mode), x, AXIS_H, "TOP") end
-        if per.worth then
-            local y = Y(per.worth)
-            if prevX then
-                local l = Take(p.lines)
-                l:SetColorTexture(trend[1], trend[2], trend[3], 0.9)
-                l:SetStartPoint("BOTTOMLEFT", p, prevX, prevY)
-                l:SetEndPoint("BOTTOMLEFT", p, x, y)
-            end
-            local dot = Take(p.dots)
-            local c = ChangeColor(per.change)
-            dot:SetVertexColor(c[1], c[2], c[3], 1)
-            dot:SetSize(DOT, DOT)
-            dot:ClearAllPoints()
-            dot:SetPoint("CENTER", p, "BOTTOMLEFT", x, y)
-            prevX, prevY = x, y
-        else
-            Take(p.dots):Hide() -- keeps dot i at index i
-        end
+        local y = Y(per.value)
+        local l = Take(p.lines)
+        l:SetColorTexture(trend[1], trend[2], trend[3], 0.9)
+        l:SetStartPoint("BOTTOMLEFT", p, prevX, prevY)
+        l:SetEndPoint("BOTTOMLEFT", p, x, y)
+        local dot = Take(p.dots)
+        local dc = ChangeColor(per.change)
+        dot:SetVertexColor(dc[1], dc[2], dc[3], 1)
+        dot:SetSize(DOT, DOT)
+        dot:ClearAllPoints()
+        dot:SetPoint("CENTER", p, "BOTTOMLEFT", x, y)
+        prevX, prevY = x, y
     end
     for _, pool in ipairs({ p.grid, p.labels, p.lines, p.dots }) do HideRest(pool) end
 end
@@ -373,15 +337,15 @@ function FM.PerfFooter()
     local mode = series and series.mode or "day"
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
-    parts[#parts + 1] = "worth = gold + items at the usual AH price, so buying and posting move gold into items, not into losses"
-    if series and series.itemsSince then parts[#parts + 1] = "items counted since " .. date("%m/%d/%Y", series.itemsSince) end
+    parts[#parts + 1] = "AH only: sales after the cut, less overpaying, selling under cost and lost deposits; buying and posting move gold into items"
+    if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end
     parts[#parts + 1] = "hover a dot"
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
 end
 
--- New gold while the tab is open: draw again (at most every 2 seconds)
+-- Gold or bags changed while the tab is open: draw again (at most every 2 seconds)
 local pending = false
-function FM.OnMoneyLogged()
+local function Changed()
     if pending or not (panel and panel:IsVisible()) then return end
     pending = true
     C_Timer.After(2, function()
@@ -389,3 +353,5 @@ function FM.OnMoneyLogged()
         if panel and panel:IsVisible() and FM.RefreshTable then FM.RefreshTable() end
     end)
 end
+FM.On("PLAYER_MONEY", Changed)
+FM.On("BAG_UPDATE_DELAYED", Changed)
