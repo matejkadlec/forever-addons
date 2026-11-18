@@ -888,6 +888,7 @@ local function Candidates(out, why)
 end
 
 local function Signed(copper)
+    if math.abs(copper) < 0.5 then return M(0) end -- rounds to 0c: no sign
     return (copper < 0 and "-" or "+") .. M(math.abs(copper))
 end
 

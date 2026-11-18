@@ -83,10 +83,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Craft** columns: Item, **PPH** (1.12), PPG, **Recipe cost** (1.13: what learning a recipe
   still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min. price, On AH, Circ. 12h.
   Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
-  the Learn tab). Profit per hour = profit per craft / seconds per craft x 3600 (= profit per 1g / time per 1g: gold is
+  the Learn tab). PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
-  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: profit per hour. The
+  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: PPH. The
   craft tooltip shows the craft time and the time per 1g of materials.
 * **Learn** = every recipe still to learn, losing ones too: Profession, Min (lowest skill of its routes; white
   when you have it, red when not), Recipe, PPG now (as in Craft) and PPG 7d (usual prices = median
@@ -188,7 +188,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   import cut short by a /reload is safe to repeat; deep scans wait while an import runs (`FM.feedImporting`).
   Only the realm bucket the feed was matched to imports (`bucket`), `ForeverMarketDB.feedImported[bucket]` tells
   the feed what the game already has.
-* Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose profit per 1g is beyond 3x the
+* Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:

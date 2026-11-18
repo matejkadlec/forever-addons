@@ -65,6 +65,7 @@ FM.MoneyShort = Money
 -- Profit per 1g: green when it pays, red when it loses
 local function P1g(value, approx)
     if type(value) ~= "number" then return GREY .. "-|r" end
+    if math_abs(value) < 0.5 then value = 0 end -- rounds to 0c: no sign
     local text = Money(value)
     if value < 0 then
         text = RED .. "-|r" .. Money(-value)
@@ -220,7 +221,7 @@ local CRAFT_COLUMNS = {
             if r.learned ~= false then return 0 end
             return r.learnCost and -r.learnCost or nil
         end },
-    { title = "Max mat buy", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
+    { title = "Max mat buy", tip = "Max mat buy: the highest price for the main AH material that still leaves 10% profit (its icon shows which material).", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
     { title = "Min. price", tip = MIN_TIP, width = 96, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
     { title = "On AH", tip = ON_AH_TIP, width = 84, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 90, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
@@ -314,6 +315,7 @@ local EXPECTED_TIP = "Expected profit of one listing of the pick's units for 8h 
 
 local function GreyP1g(value)
     if type(value) ~= "number" then return GREY .. "-|r" end
+    if math_abs(value) < 0.5 then value = 0 end
     local text = Money(math_abs(value)):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     return GREY .. (value < 0 and "-" or (value > 0 and "+" or "")) .. text .. "|r"
 end
@@ -1046,7 +1048,11 @@ local function ShowRowTooltip(button)
     local place, why
     if FM.TrackTarget then place, why = FM.TrackTarget(row.key) end
     local menu = (FM.IsFavorite(row.key) and "Unfavorize" or "Favorize") .. ", " .. (FM.IsExcluded(row.key) and "Stop ignoring" or "Ignore")
-    if place then menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) end
+    if place then
+        local tomtom = _G.TomTom
+        menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) .. (why == "learn" and " (learn)" or "")
+            .. ((tomtom and tomtom.AddWaypoint) and "" or " (needs TomTom)")
+    end
     GameTooltip:AddLine("Right-click: " .. menu, 0.4, 0.75, 1)
     GameTooltip:Show()
 end
