@@ -289,16 +289,24 @@ local function Build(r, char, mode, now)
         end
     end
     for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
-    -- all you spent on the AH (purchases, won auctions, deposits): the capital the percentages start from
-    local spent = 0
-    for _, b in ipairs(buys) do spent = spent + b.total end
+    -- what you spent on the AH (purchases, won auctions, deposits) over time: the capital the percentages start from
+    local spends = {}
+    for _, b in ipairs(buys) do spends[#spends + 1] = { b.t, b.total } end
     for _, inv in ipairs(invoices) do
-        if inv.won then spent = spent + inv.money end
+        if inv.won then spends[#spends + 1] = { inv.t, inv.money } end
     end
     for key, list in pairs(posts) do
-        for _, post in ipairs(list) do spent = spent + (FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0) end
+        for _, post in ipairs(list) do
+            spends[#spends + 1] = { post.t, FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0 }
+        end
     end
-    series.spent = spent
+    table_sort(spends, function(a, b) return a[1] < b[1] end)
+    local spentSum = 0
+    for _, e in ipairs(spends) do
+        spentSum = spentSum + e[2]
+        e[3] = spentSum
+    end
+    series.spends = spends
     for _, inv in ipairs(invoices) do
         if inv.kind == "seller" then
             -- the sale and its deposit back (before the first reading: less what the units cost you)
@@ -451,12 +459,12 @@ function FM.PerfSeries(modeId, now)
     series.heldNow = liveHeld or (lastReading and lastReading[3])
     series.goldNow = last.gold
     -- change against the end of the period before (the first: against its start); the percent is of the capital
-    -- before it: as if you had started with all you spent on the AH, plus the AH result until then
+    -- of the dot: what you had spent on the AH by its end (as if you had started with it), plus the AH result before
     local prevFlow = series.startFlow
     local value = 0
     for _, p in ipairs(periods) do
         p.change = (p.flow - prevFlow) + p.heldDelta + (p == last and liveStep or 0)
-        local before = (series.spent or 0) + value
+        local before = FlowAt(series.spends, p == last and now + 1 or p.to) + value
         value = value + p.change
         p.value = value
         p.pct = before > 0 and p.change / before * 100 or nil

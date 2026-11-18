@@ -348,7 +348,7 @@ function FM.PerfFooter()
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
     parts[#parts + 1] = "AH only: sales after the cut, less overpaying, selling under cost and lost deposits; buying and posting move gold into items"
-    parts[#parts + 1] = "% of what you spent on the AH plus the result before"
+    parts[#parts + 1] = "% of what you had spent on the AH by the dot plus the result before"
     if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end
     parts[#parts + 1] = "hover a dot"
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
