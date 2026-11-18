@@ -4,7 +4,7 @@ local _, FM = ...
 -- (trade/Calc.lua); the design was reviewed by a second, independent agent against real data:
 --   * buyers per day come from units that left the AH while nothing cheaper stayed listed (soldLow,
 --     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales
---   * one plan for all your gold (90%, at most 35% per pick): picks are chosen greedily, each one buys
+--   * one plan for all your gold (90%; one pick at most "% to invest" of your gold, default 90): picks are chosen greedily, each one buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
 --     dearer), crafting stops where a craft no longer earns its margin
 --   * your position first: units you already list or hold count against the buyers, your own materials
@@ -13,6 +13,9 @@ local _, FM = ...
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan
 --   * after the plan: further good picks, each judged on its own as if it had the plan's gold ("beyond your
 --     gold"), so there are options to choose from even when a few picks take all the gold
+--   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
+--     its profit, the deposit of the rest is lost when the auction expires (smaller deposit and fewer buyers
+--     in time vs. bigger deposit and more buyers); "Ignore vendor" plans without vendor resells
 
 local Dec = FM.Dec
 local type = type
@@ -31,7 +34,7 @@ local table_concat = table.concat
 
 local AH_CUT = 0.05
 local GOLD_SHARE = 0.9          -- of your gold goes into the plan (the rest pays deposits)
-local PICK_SHARE = 0.35         -- at most this share of the plan in one pick
+local PICK_SHARE = 0.9          -- default "% to invest": at most this share of your gold in one pick
 local SHARE_OF_BUYERS = 0.5     -- of the buyers you get while you are the cheapest only part of the time
 local OLD_RECORD_FACTOR = 0.3   -- records from before soldLow: share of early-gone units that were bought
 local BURST_SHARE = 0.3         -- over this share of the listings gone in one interval, with relists...
@@ -187,6 +190,21 @@ end
 local function DepositPerItem(key, price)
     local share = P.deposits[Name(key)] or DEPOSIT_SHARE
     return share * price
+end
+
+-- One listing of n units for 8h and for 24h: buyers in that time (after the queue ahead of you) take units
+-- at unitProfit each, the deposit of what is left is lost when the auction expires. Returns both, per listing.
+local LISTINGS = { { 8, 2 }, { 24, 3 } } -- hours, deposit duration index
+local function ListingOutcome(key, n, queue, perHour, unitProfit, price)
+    local result = {}
+    for _, listing in ipairs(LISTINGS) do
+        local hours, duration = listing[1], listing[2]
+        local sold = math_max(0, math_min(n, perHour * hours - queue))
+        local deposit = FM.Deposit and FM.Deposit(key, n, duration)
+        if not deposit then deposit = DepositPerItem(key, price) * n * hours / LIST_HOURS end
+        result[hours] = sold * unitProfit - deposit * (n - sold) / n
+    end
+    return result[8], result[24]
 end
 
 -- Buyers of an item from the deep scan records of the last 3 days
@@ -578,6 +596,11 @@ local function EvaluateCraft(c)
     local pick = { key = row.key, kind = c.kind, score = score, p1g = expected / math_max(plan.value, 1) * 10000,
         invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = unitProfit, prof = row.craft.prof,
         learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools }
+    -- one 8h / 24h listing of the crafts, at your confidence; a recipe to learn pays its price over 3 days
+    local e8, e24 = ListingOutcome(row.key, items, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
+        plan.profit / items, row.sell)
+    local learnShare = c.kind == "learn" and learnCost / LEARN_DAYS or 0
+    pick.exp8, pick.exp24 = e8 * conf - learnShare, e24 * conf - learnShare
     local mainKey = MainPurchase(plan.trial)
     local planText = string_format("make %s", Count(items))
     if c.kind == "learn" then planText = "learn (" .. M(learnCost) .. "), " .. planText end
@@ -691,6 +714,9 @@ local function EvaluateVendor(c)
     local where = row.offer.where
     local pick = { key = row.key, kind = "vendor", score = score, p1g = unitProfit / unit * 10000, invest = n * unit,
         unitProfit = unitProfit, cand = c, trial = NewTrial() }
+    local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
+        row.sell * (1 - AH_CUT) - unit, row.sell)
+    pick.exp8, pick.exp24 = e8 * conf, e24 * conf
     pick.plan = string_format("buy %s at %s, list at %s", Count(n), ShortWhere(where), M(row.sell))
     pick.why = table_concat({ string_format("vendor %s", M(unit)), string_format("~%s bought/day", Count(d.perDay or V)),
         string_format("%s listed", Count(others)), notes[1] }, "  ·  ")
@@ -761,6 +787,11 @@ local function EvaluateFlip(c)
     end
     local pick = { key = row.key, kind = "flip", score = score, p1g = expected / cost * 10000, invest = cost,
         unitProfit = expected / n, cand = c, trial = trial }
+    -- the listing already counts only what buyers take in time: the source confidence, not the time factor
+    local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
+        (n * row.sell * (1 - AH_CUT) - cost) / n, row.sell)
+    local sourceConf = conf / timeFactor
+    pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
     pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
     pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
     pick.mainTop = trial.top[row.key]
@@ -836,6 +867,8 @@ local function Candidates(out, why)
     for _, row in ipairs(out.vendor or EMPTY) do
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif P.ignoreVendor then
+            why[row.key] = "vendor resells are off (Ignore vendor)"
         elseif not row.sell or row.sell > 10 * row.vendorUnit then
             why[row.key] = "AH price over 10x the vendor price looks like an outlier"
         else
@@ -854,10 +887,28 @@ local function Candidates(out, why)
     return list
 end
 
+local function Signed(copper)
+    if math.abs(copper) < 0.5 then return M(0) end -- rounds to 0c: no sign
+    return (copper < 0 and "-" or "+") .. M(math.abs(copper))
+end
+
 local function Evaluate(c)
-    if c.kind == "vendor" then return EvaluateVendor(c) end
-    if c.kind == "flip" then return EvaluateFlip(c) end
-    return EvaluateCraft(c)
+    local pick, reason
+    if c.kind == "vendor" then
+        pick, reason = EvaluateVendor(c)
+    elseif c.kind == "flip" then
+        pick, reason = EvaluateFlip(c)
+    else
+        pick, reason = EvaluateCraft(c)
+    end
+    -- the tooltip explains the Expected 8h / 24h columns
+    if pick and pick.reasons and pick.exp8 and pick.exp24 then
+        local list = pick.reasons
+        list[#list + 1] = { "h", "One listing of all of it" }
+        list[#list + 1] = { "l", "For 8h", Signed(pick.exp8) .. GREY .. "  smaller deposit, buyers of 8h|r" }
+        list[#list + 1] = { "l", "For 24h", Signed(pick.exp24) .. GREY .. "  bigger deposit, buyers of 24h|r" }
+    end
+    return pick, reason
 end
 
 local function Commit(pick)
@@ -877,10 +928,13 @@ function FM.ComputePicks(out, ctx, done)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, ownListed = OwnListed(),
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
-        ignoreStock = FM.GetSettings().tableIgnoreStock ~= false }
+        ignoreStock = FM.GetSettings().tableIgnoreStock ~= false, ignoreVendor = FM.GetSettings().tableIgnoreVendor == true }
     P.budget = gold * GOLD_SHARE
     P.budgetLeft = P.budget
-    P.perPick = math_max(P.budget * PICK_SHARE, 0)
+    -- "% to invest": the most of your gold one pick may use (the plan as a whole stays at 90%)
+    local share = tonumber(FM.GetSettings().tableInvestPct)
+    share = share and math_max(1, math_min(100, share)) / 100 or PICK_SHARE
+    P.perPick = math_max(math_min(P.budget, gold * share), 0)
     P.minScore = math_max(MIN_SCORE, 0.01 * P.budget)
     out.pickGold = gold
 

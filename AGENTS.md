@@ -89,7 +89,7 @@
 | ForeverTrackingAid | FTA | `/fta` | Hunter tracking switcher by target creature type (renamed from ForeverTracking `/ftr` in 2.0.0); Hunters only; settings panel `Tracking Aid` |
 | ForeverRangeIndicator | FRI | `/fri` | Colored marker above the target's nameplate (Plater or Blizzard) for Auto Shot range: in range, close to min/max range, too close, too far; shape/size/offset/colors configurable; embeds LibRangeCheck-3.0 (MIT); Hunters only; settings panel `Range Indicator` |
 | ForeverHawkTimer | FHT | `/fht` | Countdown bars for Summon Hawk (up to 2 hawks, 18 s each) from the player's `UNIT_SPELLCAST_SUCCEEDED`; moved in Edit Mode (own overlay on the `EditMode.Enter`/`Exit` callbacks, snaps to the screen's horizontal center within Blizzard's magnetism range when `Snap to Elements` is on), width/height/color/icon configurable; Hunters only; settings panel `Hawk Timer` |
-| ForeverMarket | FM | `/fm` | Auction House logger and market table: deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales, sniper `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget), market table `/fm` or key `U` (`Bindings.xml` under the `Jim's Forever AddOns` keybinding category, `U` given once per binding set; sniper binding without a key) (tabs Picks / Favorites / Materials, Craft / Vendor / Flip, Learn (every recipe still to learn) / Farm from Questie drop data and its own farm log; Shift-click headers for multi-column sort; right-click menu Favorite / Ignore / Track = TomTom arrow to the vendor or teacher), item tooltip cost section (materials price now / when bought from its purchase log, 8h / 24h min. price with measured deposits), Auctionator price export; SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `tools/` holds Claude's analysis script and the Battle.net API probe; settings panel `Market`; details in `addons/ForeverMarket/README.md` |
+| ForeverMarket | FM | `/fm` | Auction House logger and market table: deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales, sniper `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget), market table `/fm` or key `U` (`Bindings.xml` under the `Jim's Forever AddOns` keybinding category, `U` given once per binding set; sniper binding without a key) (tabs Picks / Favorites / Materials, Craft / Vendor / Flip, Learn (every recipe still to learn) / Farm from Questie drop data and its own farm log; Shift-click headers for multi-column sort; right-click menu Favorize / Ignore / Track <NPC> = TomTom arrow to the vendor or teacher, only where there is one; Picks with Expected 8h / 24h, "% to invest", "Ignore vendor"; short headers PPG / PPH / Min. price / On AH explained on hover), item tooltip cost section (materials price now / when bought from its purchase log, 8h / 24h min. price with measured deposits), Auctionator price export; SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `tools/` holds Claude's analysis script and the Battle.net API probe; settings panel `Market`; details in `addons/ForeverMarket/README.md` |
 
 ### Backported AddOns (`backports/`)
 
@@ -224,6 +224,17 @@ When implementing features:
 6. Update `AGENTS.md` and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
 7. Sync the changed AddOns automatically (see Communication Rules)
 8. Ship it through a pull request (see Pull Requests and Code Review)
+
+---
+
+## Issue Tracking (Jira)
+
+- All improvements, bugs and analyses go to Jira, in English: project **FRV** "Forever AddOns" on `envelopment.atlassian.net` (board: https://envelopment.atlassian.net/jira/software/projects/FRV/boards/100/backlog); the Atlassian MCP tools reach it
+- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket)
+- Work types: Epic (a larger goal), Task (a change or an analysis; analyses start with `Analysis:`), Bug, Subtask; label `fable-5.2` = must be done with the Fable 5.2 model
+- Statuses: To Do -> In Progress (work started) -> In Review (pull request open, under review) -> Done (merged)
+- Work on a ticket happens on a branch named after it (for example `frv-13-table-batch`); commit messages and the pull request title start with the key (`FRV-13: ...`), the pull request links the ticket
+- When the maintainer asks for something in the chat, file it as a ticket first (or with the work) and keep it in step with the pull request
 
 ---
 

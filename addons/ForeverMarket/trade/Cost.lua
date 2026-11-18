@@ -183,12 +183,19 @@ end
 -- Deposit of one auction of n units for a duration index (2 = 8h, 3 = 24h): measured at the AH, else from the
 -- vendor sell price; nil when neither is known
 function FM.Deposit(key, n, duration)
+    local id = FM.ItemIDFromKey(key)
+    -- items that don't stack (gear) go up one auction each, so each pays at least the floor
+    local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
+    local single = IsNumber(stack) and stack == 1 and n > 1
     local entry = Deposits()[key]
     local d = type(entry) == "table" and entry[duration]
-    if type(d) == "table" and d[1] then return math_max(d[2] or 0, d[1] * n) end
-    local id = FM.ItemIDFromKey(key)
+    if type(d) == "table" and d[1] then
+        if single then return n * math_max(d[2] or 0, d[1]) end
+        return math_max(d[2] or 0, d[1] * n)
+    end
     local sell = id and VendorSell(id)
     if not sell then return nil end
+    if single then return n * math_max(DEPOSIT_FLOOR, DEPOSIT_SHARE[duration] * sell) end
     return math_max(DEPOSIT_FLOOR, DEPOSIT_SHARE[duration] * sell * n)
 end
 
