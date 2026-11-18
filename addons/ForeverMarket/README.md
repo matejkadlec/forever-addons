@@ -30,7 +30,9 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
   priced from `FM.FreshUnitPrice` — the same freshest ladder of others the Cost section's "now" is walked on,
   so the two always agree. Auctionator leaves none when it is not installed, when its auction tooltips are off,
   and when it skips the item: it bails on bound items and on anything whose item info is not cached yet
-  (its `cannotAuction` starts at `0`, which is true in Lua). Its tooltip post call is registered before ours
+  (its `cannotAuction` starts at `0`, which is true in Lua). Bind on pickup and quest items get no line from
+  us either (`FM.NeverSellable`, the rule the picks use): they can never go to the AH, so an AH price on them
+  is noise. Its tooltip post call is registered before ours
   (`## OptionalDeps` loads it first) so its line is already there when we look; for gear its key lookup is
   asynchronous and only finishes late while the item is uncached, so we stay out of that case instead of
   risking a second line, and the next hover is right. Then `Claude list at 3s 45c (90% in 8h)`,

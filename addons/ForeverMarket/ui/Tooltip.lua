@@ -76,6 +76,9 @@ end
 -- only finishes late while the item's info is uncached, so we stay out of that case rather than risk a
 -- second line; the next hover has the item cached and is right.
 local function AuctionLine(tooltip, key, link)
+    -- an item that can never go to the AH gets no AH price: it would only be noise. Auctionator hides
+    -- its line on bound items for the same reason, so this also keeps us from filling that one in.
+    if FM.NeverSellable and FM.NeverSellable(key) then return nil end
     local auctionator = _G.Auctionator
     local label = AUCTION_LABEL
     if type(auctionator) == "table" and type(auctionator.Database) == "table" then

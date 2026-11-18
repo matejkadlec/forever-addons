@@ -610,6 +610,12 @@ local function NeverSellable(id)
     return ok and (bindType == 1 or bindType == 4) or false
 end
 
+-- Bind on pickup and quest items never go to the AH, so they get no AH price either
+function FM.NeverSellable(key)
+    local id = FM.ItemIDFromKey(key)
+    return (id and NeverSellable(id)) or false
+end
+
 -- Units you own: usable (bags + bank, not what you wear), sellable (of those, not soulbound), sellable in bags
 function FM.Owned(key)
     local id = FM.ItemIDFromKey(key)
