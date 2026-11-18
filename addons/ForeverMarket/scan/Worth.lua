@@ -245,7 +245,7 @@ local function Auctions(r, char, now, mailT, add)
     -- after the list before it (prev, 1.15.14 on; before: up to MAIL_LATE earlier) and by the list that saw it, a
     -- sale's up to MAIL_LATE later (the list shows it sold until then)
     local changes, cancelled = {}, {}
-    local oldest = math_min(lookT, (listT or now) - MAIL_LATE)
+    local oldest = math_min(lookT, listT or now) - MAIL_LATE -- a sale stays on its way until MAIL_LATE after the list
     for _, line in ipairs(r.events or {}) do
         local f = FM.Split(line, ",")
         local kind, t = f[3], FM.Unstamp(f[1])
