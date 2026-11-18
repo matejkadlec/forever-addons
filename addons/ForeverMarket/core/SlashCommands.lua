@@ -116,7 +116,7 @@ local function ItemSummary(rest)
             FM.Print(FM.GetName(key) .. ":", string_format("%s, %s listed%s",
                 minPrice and FM.FormatMoney(minPrice) or "none",
                 FM.FormatCount(FM.Dec(f[3]) or 0),
-                perDay and (", ~" .. FM.FormatCount(perDay) .. " circulating/day") or ""))
+                perDay and (", " .. FM.FormatCount(perDay) .. " circulating/day") or ""))
         end
     end
 end

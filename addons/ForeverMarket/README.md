@@ -23,7 +23,7 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 ## In game
 
-* Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
+* Tooltip: `Market 3s 50c · 374 listed · 120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
   then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
   price or deposit estimate):
@@ -163,7 +163,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
-* Circulating ~12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
+* Circulating 12h (header "Circ. 12h") comes from the deep scan diffs (intervals up to 8h, at least 2h covered): units that left
   the AH before their time ran out, bought or taken down (Forever hides sellers, so both look the same).
   Grey = taken from the 3 day window.
 * **Farm** (trade/Farm.lua, scan/FarmLog.lua) = mobs at your level (-5..+2, no elites, hostile) ranked by gold per
@@ -193,6 +193,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.
+
+* No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
+  (material prices from short or stored ladders, farm gold per hour before your own data).
 
 ## Performance tab (1.15: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
 

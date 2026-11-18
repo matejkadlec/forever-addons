@@ -48,7 +48,7 @@ local function MarketLine(key)
     end
     local perDay = FM.SoldPerDay(key)
     if perDay then
-        parts[#parts + 1] = (perDay > 0 and perDay < 1 and "<1" or ("~" .. FM.FormatCount(perDay))) .. " circulating/day"
+        parts[#parts + 1] = (perDay > 0 and perDay < 1 and "<1" or FM.FormatCount(perDay)) .. " circulating/day"
     end
     if kind == "r" then
         local own = Dec(f[8])

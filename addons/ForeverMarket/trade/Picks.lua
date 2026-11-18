@@ -614,7 +614,7 @@ local function EvaluateCraft(c)
         pick.mainKey = mainKey
         pick.mainTop = plan.trial.top[mainKey]
     end
-    local why = { string_format("~%s bought/day", Count(d.perDay or V)), string_format("%s listed", Count(others)) }
+    local why = { string_format("%s bought/day", Count(d.perDay or V)), string_format("%s listed", Count(others)) }
     if row.rawMin and row.rawMax and (row.avgN or 0) >= 2 then
         why[#why + 1] = string_format("3d %s-%s", M(row.rawMin), M(row.rawMax))
     end
@@ -635,7 +635,7 @@ local function EvaluateCraft(c)
         list[#list + 1] = { "l", "Where", c.where }
         list[#list + 1] = { "l", "Price", M(c.learnCost) }
         list[#list + 1] = { "l", "Skill", string_format("%d (you have %d)", c.req, c.skill) }
-        list[#list + 1] = { "l", "Pays back after", string_format("~%d items", math_ceil((c.learnCost or 0) / unitProfit)) }
+        list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / unitProfit)) }
     end
     list[#list + 1] = { "h", c.kind == "level" and "Once learned, a day could look like" or "Plan for the next 24h" }
     list[#list + 1] = { "l", "Make", Count(items) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
@@ -655,11 +655,11 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(row.sell) .. (row.capped and (GREY .. "  usual price; cheapest now " .. M(row.capped) .. "|r") or "") }
     if row.rawMin and row.rawMax then list[#list + 1] = { "l", "Last 3 days", M(row.rawMin) .. " - " .. M(row.rawMax) } end
-    list[#list + 1] = { "l", "Buyers", string_format("~%s per day%s", Count(d.perDay or V), d.source == "estimated" and " (estimated)" or "") }
+    list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay or V), d.source == "estimated" and " (estimated)" or "") }
     if d.own then list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days", Count(d.own.units)) } end
     list[#list + 1] = { "l", "Listed by others", Count(others) }
     if yours > 0 then list[#list + 1] = { "l", "Yours listed or held", Count(yours) } end
-    list[#list + 1] = { "l", "Time to sell", string_format("~%s h", Count(hours)) }
+    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
     list[#list + 1] = { "h", "Confidence" }
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
@@ -718,7 +718,7 @@ local function EvaluateVendor(c)
         row.sell * (1 - AH_CUT) - unit, row.sell)
     pick.exp8, pick.exp24 = e8 * conf, e24 * conf
     pick.plan = string_format("buy %s at %s, list at %s", Count(n), ShortWhere(where), M(row.sell))
-    pick.why = table_concat({ string_format("vendor %s", M(unit)), string_format("~%s bought/day", Count(d.perDay or V)),
+    pick.why = table_concat({ string_format("vendor %s", M(unit)), string_format("%s bought/day", Count(d.perDay or V)),
         string_format("%s listed", Count(others)), notes[1] }, "  ·  ")
     local list = {
         { "h", "Plan for the next 24h" },
@@ -732,9 +732,9 @@ local function EvaluateVendor(c)
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(row.sell) }
     if row.usual then list[#list + 1] = { "l", "Usual price", M(row.usual) } end
-    list[#list + 1] = { "l", "Buyers", string_format("~%s per day", Count(d.perDay or V)) }
+    list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) }
     list[#list + 1] = { "l", "Listed by others", Count(others) }
-    list[#list + 1] = { "l", "Time to sell", string_format("~%s h", Count(hours)) }
+    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
     list[#list + 1] = { "h", "Confidence" }
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
@@ -795,7 +795,7 @@ local function EvaluateFlip(c)
     pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
     pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
     pick.mainTop = trial.top[row.key]
-    pick.why = table_concat({ string_format("usual %s", M(row.usual)), string_format("~%s bought/day", Count(d.perDay or V)),
+    pick.why = table_concat({ string_format("usual %s", M(row.usual)), string_format("%s bought/day", Count(d.perDay or V)),
         string_format("%s wait at %s", Count(row.support), M(row.wall)) }, "  ·  ")
     pick.reasons = {
         { "h", "Plan" },
@@ -807,8 +807,8 @@ local function EvaluateFlip(c)
         { "l", "Usual price", M(row.usual) .. GREY .. "  median daily low, last week|r" },
         { "l", "Profit per item", M(expected / n) },
         { "l", "Today", d.todayMedian and M(d.todayMedian) or "?" },
-        { "l", "Buyers", string_format("~%s per day", Count(d.perDay or V)) },
-        { "l", "Time to sell", string_format("~%s h", Count(hours)) },
+        { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) },
+        { "l", "Time to sell", string_format("%s h", Count(hours)) },
         { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) },
         { "n", "Cheap listings go fast: the AH search shows if they are still there.", ORANGE },
     }
