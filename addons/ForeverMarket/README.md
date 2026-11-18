@@ -71,8 +71,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
   (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
   skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
-  stock" (Picks). Buttons: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`; Craft, Picks, Learn),
-  "Ignored (n)". Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  vendor" and "Ignore stock" (Picks). Right side: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`;
+  Craft, Picks, Learn), "Ignored (n)", and on Picks the "% to invest" box left of the dropdown. Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
@@ -97,7 +97,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
-  this item** (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
+  this item** / Stop ignoring this item (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
   `/fm exclude|include|excluded`), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
@@ -121,10 +121,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns: Pick, **Expected 8h**, **Expected 24h** (1.14: one listing of the pick's units for that long, at its
     confidence: what buyers take in that time earns the profit, the deposit of the rest is lost when the auction
-    expires; deposits from trade/Cost.lua; the better one white, the worse grey, a tie goes to 8h), PPG, Plan (the
+    expires; deposits from trade/Cost.lua, non-stacking items pay the 1s floor per unit; flips use the source
+    confidence only, the listing already counts the time to sell; the better one white, the worse grey, a tie goes to 8h), PPG, Plan (the
     gold it needs, then what to do). The rank still follows a day's expected profit (the score).
   * "% to invest" (1.14, number box left of the professions, default 90, `tableInvestPct`): the most of your gold
-    one pick may use (before 1.14: 35% of the plan). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
+    one pick may use (before 1.14: 35% of the plan; the plan as a whole stays at 90%, so above 90 changes nothing). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
     without vendor resells. Both recompute the picks.
   * One plan for 90% of your gold, one pick at most "% to invest" of it, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what

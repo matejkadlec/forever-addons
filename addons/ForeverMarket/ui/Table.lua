@@ -4,8 +4,8 @@ local _, FM = ...
 -- Tabs in three groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
--- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorite,
--- Ignore, Track (TomTom arrow to the vendor). Column headers sort.
+-- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
+-- Ignore, Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one). Column headers sort.
 
 local type = type
 local ipairs = ipairs
@@ -340,7 +340,7 @@ local PICK_COLUMNS = {
     end, sort = function(p) return p.invest end }
 }
 
--- Favorites: one row per item, its best use among the tabs (highest profit per 1g; a material only when
+-- Favorites: one row per item, its best use among the tabs (highest PPG; a material only when
 -- it is nothing else), the market numbers of that row
 local USE_LABEL = { latest = GREEN .. "Craft|r", vendor = YELLOW .. "Vendor|r", flips = YELLOW .. "Flip|r", mats = BLUE .. "Material|r" }
 local USE_SHORT = { latest = "Craft", vendor = "Vendor", flips = "Flip", mats = "Materials" }
@@ -720,7 +720,7 @@ local function LearnLines(craft)
 end
 
 local function MarketLines(row)
-    Line("On AH now", OnAH(row) .. ((row.own or 0) > 0 and (GREY .. "  (yours in brackets)|r") or ""))
+    Line("On AH", OnAH(row) .. ((row.own or 0) > 0 and (GREY .. "  (yours in brackets)|r") or ""))
     if row.sold12 then
         Line("Circulating ~12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
     else
@@ -755,7 +755,7 @@ local function CraftTooltip(row, past)
             Note("Not listed in the scans of the last 3 days.")
         else
             Line("Scans", a.n .. (a.est > 0 and (GREY .. string_format("  %d estimated from older records", a.est) .. "|r") or ""))
-            Line("Profit per 1g", P1g(a.p1g))
+            Line("PPG", P1g(a.p1g))
             Line("Cost per craft", Money(a.cost))
             Line("Sell price", Money(a.sell))
             Line("Max mat buy", Money(a.maxMat))
@@ -774,7 +774,7 @@ local function CraftTooltip(row, past)
         end
         if latest then
             Header("Now")
-            Line("Profit per 1g", P1g(latest.p1g, latest.approx))
+            Line("PPG", P1g(latest.p1g, latest.approx))
         end
         return
     end
@@ -807,7 +807,7 @@ local function CraftTooltip(row, past)
     if row.net then
         Line("After the 5% AH cut", Money(row.net))
         Line("Profit", P1g(row.profit))
-        Line("Profit per 1g invested", P1g(row.p1g, row.approx))
+        Line("PPG", P1g(row.p1g, row.approx))
     end
     local seconds = FM.CraftSeconds and FM.CraftSeconds(row.craft)
     if seconds then
@@ -815,9 +815,9 @@ local function CraftTooltip(row, past)
         Line("Craft time", string_format("%.1fs", seconds) .. GREY .. "  incl. 0.5s between crafts|r"
             .. (per1g and (GREY .. "  ·  |r" .. Duration(per1g) .. GREY .. " per 1g of materials|r") or ""))
         local perHour = ProfitPerHour(row)
-        if perHour then Line("Profit per hour", P1g(perHour, row.approx) .. GREY .. "  of crafting|r") end
+        if perHour then Line("PPH", P1g(perHour, row.approx) .. GREY .. "  of crafting|r") end
     else
-        Line("Profit per hour", GREY .. "? (craft time unknown until the recipe is read in the profession window)|r")
+        Line("PPH", GREY .. "? (craft time unknown until the recipe is read in the profession window)|r")
     end
     if row.mainKey and row.maxMat then
         Line("Max " .. Name(row.mainKey), (row.maxMat > 0 and Money(row.maxMat) or (RED .. "none|r")) .. GREY .. "  keeps 10% profit|r")
@@ -992,13 +992,13 @@ local function ShowRowTooltip(button)
     end
     local tab, src = RowSource(row)
     if CurrentTab().favs then
-        Note(row.use and ("Best use: " .. USE_SHORT[row.use] .. GREY .. "  (highest profit per 1g of its tabs)|r") or
+        Note(row.use and ("Best use: " .. USE_SHORT[row.use] .. GREY .. "  (highest PPG of its tabs)|r") or
             "In no tab right now (no profitable craft, vendor resell or flip).", LABEL)
     end
     if not tab then
         Header("Market")
         Line("Cheapest now", Money(row.sell))
-        Line("On AH now", OnAH(row))
+        Line("On AH", OnAH(row))
     elseif tab.id == "picks" then
         PickTooltip(src)
     elseif tab.id == "latest" then
@@ -1009,7 +1009,7 @@ local function ShowRowTooltip(button)
         if src.p1g7 then
             Line("Sells for", Money(src.sell7) .. GREY .. "  usual price (median daily low)|r")
             Line("Materials", Money(src.cost7) .. GREY .. "  usual prices, vendor ones at the vendor|r")
-            Line("Profit per 1g", P1g(src.p1g7))
+            Line("PPG", P1g(src.p1g7))
         else
             Note("Not enough price history yet (3 days of the product and every AH material).")
         end
@@ -1041,7 +1041,10 @@ local function ShowRowTooltip(button)
     else
         GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
     end
-    GameTooltip:AddLine("Right-click: Favorite, Ignore, Track (TomTom arrow to its vendor)", 0.4, 0.75, 1)
+    -- the menu as it will open: Track only where there is an NPC to go to
+    local place, why = FM.TrackTarget and FM.TrackTarget(row.key)
+    GameTooltip:AddLine("Right-click: Favorize, Ignore" .. (place and (", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor"))) or ""),
+        0.4, 0.75, 1)
     GameTooltip:Show()
 end
 
@@ -1080,9 +1083,6 @@ local function SearchAtAH(row)
     if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end
 end
 
--- Right-click menu of a row: Favorite, Ignore (hidden from the table and the picks), Track (TomTom arrow
--- to the vendor that sells it, or for a recipe still to learn to who teaches it; greyed when nobody with a
--- known place does)
 -- Right-click menu of a row: plain actions; Track only where there is an NPC to go to (a vendor that sells it,
 -- a trainer or vendor that teaches it), disabled without TomTom
 local function ShowRowMenu(button, key)
@@ -1316,7 +1316,7 @@ local function FooterText(total)
         return "No deep scan yet: open the Auction House and click \"FM: scan\"."
     end
     if view.showExcluded then
-        text = text .. "  ·  " .. YELLOW .. "only ignored items|r" .. GREY .. ", right-click > Ignore brings one back"
+        text = text .. "  ·  " .. YELLOW .. "only ignored items|r" .. GREY .. ", right-click > Stop ignoring this item brings one back"
     end
     if (view.outliers or 0) > 0 then
         text = text .. string_format("  ·  %d outliers hidden", view.outliers)
@@ -1333,7 +1333,7 @@ local function FooterText(total)
         text = text .. "  ·  rank = a day's profit, Expected = one listing" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
             .. (gold and (" (" .. Money(gold) .. ")") or "") or "") .. ", the rest is beyond it  ·  hover for why"
     elseif tab.favs then
-        text = text .. "  ·  right-click any row > Favorite adds it here; best use = highest profit per 1g of its tabs"
+        text = text .. "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs"
     elseif tab.crafts then
         text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, per hour = profit per craft / cast time + 0.5s", FM.TRADE.BATCH)
     elseif tab.id == "vendor" then
@@ -1417,7 +1417,7 @@ Render = function()
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
         if tab.favs and not busy and not view.showExcluded then
-            text = "No favorites yet: right-click a row in any tab > Favorite."
+            text = "No favorites yet: right-click a row in any tab > Favorize this item."
         end
         if tab.farm and not busy and FM.farm and FM.farm.questie == false then
             text = "No Questie mob data: the tab fills from your own kills as you farm."
@@ -1583,7 +1583,7 @@ local function CreateTable()
     invest:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("% to invest")
-        GameTooltip:AddLine("The most of your gold one pick may use (default 90). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter to apply.", 1, 1, 1, true)
+        GameTooltip:AddLine("The most of your gold one pick may use (default 90; the plan as a whole keeps 10% for deposits, so above 90 changes nothing). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter to apply.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     invest:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1662,7 +1662,7 @@ local function CreateTable()
     f.excluded:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")
-        GameTooltip:AddLine("Shows only the items you ignored (right-click a row > Ignore, again to bring it back). Click again for the normal view. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
+        GameTooltip:AddLine("Shows only the items you ignored (right-click a row > Ignore this item; Stop ignoring this item brings it back). Click again for the normal view. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f.excluded:SetScript("OnLeave", function() GameTooltip:Hide() end)

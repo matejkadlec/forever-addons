@@ -787,9 +787,11 @@ local function EvaluateFlip(c)
     end
     local pick = { key = row.key, kind = "flip", score = score, p1g = expected / cost * 10000, invest = cost,
         unitProfit = expected / n, cand = c, trial = trial }
+    -- the listing already counts only what buyers take in time: the source confidence, not the time factor
     local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
         (n * row.sell * (1 - AH_CUT) - cost) / n, row.sell)
-    pick.exp8, pick.exp24 = e8 * conf, e24 * conf
+    local sourceConf = conf / timeFactor
+    pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
     pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
     pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
     pick.mainTop = trial.top[row.key]
