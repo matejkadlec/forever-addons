@@ -565,6 +565,7 @@ local bankOpen = false
 local function ScanBank()
     if bankOpen then bankIndex = Scan(BankIDs()) end
 end
+FM.BankIndex = function() return bankIndex end -- [itemID] = { all, free } of the bank this session (scan/Worth.lua keeps it)
 
 FM.On("BAG_UPDATE_DELAYED", function()
     bagIndex = nil

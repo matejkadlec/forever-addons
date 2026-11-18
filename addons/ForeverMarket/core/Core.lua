@@ -45,7 +45,8 @@ FM.DEFAULTS = {
     tableInvestPct = 90, -- picks: the most of your gold one pick may use, in percent
     snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
     snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
-    snipeConfirmClick = false -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
+    snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
+    perfMode = "day" -- Performance tab: one dot per day, week or month
 }
 
 FM.LIMITS = {
@@ -172,7 +173,8 @@ function FM.RealmKey()
     return tostring(realm) .. "-" .. tostring(faction)
 end
 
-local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm" }
+local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
+    "money", "worth", "bank", "mailbox" }
 
 -- Data of the current realm and faction (the AH is per realm and faction)
 function FM.R()

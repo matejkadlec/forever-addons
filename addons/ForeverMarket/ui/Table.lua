@@ -1,7 +1,8 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in three groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Farm (green).
+-- Tabs in groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Performance (gold, a graph of
+-- your worth, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
 -- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
@@ -406,10 +407,11 @@ TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, dat
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
+TABS[#TABS + 1] = { id = "perf", label = "Performance", columns = {}, graph = true, group = 4 } -- no table: a graph
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
     defaultSort = { { 4, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
-local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 } }
+local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
 
@@ -1357,9 +1359,32 @@ local function FooterText(total)
     return GREY .. text .. "|r"
 end
 
+-- Where the Performance graph sits: from under the filter row to above the footer
+local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
+
+-- The Performance tab: no table, no filters, the graph panel instead
+local function RenderGraph(tab)
+    for _, header in ipairs(frame.headers) do header:Hide() end
+    for _, button in ipairs(frame.rows) do button:Hide() end
+    for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty }) do
+        w:Hide()
+    end
+    for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
+    FM.PerfShow(frame, true, GRAPH_GEO)
+    frame.status:SetText(StatusText())
+    frame.footer:SetText(FM.PerfFooter())
+end
+
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
+    local graph = (tab.graph and FM.PerfShow) and true or false
+    frame.search:SetShown(not graph)
+    frame.searchLabel:SetShown(not graph)
+    frame.headerLine:SetShown(not graph)
+    if graph then return RenderGraph(tab) end
+    if FM.PerfShow then FM.PerfShow(frame, false) end
     if not rowsCache then rowsCache = BuildRows() end
     local total = #rowsCache
     view.offset = math_max(0, math_min(view.offset, math_max(0, total - ROWS)))
@@ -1503,24 +1528,24 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Farm at the right end of the row
+    -- tabs in groups with a gap between; Performance, Learn and Farm at the right end of the row
     f.tabs = {}
     local x, group = 14, nil
     local rightCount = 0
     for _, t in ipairs(TABS) do
-        if t.group == 3 then rightCount = rightCount + 1 end
+        if t.group >= 3 then rightCount = rightCount + 1 end
     end
     local rightIndex = 0
     for _, t in ipairs(TABS) do
-        local b = Button(f, t.label, 98, function() SelectTab(t.id) end)
-        if t.group == 3 then
-            -- the green group sits at the right end of the row, Farm last
+        local b = Button(f, t.label, 94, function() SelectTab(t.id) end)
+        if t.group >= 3 then
+            -- the gold and green groups sit at the right end of the row, Farm last
             rightIndex = rightIndex + 1
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 102, -30)
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
         else
             if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
-            x = x + 102
+            x = x + 98
         end
         group = t.group
         local color = GROUP_COLOR[t.group]
@@ -1551,6 +1576,7 @@ local function CreateTable()
     local searchLabel = Text(f, "GameFontDisableSmall", "BOTTOMLEFT", 0, 2, search, "TOPLEFT")
     searchLabel:SetText("Filter by name")
     f.search = search
+    f.searchLabel = searchLabel
 
     f.learn = Check(f, "Not learned", 202, "tableLearn")
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
@@ -1725,6 +1751,7 @@ local function CreateTable()
     line:SetPoint("TOPLEFT", f, "TOPLEFT", 14, TOP + 1)
     line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, TOP + 1)
     line:SetHeight(1)
+    f.headerLine = line
 
     -- rows
     f.rows = {}

@@ -130,6 +130,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - **Materials**: sell a material or craft with it
   - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, PPH (profit per hour of crafting from the recipe's cast time, the default sort), PPG (profit per 1g), max material price and min. price
   - **Vendor** (vendor items to resell at the AH) and **Flip** (cheap listings to relist under the next price level with 15%+ profit)
+  - **Performance**: a graph of your character's worth (gold + items in bags, bank, mailbox and on the AH at the usual AH price, so buying and posting are no loss) with one dot per day, week or month (Daily / Weekly / Monthly); hover a dot for the change and % and what sold, what you bought, what expired unsold, real losses (sold under cost, paid over the usual price, lost deposits) and gold from loot, quests and vendors
   - **Learn**: every recipe you can still learn (losing ones and ones above your skill too) with min skill, PPG now and over 7 days, and where to get it
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
   - Right-click a row: Favorize, Ignore (hidden from the table and the picks), Track <NPC> (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn; only where there is such an NPC, needs TomTom)
