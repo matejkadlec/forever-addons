@@ -24,31 +24,30 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 ## In game
 
 * Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
-  then after a blank line what the item costs you (trade/Cost.lua, values right-aligned, "No data" in white).
-  "Materials" only when the price is of a craft with 2+ different materials, else "Material" (an item that is not
-  crafted is its own material):
-  * **Material price (vendor)** instead of the next two lines for an item a vendor sells without limit: what the
-    vendor sells it for
-  * **Material(s) price**: buying your units now (a learned craft that you never bought: its materials for that
-    many crafts, each from the vendor or the AH, or made yourself when the table found that cheaper; anything else:
-    the AH ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
-    auctions only) when it is newer than the latest snapshot, else from the snapshot. One scan is no fact: price
-    levels under 75% of the cheapest price of the scan before (deep / feed record or search, 5 min to 2 days older)
-    are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when every level is
-    that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap units (real buys).
-    White within 5% of
-    what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
-  * **Material(s) price when bought**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days,
-    recorded from any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
-    `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
-    looted or skinned units are not counted: never bought = No data
-  * **8h / 24h min. price (n pcs)**: a guard against selling under price by mistake: the lowest price per unit
-    that still nets the units' AH value (the item's cheapest price of others, from the same freshest source, x n,
-    whatever you paid) after the 5% cut and one
-    lost deposit, n = your sellable units (else one stack). Deposit = max(1s, share x vendor sell price x units),
-    share 20% for 8h and 60% for 24h (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as
-    measured in game). `C_AuctionHouse.CalculateCommodityDeposit` replaces the estimate for the stackable items in
-    your bags whenever the AH opens (once a week, `R.deposits[key][2|3] = { rate, floor }`)
+  then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
+  gold header and indented rows, values right-aligned, "-" when there is nothing to show (never bought, no AH price):
+  * **Cost (n pcs)** (**Craft cost (n pcs)** when the price is of a learned craft's materials), n = your sellable
+    units, else one stack:
+    * **vendor** instead of the next two rows for an item a vendor sells without limit: what the vendor sells it for
+    * **now**: buying your units now (a learned craft that you never bought: its materials for that many crafts,
+      each from the vendor or the AH, or made yourself when the table found that cheaper; anything else: the AH
+      ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
+      auctions only) when it is newer than the latest snapshot, else from the snapshot. One scan is no fact: price
+      levels under 75% of the cheapest price of the scan before (deep / feed record or search, 5 min to 2 days
+      older) are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when
+      every level is that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap
+      units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+    * **you paid**: your latest purchases covering your units (`R.buys` "t,key,qty,total", 30 days, recorded from
+      any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
+      `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
+      looted or skinned units are not counted: never bought = "-"
+  * **Sell at least (n pcs)**, rows **8h listing** / **24h listing**: a guard against selling under price by
+    mistake: the lowest price per unit that still nets the units' AH value (the item's cheapest price of others,
+    from the same freshest source, x n, whatever you paid) after the 5% cut and one lost deposit. Deposit =
+    max(1s, share x vendor sell price x units), share 20% for 8h and 60% for 24h (Medium Leather sells for 50c:
+    8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
+    replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
+    `R.deposits[key][2|3] = { rate, floor }`)
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market

@@ -2,7 +2,8 @@ local _, FM = ...
 
 -- Item tooltip lines: the latest market state and Claude's advice. Lines are added synchronously
 -- with AddLine (no right column, no wrapping), so they never fight with other tooltip AddOns.
--- Below them, after a blank line, what the item costs you (trade/Cost.lua) with right-aligned values.
+-- Below them, after a blank line, what the item costs you and the least to sell it for (trade/Cost.lua),
+-- in two groups with a gold header and indented rows with right-aligned values.
 
 local Dec = FM.Dec
 local math_floor = math.floor
@@ -17,13 +18,15 @@ local cacheVersion = -1
 
 local SEP = " |cFF9D9D9D·|r "
 
--- Materials price now against what you paid: white within 5%, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+-- Cost now against what you paid: white within 5%, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
 local CHEAPER, MUCH_CHEAPER, DEARER = 0.05, 0.15, 0.05
 local WHITE = { 1, 1, 1 }
 local ORANGE = { 1, 0.5, 0 }
 local RED = { 1, 0.2, 0.2 }
 local GREEN = { 0.2, 1, 0.2 }
 local LABEL = { 1, 0.82, 0 }
+local ROW = { 0.8, 0.8, 0.8 }
+local INDENT = "  " -- rows under a group header, like a set's items in Blizzard's item tooltip
 local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
 local costCache = {}
 
@@ -91,12 +94,12 @@ local function NowColor(now, paid)
 end
 
 local function Money(v, up)
-    if not v then return "No data" end
+    if not v then return "-" end -- nothing to show (never bought, no AH price)
     v = up and math_ceil(v - 0.001) or math_floor(v + 0.5)
     return FM.FormatMoney(math.max(1, v))
 end
 
--- { label, value, color } lines of the cost section, or false
+-- { label, value, color } lines of the cost section (a group header has no value), or false
 local function CostLines(key)
     local entry = costCache[key]
     if entry and GetTime() - entry.at <= COST_AGE then return entry.lines end
@@ -104,18 +107,18 @@ local function CostLines(key)
     local info = FM.CostInfo and FM.CostInfo(key)
     if info then
         local n = FM.FormatCount(info.n)
-        -- "Materials" only for a craft of 2+ different materials; anything else is its own material
-        local noun = info.plural and "Materials" or "Material"
-        lines = {}
+        -- what your units cost: a learned craft's materials, a vendor's fixed price, or the AH now and what you paid
+        lines = { { string_format(info.crafted and "Craft cost (%s pcs)" or "Cost (%s pcs)", n) } }
         if info.vendor then
-            -- a vendor item: one fixed price, nothing to compare
-            lines[1] = { noun .. " price (vendor)", Money(info.now), WHITE }
+            lines[2] = { INDENT .. "vendor", Money(info.now), WHITE }
         else
-            lines[1] = { noun .. " price", Money(info.now), NowColor(info.now, info.paid) }
-            lines[2] = { noun .. " price when bought", Money(info.paid), WHITE }
+            lines[2] = { INDENT .. "now", Money(info.now), NowColor(info.now, info.paid) }
+            lines[3] = { INDENT .. "you paid", Money(info.paid), WHITE }
         end
-        lines[#lines + 1] = { string_format("8h min. price (%s pcs)", n), Money(info.min8, true), WHITE }
-        lines[#lines + 1] = { string_format("24h min. price (%s pcs)", n), Money(info.min24, true), WHITE }
+        -- the lowest unit price that doesn't sell under the AH value, per listing duration
+        lines[#lines + 1] = { string_format("Sell at least (%s pcs)", n) }
+        lines[#lines + 1] = { INDENT .. "8h listing", Money(info.min8, true), WHITE }
+        lines[#lines + 1] = { INDENT .. "24h listing", Money(info.min24, true), WHITE }
     end
     costCache[key] = { lines = lines, at = GetTime() }
     return lines
@@ -166,7 +169,11 @@ local function OnItemTooltip(tooltip, data)
         tooltip:AddLine(" ")
         for _, line in ipairs(cost) do
             local c = line[3]
-            tooltip:AddDoubleLine(line[1], line[2], LABEL[1], LABEL[2], LABEL[3], c[1], c[2], c[3])
+            if line[2] then
+                tooltip:AddDoubleLine(line[1], line[2], ROW[1], ROW[2], ROW[3], c[1], c[2], c[3])
+            else
+                tooltip:AddLine(line[1], LABEL[1], LABEL[2], LABEL[3])
+            end
         end
     end
 end
