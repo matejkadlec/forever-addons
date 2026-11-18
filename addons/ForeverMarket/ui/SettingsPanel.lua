@@ -147,7 +147,10 @@ function FM.RegisterSettingsPanel()
         minProfit:SetupMenu(function(_, root)
             local function IsSelected(value) return (FM.GetSettings().tableMinProfit or false) == value end
             local function SetSelected(value)
+                local changed = (FM.GetSettings().tableMinProfit or false) ~= (value or false)
                 FM.GetSettings().tableMinProfit = value or nil
+                -- the picks plan without what earns less (only when there are numbers already)
+                if changed and FM.trade and FM.ComputeTrade then FM.ComputeTrade(false) end
                 if FM.RefreshTable then FM.RefreshTable() end
             end
             for _, step in ipairs(MIN_PROFIT_STEPS) do root:CreateRadio(step[2], IsSelected, SetSelected, step[1]) end

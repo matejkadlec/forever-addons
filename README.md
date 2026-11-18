@@ -125,7 +125,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - The server's price is checked before any gold leaves; only stackable items (commodities)
   - With the AH open, Shift-click a market table row to snipe its main material at the table's price
 - Market table `/fm`, the key `U` (or `FM: table` at the AH), refreshed after every deep scan:
-  - **Picks**: what to do in the next 24 hours, ranked by expected profit: first the plan that fits your gold, then further good picks beyond it; Expected 8h / 24h shows which listing duration pays better; reasons in the tooltip (and why other rows are not picks); "% to invest" (default 90) caps one pick's share of your gold; "Ignore vendor" plans without vendor resells; "Ignore stock" (on by default) plans as if your bags and bank were empty
+  - **Picks**: what to do in the next 24 hours, ranked by expected profit: a summary line with your gold, what the plan needs and what it should earn, then the plan that fits your gold and, in a section of its own, further good picks beyond it; each pick shows its type, the gold it needs, the better of an 8h and a 24h listing and the confidence, and below it the steps in order (learn, buy, make, list); reasons in the tooltip (and why other rows are not picks); "% to invest" (default 90) caps one pick's share of your gold; "Ignore vendor" plans without vendor resells; "Ignore stock" (on by default) plans as if your bags and bank were empty; the profession, "Not learned" and the minimum profit per item change the plan itself, they never just hide picks
   - **Favorites**: your favorite items with their best use, price and market numbers
   - **Materials**: sell a material or craft with it
   - **Craft**: every recipe of your professions (read from the ForeverArtisan AddOns) with cost, sell price, PPH (profit per hour of crafting from the recipe's cast time, the default sort), PPG (profit per 1g), max material price and min. price
@@ -135,7 +135,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - **Farm**: mobs at your level ranked by gold per hour from Questie's drop rates and your own kills, loot and skins; click for a TomTom arrow
   - Right-click a row: Favorize, Ignore (hidden from the table and the picks), Track <NPC> (TomTom arrow to the vendor that sells it, or to who teaches a recipe you can still learn; only where there is such an NPC, needs TomTom); where there is no such NPC and the recipe is only sold as a pattern on the AH, the menu says "Recipe on AH" instead, as information
   - Search, sortable columns (Shift-click a header to sort by more columns), profession dropdown, skill limits for recipes still to learn; the title bar shows how old the latest snapshot is
-  - Craft also shows what a recipe still costs to learn; min. price includes a lost deposit (8h, or 24h for items under 200 circulating in 24h)
+  - Craft also shows what a recipe still costs to learn; min. price includes a lost deposit (8h, or 24h for items under 100 circulating in 24h)
   - **C/8h** and **C/24h** (one column "Circ. 12h" until 1.16): how many units leave the AH in 8 and in 24 hours, so a row says straight away whether an 8h or a 24h listing sells
   - Settings panel: hide outliers (on by default) and a minimum profit per item for the table
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale

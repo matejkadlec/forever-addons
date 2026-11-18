@@ -15,7 +15,11 @@ local _, FM = ...
 --     gold"), so there are options to choose from even when a few picks take all the gold
 --   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
 --     its profit, the deposit of the rest is lost when the auction expires (smaller deposit and fewer buyers
---     in time vs. bigger deposit and more buyers); "Ignore vendor" plans without vendor resells
+--     in time vs. bigger deposit and more buyers); the table shows the better one (pick.expected, listHours)
+--   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: "Ignore vendor",
+--     "Ignore stock", "% to invest", "Not learned", the profession (crafts and recipes only) and the settings
+--     panel's minimum profit per item
+--   * pick.steps: what to do, in order (learn > buy > make > list), shown under the pick
 
 local Dec = FM.Dec
 local type = type
@@ -439,8 +443,9 @@ local function KeyOfName(name)
 end
 
 -- Tools a recipe needs (Tanning Rack, Sewing Machine): bought into the plan when you have none
+-- Returns their cost, a confidence factor and the names of the tools the plan buys
 local function Tools(craft, reasons)
-    local cost, conf = 0, 1
+    local cost, conf, bought = 0, 1, {}
     for _, name in ipairs(craft.tools or EMPTY) do
         local key = KeyOfName(name)
         if P.toolsBought[name] or (key and ItemCount(key) > 0) then
@@ -448,13 +453,14 @@ local function Tools(craft, reasons)
         elseif key and Ladder(key)[1] then
             local price = Ladder(key)[1][1]
             cost = cost + price
+            bought[#bought + 1] = name
             reasons[#reasons + 1] = { "n", string_format("Needs a %s: you have none, one is in the plan (%s).", name, M(price)), ORANGE }
         else
             conf = conf * 0.8
             reasons[#reasons + 1] = { "n", "Needs " .. name .. " (could not check if you have one).", ORANGE }
         end
     end
-    return cost, conf
+    return cost, conf, bought
 end
 
 ---------------------------------------------------------------- confidence
@@ -538,6 +544,67 @@ local function MainPurchase(trial)
     return bestKey
 end
 
+-- What a plan buys per item, the biggest spend first: { key, ah = units, top = highest AH price, vendor = units }
+local function Purchases(trial)
+    local byKey, list = {}, {}
+    local function Entry(key)
+        local e = byKey[key]
+        if not e then
+            e = { key = key, ah = 0, vendor = 0, spent = 0 }
+            byKey[key] = e
+            list[#list + 1] = e
+        end
+        return e
+    end
+    for key, n in pairs(trial.used) do
+        if n > 0 then
+            local e = Entry(key)
+            e.ah, e.top = n, trial.top[key]
+            e.spent = e.spent + n * (trial.top[key] or 0)
+        end
+    end
+    for key, n in pairs(trial.vendor) do
+        if n > 0 then
+            local e = Entry(key)
+            e.vendor = n
+            e.spent = e.spent + n * (FM.VendorUnit(key, false) or 0)
+        end
+    end
+    table_sort(list, function(a, b)
+        if a.spent ~= b.spent then return a.spent > b.spent end
+        return a.key < b.key
+    end)
+    return list
+end
+
+-- One purchase as a step: "buy 144 Heavy Leather up to 2s 75c", "buy 20 Salt at Drac Roughcut (5c each)"
+local function BuyText(e)
+    local text = string_format("buy %s %s", Count(e.ah + e.vendor), Name(e.key))
+    if e.vendor <= 0 then return text .. " up to " .. M(e.top) end
+    local unit, offer = FM.VendorUnit(e.key, false)
+    local atVendor = string_format("at %s (%s each)", ShortWhere(offer and offer.where), M(unit or 0))
+    if e.ah > 0 then
+        return text .. string_format(": %s up to %s, %s %s", Count(e.ah), M(e.top), Count(e.vendor), atVendor)
+    end
+    return text .. " " .. atVendor
+end
+
+-- The buy step of a craft: the main purchase, the rest counted ("(+3 more)"; the tooltip lists them)
+local function BuyStep(trial, tools)
+    local buys = Purchases(trial)
+    if not buys[1] then
+        return tools[1] and ("buy " .. table_concat(tools, ", ")) or nil
+    end
+    local more = #buys - 1 + #tools
+    return BuyText(buys[1]) .. (more > 0 and string_format(" (+%d more)", more) or "")
+end
+
+-- Learning a recipe as a step: at a trainer or vendor, or its pattern bought on the AH
+local function LearnStep(c)
+    if c.ah then return string_format("buy the recipe on the AH (%s), learn it", M(c.learnCost)) end
+    return string_format("learn at %s (%s)", ShortWhere(c.where), M(c.learnCost))
+end
+
 -- A craft (learned, or learn = the recipe price goes into the plan, or level = info only)
 local function EvaluateCraft(c)
     local row = c.row
@@ -564,7 +631,7 @@ local function EvaluateCraft(c)
         learnCost = c.learnCost
         cap = cap - learnCost
     end
-    local toolCost, toolConf = Tools(row.craft, reasons)
+    local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
     if cap <= 0 then return nil, "no gold left for it in the plan" end
@@ -593,7 +660,7 @@ local function EvaluateCraft(c)
     end
     if score < P.minScore then return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5)) end
 
-    local pick = { key = row.key, kind = c.kind, score = score, p1g = expected / math_max(plan.value, 1) * 10000,
+    local pick = { key = row.key, kind = c.kind, score = score, conf = conf, listAt = row.sell,
         invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = unitProfit, prof = row.craft.prof,
         learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools }
     -- one 8h / 24h listing of the crafts, at your confidence; a recipe to learn pays its price over 3 days
@@ -601,31 +668,18 @@ local function EvaluateCraft(c)
         plan.profit / items, row.sell)
     local learnShare = c.kind == "learn" and learnCost / LEARN_DAYS or 0
     pick.exp8, pick.exp24 = e8 * conf - learnShare, e24 * conf - learnShare
-    local mainKey = MainPurchase(plan.trial)
-    local planText = string_format("make %s", Count(items))
-    if c.kind == "learn" then planText = "learn (" .. M(learnCost) .. "), " .. planText end
-    if c.kind == "level" then planText = string_format("at skill %d (you %d)", c.req, c.skill) end
-    if mainKey and c.kind ~= "level" then
-        planText = planText .. string_format(", buy %s %s up to %s", Count(plan.trial.used[mainKey]), Name(mainKey), M(plan.trial.top[mainKey]))
-    end
-    pick.plan = planText
+    -- what to do, in order (Evaluate adds the listing): learn > buy > make
+    local steps = {}
+    if c.kind == "learn" then steps[#steps + 1] = LearnStep(c) end
+    steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
+    steps[#steps + 1] = string_format("make %s", Count(items))
+    pick.steps = steps
     -- Shift-click in the table (AH open) snipes the main AH material at the plan's highest price
+    local mainKey = MainPurchase(plan.trial)
     if mainKey and c.kind ~= "level" then
         pick.mainKey = mainKey
         pick.mainTop = plan.trial.top[mainKey]
     end
-    local why = { string_format("%s bought/day", Count(d.perDay or V)), string_format("%s listed", Count(others)) }
-    if row.rawMin and row.rawMax and (row.avgN or 0) >= 2 then
-        why[#why + 1] = string_format("3d %s-%s", M(row.rawMin), M(row.rawMax))
-    end
-    for key, n in pairs(plan.trial.stock) do
-        if n > 0 then
-            why[#why + 1] = string_format("uses your %s %s", Count(n), Name(key))
-            break
-        end
-    end
-    if notes[1] then why[#why + 1] = notes[1] end
-    pick.why = table_concat(why, "  ·  ")
 
     local list = {}
     list[#list + 1] = { "n", string_format("%s, %s%s", row.craft.recipe or "?", row.craft.profName or "?",
@@ -712,14 +766,12 @@ local function EvaluateVendor(c)
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
     local where = row.offer.where
-    local pick = { key = row.key, kind = "vendor", score = score, p1g = unitProfit / unit * 10000, invest = n * unit,
+    local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
         unitProfit = unitProfit, cand = c, trial = NewTrial() }
     local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
         row.sell * (1 - AH_CUT) - unit, row.sell)
     pick.exp8, pick.exp24 = e8 * conf, e24 * conf
-    pick.plan = string_format("buy %s at %s, list at %s", Count(n), ShortWhere(where), M(row.sell))
-    pick.why = table_concat({ string_format("vendor %s", M(unit)), string_format("%s bought/day", Count(d.perDay or V)),
-        string_format("%s listed", Count(others)), notes[1] }, "  ·  ")
+    pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
     local list = {
         { "h", "Plan for the next 24h" },
         { "l", "Buy", string_format("%s at %s each", Count(n), M(unit)) },
@@ -785,18 +837,16 @@ local function EvaluateFlip(c)
     if score < P.minScore then
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
-    local pick = { key = row.key, kind = "flip", score = score, p1g = expected / cost * 10000, invest = cost,
+    local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
         unitProfit = expected / n, cand = c, trial = trial }
     -- the listing already counts only what buyers take in time: the source confidence, not the time factor
     local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
         (n * row.sell * (1 - AH_CUT) - cost) / n, row.sell)
     local sourceConf = conf / timeFactor
     pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
-    pick.plan = string_format("buy %s up to %s, list at %s", Count(n), M(trial.top[row.key]), M(row.sell))
+    pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
     pick.mainTop = trial.top[row.key]
-    pick.why = table_concat({ string_format("usual %s", M(row.usual)), string_format("%s bought/day", Count(d.perDay or V)),
-        string_format("%s wait at %s", Count(row.support), M(row.wall)) }, "  ·  ")
     pick.reasons = {
         { "h", "Plan" },
         { "l", "Buy", string_format("%s up to %s", Count(n), M(trial.top[row.key])) },
@@ -828,7 +878,7 @@ local function Learnable(row, profSkill)
         end
         if price and route.req and not route.est then
             if not best or price < best.price then
-                best = { price = price, req = route.req,
+                best = { price = price, req = route.req, ah = route.kind == "ah",
                     where = route.kind == "ah" and "pattern on the AH" or (route.where or "?") }
             end
         end
@@ -853,12 +903,17 @@ local function Candidates(out, why)
             why[row.key] = "a material has no price"
         elseif not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT then
             why[row.key] = "under 10c profit per item"
+        elseif P.prof and row.craft.prof ~= P.prof then
+            -- the profession dropdown limits crafts and recipes only, vendor resells and flips stay
+            why[row.key] = "another profession is chosen in the table"
         elseif row.learned then
             list[#list + 1] = { kind = "craft", row = row }
+        elseif not P.learnOn then
+            why[row.key] = "recipes to learn are off (Not learned)"
         else
             local l = Learnable(row, profSkill)
             if l then
-                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, where = l.where }
+                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, where = l.where, ah = l.ah }
             else
                 why[row.key] = "recipe price or skill requirement not known yet"
             end
@@ -901,8 +956,23 @@ local function Evaluate(c)
     else
         pick, reason = EvaluateCraft(c)
     end
-    -- the tooltip explains the Expected 8h / 24h columns
-    if pick and pick.reasons and pick.exp8 and pick.exp24 then
+    if not pick then return pick, reason end
+    -- the settings panel's minimum profit per item is an input of the plan, like every Picks filter
+    if P.minProfit and (pick.unitProfit or 0) < P.minProfit then
+        return nil, string_format("under your minimum profit per item (%s, settings panel)", M(P.minProfit))
+    end
+    -- the table shows the better listing; a tie goes to 8h (the smaller deposit, the gold back sooner)
+    if pick.exp8 and pick.exp24 then
+        local long = pick.exp24 > pick.exp8 + 0.5
+        pick.listHours = long and 24 or 8
+        pick.expected = long and pick.exp24 or pick.exp8
+    end
+    pick.steps = pick.steps or {}
+    if pick.listAt then
+        pick.steps[#pick.steps + 1] = string_format("list at %s for %dh", M(pick.listAt), pick.listHours or 24)
+    end
+    -- the tooltip keeps both lengths
+    if pick.reasons and pick.exp8 and pick.exp24 then
         local list = pick.reasons
         list[#list + 1] = { "h", "One listing of all of it" }
         list[#list + 1] = { "l", "For 8h", Signed(pick.exp8) .. GREY .. "  smaller deposit, buyers of 8h|r" }
@@ -925,10 +995,14 @@ end
 function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
     local gold = GetMoney and GetMoney() or 0
+    local s = FM.GetSettings()
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, ownListed = OwnListed(),
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
-        ignoreStock = FM.GetSettings().tableIgnoreStock ~= false, ignoreVendor = FM.GetSettings().tableIgnoreVendor == true }
+        ignoreStock = s.tableIgnoreStock ~= false, ignoreVendor = s.tableIgnoreVendor == true,
+        -- the table's filters are inputs of the plan (the table changes call FM.ComputeTrade again)
+        learnOn = s.tableLearn and true or false, prof = s.tableProf,
+        minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit or nil }
     P.budget = gold * GOLD_SHARE
     P.budgetLeft = P.budget
     -- "% to invest": the most of your gold one pick may use (the plan as a whole stays at 90%)
@@ -980,7 +1054,8 @@ function FM.ComputePicks(out, ctx, done)
             C_Timer.After(0, Step)
             return
         end
-        -- done: the plan, further good picks beyond your gold (each on its own), then recipes to level for
+        -- done: the plan, then further good picks beyond your gold (each on its own); recipes to level for are
+        -- kept apart (out.pickLevels), they are nothing to do now
         local shown = {}
         for _, p in ipairs(chosen) do shown[p.key] = true end
         local extra = {}
@@ -999,18 +1074,32 @@ function FM.ComputePicks(out, ctx, done)
                 picks[#picks + 1] = p
             end
         end
+        local levelTop = {}
+        for _, p in ipairs(levels) do levelTop[p.key] = true end
         for _, c in ipairs(candidates) do
             if c.valid and not why[c.row.key] and not shown[c.row.key] then
-                why[c.row.key] = "a good candidate, but others earn more"
+                if c.kind == "level" then
+                    why[c.row.key] = string_format("needs skill %d (you have %d)%s", c.req, c.skill,
+                        levelTop[c.row.key] and ", one of the best recipes to level for" or "")
+                else
+                    why[c.row.key] = "a good candidate, but others earn more"
+                end
             end
         end
-        out.pickPlan = #chosen
-        for _, p in ipairs(levels) do picks[#picks + 1] = p end
+        -- the plan's totals for the summary line: the gold it needs and the sum of its Expected
+        local need, expected = 0, 0
+        for _, p in ipairs(chosen) do
+            need = need + (p.invest or 0)
+            expected = expected + (p.expected or 0)
+        end
+        out.pickPlan, out.pickNeed, out.pickExpected = #chosen, need, expected
         for i, p in ipairs(picks) do
             p.rank = i
             p.trial, p.cand = nil, nil
         end
+        for _, p in ipairs(levels) do p.trial, p.cand = nil, nil end
         out.picks = picks
+        out.pickLevels = levels
         out.pickBudget = P.budget
         out.pickWhy = why
         out.pickRank, out.pickExtra = {}, {}
