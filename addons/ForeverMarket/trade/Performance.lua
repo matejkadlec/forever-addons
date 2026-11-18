@@ -148,13 +148,14 @@ local function AddLoss(p, kind, name, qty, money)
     p.lossTotal = p.lossTotal + money
 end
 
--- Purchases of the realm (R.buys "t,key,qty,total"): key -> { { t, qty, total }, ... } and all of them
-local function Purchases(r)
+-- Your purchases (R.buys "t,key,qty,total,char"; lines without a character count for every one):
+-- key -> { { t, qty, total }, ... } and all of them
+local function Purchases(r, char)
     local byKey, all = {}, {}
     for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
-        local t, key, qty, total = line:match("^(%d+),([^,]+),(%d+),(%d+)$")
+        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         t, qty, total = tonumber(t), tonumber(qty), tonumber(total)
-        if t and qty and qty > 0 and total then
+        if t and qty and qty > 0 and total and (who == "" or who == char) then
             local b = { t = t, key = key, qty = qty, total = total }
             byKey[key] = byKey[key] or {}
             byKey[key][#byKey[key] + 1] = b
@@ -247,7 +248,7 @@ local function Build(r, char, mode, now)
     local series = { mode = mode, periods = {}, heldSince = readings[1] and readings[1][1] or nil, golds = golds,
         readings = readings }
     local nameKeys = FM.NameKeys(r)
-    local buysByKey, buys = Purchases(r)
+    local buysByKey, buys = Purchases(r, char)
     local posts = Posts(r, char)
     local flows = {} -- { t, copper } of the AH's money
     -- before the first reading of what you hold, purchases can't be set against held items: they count as

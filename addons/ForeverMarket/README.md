@@ -207,7 +207,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   back (from the sale mails), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own
   mail left out) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now):
   the units of each item bought there and not sold there since (purchases of a year and won auctions less your
-  sale mails, in time order: a sale before a purchase sold farmed units, not bought ones; the purchase log has no character, alts' purchases mix in) that you still hold in bags, bank (as
+  sale mails, in time order: a sale before a purchase sold farmed units, not bought ones; purchases are this
+  character's, the ones logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as
   scanned this session, else as last seen), mailbox (as last seen), purchases made after the last look into the
   mailbox (they wait in the mail) and your auctions, at the usual AH price; plus the deposits of your running
   auctions and the money of sold ones still on its way. So buying and posting move gold into items and deposits
@@ -309,7 +310,7 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
 * `worth[char]` readings `t,gold,held,seen` (one per hour, `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]`
   `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
-* `buys` `t,key,qty,total` commodity purchases (epoch seconds, a year)
+* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`
 

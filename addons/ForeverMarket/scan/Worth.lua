@@ -258,7 +258,7 @@ end
 
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
 -- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:
--- those were farmed or looted). The purchase log has no character: alts' purchases mix in.
+-- those were farmed or looted). Purchases logged before 1.15.5 have no character and count for every one.
 local function NetBought(r, char)
     local moves = {} -- key -> { { t, units }, ... }
     local function Move(key, t, units)
@@ -266,8 +266,8 @@ local function NetBought(r, char)
         moves[key][#moves[key] + 1] = { t, units }
     end
     for _, line in ipairs(r.buys or {}) do
-        local t, key, qty = line:match("^(%d+),([^,]+),(%d+),")
-        if key then Move(key, tonumber(t), tonumber(qty)) end
+        local t, key, qty, who = line:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
+        if key and (who == "" or who == char) then Move(key, tonumber(t), tonumber(qty)) end
     end
     local nameKeys = NameKeys(r)
     for _, line in ipairs(r.invoices or {}) do
@@ -297,13 +297,13 @@ local function NetBought(r, char)
 end
 
 -- AH purchases after the last mailbox reading (or since login without one): still in the mail
-local function InTransit(r, mailT, add)
+local function InTransit(r, char, mailT, add)
     local since = mailT or FM.loginAt or FM.Now()
     for i = #(r.buys or {}), 1, -1 do
-        local t, key, qty = r.buys[i]:match("^(%d+),([^,]+),(%d+),")
+        local t, key, qty, who = r.buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
         t, qty = tonumber(t), tonumber(qty)
         if not t or t <= since then break end
-        add(key, qty)
+        if who == "" or who == char then add(key, qty) end
     end
 end
 
@@ -340,7 +340,7 @@ function FM.WorthNow()
         EachEntry(list, function(id, count) add(tostring(id), count) end)
         seen = seen .. "m"
     end
-    InTransit(r, mailT, add)
+    InTransit(r, char, mailT, add)
     local held = Auctions(r, char, now, mailT, add)
     for key, n in pairs(NetBought(r, char)) do
         local have = math_min(n, units[key] or 0)
