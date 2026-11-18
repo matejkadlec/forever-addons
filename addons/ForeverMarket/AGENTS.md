@@ -18,11 +18,13 @@ Auction House logger and market table.
   - Tabs Picks / Favorites / Materials, Craft / Vendor / Flip, Profit, Learn (every recipe still to learn) / Farm from Questie drop data and its own farm log
   - Profit (1.15): graph of the AH result only = the AH's money + items bought there still held at the usual AH price and running deposits, Daily / Weekly / Monthly dots, hover = date with the AH result "since <start of tracking>" small and grey in the corner, change and % (of what was spent on the AH by the dot + the result before), top 3 of sold / bought / real losses, Shift for all; readings `R.worth`, purchases kept a year, invoices and posts 10000 lines, mail money booked when read, only the span all logs cover counts
   - Shift-click headers for multi-column sort
-  - Right-click menu Favorize / Ignore / Track <NPC> = TomTom arrow to the vendor or teacher, only where there is one
+  - Right-click menu Favorize / Ignore / Track <NPC> = TomTom arrow to the vendor or teacher, only where there is one, else the light blue, unclickable "Recipe on AH" for a recipe sold only as a pattern there (1.16)
   - Picks with Expected 8h / 24h, "% to invest", "Ignore vendor"
-  - Short headers PPG / PPH / Min. price / On AH explained on hover
+  - Short headers PPG / PPH / Min. price / On AH / C/8h / C/24h explained on hover; 1.16 replaced the one "Circ. 12h" column with C/8h and C/24h, the same measured rate over both listing durations
 - **Item tooltip cost section:** Cost / Craft cost: now and what you paid from its purchase log; Sell at least: 8h / 24h listing with measured deposits; "-" without data
-- **Auctionator price export**
+  - 1.16 dropped its own "Market ..." line, the AH price is Auctionator's `Auction` line, which ForeverMarket adds itself in the same format where Auctionator leaves none: not installed, auction tooltips off, or skipped (bound items, item info not cached yet)
+  - Never on bind on pickup or quest items (`FM.NeverSellable`); priced from `FM.FreshUnitPrice`, the ladder the Cost section uses
+- **Auctionator price feed:** every refresh of our data writes the lowest price and quantity per item ID into Auctionator's database: deep scans, Battle.net feed imports and item searches (1.16), so its `Auction` line never disagrees with ours
 - **Data:** SavedVariables `ForeverMarketDB` (realm-faction data, not settings only)
 - **`tools/`** holds Claude's analysis script and the Battle.net API probe
 - **Settings panel** `Market`
