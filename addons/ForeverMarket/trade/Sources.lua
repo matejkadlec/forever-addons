@@ -401,6 +401,19 @@ function FM.TrackTarget(key)
     return nil
 end
 
+-- True when a recipe you can still learn is sold as a pattern on the AH. The row menu says so where
+-- Track would be, because a pattern on the AH has no NPC to send a TomTom arrow to.
+function FM.RecipeOnAH(key)
+    for _, row in ipairs(FM.trade and (FM.trade.learn or FM.trade.crafts) or {}) do
+        if row.key == key and row.learned == false and row.craft then
+            for _, route in ipairs(row.craft.learnAll or row.craft.learn or {}) do
+                if route.kind == "ah" then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- Track: a TomTom arrow to that place (its place in chat without TomTom)
 function FM.TrackVendor(key)
     local place, why = FM.TrackTarget(key)
@@ -595,6 +608,12 @@ local function NeverSellable(id)
     if not getInfo then return false end
     local ok, _, _, _, _, _, _, _, _, _, _, _, _, _, bindType = pcall(getInfo, id)
     return ok and (bindType == 1 or bindType == 4) or false
+end
+
+-- Bind on pickup and quest items never go to the AH, so they get no AH price either
+function FM.NeverSellable(key)
+    local id = FM.ItemIDFromKey(key)
+    return (id and NeverSellable(id)) or false
 end
 
 -- Units you own: usable (bags + bank, not what you wear), sellable (of those, not soulbound), sellable in bags

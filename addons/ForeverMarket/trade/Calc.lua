@@ -1029,7 +1029,7 @@ function FM.ComputeTrade(record, onDone)
             end)
         end,
         function(done)
-            -- Min item sell includes one lost deposit for a stack: 8h when 100+ units circulate in 12h, else 24h
+            -- Min item sell includes one lost deposit for a stack: 8h when 200+ units circulate in 24h, else 24h
             -- (it may well not sell in 8h); measured or estimated by trade/Cost.lua
             local seen = {}
             for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {} }) do

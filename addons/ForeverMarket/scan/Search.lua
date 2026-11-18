@@ -120,6 +120,16 @@ local function Save(key, kind, rows, full)
 
     FM.AppendSearch(key, table_concat({ "s" .. Enc(nowMinutes), kind, full and "1" or "0", Enc(#rows), ladder, diffFields }, ","), nowMinutes)
     item.a = Enc(nowMinutes) .. "|" .. (full and "1" or "0") .. "|" .. table_concat(entries, ",")
+    -- a full search is the freshest price we have of this item: Auctionator's tooltip line follows it
+    -- too. A partial result may not hold the cheapest unit, so it is left alone rather than guessed.
+    if full then
+        local minUnit, totalQty = nil, 0
+        for unit, qty in pairs(levels) do
+            if not minUnit or unit < minUnit then minUnit = unit end
+            totalQty = totalQty + qty
+        end
+        if minUnit then FM.FeedAuctionatorItem(key, minUnit, totalQty) end
+    end
     FM.AddWatch(key, "s")
     FM.dataVersion = FM.dataVersion + 1
 end

@@ -66,43 +66,90 @@ function listener:ReceiveEvent(eventName, ...)
     end
 end
 
--- Write a finished deep scan into Auctionator's price database, exactly like Auctionator's own
--- full scan does (lowest unit price + quantity per item ID), so its "Auction" tooltip line, selling tab
--- and price history stay current without running Auctionator's slow full scan.
+-- Write our prices into Auctionator's price database, exactly like Auctionator's own full scan does
+-- (lowest unit price + quantity per item ID), so its "Auction" tooltip line, selling tab and price
+-- history stay current without running Auctionator's slow full scan. Every refresh of our own data
+-- feeds it (deep scans, Battle.net feed imports, item searches), so Auctionator never shows a stale
+-- price next to ours. Auctionator's own scans are left alone: it already stored them itself.
 -- SetPrice is called directly (not Database:ProcessScan, whose shared ticker another search could cancel).
-function FM.FeedAuctionator(snap, onDone)
+local function PriceDB()
+    if not FM.GetSettings().feedAuctionator then return nil end
     local auctionator = _G.Auctionator
     local db = type(auctionator) == "table" and auctionator.Database
-    if not FM.GetSettings().feedAuctionator or snap.source ~= "fm" or type(db) ~= "table" or type(db.SetPrice) ~= "function" then
-        onDone(0)
+    if type(db) ~= "table" or type(db.SetPrice) ~= "function" then return nil end
+    return db
+end
+
+-- merged[dbKey] = { min, qty }, order = the dbKeys in the order they were collected
+local function Write(merged, order, onDone)
+    local db = PriceDB()
+    if not db then
+        if onDone then onDone(0) end
         return
     end
-    -- Auctionator keys every item by its item ID on Forever, like ForeverMarket (merge is a safety net)
-    local merged, keys = {}, {}
-    for _, key in ipairs(snap.order) do
-        local agg = snap.keys[key]
-        local id = FM.ItemIDFromKey(key)
-        if agg and agg.min and id then
-            local dbKey = tostring(id)
-            local m = merged[dbKey]
-            if not m then
-                m = { min = agg.min, qty = 0 }
-                merged[dbKey] = m
-                keys[#keys + 1] = dbKey
-            end
-            if agg.min < m.min then m.min = agg.min end
-            m.qty = m.qty + agg.qty
-        end
-    end
     local written = 0
-    FM.RunSliced(keys, 500, function(dbKey)
+    FM.RunSliced(order, 500, function(dbKey)
         local m = merged[dbKey]
         if pcall(db.SetPrice, db, dbKey, m.min, m.qty) then
             written = written + 1
         end
     end, function()
-        onDone(written)
+        if onDone then onDone(written) end
     end)
+end
+
+-- Auctionator keys every item by its item ID on Forever, like ForeverMarket (merge is a safety net)
+local function Add(merged, order, key, minPrice, qty)
+    local id = FM.ItemIDFromKey(key)
+    if not id or type(minPrice) ~= "number" or minPrice <= 0 then return end
+    local dbKey = tostring(id)
+    local m = merged[dbKey]
+    if not m then
+        m = { min = minPrice, qty = 0 }
+        merged[dbKey] = m
+        order[#order + 1] = dbKey
+    end
+    if minPrice < m.min then m.min = minPrice end
+    m.qty = m.qty + (qty or 0)
+end
+
+-- A finished deep scan of our own
+function FM.FeedAuctionator(snap, onDone)
+    if snap.source ~= "fm" or not PriceDB() then -- checked before the merge pass: a scan has many items
+        onDone(0)
+        return
+    end
+    local merged, order = {}, {}
+    for _, key in ipairs(snap.order) do
+        local agg = snap.keys[key]
+        if agg then Add(merged, order, key, agg.min, agg.qty) end
+    end
+    Write(merged, order, onDone)
+end
+
+-- Item keys whose records a Battle.net feed import just moved on: their newest stored state.
+-- Reading them back is sliced too, an import can touch thousands of items.
+function FM.FeedAuctionatorKeys(keys, onDone)
+    if not PriceDB() then
+        if onDone then onDone(0) end
+        return
+    end
+    local merged, order = {}, {}
+    FM.RunSliced(keys, 500, function(key)
+        local f = FM.LatestRecord(key)
+        if f then Add(merged, order, key, FM.Dec(f[2]), FM.Dec(f[3]) or 0) end
+    end, function()
+        Write(merged, order, onDone)
+    end)
+end
+
+-- One item, written right away: a full AH search of it is the freshest price we have. Auctionator
+-- keeps the largest quantity it saw that day, so a smaller one here never lowers what it has.
+function FM.FeedAuctionatorItem(key, minPrice, qty)
+    local db = PriceDB()
+    local id = db and FM.ItemIDFromKey(key)
+    if not id or type(minPrice) ~= "number" or minPrice <= 0 then return end
+    pcall(db.SetPrice, db, tostring(id), minPrice, qty)
 end
 
 function FM.HookAuctionator()

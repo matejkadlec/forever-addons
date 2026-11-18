@@ -1,11 +1,13 @@
 local _, FM = ...
 
--- Item tooltip lines: the latest market state and Claude's advice. Lines are added synchronously
--- with AddLine (no right column, no wrapping), so they never fight with other tooltip AddOns.
--- Below them, after a blank line, what the item costs you and the least to sell it for (trade/Cost.lua),
--- in two groups with a gold header and indented rows with right-aligned values.
+-- Item tooltip lines: Claude's advice, and below it, after a blank line, what the item costs you and
+-- the least to sell it for (trade/Cost.lua), in two groups with a gold header and indented rows with
+-- right-aligned values. Lines are added synchronously with AddLine (no right column, no wrapping),
+-- so they never fight with other tooltip AddOns.
+-- The AH price itself is Auctionator's own "Auction" line at the top of the tooltip, which
+-- scan/Auctionator.lua keeps fed from every refresh of our data; where Auctionator leaves none we
+-- add that line ourselves, in its own format.
 
-local Dec = FM.Dec
 local math_floor = math.floor
 local math_ceil = math.ceil
 local string_format = string.format
@@ -31,33 +33,67 @@ local INDENT = "  " -- rows under a group header, like a set's items in Blizzard
 local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
 local costCache = {}
 
-local function MarketLine(key)
-    local f = FM.LatestRecord(key)
-    if not f then return nil end
-    local kind = string_sub(f[1], 1, 1)
-    local at = FM.Unstamp(string_sub(f[1], 2))
-    local minPrice = Dec(f[2])
-    local qty = Dec(f[3]) or 0
-    local parts = {}
-    if minPrice then
-        -- random suffix items: the price is the cheapest of all variants ("of Spirit" next to "of the Eagle")
-        parts[#parts + 1] = FM.FormatMoney(minPrice) .. (FM.HasVariants(key) and " (any suffix)" or "")
-        parts[#parts + 1] = FM.FormatCount(qty) .. " listed"
-    else
-        parts[#parts + 1] = "none listed"
+local AUCTION_LABEL = "Auction" -- Auctionator's enUS label; its own locale wins while it is loaded
+local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
+
+-- A copy of Auctionator's CreatePaddedMoneyString (Source/Utilities/CreatePaddedMoneyString.lua), so our
+-- line looks the same whether Auctionator is installed or not. Copied, not called: without Auctionator
+-- there is nothing to call.
+local function PaddedMoney(amount)
+    amount = math_floor(amount)
+    local copper = amount % 100
+    local silver = (amount % 10000 - copper) / 100
+    local gold = (amount - silver * 100 - copper) / 10000
+    local result = copper .. " " .. COPPER_ICON
+    if (gold ~= 0 or silver ~= 0) and copper < 10 then result = "0" .. result end
+    if silver ~= 0 or gold ~= 0 then result = silver .. " " .. SILVER_ICON .. " " .. result end
+    if gold ~= 0 and silver < 10 then result = "0" .. result end
+    if gold ~= 0 then result = gold .. " " .. GOLD_ICON .. " " .. result end
+    return result
+end
+
+-- Is that label already the left text of a line on this tooltip?
+local function HasLine(tooltip, label)
+    local name = tooltip.GetName and tooltip:GetName()
+    local lines = name and tooltip.NumLines and tooltip:NumLines() or 0
+    for i = 2, lines do -- line 1 is the item's name
+        local fontString = _G[name .. "TextLeft" .. i]
+        local text = fontString and fontString.GetText and fontString:GetText()
+        if type(text) == "string" and not FM.IsSecret(text) and string_sub(text, 1, #label) == label then
+            return true
+        end
     end
-    local perDay = FM.SoldPerDay(key)
-    if perDay then
-        parts[#parts + 1] = (perDay > 0 and perDay < 1 and "<1" or FM.FormatCount(perDay)) .. " circulating/day"
+    return false
+end
+
+-- Our own "Auction" line, only where Auctionator leaves none: it is not installed, its auction tooltips
+-- are off, or it skips the item (it bails on bound items, and on anything whose item info is not cached
+-- yet, because its `cannotAuction` starts at 0, which is true in Lua).
+-- Auctionator registers its tooltip post call before ours (## OptionalDeps loads it first), so its line
+-- is already there when we look. For gear its key lookup is asynchronous (Item:ContinueOnItemLoad) and
+-- only finishes late while the item's info is uncached, so we stay out of that case rather than risk a
+-- second line; the next hover has the item cached and is right.
+local function AuctionLine(tooltip, key, link)
+    -- an item that can never go to the AH gets no AH price: it would only be noise. Auctionator hides
+    -- its line on bound items for the same reason, so this also keeps us from filling that one in.
+    if FM.NeverSellable and FM.NeverSellable(key) then return nil end
+    local auctionator = _G.Auctionator
+    local label = AUCTION_LABEL
+    if type(auctionator) == "table" and type(auctionator.Database) == "table" then
+        local apply = type(auctionator.Locales) == "table" and auctionator.Locales.Apply
+        if type(apply) == "function" then
+            local ok, translated = pcall(apply, "AUCTION")
+            if ok and type(translated) == "string" and translated ~= "" then label = translated end
+        end
+        if HasLine(tooltip, label) then return nil end
+        local probe = link or tonumber(key)
+        if probe and C_Item and C_Item.GetItemInfo and not C_Item.GetItemInfo(probe) then return nil end
     end
-    if kind == "r" then
-        local own = Dec(f[8])
-        if own and own > 0 then parts[#parts + 1] = "yours " .. FM.FormatCount(own) end
-    end
-    if at then
-        parts[#parts + 1] = "|cFF9D9D9D" .. FM.FormatAge(FM.Now() - at) .. " ago|r"
-    end
-    return FM.COLOR.ORANGE .. "Market|r " .. table.concat(parts, SEP)
+    local price = FM.FreshUnitPrice and FM.FreshUnitPrice(key)
+    if not price or price <= 0 then return nil end
+    return label, PaddedMoney(price)
 end
 
 local function AdviceLine(key)
@@ -138,25 +174,24 @@ local function LinesFor(key)
         cacheVersion = FM.dataVersion
     end
     local entry = cache[key]
-    if not entry then
-        entry = { market = MarketLine(key) or false, advice = AdviceLine(key) or false, at = GetTime() }
+    if entry == nil then -- false = this item has no advice
+        entry = AdviceLine(key) or false
         cache[key] = entry
-    elseif GetTime() - entry.at > 60 then
-        entry.market = MarketLine(key) or false -- keep "x ago" fresh
-        entry.at = GetTime()
     end
-    return entry.market, entry.advice
+    return entry
 end
 
+-- The item's key and, when the tooltip knows it, its link (the link also tells whether the client has
+-- the item's info cached yet)
 local function KeyOfTooltip(tooltip, data)
     if tooltip.GetItem then
         local ok, _, link = pcall(tooltip.GetItem, tooltip)
         if ok and type(link) == "string" and not FM.IsSecret(link) then
-            return FM.KeyFromLink(link)
+            return FM.KeyFromLink(link), link
         end
     end
     if type(data) == "table" and type(data.id) == "number" then
-        return tostring(data.id)
+        return tostring(data.id), nil
     end
     return nil
 end
@@ -165,11 +200,17 @@ local function OnItemTooltip(tooltip, data)
     if tooltip.__fmDone or not FM.realm then return end
     local settings = FM.GetSettings()
     if not settings.tooltip and not settings.adviceLine then return end
-    local key = KeyOfTooltip(tooltip, data)
+    local key, link = KeyOfTooltip(tooltip, data)
     if not key then return end
     tooltip.__fmDone = true
-    local market, advice = LinesFor(key)
-    if settings.tooltip and market then tooltip:AddLine(market, 1, 1, 1) end
+    if settings.tooltip then
+        local label, money = AuctionLine(tooltip, key, link)
+        if label then
+            tooltip:AddDoubleLine(label, WHITE_FONT_COLOR and WHITE_FONT_COLOR:WrapTextInColorCode(money)
+                or ("|cFFFFFFFF" .. money .. "|r"))
+        end
+    end
+    local advice = LinesFor(key)
     if settings.adviceLine and advice then tooltip:AddLine(advice, 1, 1, 1) end
     local cost = settings.tooltip and CostLines(key)
     if cost then

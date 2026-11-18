@@ -75,8 +75,8 @@ end
 local OPTIONS = {
     { key = "autoDeepScan", label = "Deep scan automatically when the Auction House opens (every 15 min at most)" },
     { key = "rescanWhileOpen", label = "Deep scan again every 15 min while the Auction House stays open" },
-    { key = "feedAuctionator", label = "Save deep scan prices into Auctionator too (no Auctionator full scan needed)" },
-    { key = "tooltip", label = "Market line on item tooltips (price, listed, sold per day)" },
+    { key = "feedAuctionator", label = "Keep Auctionator's prices fed from our data (no Auctionator full scan needed)" },
+    { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
     { key = "adviceLine", label = "Claude's advice line on item tooltips" },
     { key = "reloadPopup", label = "Offer a UI reload after the AH closes, so Claude gets the new data" },
     { key = "alerts", label = "Chat alerts: you were undercut, an advised buy price was hit" },

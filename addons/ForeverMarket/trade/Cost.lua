@@ -286,6 +286,14 @@ local function FreshLadder(key)
     return snapshot and Confirmed(key, snapshot, FM.R().last.t or FM.Now()) or nil
 end
 
+-- The cheapest unit price of others from the freshest source, the same ladder "now" is walked on, so
+-- the AH price at the top of the tooltip and the Cost section below it can never disagree. nil without data.
+function FM.FreshUnitPrice(key)
+    local ladder = FreshLadder(key)
+    local level = ladder and ladder[1]
+    return level and level[1] or nil
+end
+
 -- Buying n units now on the AH: walk the ladder (a single cheap unit hides the real price)
 local function BuyNow(key, n)
     local ladder = FreshLadder(key)
