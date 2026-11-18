@@ -8,9 +8,10 @@ The repository's shared rules live in [AGENTS.md](AGENTS.md) and the nearest nes
 2. **Worktree:** a branch named after the ticket, in its own worktree from a fresh `origin/master` ([Branches and Worktrees](AGENTS.md#branches-and-worktrees))
 3. **Implement:** follow the [Development Workflow](AGENTS.md#development-workflow) and the nearest nested guide
 4. **Check:** `luac5.1 -p` on every changed Lua file, the version bump of every changed AddOn, the documentation
-5. **Sync** the changed AddOns into the game and tell the maintainer what to reload ([Communication Rules](AGENTS.md#communication-rules))
+5. **Sync** the changed AddOns into the game ([Communication Rules](AGENTS.md#communication-rules)) and classify the change: his test before the merge, an optional test, or nothing to test ([In-Game QA](AGENTS.md#in-game-qa))
 6. **Pull request:** title starts with the ticket key and links the ticket; move the ticket to In Review
-7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); move the ticket to Done and remove your worktree
+7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); a change that needs the maintainer's in-game test waits for his answer first; move the ticket to Done and remove your worktree
+8. **End the response** with What changed, What to test, Verification and Tickets ([Communication Rules](AGENTS.md#ending-a-response))
 
 ## Verify an API
 
@@ -26,7 +27,7 @@ Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](
 
 ## Add a first-party AddOn
 
-Name, shortname, required `.toc` fields, icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`. A new AddOn needs a game restart, not `/reload`.
+Name, shortname, required `.toc` fields, icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`. A new AddOn needs a game restart, not `/reload`, and the maintainer's in-game test before the merge.
 
 ## Fix or add a backported AddOn
 
@@ -38,4 +39,4 @@ Read [services/forever-market-feed/AGENTS.md](services/forever-market-feed/AGENT
 
 ## Sync AddOns into the game
 
-`scripts/sync-addons.sh <AddOnName> [...]` after every change to AddOn files, from a worktree with `ENV_FILE=<main checkout>/.env.sync-addons`. A renamed or removed AddOn's old folder is deleted from the game's AddOns folder by hand. Then the bold message: `/reload`, or restart the game when a `.toc` changed or files were added or removed.
+`scripts/sync-addons.sh <AddOnName> [...]` after every change to AddOn files, from a worktree with `ENV_FILE=<main checkout>/.env.sync-addons`. A renamed or removed AddOn's old folder is deleted from the game's AddOns folder by hand. Then the bold message: `/reload`, or restart the game when the client must read something again at startup (a new AddOn, files added or removed, a `.toc` field other than the version); a version bump alone needs only `/reload`.

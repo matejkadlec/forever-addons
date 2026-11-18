@@ -123,7 +123,7 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 ## Misc
 
 - AddOn metadata: `C_AddOns.GetAddOnMetadata(addonName, "Version")`
-- New files, new AddOns and `.toc` changes need a **full game restart**, Lua-only changes only `/reload`
+- New files, new AddOns and `.toc` changes that the client reads at startup (file list, `## Interface:`, `## SavedVariables:`, dependencies) need a **full game restart**, Lua-only changes only `/reload`; a `## Version:` bump alone needs no restart, the client only keeps showing the old number until the next one
 
 ## Taint
 

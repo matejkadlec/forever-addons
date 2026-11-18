@@ -108,10 +108,27 @@ These apply to all Lua in `addons/` and `backports/`.
 
 ## Communication Rules
 
-- When making code or file changes, summarize the changes you did at the end of the response
+### Ending a response
+
+- Every response in which any file was changed ends with the parts below, in this order, so the maintainer sees what happened and what he has to do without scrolling back
+  - Do not include them when only answering a question and making no changes to any files (but if even one change was done to ANY file, then include them)
+  - Keep them brief and in plain words: what is different for the player or for the repository, not which functions were touched
+- **What changed:** a short list, one bullet per ticket (start it with the key, `FRV-13: ...`) or per change
   - Only mention core/bigger changes (for smaller changes overall, mention the small change)
-  - Do not include a summary when only answering a question and making no changes to any files
-    (but if even one change was done to ANY file, then include it)
+- **What to test:** only when there is something to try in the game
+  - The heading says whether the test is needed before the merge or optional (see In-Game QA): `What to test (needed before the merge)` or `What to test (optional)`
+  - Directly below the heading comes the bold sync message (below), so he knows whether to run `/reload` or restart the game before testing
+  - Then a numbered list: each item starts with a bold name for the check, says where (AddOn, window or slash command, character or place when it matters: a Hunter, at the Auction House) and gives the steps and what he should see as sub-bullets
+  - A behavior he must decide on comes first and says so
+  - When AddOns could not be synced (a cloud session): give the commands for his clone instead, one per line (`git fetch origin`, `git switch <branch>`, `scripts/sync-addons.sh <AddOnName>`)
+  - Last line of the part when the test is needed before the merge: how he answers (it works, or what is wrong)
+- When AddOns were synced but there is nothing to test, the bold sync message stands on its own after What changed
+- **Verification:** what ran in this response and what it showed, one bullet each (`luac5.1 -p`, the hooks, the service checks, each independent review and what it found, the pull request's checks, the feed deploy run)
+  - A `Not run:` bullet names what did not run and why; never "all checks passed" for a partial run, and "nothing ran" when nothing did
+- **Tickets:** the last line names the tickets worked on, `Tickets: FRV-13, FRV-14`, or `Tickets: none`
+
+### Sync
+
 - AUTOMATIC SYNC (VERY IMPORTANT): at the end of EVERY change to AddOn files inside `addons/` or `backports/`, sync the changed AddOns into the game yourself, without asking and before replying to the user
   - The user expects this on every edit, also for small fixes; never let the in-game copies lag behind the repository
   - Run `scripts/sync-addons.sh <AddOnName> [...]` (without arguments it syncs every AddOn)
@@ -126,8 +143,8 @@ These apply to all Lua in `addons/` and `backports/`.
 - After syncing changed addon files, tell the user what was updated and whether `/reload` or a full restart is needed
   - If sync succeeds: "I updated {AddOn Name} for you. Please {run "/reload"}/{restart the game} for these changes to take effect in-game."
   - If sync fails or is unavailable: explain that the sync did not complete and tell the user to update the AddOn manually
-  - Use **restart the game** when a `.toc` file changed, a new AddOn was added, or Lua/XML files were added/removed
-  - Use **run "/reload"** only for changes where a UI reload is enough
+  - Use **restart the game** only when something changed that the client reads once at startup: a new AddOn, Lua/XML files added to or removed from an AddOn (its `.toc` file list), or a `.toc` field other than the version (`## Interface:`, `## SavedVariables:`, dependencies, title, notes, category, icon), or a new or removed `Bindings.xml`
+  - Use **run "/reload"** for everything else: code changes in existing files, and a `## Version:` bump alone never needs a restart (the AddOn list just shows the old number until the next restart, the loading message reads it the same way)
   - Whole message bold
 
 ---
@@ -145,7 +162,27 @@ When implementing features:
 7. Check the changed files: `luac5.1 -p <file>` for every changed Lua file (syntax in the Lua 5.1 dialect); for `services/`, the checks in its guide
    - A few third-party files start with a UTF-8 byte order mark, which WoW accepts and `luac5.1` rejects (`unexpected symbol near '\xEF'`): check those with `tail -c +4 <file> | luac5.1 -p -` and keep the mark
 8. Sync the changed AddOns automatically (see Communication Rules)
-9. Ship it through a pull request (see Pull Requests and Code Review)
+9. Classify the change (see In-Game QA) and ship it through a pull request (see Pull Requests and Code Review)
+10. End the response with What changed, What to test, Verification and Tickets (see Communication Rules)
+
+---
+
+## In-Game QA
+
+Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's test in WoW is the only proof that an AddOn change works. He does not test everything. A change is classified before its pull request opens, and the What to test heading says which kind it is.
+
+- **Needs his test before the merge** (the pull request says "do not merge before in-game QA" in its description and waits for his answer, like any pull request that needs the maintainer):
+  - Anything he sees or does differently in the game: a new feature or AddOn, a new or changed window, table column, tooltip, bar, marker, settings panel option, chat output, slash command or key binding
+  - Code that only the live client can prove: new or changed handling of secret values, taint, combat or other restriction states, protected or `HasRestrictions` calls, and the first use of an API that `docs/forever-api-notes.md` does not list as verified in game
+  - Anything that acts for the player or costs gold (ForeverMarket's sniper and buying, posting, cancelling)
+  - A change to the format or the cleanup of SavedVariables (`ForeverMarketDB` holds market data that cannot be recreated), including migrations
+  - A change that touches several AddOns' shared parts at once (the shared settings category, the keybinding category)
+- **Optional test** (merged after the independent review as usual; What to test still lists what he can look at when he likes):
+  - A bug fix with a narrow, stated result in existing behavior (a wrong number, text, color, sort order, an error from `Logs/`), with no change of layout or data format
+  - Refactoring and performance work that must leave behavior the same
+- **Nothing to test:** documentation, agent guides, `tools/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
+- When in doubt, or when one pull request mixes kinds, the stricter kind counts; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
+- Jira: a ticket whose pull request waits for his test stays In Review with the label `in-game-qa`, so the board shows what needs his attention; remove the label when he has answered
 
 ---
 
@@ -190,7 +227,7 @@ When implementing features:
   - The last review before a merge always covers the whole pull request diff against `origin/master` (after a fetch, `git diff origin/master...<branch>`, three dots)
   - A finding that is wrong, contradicts the maintainer's request or needs his decision is not applied but reported to him and noted in a pull request comment; the pull request stays open until he answers
 - Once the review of the last commit passes and the pull request's checks are green, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer
-  - A pull request that needs the maintainer before it may be merged (a step on the host, a new secret or config file, his decision, a "do not merge before ..." note in its description) is not merged: leave it open and tell him what it waits for
+  - A pull request that needs the maintainer before it may be merged (a step on the host, a new secret or config file, his decision, his in-game test (see In-Game QA), a "do not merge before ..." note in its description) is not merged: leave it open and tell him what it waits for
   - Your own = GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork) and the Claude Code attribution ends the description; anyone else's pull requests, made with Claude Code or not, are left to the maintainer
   - Checks: the REST endpoint `repos/{owner}/{repo}/commits/{sha}/check-runs`; no checks reported counts as green (a pull request touching the `market-feed.yml` paths waits for its `Checks` run to appear), pending checks are waited for, failing checks keep the pull request open like a failed review
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why

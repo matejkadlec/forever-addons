@@ -40,5 +40,5 @@ The shared configuration is versioned in [`.claude/settings.json`](.claude/setti
 
 ## Ending a response
 
-- The change summary from [Communication Rules](AGENTS.md#communication-rules) closes every response that changed a file; the bold sync message follows it when AddOn files changed
-- Say what was verified and how (which checks ran, what the review found); never "all checks passed" for a partial run
+- Every response that changed a file ends with What changed, What to test (with the bold sync message below its heading), Verification and the `Tickets:` line, as [Communication Rules](AGENTS.md#ending-a-response) defines them
+- That includes intermediate responses of a long task: each one reports what it changed and verified itself
