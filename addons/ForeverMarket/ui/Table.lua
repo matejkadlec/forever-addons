@@ -83,6 +83,7 @@ end
 local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to resell)."
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
 local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 12h, else 24h)."
+local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
 local CIRC_TIP = "Circulating ~12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
 
 -- Circulating ~12h: "?" without enough coverage, grey when it had to come from the 3 day window
@@ -221,7 +222,7 @@ local CRAFT_COLUMNS = {
         end },
     { title = "Max mat buy", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
     { title = "Min. price", tip = MIN_TIP, width = 96, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
-    { title = "On AH", width = 84, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", tip = ON_AH_TIP, width = 84, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 90, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
@@ -230,7 +231,7 @@ local VENDOR_COLUMNS = {
     { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Vendor price", width = 100, text = function(r) return Money(r.vendorUnit) end, sort = function(r) return r.vendorUnit end },
     { title = "Min. price", tip = MIN_TIP, width = 100, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
-    { title = "On AH", width = 80, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", tip = ON_AH_TIP, width = 80, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
     { title = "Vendor", width = 182, align = "LEFT", text = function(r)
         local where = r.offer and r.offer.where or "?"
@@ -244,7 +245,7 @@ local FLIP_COLUMNS = {
     { title = "Buy up to", width = 110, text = function(r) return Money(r.top) end, sort = function(r) return r.top end },
     { title = "List at", width = 110, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "Units", width = 66, text = function(r) return Count(r.units) end, sort = function(r) return r.units end },
-    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 126, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
@@ -273,7 +274,7 @@ local MAT_COLUMNS = {
         if not r.best then return GREY .. "-|r" end
         return GREY .. (r.via and (Name(r.via) .. " > ") or "") .. Name(r.best.key) .. "|r"
     end, sort = function(r) return r.best and Name(r.best.key) or "" end },
-    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 120, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end }
 }
 
@@ -314,7 +315,7 @@ local EXPECTED_TIP = "Expected profit of one listing of the pick's units for 8h 
 local function GreyP1g(value)
     if type(value) ~= "number" then return GREY .. "-|r" end
     local text = Money(math_abs(value)):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return GREY .. (value < 0 and "-" or "+") .. text .. "|r"
+    return GREY .. (value < 0 and "-" or (value > 0 and "+" or "")) .. text .. "|r"
 end
 
 local function Expected(p, mine, other)
@@ -351,7 +352,7 @@ local FAV_COLUMNS = {
         sort = function(r) return r.use or "" end },
     { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
     { title = "Sell now", width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
-    { title = "On AH", width = 90, text = OnAH, sort = function(r) return r.qty end },
+    { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "Circ. 12h", tip = CIRC_TIP, width = 124, text = function(r) return Sold(r.sold12, r.soldWide) end, sort = function(r) return r.sold12 end },
     { title = "In tabs", width = 140, align = "LEFT", text = function(r)
         local names = {}
@@ -1042,9 +1043,11 @@ local function ShowRowTooltip(button)
         GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
     end
     -- the menu as it will open: Track only where there is an NPC to go to
-    local place, why = FM.TrackTarget and FM.TrackTarget(row.key)
-    GameTooltip:AddLine("Right-click: Favorize, Ignore" .. (place and (", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor"))) or ""),
-        0.4, 0.75, 1)
+    local place, why
+    if FM.TrackTarget then place, why = FM.TrackTarget(row.key) end
+    local menu = (FM.IsFavorite(row.key) and "Unfavorize" or "Favorize") .. ", " .. (FM.IsExcluded(row.key) and "Stop ignoring" or "Ignore")
+    if place then menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) end
+    GameTooltip:AddLine("Right-click: " .. menu, 0.4, 0.75, 1)
     GameTooltip:Show()
 end
 
@@ -1335,7 +1338,7 @@ local function FooterText(total)
     elseif tab.favs then
         text = text .. "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs"
     elseif tab.crafts then
-        text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, per hour = profit per craft / cast time + 0.5s", FM.TRADE.BATCH)
+        text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, PPH = profit per craft / (cast time + 0.5s)", FM.TRADE.BATCH)
     elseif tab.id == "vendor" then
         text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
     elseif tab.id == "flips" then
@@ -1583,7 +1586,7 @@ local function CreateTable()
     invest:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("% to invest")
-        GameTooltip:AddLine("The most of your gold one pick may use (default 90; the plan as a whole keeps 10% for deposits, so above 90 changes nothing). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter to apply.", 1, 1, 1, true)
+        GameTooltip:AddLine("The most of your gold one pick may use (default 90; the plan as a whole keeps 10% for deposits, so above 90 changes nothing). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter or click elsewhere to apply.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     invest:SetScript("OnLeave", function() GameTooltip:Hide() end)

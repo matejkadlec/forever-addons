@@ -103,7 +103,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Favorite items get a star
   everywhere.
-* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest profit per 1g; Materials
+* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG; Materials
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
@@ -145,8 +145,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   rows at that floor say so (no undercut possible, you queue behind the others).
 * Crafts: sell = cheapest listing of others - 1c, capped at the usual price (median daily low of the last
   week) when that listing is over 125% of it. Material cost = cheapest of vendor (unlimited stock), the AH
-  ladder for 5 crafts, or crafting it yourself (learned recipes, 2 levels deep). Profit per 1g = profit / cost,
-  max mat buy = main AH material price that still leaves 10% profit, min item sell = the price that still
+  ladder for 5 crafts, or crafting it yourself (learned recipes, 2 levels deep). PPG = profit / cost,
+  max mat buy = main AH material price that still leaves 10% profit, min. price = the price that still
   breaks even after the 5% cut when you bought that material at max mat buy (= sell / 1.1; the two work as a
   pair), or the break-even of today's material prices when that is higher (tooltip shows both).
 * 3 day history (`r.track.h`, one line per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated

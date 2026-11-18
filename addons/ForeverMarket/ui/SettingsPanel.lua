@@ -81,7 +81,7 @@ local OPTIONS = {
     { key = "reloadPopup", label = "Offer a UI reload after the AH closes, so Claude gets the new data" },
     { key = "alerts", label = "Chat alerts: you were undercut, an advised buy price was hit" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
-    { key = "tableNoOutliers", label = "Market table: hide outliers (profit per 1g far off the rest of a tab, vendor items listed at 10x+)" }
+    { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" }
 }
 
 -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
