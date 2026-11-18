@@ -205,8 +205,9 @@ This character's **AH result** as a line from 0 with one dot per day, week or mo
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
 
 * AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit back
-  (from the sale mails), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own mail
-  left out) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now): the units
+  (from the sale mails, counted when you read the mail: until then the readings still hold the auction or its sold
+  money; mails read before 1.15.13 count when they were sent), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own mail
+  left out, also counted when its mail was read) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now): the units
   of each item bought there and not sold there since (purchases of a year and won auctions less your sale mails, in
   time order: a sale before a purchase sold farmed units, not bought ones; purchases are this character's, the ones
   logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as scanned this
@@ -217,8 +218,13 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
   bought there and crafted leave the line until the product sells.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
-  since (oldest first; the sale mails of auctions the list already shows sold take nothing off); sold and ended ones
-  count as on their way by mail only after the last look into the mailbox (without any mailbox reading: since login).
+  since (oldest first; the sale mails of auctions the list already shows sold take nothing off); sold, ended and
+  cancelled ones (`ocancel`) count as on their way by mail only after the last look into the mailbox (without any
+  mailbox reading: since login), the cancelled ones' deposit is gone.
+* Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
+  `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
+  counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
+  look held again. Units bought before that and still held leave what you hold when it passes them.
 * Before the first reading of what you hold (1.15.2 on) purchases count as neutral, and a sale counts its money
   less what its units cost you (your purchases before it). What you hold counts step by step between consecutive
   readings (the stored ones and one of right now), each step in the period of its later reading; the first reading
@@ -313,7 +319,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID` (buyout is the unit
   price for commodities), chat `sold|expired|removed|won|outbid,item`, mail `mexpired|mcancelled,item`, `blocked,function`
-* `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut`: on Forever `bid` is the sale total
+* `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
+  1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
 * `worth[char]` readings `t,gold,held,seen` (about one per hour, the first that saw something new kept apart;

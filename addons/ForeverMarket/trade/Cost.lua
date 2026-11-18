@@ -27,6 +27,7 @@ local table_remove = table.remove
 local AH_CUT = 0.05
 local KEEP_DAYS = 365
 local MAX_BUYS = 10000
+FM.BUYS_KEEP_DAYS, FM.BUYS_MAX = KEEP_DAYS, MAX_BUYS
 local PAID_DAYS = 30 -- "you paid" looks at this many days
 local QUOTE_AGE = 20       -- a quote older than this does not price a confirm
 local PENDING_AGE = 60     -- a confirm without the server's answer after this is dropped

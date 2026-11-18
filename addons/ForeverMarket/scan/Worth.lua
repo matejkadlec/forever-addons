@@ -155,10 +155,32 @@ local function NameKeys(r)
 end
 FM.NameKeys = NameKeys
 
+-- From when your AH logs are complete: a log at its cap has dropped its oldest lines and covers only from its first
+-- line on (an invoice: from when it was read), purchases are kept a year. Nothing older counts in the Profit tab
+-- or as bought, so a dropped sale can't make its purchase look held again.
+function FM.CoveredFrom(r, char, now)
+    local from = (now or FM.Now()) - (FM.BUYS_KEEP_DAYS or 365) * 86400
+    local function Check(list, max, stampOf)
+        if type(list) == "table" and list[1] and #list >= max then
+            local t = stampOf(list[1])
+            if t and t > from then from = t end
+        end
+    end
+    local function First(line) return FM.Unstamp(line:match("^(%w+),")) end
+    Check(r.invoices, FM.LIMITS.invoicesMax, function(line)
+        local f = FM.Split(line, ",")
+        return FM.Unstamp(f[11] or f[1])
+    end)
+    Check(r.posts, FM.LIMITS.postsMax, First)
+    Check(r.buys, FM.BUYS_MAX or 10000, function(line) return tonumber(line:match("^(%d+),")) end)
+    Check(type(r.worth) == "table" and r.worth[char], WORTH_MAX, First)
+    return from
+end
+
 -- Your auctions, from the last list of them plus what you posted after it, by what happened since:
 --   running: their units (add) and their deposit (it comes back with a sale)
 --   sold after the last look into the mailbox: the money after the cut and the deposit, on their way by mail
---   ended after the last look into the mailbox: their units, on their way back by mail
+--   ended or cancelled after the last look into the mailbox: their units, on their way back by mail
 -- Without any mailbox reading, "after the last look" is "since login" (opening it would have made one).
 -- Sales, expiries and cancels read from your mail since the list take their units off the running ones,
 -- oldest first. Returns the deposits and money counted.
@@ -202,9 +224,23 @@ local function Auctions(r, char, now, mailT, add)
             end
         end
     end
+    -- auctions cancelled after the last look into the mailbox (their units come back by mail) or since the list
+    -- (no running one even if posted in the list's minute); events are logged in time order, mail ones by sent time
+    local cancelled, back = {}, {}
+    local events = r.events or {}
+    local oldest = math_min(lookT, (listT or now) - 60)
+    for i = #events, 1, -1 do
+        local f = FM.Split(events[i], ",")
+        local t = FM.Unstamp(f[1])
+        if t and t < oldest and f[3] ~= "mexpired" and f[3] ~= "mcancelled" then break end
+        if t and f[2] == char and f[3] == "ocancel" and f[4] then
+            if f[7] then cancelled[f[7]] = true end
+            if t >= lookT then back[#back + 1] = { key = f[4], qty = Dec(f[5]) or 1 } end
+        end
+    end
     for _, post in ipairs(posts) do
         -- posted after the list (minute stamps: one of the same minute may be in it already, its ID tells)
-        if not (post.aid and inList[post.aid]) and (not listT or post.t >= listT - 60) then
+        if not (post.aid and (inList[post.aid] or cancelled[post.aid])) and (not listT or post.t >= listT - 60) then
             running[#running + 1] = { t = post.t, key = post.key, qty = post.qty,
                 deposit = PostDeposit(post.key, post.qty, post.duration),
                 ends = post.t + (POST_HOURS[post.duration or 3] or 24) * 3600 }
@@ -254,15 +290,19 @@ local function Auctions(r, char, now, mailT, add)
             end
         end
     end
+    for _, c in ipairs(back) do add(c.key, c.qty) end -- cancelled: coming back by mail, the deposit is gone
     return total
 end
 
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
 -- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:
--- those were farmed or looted). Purchases logged before 1.15.5 have no character and count for every one.
+-- those were farmed or looted), since the logs are complete. Purchases logged before 1.15.5 have no character and
+-- count for every one.
 local function NetBought(r, char)
     local moves = {} -- key -> { { t, units }, ... }
+    local from = FM.CoveredFrom(r, char)
     local function Move(key, t, units)
+        if t < from then return end -- before the logs are complete: its sale or purchase may be gone
         moves[key] = moves[key] or {}
         moves[key][#moves[key] + 1] = { t, units }
     end

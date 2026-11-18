@@ -13,7 +13,8 @@ local _, FM = ...
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
 --                     buyout is the unit price for commodities, the auction's buyout for items
 --              mail:  mexpired | mcancelled ,itemName
--- R.invoices "t,char,type,itemName,player,qty,bid,buyout,deposit,ahCut"  (t = when the mail was sent)
+-- R.invoices "t,char,type,itemName,player,qty,bid,buyout,deposit,ahCut,read"  (t = when the mail was sent,
+--            read = when you read it, from 1.15.13; the Profit tab books the money then)
 --            on Forever "bid" is the money of the sale (total) and "buyout" holds the quantity for
 --            commodity sales, so readers should use bid as the sale total
 -- R.gold     "t,char,copper"
@@ -349,7 +350,10 @@ local function ScanInbox()
             else
                 seen[#seen + 1] = { minutes = mail.minutes, used = true }
                 local limit = mail.list == "invoices" and FM.LIMITS.invoicesMax or FM.LIMITS.eventsMax
-                FM.Log(mail.list, FM.Stamp(mail.sent) .. "," .. table_concat(mail.record, ","), limit)
+                local line = FM.Stamp(mail.sent) .. "," .. table_concat(mail.record, ",")
+                -- an invoice also notes when you read it: its money reaches you then
+                if mail.list == "invoices" then line = line .. "," .. FM.Stamp(now) end
+                FM.Log(mail.list, line, limit)
             end
         end
         local keep = {}

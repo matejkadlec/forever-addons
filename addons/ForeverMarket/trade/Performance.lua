@@ -89,15 +89,17 @@ local function GoldPoints(r, char, readings)
     return points
 end
 
--- Readings of what you hold from the AH: { { t, gold, held, seen }, ... } oldest first (1.15.0-1.15.1 readings
--- of all items, without the "h", are left out)
-local function Readings(r, char)
+-- Readings of what you hold from the AH since from: { { t, gold, held, seen }, ... } oldest first (1.15.0-1.15.1
+-- readings of all items, without the "h", are left out)
+local function Readings(r, char, from)
     local points = {}
     local list = type(r.worth) == "table" and r.worth[char]
     for _, line in ipairs(type(list) == "table" and list or {}) do
         local f = FM.Split(line, ",")
         local t, gold, held = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
-        if t and gold and held and (f[4] or ""):sub(1, 1) == "h" then points[#points + 1] = { t, gold, held, f[4], #points } end
+        if t and t >= from and gold and held and (f[4] or ""):sub(1, 1) == "h" then
+            points[#points + 1] = { t, gold, held, f[4], #points }
+        end
     end
     -- minute stamps can tie (an anchor and the next reading): the order they were saved in decides
     table_sort(points, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[5] < b[5]) end)
@@ -149,14 +151,14 @@ local function AddLoss(p, kind, name, qty, money)
     p.lossTotal = p.lossTotal + money
 end
 
--- Your purchases (R.buys "t,key,qty,total,char"; lines without a character count for every one):
+-- Your purchases since from (R.buys "t,key,qty,total,char"; lines without a character count for every one):
 -- key -> { { t, qty, total }, ... } and all of them
-local function Purchases(r, char)
+local function Purchases(r, char, from)
     local byKey, all = {}, {}
     for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
         local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         t, qty, total = tonumber(t), tonumber(qty), tonumber(total)
-        if t and qty and qty > 0 and total and (who == "" or who == char) then
+        if t and t >= from and qty and qty > 0 and total and (who == "" or who == char) then
             local b = { t = t, key = key, qty = qty, total = total }
             byKey[key] = byKey[key] or {}
             byKey[key][#byKey[key] + 1] = b
@@ -181,14 +183,14 @@ local function CostBefore(list, qty, t)
     return total / q
 end
 
--- Your posts by item: key -> { { t, qty, duration }, ... }
-local function Posts(r, char)
+-- Your posts since from by item: key -> { { t, qty, duration }, ... }
+local function Posts(r, char, from)
     local byKey = {}
     for _, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
         local f = FM.Split(line, ",")
         if f[2] == char and f[3] then
             local t = FM.Unstamp(f[1])
-            if t then
+            if t and t >= from then
                 byKey[f[3]] = byKey[f[3]] or {}
                 local list = byKey[f[3]]
                 list[#list + 1] = { t = t, qty = Dec(f[4]) or 1, duration = tonumber(f[6]) }
@@ -245,24 +247,29 @@ end
 -- Periods with the AH's money, the steps of what you held (the reading of right now is added per call), and what
 -- happened in them
 local function Build(r, char, mode, now)
-    local readings = Readings(r, char)
+    -- only the span all logs cover: a dropped sale or deposit would show as a loss
+    local cover = FM.CoveredFrom and FM.CoveredFrom(r, char, now) or 0
+    local readings = Readings(r, char, cover)
     local golds = GoldPoints(r, char, readings)
     local series = { mode = mode, periods = {}, heldSince = readings[1] and readings[1][1] or nil, golds = golds,
         readings = readings }
     local nameKeys = FM.NameKeys(r)
-    local buysByKey, buys = Purchases(r, char)
-    local posts = Posts(r, char)
+    local buysByKey, buys = Purchases(r, char, cover)
+    local posts = Posts(r, char, cover)
     local flows = {} -- { t, copper } of the AH's money
     -- before the first reading of what you hold, purchases can't be set against held items: they count as
     -- neutral then, and a sale of bought units counts its profit over what they cost
     local readStart = readings[1] and readings[1][1] or now
 
+    -- mail money counts when you read the mail (before 1.15.13: when it was sent): until then the readings still
+    -- hold the auction or its sold money, and a won item isn't in your bags yet
     local invoices = {}
     for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
         local f = FM.Split(line, ",")
-        local t = FM.Unstamp(f[1])
-        if f[2] == char and t then
-            invoices[#invoices + 1] = { t = t, kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
+        local sent = FM.Unstamp(f[1])
+        local t = FM.Unstamp(f[11]) or sent
+        if f[2] == char and t and t >= cover then
+            invoices[#invoices + 1] = { t = t, sent = sent, kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
                 money = Dec(f[7]) or 0, deposit = Dec(f[9]) or 0, cut = Dec(f[10]) or 0 }
         end
     end
@@ -272,7 +279,7 @@ local function Build(r, char, mode, now)
             local key = nameKeys[inv.name]
             local logged
             for _, b in ipairs(key and buysByKey[key] or {}) do
-                if not b.mailed and b.qty == inv.qty and math_abs(b.t - inv.t) <= MAIL_MATCH then
+                if not b.mailed and b.qty == inv.qty and math_abs(b.t - inv.sent) <= MAIL_MATCH then
                     b.mailed, logged = true, true
                     break
                 end
@@ -283,7 +290,7 @@ local function Build(r, char, mode, now)
                 if key then
                     -- also the cost of a later sale of the item
                     buysByKey[key] = buysByKey[key] or {}
-                    table_insert(buysByKey[key], { t = inv.t, qty = inv.qty, total = inv.money })
+                    table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money })
                 end
             end
         end
@@ -312,7 +319,7 @@ local function Build(r, char, mode, now)
             -- the sale and its deposit back (before the first reading: less what the units cost you)
             local cost = 0
             local key = inv.t < readStart and nameKeys[inv.name]
-            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.t)
+            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.sent)
             if unit then cost = unit * inv.qty end
             flows[#flows + 1] = { inv.t, inv.money - inv.cut + inv.deposit - cost }
         end
@@ -387,7 +394,7 @@ local function Build(r, char, mode, now)
             local net = inv.money - inv.cut
             Add(p.sold, inv.name, inv.qty, net)
             local key = nameKeys[inv.name]
-            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.t)
+            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.sent)
             if unit and unit * inv.qty - net >= 1 then AddLoss(p, "under", inv.name, inv.qty, unit * inv.qty - net) end
         end
     end
@@ -409,7 +416,7 @@ local function Build(r, char, mode, now)
         local f = FM.Split(line, ",")
         if f[2] == char and f[3] == "mexpired" and f[4] then
             local t = FM.Unstamp(f[1])
-            local p = PeriodOf(t)
+            local p = t and t >= cover and PeriodOf(t)
             if p then
                 -- the mail's subject names a stack as "Light Leather (20)"
                 local name, count = f[4]:match("^(.-) %((%d+)%)$")
