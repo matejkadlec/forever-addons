@@ -22,7 +22,7 @@ This file holds the rules for the whole repository. Before changing a subtree, a
 | [`services/forever-market-feed/AGENTS.md`](services/forever-market-feed/AGENTS.md) | The feed service: what it is, checks, deploy, documentation duties |
 | [`docs/AGENTS.md`](docs/AGENTS.md) | Rules for the documents in `docs/`; index in [`docs/README.md`](docs/README.md) |
 
-- [`SKILLS.md`](SKILLS.md) describes the reusable workflows
+- [`SKILLS.md`](SKILLS.md) describes the reusable workflows; agent delivery (taking tickets from Jira to a merged pull request) follows [`docs/ai-development-flow.md`](docs/ai-development-flow.md) through the skills `flow1`, `flow2`, `qa1`, `qa2` and `finalize-pr` in `.claude/skills/`, with the read-only reviewer `.claude/agents/pr-reviewer.md`. Starting one of them authorizes its commits, pushes, pull requests, merges of its own pull requests and Jira updates
 - [`CLAUDE.md`](CLAUDE.md) imports this file and adds what only Claude Code sessions need; the shared Claude Code configuration (hooks) is versioned in `.claude/`
 - Each folder with a nested guide also has a one line `CLAUDE.md` (`@AGENTS.md`), so Claude Code loads the guide when it works in that folder: add one next to every new nested guide
 - The agent guide files `AGENTS.md` and `CLAUDE.md` directly in an AddOn's folder (`addons/<AddOn>/`, `backports/<AddOn>/`) are not AddOn files: they are not synced into the game and need no version bump; anywhere deeper in an AddOn they count as AddOn files, so keep them at the top
@@ -121,7 +121,7 @@ These apply to all Lua in `addons/` and `backports/`.
   - Then a numbered list: each item starts with a bold name for the check, says where (AddOn, window or slash command, character or place when it matters: a Hunter, at the Auction House) and gives the steps and what he should see as sub-bullets
   - A behavior he must decide on comes first and says so
   - When AddOns could not be synced (a cloud session, a failed sync): in place of the "I updated" sentence say that the sync did not complete, give the commands for his clone, one per line (`git fetch origin`, `git switch <branch>`, `scripts/sync-addons.sh <AddOnName>`), and still say in bold whether to run `/reload` or restart the game afterwards
-  - Last line of the part when the test is needed before the merge: how he answers (it works, or what is wrong)
+  - Last line of the part when the test is needed before the merge: how he answers (`qa1` when it works, `qa2` with what is wrong)
 - When AddOn files changed but there is nothing to test, the bold sync message (or the note that the sync did not complete, with the same commands and the bold `/reload` or restart instruction) stands on its own after What changed
 - **Verification:** what ran in this response and what it showed, one bullet each (`luac5.1 -p`, the hooks, the service checks, each independent review and what it found, the pull request's checks, the feed deploy run)
   - A `Not run:` bullet names what did not run and why; never "all checks passed" for a partial run, and "nothing ran" when nothing did
@@ -184,6 +184,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
 - **Nothing to test:** documentation, agent guides, `tools/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
 - When one pull request mixes kinds, the stricter kind counts; when in doubt whether a change is major, decide yourself (see above) and do not ask: a doubtful case is the optional kind; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
 - Jira: a ticket whose pull request waits for his test stays In Review with the label `in-game-qa`, so the board shows what needs his attention; remove the label when he has answered and add it again when a fix waits for his retest
+- He answers with `qa1` (it works: the pull request is merged) or `qa2` and what is wrong (the same branch is revised, reviewed again and handed back); the procedure is [`docs/ai-development-flow.md`](docs/ai-development-flow.md#in-game-qa-handoff)
 
 ---
 

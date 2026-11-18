@@ -6,6 +6,20 @@
 
 - **Owner:** Matěj (the maintainer). Agents do most of the implementation; he sets direction, plans in Jira and tests the AddOns in the game. **Communicate in English** in the repository, Jira and pull requests.
 
+## Delivery skills
+
+The skills live in [`.claude/skills/`](.claude/skills/) and take their rules from [docs/ai-development-flow.md](docs/ai-development-flow.md):
+
+| Shortcut | What it does |
+| --- | --- |
+| `flow1` [`local`\|`cloud`] | Takes a batch of To Do tickets from FRV and delivers it |
+| `flow2` [`local`\|`cloud`] | Turns Matěj's task description into FRV tickets and delivers them the same way |
+| `qa1` | Matěj's in-game test passed: the waiting pull request is merged |
+| `qa2` | Matěj's in-game test found problems: the same branch is revised and handed back |
+| `finalize-pr <n>` | Independent review, fixes, merge, and the feed deploy check when one follows |
+
+After publishing or updating a pull request as your own task work, run `finalize-pr <n>` on it straight after, in the same run. A pull request for a major change stops there before the merge and waits for his `qa1` or `qa2` ([In-Game QA](AGENTS.md#in-game-qa)).
+
 ## Hooks
 
 The shared configuration is versioned in [`.claude/settings.json`](.claude/settings.json); personal overrides go to `.claude/settings.local.json` (ignored by Git).
@@ -34,7 +48,8 @@ The shared configuration is versioned in [`.claude/settings.json`](.claude/setti
 
 ## Independent review
 
-- The reviewer required by [Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review) is a fresh subagent (Agent tool, not a fork: a fork inherits the author's reasoning)
+- The reviewer required by [Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review) is a fresh [`pr-reviewer`](.claude/agents/pr-reviewer.md) subagent per round (Agent tool with `subagent_type: pr-reviewer`, never a fork: a fork inherits the author's reasoning), started by `finalize-pr`
+- Claude Code reads `.claude/agents/` when a session starts: a session that began before the agent file existed uses a fresh general-purpose agent instead, tells it to read that file as its instructions and that it is read-only
 - Give it the diff (`git diff origin/master...<branch>` after a fetch), the worktree path, the maintainer's request and the guides to read; do not give it your own explanation of why the change is right
 - Verify each finding yourself before fixing or rejecting it
 
