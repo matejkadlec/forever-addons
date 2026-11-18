@@ -26,6 +26,7 @@ local RED = { 1, 0.2, 0.2 }
 local GREEN = { 0.2, 1, 0.2 }
 local LABEL = { 1, 0.82, 0 }
 local ROW = { 0.8, 0.8, 0.8 }
+local NONE = { 0.5, 0.5, 0.5 } -- the grey "-" of a value with nothing to show
 local INDENT = "  " -- rows under a group header, like a set's items in Blizzard's item tooltip
 local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
 local costCache = {}
@@ -94,9 +95,15 @@ local function NowColor(now, paid)
 end
 
 local function Money(v, up)
-    if not v then return "-" end -- nothing to show (never bought, no AH price)
     v = up and math_ceil(v - 0.001) or math_floor(v + 0.5)
     return FM.FormatMoney(math.max(1, v))
+end
+
+-- An indented row: the value in its color, or a grey "-" when there is nothing to show
+-- (never bought, no AH price, no deposit estimate)
+local function Row(label, v, color, up)
+    if not v then return { INDENT .. label, "-", NONE } end
+    return { INDENT .. label, Money(v, up), color }
 end
 
 -- { label, value, color } lines of the cost section (a group header has no value), or false
@@ -110,15 +117,15 @@ local function CostLines(key)
         -- what your units cost: a learned craft's materials, a vendor's fixed price, or the AH now and what you paid
         lines = { { string_format(info.crafted and "Craft cost (%s pcs)" or "Cost (%s pcs)", n) } }
         if info.vendor then
-            lines[2] = { INDENT .. "vendor", Money(info.now), WHITE }
+            lines[2] = Row("vendor", info.now, WHITE)
         else
-            lines[2] = { INDENT .. "now", Money(info.now), NowColor(info.now, info.paid) }
-            lines[3] = { INDENT .. "you paid", Money(info.paid), WHITE }
+            lines[2] = Row("now", info.now, NowColor(info.now, info.paid))
+            lines[3] = Row("you paid", info.paid, WHITE)
         end
         -- the lowest unit price that doesn't sell under the AH value, per listing duration
         lines[#lines + 1] = { string_format("Sell at least (%s pcs)", n) }
-        lines[#lines + 1] = { INDENT .. "8h listing", Money(info.min8, true), WHITE }
-        lines[#lines + 1] = { INDENT .. "24h listing", Money(info.min24, true), WHITE }
+        lines[#lines + 1] = Row("8h listing", info.min8, WHITE, true)
+        lines[#lines + 1] = Row("24h listing", info.min24, WHITE, true)
     end
     costCache[key] = { lines = lines, at = GetTime() }
     return lines
