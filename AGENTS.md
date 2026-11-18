@@ -122,7 +122,7 @@ These apply to all Lua in `addons/` and `backports/`.
   - A behavior he must decide on comes first and says so
   - When AddOns could not be synced (a cloud session, a failed sync): in place of the "I updated" sentence say that the sync did not complete, give the commands for his clone, one per line (`git fetch origin`, `git switch <branch>`, `scripts/sync-addons.sh <AddOnName>`), and still say in bold whether to run `/reload` or restart the game afterwards
   - Last line of the part when the test is needed before the merge: how he answers (it works, or what is wrong)
-- When AddOn files changed but there is nothing to test, the bold sync message (or the note that the sync did not complete, with the same commands) stands on its own after What changed
+- When AddOn files changed but there is nothing to test, the bold sync message (or the note that the sync did not complete, with the same commands and the bold `/reload` or restart instruction) stands on its own after What changed
 - **Verification:** what ran in this response and what it showed, one bullet each (`luac5.1 -p`, the hooks, the service checks, each independent review and what it found, the pull request's checks, the feed deploy run)
   - A `Not run:` bullet names what did not run and why; never "all checks passed" for a partial run, and "nothing ran" when nothing did
 - **Tickets:** the last line names the tickets worked on, `Tickets: FRV-13, FRV-14`, or `Tickets: none`
@@ -172,7 +172,7 @@ When implementing features:
 Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's test in WoW is the only proof that an AddOn change works. He does not test everything. A change is classified before its pull request opens, and the What to test heading says which kind it is.
 
 - **Needs his test before the merge** (the pull request says "do not merge before in-game QA" in its description and waits for his answer, like any pull request that needs the maintainer; the independent review runs first, so he tests reviewed code, and a fix made after his test is reviewed again and he is told whether a retest is needed):
-  - Anything new or redesigned that he sees or does in the game: a new feature or AddOn, a new window, table column, tooltip section, bar, marker, settings panel option, chat message, slash command or key binding, or a changed layout or behavior of one (correcting a wrong value inside an existing element is the optional kind below)
+  - Anything new or redesigned that he sees or does in the game: a new feature or AddOn, a new window, table column, tooltip section, bar, marker, settings panel option, chat message, slash command or key binding, or a changed layout or behavior of one (a bug fix that restores the stated, intended value or behavior of an existing element is the optional kind below)
   - Code that only the live client can prove: new or changed handling of secret values, taint, combat or other restriction states, protected or `HasRestrictions` calls, and the first use of an API that `docs/forever-api-notes.md` does not list as verified in game
   - Anything that acts for the player or costs gold (ForeverMarket's sniper and buying, posting, cancelling)
   - A change to the format or the cleanup of SavedVariables (`ForeverMarketDB` holds market data that cannot be recreated), including migrations
@@ -181,7 +181,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
   - A bug fix with a narrow, stated result in existing behavior (a wrong number, text, color, sort order, an error from `Logs/`), with no change of layout or data format
   - Refactoring and performance work that must leave behavior the same
 - **Nothing to test:** documentation, agent guides, `tools/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
-- When one pull request mixes kinds, the stricter kind counts; when a change fits no line above, ask what he could notice in the game if it went wrong: new things to look at or lost data and gold need his test, a corrected detail does not; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
+- When one pull request mixes kinds, the stricter kind counts; when a change fits no line above or more than one, ask what he could notice in the game if it went wrong: new things to look at or lost data and gold need his test, a corrected detail does not; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
 - Jira: a ticket whose pull request waits for his test stays In Review with the label `in-game-qa`, so the board shows what needs his attention; remove the label when he has answered and add it again when a fix waits for his retest
 
 ---
