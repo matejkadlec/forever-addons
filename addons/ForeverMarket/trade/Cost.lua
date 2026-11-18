@@ -11,7 +11,7 @@ local _, FM = ...
 --     deposit (it comes back when the auction sells): a guard against selling under price by mistake
 -- Units you did not buy (skinned, looted, crafted from those) are not counted: no purchases, no price.
 --
--- R.buys     { "t,key,qty,total,char", ... }  newest last, a year (the Performance tab holds bought items);
+-- R.buys     { "t,key,qty,total,char", ... }  newest last, a year (the Profit tab holds bought items);
 --             lines before 1.15.5 have no character and count for every character
 -- R.deposits [key] = { t = seconds, [2] = { rate, floor }, [3] = { rate, floor } }  (duration 2 = 8h, 3 = 24h)
 

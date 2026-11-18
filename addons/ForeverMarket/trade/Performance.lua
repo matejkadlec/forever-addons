@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- Numbers of the Performance tab (ui/Performance.lua): your AH result at the end of each day, week or month and
+-- Numbers of the Profit tab (ui/Performance.lua): your AH result at the end of each day, week or month and
 -- what happened in it. AH result = the AH's money (sales after the cut and their deposit back, less purchases,
 -- won auctions and deposits paid) + what you hold from the AH (scan/Worth.lua: items bought there at the usual
 -- price, running auctions' deposits). So buying and posting don't move it, overpaying, selling under cost, the

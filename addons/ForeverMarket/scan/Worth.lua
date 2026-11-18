@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- What you hold from the AH, over time, for the Performance tab (trade/Performance.lua adds the AH's money).
+-- What you hold from the AH, over time, for the Profit tab (trade/Performance.lua adds the AH's money).
 -- Buying on the AH and posting turn gold into items and a deposit (it comes back with a sale), so the items
 -- you bought and still hold count at the usual AH price and running auctions with their deposit; only
 -- overpaying, selling under cost, the AH cut and lost deposits make the AH result fall. Loot, quests, vendors,

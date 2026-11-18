@@ -1,8 +1,8 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Performance (gold, a graph of
--- your worth, ui/Performance.lua), Learn, Farm (green).
+-- Tabs in groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of
+-- your AH result, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
 -- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
@@ -397,7 +397,7 @@ local LEARN_COLUMNS = {
 }
 
 -- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
--- (Performance) and group 3 green (Learn, Farm)
+-- (Profit) and group 3 green (Learn, Farm)
 local TABS = {}
 if FM.PICKS_READY then
     TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1 }
@@ -408,7 +408,7 @@ TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, dat
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
-TABS[#TABS + 1] = { id = "perf", label = "Performance", columns = {}, graph = true, group = 4 } -- no table: a graph
+TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, group = 4 } -- no table: a graph
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
     defaultSort = { { 4, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
@@ -1360,10 +1360,10 @@ local function FooterText(total)
     return GREY .. text .. "|r"
 end
 
--- Where the Performance graph sits: from under the filter row to above the footer
+-- Where the Profit graph sits: from under the filter row to above the footer
 local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
 
--- The Performance tab: no table, no filters, the graph panel instead
+-- The Profit tab: no table, no filters, the graph panel instead
 local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
@@ -1530,7 +1530,7 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Performance, Learn and Farm at the right end of the row
+    -- tabs in groups with a gap between; Profit, Learn and Farm at the right end of the row
     f.tabs = {}
     local x, group = 14, nil
     local rightCount = 0

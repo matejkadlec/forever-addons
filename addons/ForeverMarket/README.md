@@ -66,7 +66,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
-* Tabs in groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Performance**
+* Tabs in groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
 * Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
@@ -198,7 +198,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
 
-## Performance tab (1.15: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
+## Profit tab (1.15, named Performance until 1.15.11: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
 
 This character's **AH result** as a line from 0 with one dot per day, week or month (**Daily** / **Weekly** /
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on

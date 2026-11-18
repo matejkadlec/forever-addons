@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- The Performance tab of the market table: your AH result as a line from 0 with one dot per day, week or month
+-- The Profit tab of the market table: your AH result as a line from 0 with one dot per day, week or month
 -- (trade/Performance.lua). Hover a dot for that period: the AH result so far, the change, what sold, what you
 -- bought and the real losses. Daily / Weekly / Monthly sit in the filter row.
 
