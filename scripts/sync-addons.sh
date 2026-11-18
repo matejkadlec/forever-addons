@@ -158,12 +158,15 @@ for addon_dir in "${addon_dirs[@]}"; do
   echo "Syncing $addon_name"
 
   if [[ -n "$RSYNC_BIN" ]]; then
-    "$RSYNC_BIN" -a --delete "$addon_dir/" "$DEST_DIR/$addon_name/"
+    # the AddOn's agent guide files (top level AGENTS.md, CLAUDE.md) stay out of the game folder
+    "$RSYNC_BIN" -a --delete --delete-excluded --exclude=/AGENTS.md --exclude=/CLAUDE.md "$addon_dir/" "$DEST_DIR/$addon_name/"
   else
     echo "rsync unavailable, using cp fallback for $addon_name"
     rm -rf "${DEST_DIR:?}/$addon_name"
     mkdir -p "$DEST_DIR/$addon_name"
     cp -a "$addon_dir/." "$DEST_DIR/$addon_name/"
+    # the AddOn's agent guide files (top level AGENTS.md, CLAUDE.md) stay out of the game folder
+    rm -f "$DEST_DIR/$addon_name/AGENTS.md" "$DEST_DIR/$addon_name/CLAUDE.md"
   fi
 done
 
