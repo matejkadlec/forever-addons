@@ -54,9 +54,9 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
     `R.deposits[key][2|3] = { rate, floor }`)
 * Auctionator's price database (`scan/Auctionator.lua`, setting "Save deep scan prices into Auctionator too"):
   every refresh of our data writes the lowest unit price and the quantity per item ID into it the way
-  Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and item searches (1.16, the
-  price only: a search without the full ladder doesn't know the quantity). Auctionator's own scans are left alone,
-  it already stored them itself. This is what keeps its `Auction` tooltip line, selling tab and price history in
+  Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and full item searches (1.16;
+  a search the AH did not finish may not hold the cheapest unit, so it is skipped rather than guessed).
+  Auctionator's own scans are left alone, it already stored them itself. This is what keeps its `Auction` tooltip line, selling tab and price history in
   step with ours instead of showing a price from the last in-game deep scan
 * Alerts: undercuts of your auctions, advised buy prices reached
 * After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
@@ -110,8 +110,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `/fm exclude|include|excluded`), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
-  such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Favorite items get a star
-  everywhere.
+  such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
+  the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
+  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route).
+  Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG; Materials
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.
@@ -168,7 +170,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
 * **Min. price** (Craft, Vendor, Flip; 1.13, until 1.14 "Min item sell") includes one lost deposit per unit for listing a stack: the 8h deposit
-  when 100+ units circulate in 12h, else (or unknown) the 24h one, since a slow item may not sell in 8h
+  when 200+ units circulate in 24h (the C/24h column), else (or unknown) the 24h one, since a slow item may not sell in 8h
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.

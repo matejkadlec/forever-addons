@@ -33,7 +33,7 @@ local function PrintHelp()
     PrintHelpLine("tooltip <on|off>", "Cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
-    PrintHelpLine("auctionator <on|off>", "Save deep scan prices into Auctionator too")
+    PrintHelpLine("auctionator <on|off>", "Keep Auctionator's prices fed from our data")
     PrintHelpLine("popup <on|off>", "Reload offer after the AH closes")
     PrintHelpLine("alerts <on|off>", "Undercut and buy price alerts")
     PrintHelpLine("options", "Open the settings panel")
@@ -116,7 +116,7 @@ local function ItemSummary(rest)
             FM.Print(FM.GetName(key) .. ":", string_format("%s, %s listed%s",
                 minPrice and FM.FormatMoney(minPrice) or "none",
                 FM.FormatCount(FM.Dec(f[3]) or 0),
-                perDay and (", " .. FM.FormatCount(perDay) .. " circulating/day") or ""))
+                perDay and (", " .. FM.FormatCount(perDay) .. " circulating/24h") or ""))
         end
     end
 end
@@ -180,7 +180,7 @@ local function HandleSlash(msg)
     elseif command == "rescan" then
         Toggle("rescanWhileOpen", arg, "Deep scan every 15 min while the AH is open")
     elseif command == "auctionator" then
-        Toggle("feedAuctionator", arg, "Deep scan prices into Auctionator")
+        Toggle("feedAuctionator", arg, "Our prices into Auctionator")
     elseif command == "popup" then
         Toggle("reloadPopup", arg, "Reload popup")
     elseif command == "alerts" then

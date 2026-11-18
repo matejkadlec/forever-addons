@@ -115,7 +115,7 @@ end
 
 -- A finished deep scan of our own
 function FM.FeedAuctionator(snap, onDone)
-    if snap.source ~= "fm" then
+    if snap.source ~= "fm" or not PriceDB() then -- checked before the merge pass: a scan has many items
         onDone(0)
         return
     end
@@ -143,8 +143,8 @@ function FM.FeedAuctionatorKeys(keys, onDone)
     end)
 end
 
--- One item, written right away: an AH search is the freshest price we have of it. Without a full
--- ladder the quantity is unknown, so only the price is written (Auctionator keeps the quantity it has).
+-- One item, written right away: a full AH search of it is the freshest price we have. A nil quantity
+-- leaves the one Auctionator has (it keeps the largest it saw that day) and writes only the price.
 function FM.FeedAuctionatorItem(key, minPrice, qty)
     local db = PriceDB()
     local id = db and FM.ItemIDFromKey(key)
