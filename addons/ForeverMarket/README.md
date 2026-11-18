@@ -25,7 +25,15 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 * Tooltip (1.16: the own "Market ..." line is gone, the hover only prices now): the AH price is Auctionator's own
   `Auction` line at the top, which ForeverMarket keeps fed from every refresh of its data (below), so it never
-  disagrees with ours; then `Claude list at 3s 45c (90% in 8h)`,
+  disagrees with ours. Where Auctionator leaves no such line, ForeverMarket adds it itself in the same format
+  (`ui/Tooltip.lua`, a copy of Auctionator's `CreatePaddedMoneyString`: left `Auction`, right the coin icons),
+  priced from `FM.FreshUnitPrice` — the same freshest ladder of others the Cost section's "now" is walked on,
+  so the two always agree. Auctionator leaves none when it is not installed, when its auction tooltips are off,
+  and when it skips the item: it bails on bound items and on anything whose item info is not cached yet
+  (its `cannotAuction` starts at `0`, which is true in Lua). Its tooltip post call is registered before ours
+  (`## OptionalDeps` loads it first) so its line is already there when we look; for gear its key lookup is
+  asynchronous and only finishes late while the item is uncached, so we stay out of that case instead of
+  risking a second line, and the next hover is right. Then `Claude list at 3s 45c (90% in 8h)`,
   then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
   price or deposit estimate):
