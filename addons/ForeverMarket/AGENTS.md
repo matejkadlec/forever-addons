@@ -2,7 +2,7 @@
 
 > **Scope:** the ForeverMarket AddOn (shortname `FM`, `/fm`). The root [`AGENTS.md`](../../AGENTS.md) and [`addons/AGENTS.md`](../AGENTS.md) apply here.
 >
-> **Maintenance:** update the inventory below whenever a feature, tab, command, setting or data rule of ForeverMarket changes; user-facing detail belongs in [`README.md`](README.md) in this folder and in the root `README.md`. This file is an agent guide, not an AddOn file: it is not synced into the game and needs no version bump.
+> **Maintenance:** update the inventory below whenever a feature, tab, command, setting or data rule of ForeverMarket changes; user-facing detail belongs in [`README.md`](README.md) in this folder and in the root `README.md`. This file and the `CLAUDE.md` next to it are agent guide files, not AddOn files: they are not synced into the game and need no version bump.
 
 Jira label: `forever-marketplace`.
 

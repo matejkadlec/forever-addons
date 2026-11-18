@@ -30,7 +30,12 @@ case "$file_path" in
     else
       exit 0
     fi
-    output="$("$luac_bin" -p "$file_path" 2>&1)" || Fail "$luac_bin -p" "$output"
+    # WoW accepts a leading UTF-8 byte order mark (some third-party files have one), luac does not: skip it
+    if [[ "$(head -c 3 "$file_path" | od -An -tx1 | tr -d ' \n')" == "efbbbf" ]]; then
+      output="$(tail -c +4 "$file_path" | "$luac_bin" -p - 2>&1)" || Fail "$luac_bin -p" "$output"
+    else
+      output="$("$luac_bin" -p "$file_path" 2>&1)" || Fail "$luac_bin -p" "$output"
+    fi
     ;;
   */services/forever-market-feed/*.py)
     command -v python3 >/dev/null 2>&1 || exit 0

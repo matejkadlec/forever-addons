@@ -24,7 +24,8 @@ This file holds the rules for the whole repository. Before changing a subtree, a
 
 - [`SKILLS.md`](SKILLS.md) describes the reusable workflows
 - [`CLAUDE.md`](CLAUDE.md) imports this file and adds what only Claude Code sessions need; the shared Claude Code configuration (hooks) is versioned in `.claude/`
-- Agent guides (`AGENTS.md`) inside an AddOn folder are not AddOn files: they are not synced into the game and need no version bump
+- Each folder with a nested guide also has a one line `CLAUDE.md` (`@AGENTS.md`), so Claude Code loads the guide when it works in that folder: add one next to every new nested guide
+- The agent guide files `AGENTS.md` and `CLAUDE.md` directly in an AddOn's folder (`addons/<AddOn>/`, `backports/<AddOn>/`) are not AddOn files: they are not synced into the game and need no version bump; anywhere deeper in an AddOn they count as AddOn files, so keep them at the top
 
 ---
 
@@ -80,6 +81,7 @@ These apply to all Lua in `addons/` and `backports/`.
 - Never write fields onto Blizzard frames that handle secret data and never replace Blizzard functions; use `hooksecurefunc` and `HookScript` (see `docs/forever-api-notes.md`, Taint)
 - Every value that can be secret is checked with `issecretvalue` before it is compared or used in math
 - Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
+- Update `## Interface:` when the WoW: Forever client changes its interface version (first-party and backported AddOns alike)
 
 ---
 
@@ -117,7 +119,7 @@ These apply to all Lua in `addons/` and `backports/`.
     - A worktree has no `.env.sync-addons` (it is ignored by Git): run the worktree's script with the main checkout's file, `ENV_FILE=<main checkout>/.env.sync-addons scripts/sync-addons.sh <AddOnName>`
   - The template file `.env.sync-addons.example` shows the required variables
   - If `.env.sync-addons` is missing, create it from the template with the default path on the maintainer's machine, `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"` (WSL), but only after checking that this folder exists; otherwise do not create it and use the fallback below or report that the sync is unavailable
-  - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it (except agent guides, `AGENTS.md`)
+  - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it (except the agent guide files `AGENTS.md` and `CLAUDE.md` at the AddOn's top level)
   - Syncing never deletes AddOn folders: after an AddOn is renamed or removed, delete its old folder from the game's AddOns folder too (ask for delete permission if needed), otherwise the old copy keeps loading next to the new one
   - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder (`C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`), copy the changed AddOn folders there instead and verify the copies
   - The Git hooks in `.githooks/` are an optional extra for manual work, they do not replace this rule
@@ -141,6 +143,7 @@ When implementing features:
 5. Bump the `.toc` version of every changed AddOn
 6. Update `AGENTS.md` (this file or the nested guide that holds the topic) and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
 7. Check the changed files: `luac5.1 -p <file>` for every changed Lua file (syntax in the Lua 5.1 dialect); for `services/`, the checks in its guide
+   - A few third-party files start with a UTF-8 byte order mark, which WoW accepts and `luac5.1` rejects (`unexpected symbol near '\xEF'`): check those with `tail -c +4 <file> | luac5.1 -p -` and keep the mark
 8. Sync the changed AddOns automatically (see Communication Rules)
 9. Ship it through a pull request (see Pull Requests and Code Review)
 
@@ -152,7 +155,7 @@ When implementing features:
 - Jira is not reachable at the start of a session: in every session the Atlassian tools attach only after a few minutes
   - When a task needs Jira and the tools are missing, wait and check again every minute, and start the Jira work as soon as they are there
   - Never report Jira as unavailable and never skip or postpone the Jira step because of a first failed check; work that needs no Jira can go on while waiting
-  - Only when the tools are still missing after 10 checks (10 minutes), tell the maintainer
+  - When the tools are still missing after 10 checks (10 minutes), tell the maintainer and keep checking every minute
 - The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket; `tooling` for work on the repository itself)
 - Work types: Epic (a larger goal), Task (a change or an analysis; analyses start with `Analysis:`), Bug, Subtask; label `fable-5.2` = must be done with the Fable 5.2 model
 - Statuses: To Do -> In Progress (work started) -> In Review (pull request open, under review) -> Done (merged)

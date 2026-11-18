@@ -2,7 +2,7 @@
 
 # Forever AddOns: Claude Code guide
 
-[`AGENTS.md`](AGENTS.md), imported above, is the shared guide for every agent and comes first. This file adds only what Claude Code sessions need on top of it; it never weakens it. Nested guides (`addons/AGENTS.md`, `backports/AGENTS.md`, ...) are not imported: read the nearest one before changing a subtree ([Guide Map](AGENTS.md#guide-map)). [`SKILLS.md`](SKILLS.md) lists the workflows.
+[`AGENTS.md`](AGENTS.md), imported above, is the shared guide for every agent and comes first. This file adds only what Claude Code sessions need on top of it; it never weakens it. Nested guides (`addons/AGENTS.md`, `backports/AGENTS.md`, ...) are not imported here; each has a one line `CLAUDE.md` next to it that Claude Code loads when it reads files in that folder. Do not rely on that alone (a subagent or a worktree path may not get it): read the nearest nested guide before changing a subtree ([Guide Map](AGENTS.md#guide-map)). [`SKILLS.md`](SKILLS.md) lists the workflows.
 
 - **Owner:** Matěj (the maintainer). Agents do most of the implementation; he sets direction, plans in Jira and tests the AddOns in the game. **Communicate in English** in the repository, Jira and pull requests.
 
@@ -11,7 +11,7 @@
 The shared configuration is versioned in [`.claude/settings.json`](.claude/settings.json); personal overrides go to `.claude/settings.local.json` (ignored by Git).
 
 - `PostToolUse` on `Edit`, `MultiEdit` and `Write`: [`.claude/hooks/check-edited-file.sh`](.claude/hooks/check-edited-file.sh) checks the edited file
-  - `*.lua`: `luac5.1 -p` (skipped when no Lua 5.1 compiler is installed; `sudo apt install lua5.1` provides it)
+  - `*.lua`: `luac5.1 -p` (skipped when no Lua 5.1 compiler is installed; `sudo apt install lua5.1` provides it); a leading UTF-8 byte order mark is skipped, WoW accepts it
   - `services/forever-market-feed/**/*.py`: Python syntax
   - A failure comes back as the hook's error: fix the file before going on
 - The hook is only the fast first signal for syntax. It does not know the WoW API: verifying APIs against wow-ui-source, secret value guards and taint rules stay your job
@@ -21,7 +21,7 @@ The shared configuration is versioned in [`.claude/settings.json`](.claude/setti
 - The Atlassian tools come from the claude.ai connector and are deferred: find them with `ToolSearch` (query `atlassian jira`), the site is `envelopment.atlassian.net`
 - They attach a few minutes after the session starts ([Issue Tracking](AGENTS.md#issue-tracking-jira)). When `ToolSearch` finds none:
   1. Start a background `sleep 60` (Bash with `run_in_background`); foreground sleeps are blocked
-  2. When it finishes, run `ToolSearch` again; repeat up to 10 times
+  2. When it finishes, run `ToolSearch` again; repeat every minute, and after 10 empty checks tell the maintainer and keep checking
   3. Meanwhile do the work that needs no Jira; as soon as the tools are there, do the Jira step (ticket first, then the branch named after it)
 - An empty first `ToolSearch` is the normal state of a new session, not an error to report
 
@@ -40,5 +40,5 @@ The shared configuration is versioned in [`.claude/settings.json`](.claude/setti
 
 ## Ending a response
 
-- The change summary and the bold sync message from [Communication Rules](AGENTS.md#communication-rules) close every response that changed a file
+- The change summary from [Communication Rules](AGENTS.md#communication-rules) closes every response that changed a file; the bold sync message follows it when AddOn files changed
 - Say what was verified and how (which checks ran, what the review found); never "all checks passed" for a partial run

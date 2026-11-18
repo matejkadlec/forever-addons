@@ -2,7 +2,7 @@
 
 > **Scope:** the feed service, its deploy files and `.github/workflows/market-feed.yml`. The root [`AGENTS.md`](../../AGENTS.md) (Jira, worktrees, pull requests and code review) applies here.
 >
-> **Maintenance:** update this guide when the service's shape, checks or deploy path change. [`README.md`](README.md) in this folder is the documentation; this guide only holds the rules.
+> **Maintenance:** update this guide when the service's shape, checks or deploy path change. This guide and the `CLAUDE.md` next to it lie under the workflow's path filter: a merge that changes only them still runs `Checks` and redeploys the server (same code), so treat it as a deploy. [`README.md`](README.md) in this folder is the documentation; this guide only holds the rules.
 
 ---
 

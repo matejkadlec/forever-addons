@@ -26,8 +26,8 @@ declare -A addon_names=()
 declare -A removed_names=()
 while IFS= read -r -d '' file; do
     case "$file" in
-        # agent guides are not AddOn files and are never synced
-        */AGENTS.md) ;;
+        # agent guide files at an AddOn's top level are not AddOn files and are never synced
+        addons/*/AGENTS.md|addons/*/CLAUDE.md|backports/*/AGENTS.md|backports/*/CLAUDE.md) ;;
         addons/*/*|backports/*/*)
             group="${file%%/*}"
             rest="${file#*/}"

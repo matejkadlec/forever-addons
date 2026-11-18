@@ -234,7 +234,7 @@ If you are developing the AddOns yourself, you can sync them into your WoW: Fore
    - Set it to `true` if you want the script to try installing `rsync` automatically with `apt-get`
    - Set it to `false` if you prefer the script to skip installation attempts and use `cp` fallback when needed
 4. Run `./scripts/sync-addons.sh` to sync every AddOn from `addons/` and `backports/`, or `./scripts/sync-addons.sh ForeverTweaks Quartz` to sync only some of them
-   - `AGENTS.md` agent guides inside an AddOn folder are not copied into the game
+   - The agent guide files `AGENTS.md` and `CLAUDE.md` at an AddOn's top level are not copied into the game
    - From a git worktree, point the script at your main checkout's file: `ENV_FILE=/path/to/forever-addons/.env.sync-addons ./scripts/sync-addons.sh`
 
 Optional variables:
@@ -244,7 +244,7 @@ Optional variables:
 
 Optional Git hooks (`git config core.hooksPath .githooks`):
 
-- `pre-commit` rejects commits that change an AddOn without bumping its `## Version:` (an `AGENTS.md` agent guide inside an AddOn folder does not count)
+- `pre-commit` rejects commits that change an AddOn without bumping its `## Version:` (the agent guide files `AGENTS.md` and `CLAUDE.md` at an AddOn's top level do not count)
 - `post-commit`, `post-merge`, `post-rewrite` and `post-checkout` automatically sync the AddOns changed by a commit, a pull (merge or rebase) or a branch switch (only when `.env.sync-addons` exists)
   - AddOns that were removed or renamed in the repository have to be deleted from your AddOns folder manually, the hooks print a reminder
 
