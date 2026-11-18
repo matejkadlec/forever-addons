@@ -1,13 +1,15 @@
 local _, FM = ...
 
 -- Your worth over time for the Performance tab: gold + what your items are worth. Buying at a fair price
--- turns gold into items of the same worth, so only overpaying, selling under cost and lost deposits
--- make it fall (besides the market price of what you hold).
+-- and posting turn gold into items (and a deposit that comes back with the sale) of the same worth, so only
+-- overpaying, selling under cost, the AH cut, lost deposits and the market price of what you hold move it.
 --
--- R.worth[char]   = { "t,gold,items", ... }  t = FM.Stamp minutes, one line per hour (the hour's last reading)
---   items = bags + bank + mailbox (attachments and money not taken yet) + your auctions; free units at the
---   usual AH price (FM.FairPrice), never under what a vendor pays; soulbound units at the vendor price;
---   sold auctions waiting for their mail at their sale money after the 5% cut
+-- R.worth[char]   = { "t,gold,items,seen", ... }  t = FM.Stamp minutes, one line per hour (its last reading);
+--   seen = what the items include besides bags and auctions: "b" bank, "m" mailbox (changes are only compared
+--   between readings that saw the same, so the first look at the bank is no gain)
+--   items = bags + bank + mailbox (money and attachments not taken yet) + purchases still in the mail + your
+--   auctions; free units at the usual AH price (FM.FairPrice), never under what a vendor pays; soulbound units at
+--   the vendor price
 -- R.bank[char]    = "t|id:all:free,..."     your bank as last seen
 -- R.mailbox[char] = "t|money|id:count,..."  your mailbox as last seen
 
@@ -16,8 +18,10 @@ local type = type
 local ipairs = ipairs
 local pairs = pairs
 local tostring = tostring
+local tonumber = tonumber
 local math_floor = math.floor
 local math_max = math.max
+local math_min = math.min
 local string_sub = string.sub
 local table_concat = table.concat
 local table_sort = table.sort
@@ -27,6 +31,8 @@ local FAIR_MIN = 3 -- snapshots needed to judge a purchase
 local WORTH_MAX = 10000 -- hourly readings kept per character
 local MIN_GAP = 600 -- seconds between readings that are not forced
 local AH_CUT = 0.05
+local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 } -- posts store the duration index
+local POSTS_BACK = 3 * 86400 -- posts older than this have ended and come back long ago
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
@@ -36,8 +42,8 @@ end
 
 local mins, minsVersion = {}, nil -- key -> { { minutes, price, weight }, ... } per data version
 
--- Every lowest price of an item: detail records one by one, older days as their rollup's average
--- (weighted by its number of snapshots, at midday)
+-- Every lowest price of others for an item (your own auctions left out): detail records one by one, older
+-- days as their rollup's average (weighted by its number of snapshots, at midday)
 local function Mins(key)
     if minsVersion ~= FM.dataVersion then
         mins, minsVersion = {}, FM.dataVersion
@@ -48,7 +54,10 @@ local function Mins(key)
     local item = FM.R().items[key]
     if item then
         for _, f in ipairs(FM.DetailRecords(item)) do
-            local m, p = Dec(string_sub(f[1] or "", 2)), Dec(f[2])
+            -- deep records: othersMin (21); without it and with none of yours (20), the minimum (2)
+            local others, yours = Dec(f[21]), Dec(f[20])
+            local p = others or (not yours and Dec(f[2])) or nil
+            local m = Dec(string_sub(f[1] or "", 2))
             if m and p and p > 0 then list[#list + 1] = { m, p, 1 } end
         end
         for roll in (item.r or ""):gmatch("[^;]+") do
@@ -109,6 +118,11 @@ local function Value(id, all, free)
     return unit * free + vendor * math_max(0, all - free)
 end
 
+local function ValueOfKey(key, qty)
+    local id = FM.ItemIDFromKey(key)
+    return id and Value(id, qty, qty) or 0
+end
+
 -- "id:a:b,..." -> calls fn(id, a, b)
 local function EachEntry(list, fn)
     for entry in (list or ""):gmatch("[^,]+") do
@@ -118,59 +132,177 @@ local function EachEntry(list, fn)
     end
 end
 
--- Your auctions: active ones like items you hold, sold ones at their money after the cut
-local function AuctionsValue(r, char)
-    local owned = r.owned and r.owned[char]
-    if type(owned) ~= "table" or type(owned.list) ~= "string" then return 0 end
+-- Deposit of a post (duration index 1 = 2h, 2 = 8h, 3 = 24h): measured or estimated (trade/Cost.lua), 2h as a
+-- quarter of the 8h deposit; 0 when unknown
+local function PostDeposit(key, qty, duration)
+    if not FM.Deposit then return 0 end
+    if duration == 2 or duration == 3 then return FM.Deposit(key, qty, duration) or 0 end
+    local d8 = FM.Deposit(key, qty, 2)
+    return d8 and d8 * (POST_HOURS[duration or 1] or 2) / 8 or 0
+end
+FM.PostDeposit = PostDeposit
+
+-- Item name -> key, from the stored names
+local function NameKeys(r)
+    local map = {}
+    for key, name in pairs(type(r.names) == "table" and r.names or {}) do
+        if type(name) == "string" and not map[name] then map[name] = key end
+    end
+    return map
+end
+FM.NameKeys = NameKeys
+
+-- Your auctions, from the last list of them plus what you posted after it, by what happened since:
+--   running: the items and the deposit (it comes back with a sale)
+--   sold after the last look into the mailbox: the money after the cut and the deposit, on their way by mail
+--   ended after the last look into the mailbox: the items on their way back by mail
+-- Without any mailbox reading, "after the last look" is "since login" (opening it would have made one), so
+-- auctions that ended before are not counted again next to the items you took out of the mail back then.
+-- Sales, expiries and cancels read from your mail since the list (the money or the items are in that mailbox
+-- reading) take their units off the running ones, oldest first.
+local function AuctionsValue(r, char, now, mailT)
+    local lookT = mailT or FM.loginAt or now
+    local owned = type(r.owned) == "table" and r.owned[char]
+    local listT = type(owned) == "table" and owned.t or nil
+    local running, inList = {}, {}
     local total = 0
-    for entry in owned.list:gmatch("[^,]+") do
-        local f = FM.Split(entry, ":")
-        local n = #f
-        if n >= 6 then
-            -- aid:key:qty:buyout:status:left (read from the end)
-            local key = table_concat(f, ":", 2, n - 4)
-            local qty, buyout, status = Dec(f[n - 3]) or 1, Dec(f[n - 2]) or 0, f[n - 1]
-            local id = FM.ItemIDFromKey(key)
-            if status == "s" then
-                -- commodities store the unit price, items the auction's buyout
-                total = total + (qty > 1 and buyout * qty or buyout) * (1 - AH_CUT)
-            elseif id then
-                total = total + Value(id, qty, qty)
+    -- posts of the last days: their duration and deposit, by auction ID
+    local posts, byAid = {}, {}
+    for i = #(r.posts or {}), 1, -1 do
+        local f = FM.Split(r.posts[i], ",")
+        local t = FM.Unstamp(f[1])
+        if not t or now - t > POSTS_BACK then break end
+        if f[2] == char and f[3] then
+            local post = { t = t, key = f[3], qty = Dec(f[4]) or 1, duration = tonumber(f[6]), aid = f[8] }
+            posts[#posts + 1] = post
+            if post.aid and post.aid ~= "" then byAid[post.aid] = post end
+        end
+    end
+    if listT and type(owned.list) == "string" then
+        for entry in owned.list:gmatch("[^,]+") do
+            local f = FM.Split(entry, ":")
+            local n = #f
+            if n >= 6 then
+                -- aid:key:qty:buyout:status:left (read from the end)
+                local aid, key = f[1], table_concat(f, ":", 2, n - 4)
+                local qty, buyout, status, left = Dec(f[n - 3]) or 1, Dec(f[n - 2]) or 0, f[n - 1], Dec(f[n]) or 0
+                local post = byAid[aid]
+                local deposit = post and PostDeposit(key, post.qty, post.duration) * qty / math_max(post.qty, 1) or 0
+                inList[aid] = true
+                if status == "s" then
+                    -- commodities store the unit price, items the auction's buyout
+                    if listT >= lookT then total = total + (qty > 1 and buyout * qty or buyout) * (1 - AH_CUT) + deposit end
+                else
+                    running[#running + 1] = { t = listT, key = key, qty = qty, deposit = deposit, ends = listT + left }
+                end
+            end
+        end
+    end
+    for _, post in ipairs(posts) do
+        -- posted after the list (minute stamps: one of the same minute may be in it already, its ID tells)
+        if not (post.aid and inList[post.aid]) and (not listT or post.t >= listT - 60) then
+            running[#running + 1] = { t = post.t, key = post.key, qty = post.qty,
+                deposit = PostDeposit(post.key, post.qty, post.duration),
+                ends = post.t + (POST_HOURS[post.duration or 3] or 24) * 3600 }
+        end
+    end
+    table_sort(running, function(a, b) return a.t < b.t end)
+    -- what the mail took off them since
+    local since = listT or (running[1] and running[1].t)
+    if since and #running > 0 then
+        local nameKeys = NameKeys(r)
+        local taken = {}
+        local function Take(name, qty, t)
+            local key = nameKeys[name]
+            if key and t >= since - 60 then taken[key] = (taken[key] or 0) + qty end
+        end
+        for _, line in ipairs(r.invoices or {}) do
+            local f = FM.Split(line, ",")
+            if f[2] == char and f[3] == "seller" and f[4] then Take(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]) or 0) end
+        end
+        for _, line in ipairs(r.events or {}) do
+            local f = FM.Split(line, ",")
+            if f[2] == char and (f[3] == "mexpired" or f[3] == "mcancelled") and f[4] then
+                local name, count = f[4]:match("^(.-) %((%d+)%)$")
+                Take(name or f[4], tonumber(count) or 1, FM.Unstamp(f[1]) or 0)
+            end
+        end
+        for _, a in ipairs(running) do
+            local off = math_min(a.qty, taken[a.key] or 0)
+            if off > 0 then
+                taken[a.key] = taken[a.key] - off
+                a.deposit = a.deposit * (a.qty - off) / a.qty
+                a.qty = a.qty - off
+            end
+        end
+    end
+    for _, a in ipairs(running) do
+        if a.qty > 0 then
+            if a.ends > now then
+                total = total + ValueOfKey(a.key, a.qty) + a.deposit
+            elseif a.ends >= lookT then
+                total = total + ValueOfKey(a.key, a.qty) -- expired: coming back by mail, the deposit is gone
             end
         end
     end
     return total
 end
 
--- Your gold and what your items are worth right now (nil while the gold can't be read)
+-- AH purchases after the last mailbox reading (or since login without one): still in the mail
+local function InTransit(r, mailT)
+    local since = mailT or FM.loginAt or FM.Now()
+    local total = 0
+    for i = #(r.buys or {}), 1, -1 do
+        local t, key, qty = r.buys[i]:match("^(%d+),([^,]+),(%d+),")
+        t, qty = tonumber(t), tonumber(qty)
+        if not t or t <= since then break end
+        total = total + ValueOfKey(key, qty)
+    end
+    return total
+end
+
+-- Your gold, what your items are worth and what they include ("b" bank, "m" mailbox) right now; nil while
+-- the gold can't be read
 function FM.WorthNow()
     local gold = GetMoney and GetMoney()
     if not IsNumber(gold) then return nil end
     local r = FM.R()
     local char = FM.PlayerName()
-    local items = 0
+    local now = FM.Now()
+    local items, seen = 0, ""
     if FM.BagIndex then
         for id, e in pairs(FM.BagIndex()) do items = items + Value(id, e.all, e.free) end
     end
+    -- the bank: as scanned this session (open now or earlier), else as last seen
+    local index, scanned
+    if FM.BankIndex then index, scanned = FM.BankIndex() end
     local bank = type(r.bank) == "table" and r.bank[char]
-    if type(bank) == "string" then
+    if scanned then
+        for id, e in pairs(index) do items = items + Value(id, e.all, e.free) end
+        seen = "b"
+    elseif type(bank) == "string" then
         EachEntry(bank:match("|(.*)$"), function(id, all, free) items = items + Value(id, all, free or all) end)
+        seen = "b"
     end
     local mail = type(r.mailbox) == "table" and r.mailbox[char]
+    local mailT
     if type(mail) == "string" then
-        local _, money, list = mail:match("^(%w*)|(%w*)|(.*)$")
+        local stamp, money, list = mail:match("^(%w*)|(%w*)|(.*)$")
+        mailT = FM.Unstamp(stamp)
         items = items + (Dec(money) or 0)
         EachEntry(list, function(id, count) items = items + Value(id, count, count) end)
+        seen = seen .. "m"
     end
-    items = items + AuctionsValue(r, char)
-    return gold, math_floor(items + 0.5)
+    items = items + InTransit(r, mailT) + AuctionsValue(r, char, now, mailT)
+    return gold, math_floor(items + 0.5), seen
 end
 
 ---------------------------------------------------------------- bank and mailbox
 
 local function SaveBank()
-    local index = FM.BankIndex and FM.BankIndex()
-    if type(index) ~= "table" or next(index) == nil then return end
+    local index, scanned
+    if FM.BankIndex then index, scanned = FM.BankIndex() end
+    if not scanned or type(index) ~= "table" then return end -- an empty bank is saved too
     local parts = {}
     for id, e in pairs(index) do parts[#parts + 1] = Enc(id) .. ":" .. Enc(e.all) .. ":" .. Enc(e.free) end
     local r = FM.R()
@@ -207,7 +339,7 @@ local lastAt = 0
 function FM.RecordWorth(force)
     local now = FM.Now()
     if not force and now - lastAt < MIN_GAP then return end
-    local gold, items = FM.WorthNow()
+    local gold, items, seen = FM.WorthNow()
     if not gold then return end
     -- right after login GetMoney() can still answer 0
     if gold == 0 and FM.loginAt and now - FM.loginAt < 30 then return end
@@ -217,7 +349,7 @@ function FM.RecordWorth(force)
     local char = FM.PlayerName()
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
-    local line = FM.Stamp(now) .. "," .. Enc(gold) .. "," .. Enc(items)
+    local line = FM.Stamp(now) .. "," .. Enc(gold) .. "," .. Enc(items) .. "," .. seen
     -- one line per hour: a later reading of the same hour replaces it
     local lastT = list[#list] and FM.Unstamp(list[#list]:match("^(%w+),"))
     if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) then
@@ -246,8 +378,10 @@ FM.On("MAIL_INBOX_UPDATE", function()
         if not ok and geterrorhandler then geterrorhandler()(err) end
     end)
 end)
-FM.On("MAIL_CLOSED", function() Later(true) end)
-FM.On("AUCTION_HOUSE_CLOSED", function() Later(true) end)
+-- gold and items move together at these windows: a reading right after keeps them in step
+for _, event in ipairs({ "MAIL_CLOSED", "AUCTION_HOUSE_CLOSED", "MERCHANT_CLOSED", "TRADE_CLOSED" }) do
+    FM.On(event, function() Later(true) end)
+end
 FM.On("PLAYER_LOGOUT", function() pcall(FM.RecordWorth, true) end)
 FM.On("PLAYER_LOGIN", function()
     C_Timer.After(40, function() FM.RecordWorth(true) end)

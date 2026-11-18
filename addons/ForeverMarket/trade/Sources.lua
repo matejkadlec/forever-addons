@@ -562,10 +562,15 @@ end
 FM.BagIndex = BagIndex -- [itemID] = { all, free } of your bags (trade/Cost.lua measures deposits of them)
 
 local bankOpen = false
+local bankScanned = false
 local function ScanBank()
-    if bankOpen then bankIndex = Scan(BankIDs()) end
+    if bankOpen then
+        bankIndex = Scan(BankIDs())
+        bankScanned = true
+    end
 end
-FM.BankIndex = function() return bankIndex end -- [itemID] = { all, free } of the bank this session (scan/Worth.lua keeps it)
+-- [itemID] = { all, free } of the bank, and whether it was scanned this session (scan/Worth.lua keeps it)
+FM.BankIndex = function() return bankIndex, bankScanned end
 
 FM.On("BAG_UPDATE_DELAYED", function()
     bagIndex = nil

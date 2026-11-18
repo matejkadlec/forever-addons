@@ -199,34 +199,46 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 A line of this character's **worth** with one dot per day, week or month (**Daily** / **Weekly** / **Monthly** in the
 filter row, the last 30 days / 26 weeks / 12 months, from the first data on; weeks start on Monday).
 
-* Worth = gold + what your items are worth: bags, bank (as last seen), mailbox (money and attachments not taken yet,
-  as last seen), your auctions (active ones like items, sold ones at their money after the 5% cut). Free units count
-  at the usual AH price, never under what a vendor pays; soulbound units at the vendor price. So buying at a fair
-  price, posting and crafting move gold into items and don't lower it: only overpaying, selling under cost, lost
-  deposits and the market price of what you hold do. Item readings start with 1.15; before them a dot is gold
-  alone, and the first item reading is not counted as a gain.
-* **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of all snapshots in the 72 hours
-  before t (detail records one by one; older days through their daily rollup, its average weighted by its snapshot
-  count), so one odd snapshot doesn't move it. To judge a purchase it needs 3 snapshots (`strict`); for worth 1-2
-  still give a price, and none the latest one before.
+* Worth = gold + what your items are worth: bags, bank (as scanned this session, else as last seen; an emptied
+  bank counts as empty), mailbox (money and attachments not taken yet, as last seen), AH purchases made after the
+  last look into the mailbox (they wait in the mail), and your auctions: the last list of them plus what you posted
+  after it, less what your mail sold, returned or cancelled since (oldest first); running ones at the items' worth
+  plus their deposit (it comes back with a sale), sold ones (seen sold after the last look into the mailbox) at
+  their money after the cut plus the deposit, ended ones (after that look) at the items on their way back without
+  the deposit. "After the last look" is "since login" without any mailbox reading. Free units count at the usual
+  AH price, never under what a vendor pays; soulbound units at the vendor price. So buying at a fair price,
+  posting and crafting move gold into items and don't lower it: only overpaying, selling under cost, the AH cut,
+  lost deposits and the market price of what you hold do.
+* A dot is the gold and items of one reading: the last one before the period's end (the last dot: right now);
+  before the first reading, the gold alone. Readings note what they saw besides bags and auctions (`b` bank, `m`
+  mailbox); the items count in a change only between readings that saw the same, so the first reading, the first
+  look at the bank or the mailbox are no gain (readings of 1.15.0 have no note and count only among themselves).
+* **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
+  left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
+  rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it
+  needs 3 snapshots (`strict`); for worth 1-2 still give a price, and none the latest one before.
 * Header: worth now, its change over the dots shown (green / red), gold and items. The line is green when the range
   went up, red when down; each dot green / red by its own change.
 * Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`), the change and % against the dot
   before, worth split into gold and items, then **Sold** (sale invoices, after the cut), **Bought** (commodity
-  purchases and won auctions), **Not sold (expired)** (expired auction mails with the deposit lost), **Real losses**
+  purchases; won auctions from the mail, a commodity purchase's own mail left out), **Not sold (expired)** (expired
+  auction mails: the mail's units, their share of the post's deposit lost), **Real losses**
   and **Other gold** (loot, quests, vendors, trainers, flight paths, trade, other, not itemized; the AH and the mail
   are the lists above). Real losses:
-  * sold under cost: a sale's money after the cut under what your latest purchases of the item before it cost
+  * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
+    before it cost
   * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
     the units
-  * expired deposit: the deposit of the post the expired mail belongs to (measured or estimated, 2h = a quarter
-    of the 8h deposit)
+  * expired deposit: the mail's share of the deposit of the post it belongs to (a post that ended by then, of at
+    least the mail's units first, then the end nearest to the mail; measured or estimated, 2h = a quarter of the
+    8h deposit)
 * Money log (`R.money`): every change of your gold per hour with its source = the window open when it changed (or
   that closed, or fired `CHAT_MSG_MONEY` / `QUEST_TURNED_IN`, in the 2 seconds before): AH, mail, vendor, trainer,
   flight master, trade, loot, quest, else other. Gold that changed while the AddOn didn't see it is "not itemized"
   at the next login. Before the money log the older `gold` records give the gold.
-* Readings of worth (`R.worth`): 40 s after login, every 15 minutes (at most every 10), when the AH, mailbox or bank
-  closes and at logout; one line per hour. The last dot always uses a reading of right now.
+* Readings of worth (`R.worth`): 40 s after login, every 15 minutes (at most every 10), when the AH, mailbox, bank,
+  a vendor or a trade closes and at logout; one line per hour. The last dot always uses a reading of right now.
+  The periods and what happened in them are cached until a log changes; a redraw for new gold waits 2 seconds.
 * Purchases (`buys`) are kept 30 days and have no character, so with more characters on one realm their purchases
   mix in "Bought" and the cost of a sale.
 
@@ -295,7 +307,7 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
 * `money[char]` hourly money log `hour,close,src=gain/loss,...` (hour = unix hour, `src` one letter: `a` AH, `m` mail,
   `v` vendor, `l` loot, `q` quests, `t` trainer, `f` flight paths, `x` trade, `o` other, `u` not itemized)
-* `worth[char]` readings `t,gold,items` (one per hour), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
+* `worth[char]` readings `t,gold,items,seen` (one per hour, `seen` = `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
   `t|money|id:count,...` as last seen
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`

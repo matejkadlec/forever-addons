@@ -9,9 +9,12 @@ local Dec = FM.Dec
 local type = type
 local ipairs = ipairs
 local pairs = pairs
+local tostring = tostring
 local tonumber = tonumber
 local math_floor = math.floor
 local math_min = math.min
+local math_max = math.max
+local math_abs = math.abs
 local table_sort = table.sort
 local table_insert = table.insert
 
@@ -25,7 +28,8 @@ FM.PERF_MODE_ORDER = { "day", "week", "month" }
 
 local OVERPAY = 1.10 -- up to 10% over the usual price is normal noise, not a loss
 local EXPIRE_MATCH = 50 * 3600 -- an expired auction's mail matches a post of the item this long before it at most
-local DURATION_HOURS = { [1] = 2, [2] = 8, [3] = 24 }
+local MAIL_MATCH = 12 * 3600 -- a won auction's mail matches a logged purchase this close to it
+local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 }
 
 ---------------------------------------------------------------- periods (local time)
 
@@ -92,26 +96,26 @@ local function GoldPoints(r, char, now)
     return points, entries
 end
 
--- Item readings: { { t, items }, ... } oldest first
-local function ItemPoints(r, char)
+-- Worth readings: { { t, gold, items, seen }, ... } oldest first (seen "?" for readings before 1.15.1)
+local function Readings(r, char)
     local points = {}
     local list = type(r.worth) == "table" and r.worth[char]
     for _, line in ipairs(type(list) == "table" and list or {}) do
-        local stamp, _, items = line:match("^(%w+),(%w+),(%w+)$")
-        local t, v = FM.Unstamp(stamp), Dec(items)
-        if t and v then points[#points + 1] = { t, v } end
+        local f = FM.Split(line, ",")
+        local t, gold, items = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
+        if t and gold and items then points[#points + 1] = { t, gold, items, f[4] or "?" } end
     end
     table_sort(points, function(a, b) return a[1] < b[1] end)
     return points
 end
 
--- The value of the last point before t (points sorted), nil before the first
+-- The last point before t (points sorted), nil before the first
 local function At(points, t)
     local lo, hi, found = 1, #points, nil
     while lo <= hi do
         local mid = math_floor((lo + hi) / 2)
         if points[mid][1] < t then
-            found = points[mid][2]
+            found = points[mid]
             lo = mid + 1
         else
             hi = mid - 1
@@ -120,16 +124,16 @@ local function At(points, t)
     return found
 end
 
----------------------------------------------------------------- what happened
-
--- Item name -> key, from the stored names
-local function NameKeys(r)
-    local map = {}
-    for key, name in pairs(type(r.names) == "table" and r.names or {}) do
-        if type(name) == "string" and not map[name] then map[name] = key end
-    end
-    return map
+-- Your gold and items at t: the last reading before it (gold and items of one moment), before the first
+-- reading the gold alone
+local function ValuesAt(golds, readings, t)
+    local reading = At(readings, t)
+    if reading then return reading[2], reading[3], reading[4] end
+    local g = At(golds, t)
+    return g and g[2] or nil, nil, nil
 end
+
+---------------------------------------------------------------- what happened
 
 -- name -> { qty, money } into a period list
 local function Add(list, name, qty, money)
@@ -147,7 +151,7 @@ local function AddLoss(p, kind, name, qty, money)
     p.lossTotal = p.lossTotal + money
 end
 
--- Purchases of the realm (R.buys "t,key,qty,total"), parsed once: key -> { { t, qty, total }, ... } oldest first
+-- Purchases of the realm (R.buys "t,key,qty,total"): key -> { { t, qty, total }, ... } and all of them
 local function Purchases(r)
     local byKey, all = {}, {}
     for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
@@ -195,26 +199,20 @@ local function Posts(r, char)
     return byKey
 end
 
--- The post an expired mail of t belongs to: the latest one not matched yet within EXPIRE_MATCH before it
-local function MatchPost(list, t)
+-- The post an expired mail of t (count units) belongs to: not matched yet, posted at most EXPIRE_MATCH before
+-- and ended by then; one of at least count units first, then the one whose end is nearest to the mail
+local function MatchPost(list, t, count)
     if not list then return nil end
-    for i = #list, 1, -1 do
-        local post = list[i]
-        if not post.used and post.t <= t and post.t >= t - EXPIRE_MATCH then
-            post.used = true
-            return post
+    local best, bestScore
+    for _, post in ipairs(list) do
+        local ends = post.t + (POST_HOURS[post.duration or 3] or 24) * 3600
+        if not post.used and post.t <= t and post.t >= t - EXPIRE_MATCH and ends <= t + 3600 then
+            local score = math_abs(ends - t) + ((count and post.qty < count) and 1e9 or 0)
+            if not bestScore or score < bestScore then best, bestScore = post, score end
         end
     end
-    return nil
-end
-
--- Deposit of a post: measured or estimated (trade/Cost.lua); 2h auctions as a quarter of the 8h deposit
-local function PostDeposit(key, post)
-    if not (FM.Deposit and post) then return nil end
-    local duration = post.duration
-    if duration == 2 or duration == 3 then return FM.Deposit(key, post.qty, duration) end
-    local d8 = FM.Deposit(key, post.qty, 2)
-    return d8 and d8 * (DURATION_HOURS[duration or 1] or 2) / 8 or nil
+    if best then best.used = true end
+    return best
 end
 
 -- name -> entry maps of a period into lists sorted by money (largest first)
@@ -230,21 +228,29 @@ end
 
 ---------------------------------------------------------------- the series
 
--- { mode, periods = { { from, to, gold, items, worth, change, pct, sold, bought, expired, losses, lossTotal,
--- other } }, change, pct, itemsSince }; the last period ends now with a live reading
-function FM.PerfSeries(modeId, now)
-    now = now or FM.Now()
-    local mode = MODES[modeId] and modeId or "day"
-    local r = FM.R()
-    local char = FM.PlayerName()
-    local gold, entries = GoldPoints(r, char, now)
-    local items = ItemPoints(r, char)
-    local liveGold, liveItems
-    if FM.WorthNow then liveGold, liveItems = FM.WorthNow() end
-    local firstT = gold[1] and gold[1][1]
-    if items[1] and (not firstT or items[1][1] < firstT) then firstT = items[1][1] end
-    local series = { mode = mode, periods = {}, itemsSince = items[1] and items[1][1] or (liveItems and now) or nil }
-    if not firstT and not liveGold then return series end
+-- The logs' size and newest line: when none changed, the periods and what happened in them stay the same
+local function Signature(r, char, mode, lastStart)
+    local parts = { mode, tostring(lastStart), tostring(FM.dataVersion) }
+    local function add(list)
+        if type(list) ~= "table" then
+            parts[#parts + 1] = "-"
+            return
+        end
+        parts[#parts + 1] = #list .. ":" .. tostring(list[#list])
+    end
+    add(type(r.money) == "table" and r.money[char])
+    add(type(r.worth) == "table" and r.worth[char])
+    for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts" }) do add(r[name]) end
+    return table.concat(parts, "|")
+end
+
+-- Periods with their gold and items (all but the last) and what happened in them
+local function Build(r, char, mode, now)
+    local golds, entries = GoldPoints(r, char, now)
+    local readings = Readings(r, char)
+    local series = { mode = mode, periods = {}, itemsSince = readings[1] and readings[1][1] or nil, golds = golds, readings = readings }
+    local firstT = golds[1] and golds[1][1]
+    if readings[1] and (not firstT or readings[1][1] < firstT) then firstT = readings[1][1] end
     firstT = firstT or now
 
     -- the periods back from now, starting with the one of the first data
@@ -259,30 +265,10 @@ function FM.PerfSeries(modeId, now)
     for i, from in ipairs(starts) do
         local p = { from = from, to = NextStart(mode, from), sold = {}, bought = {}, expired = {},
             losses = { under = {}, over = {}, deposit = {} }, lossTotal = 0, other = {} }
-        if i == #starts and liveGold then
-            p.gold, p.items = liveGold, liveItems
-        else
-            p.gold, p.items = At(gold, p.to), At(items, p.to)
-        end
+        p.gold, p.items, p.seen = ValuesAt(golds, readings, p.to)
         periods[i] = p
     end
-    -- change against the end of the period before (the first: against its start); worth counts items only
-    -- where both ends have them, so the first item reading is no gain
-    local prevGold, prevItems = At(gold, periods[1].from), At(items, periods[1].from)
-    local total, base = 0, nil
-    for _, p in ipairs(periods) do
-        p.worth = p.gold and (p.gold + (p.items or 0)) or nil
-        if p.gold and prevGold then
-            p.change = (p.gold - prevGold) + ((p.items and prevItems) and (p.items - prevItems) or 0)
-            local prevWorth = prevGold + (prevItems or 0)
-            p.pct = prevWorth > 0 and p.change / prevWorth * 100 or nil
-            total = total + p.change
-            base = base or prevWorth
-        end
-        prevGold, prevItems = p.gold or prevGold, p.items or prevItems
-    end
-    series.change = base and total or nil
-    series.pct = (base and base > 0) and total / base * 100 or nil
+    series.startGold, series.startItems, series.startSeen = ValuesAt(golds, readings, periods[1].from)
 
     -- which period a moment is in
     local first, last = periods[1].from, periods[#periods].to
@@ -296,26 +282,48 @@ function FM.PerfSeries(modeId, now)
         return periods[lo]
     end
 
-    local nameKeys = NameKeys(r)
+    local nameKeys = FM.NameKeys(r)
     local buysByKey, buys = Purchases(r)
-
-    -- sales and won auctions from your mail
+    local invoices = {}
     for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
         local f = FM.Split(line, ",")
         if f[2] == char then
-            local t = FM.Unstamp(f[1])
-            local p = PeriodOf(t)
-            local name, qty = f[4] or "?", Dec(f[6]) or 1
-            local money, cut = Dec(f[7]) or 0, Dec(f[10]) or 0
-            if p and f[3] == "seller" then
-                local net = money - cut
-                Add(p.sold, name, qty, net)
-                local key = nameKeys[name]
-                local unit = key and CostBefore(buysByKey[key], qty, t)
-                if unit and unit * qty - net >= 1 then AddLoss(p, "under", name, qty, unit * qty - net) end
-            elseif p and f[3] == "buyer" then
-                Add(p.bought, name, qty, money)
+            invoices[#invoices + 1] = { t = FM.Unstamp(f[1]), kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
+                money = Dec(f[7]) or 0, cut = Dec(f[10]) or 0 }
+        end
+    end
+    -- won auctions from your mail; a commodity purchase is in the purchase log already (its mail is skipped)
+    for _, inv in ipairs(invoices) do
+        if inv.kind == "buyer" and inv.t then
+            local key = nameKeys[inv.name]
+            local logged
+            for _, b in ipairs(key and buysByKey[key] or {}) do
+                if not b.mailed and b.qty == inv.qty and math_abs(b.t - inv.t) <= MAIL_MATCH then
+                    b.mailed, logged = true, true
+                    break
+                end
             end
+            if not logged then
+                local p = PeriodOf(inv.t)
+                if p then Add(p.bought, inv.name, inv.qty, inv.money) end
+                if key then
+                    -- also the cost of a later sale of the item
+                    buysByKey[key] = buysByKey[key] or {}
+                    table_insert(buysByKey[key], { t = inv.t, qty = inv.qty, total = inv.money })
+                end
+            end
+        end
+    end
+    for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
+    -- sales from your mail, and the ones under what you paid
+    for _, inv in ipairs(invoices) do
+        local p = inv.kind == "seller" and PeriodOf(inv.t)
+        if p then
+            local net = inv.money - inv.cut
+            Add(p.sold, inv.name, inv.qty, net)
+            local key = nameKeys[inv.name]
+            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.t)
+            if unit and unit * inv.qty - net >= 1 then AddLoss(p, "under", inv.name, inv.qty, unit * inv.qty - net) end
         end
     end
     -- commodity purchases, judged against the usual price before them
@@ -331,7 +339,7 @@ function FM.PerfSeries(modeId, now)
             end
         end
     end
-    -- auctions that expired unsold: their deposit is lost
+    -- auctions that expired unsold: the mail's units, their share of the post's deposit is lost
     local posts = Posts(r, char)
     for _, line in ipairs(type(r.events) == "table" and r.events or {}) do
         local f = FM.Split(line, ",")
@@ -343,9 +351,9 @@ function FM.PerfSeries(modeId, now)
                 local name, count = f[4]:match("^(.-) %((%d+)%)$")
                 name, count = name or f[4], tonumber(count)
                 local key = nameKeys[name]
-                local post = key and MatchPost(posts[key], t)
-                local qty = post and post.qty or count or 0
-                local deposit = post and PostDeposit(key, post)
+                local post = key and MatchPost(posts[key], t, count)
+                local qty = count or (post and post.qty) or 0
+                local deposit = post and FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) * math_min(qty, post.qty) / math_max(post.qty, 1)
                 Add(p.expired, name, qty, deposit or 0)
                 if deposit and deposit >= 1 then AddLoss(p, "deposit", name, qty, deposit) end
             end
@@ -368,5 +376,56 @@ function FM.PerfSeries(modeId, now)
         p.sold, p.bought, p.expired = Sorted(p.sold), Sorted(p.bought), Sorted(p.expired)
         p.losses.under, p.losses.over, p.losses.deposit = Sorted(p.losses.under), Sorted(p.losses.over), Sorted(p.losses.deposit)
     end
+    return series
+end
+
+local cache = {} -- mode -> { sig, series }
+
+-- { mode, periods = { { from, to, gold, items, seen, worth, change, pct, sold, bought, expired, losses,
+-- lossTotal, other } }, change, pct, itemsSince }; the last period ends now with a live reading
+function FM.PerfSeries(modeId, now)
+    now = now or FM.Now()
+    local mode = MODES[modeId] and modeId or "day"
+    local r = FM.R()
+    local char = FM.PlayerName()
+    local sig = Signature(r, char, mode, Start(mode, now))
+    local c = cache[mode]
+    local series
+    if c and c.sig == sig then
+        series = c.series
+    else
+        series = Build(r, char, mode, now)
+        cache[mode] = { sig = sig, series = series }
+    end
+    local periods = series.periods
+    local last = periods[#periods]
+    -- the last period: a reading of right now
+    local liveGold, liveItems, liveSeen
+    if FM.WorthNow then liveGold, liveItems, liveSeen = FM.WorthNow() end
+    if liveGold then
+        last.gold, last.items, last.seen = liveGold, liveItems, liveSeen
+        series.itemsSince = series.itemsSince or now
+    else
+        last.gold, last.items, last.seen = ValuesAt(series.golds, series.readings, now + 1)
+    end
+    -- change against the end of the period before (the first: against its start); items count only where
+    -- both ends saw the same (the first reading, or the first look at the bank, is no gain)
+    local prevGold, prevItems, prevSeen = series.startGold, series.startItems, series.startSeen
+    local total, base = 0, nil
+    for _, p in ipairs(periods) do
+        p.worth = p.gold and (p.gold + (p.items or 0)) or nil
+        p.change, p.pct = nil, nil
+        if p.gold and prevGold then
+            local itemsChange = (p.items and prevItems and p.seen == prevSeen) and (p.items - prevItems) or 0
+            p.change = (p.gold - prevGold) + itemsChange
+            local prevWorth = prevGold + (prevItems or 0)
+            p.pct = prevWorth > 0 and p.change / prevWorth * 100 or nil
+            total = total + p.change
+            base = base or prevWorth
+        end
+        if p.gold then prevGold, prevItems, prevSeen = p.gold, p.items, p.seen end
+    end
+    series.change = base and total or nil
+    series.pct = (base and base > 0) and total / base * 100 or nil
     return series
 end

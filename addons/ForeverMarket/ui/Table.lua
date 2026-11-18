@@ -396,7 +396,8 @@ local LEARN_COLUMNS = {
         sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end }
 }
 
--- group 1 blue, group 2 red (the button's own color), group 3 green; each group starts after a gap
+-- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
+-- (Performance) and group 3 green (Learn, Farm)
 local TABS = {}
 if FM.PICKS_READY then
     TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1 }
@@ -1383,6 +1384,7 @@ Render = function()
     frame.search:SetShown(not graph)
     frame.searchLabel:SetShown(not graph)
     frame.headerLine:SetShown(not graph)
+    frame.refresh:SetShown(not graph) -- it reads recipes and vendors again: nothing for the graph
     if graph then return RenderGraph(tab) end
     if FM.PerfShow then FM.PerfShow(frame, false) end
     if not rowsCache then rowsCache = BuildRows() end

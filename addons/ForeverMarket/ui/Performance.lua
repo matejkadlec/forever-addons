@@ -379,12 +379,12 @@ function FM.PerfFooter()
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
 end
 
--- New gold while the tab is open: draw again (at most once a second)
+-- New gold while the tab is open: draw again (at most every 2 seconds)
 local pending = false
 function FM.OnMoneyLogged()
     if pending or not (panel and panel:IsVisible()) then return end
     pending = true
-    C_Timer.After(1, function()
+    C_Timer.After(2, function()
         pending = false
         if panel and panel:IsVisible() and FM.RefreshTable then FM.RefreshTable() end
     end)
