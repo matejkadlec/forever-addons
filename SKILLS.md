@@ -2,6 +2,17 @@
 
 The repository's shared rules live in [AGENTS.md](AGENTS.md) and the nearest nested guide. Claude Code sessions also read [CLAUDE.md](CLAUDE.md), which imports `AGENTS.md`. This file is an index of how the common tasks are done; every rule it names is defined in those guides, not here.
 
+## Deliver Jira work (skills)
+
+The delivery skills live in [`.claude/skills/`](.claude/skills/) and take every rule from [docs/ai-development-flow.md](docs/ai-development-flow.md):
+
+- `flow1` [`local`|`cloud`]: take a batch of To Do tickets from `FRV` and deliver it
+- `flow2` [`local`|`cloud`]: turn a task description into `FRV` tickets and deliver them
+- `qa1` / `qa2`: the maintainer's answer to an in-game test of a major change: merge it, or revise it
+- `finalize-pr <n>`: the independent review by the read-only [`pr-reviewer`](.claude/agents/pr-reviewer.md), the fixes, the merge, and the feed deploy check
+
+The steps below are what those skills do, for work done without them.
+
 ## Deliver a change (ticket to merge)
 
 1. **Ticket:** find or create the FRV ticket, label it, move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
