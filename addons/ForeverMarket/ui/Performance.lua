@@ -30,23 +30,25 @@ local series -- the series on screen
 
 ---------------------------------------------------------------- formatting
 
--- 12345 -> "1g 23s 45c" without zero parts ("2g 30s"), colored coin letters
-local function Coins(copper, parts)
+-- 12345 -> "1g 23s 45c" without zero parts ("2g 30s"), colored coin letters (plain: in the text's own color)
+local function Coins(copper, parts, plain)
     copper = math_floor(math_abs(copper or 0) + 0.5)
     local g, s, c = math_floor(copper / 10000), math_floor((copper % 10000) / 100), copper % 100
     local out = {}
-    if g > 0 then out[#out + 1] = FM.FormatCount(g) .. "|cFFFFD700g|r" end
-    if s > 0 and #out < (parts or 3) then out[#out + 1] = s .. "|cFFC7C7CFs|r" end
-    if c > 0 and #out < (parts or 3) then out[#out + 1] = c .. "|cFFEDA55Fc|r" end
-    if #out == 0 then return "0|cFFEDA55Fc|r" end
+    local gl, sl, cl = "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r"
+    if plain then gl, sl, cl = "g", "s", "c" end
+    if g > 0 then out[#out + 1] = FM.FormatCount(g) .. gl end
+    if s > 0 and #out < (parts or 3) then out[#out + 1] = s .. sl end
+    if c > 0 and #out < (parts or 3) then out[#out + 1] = c .. cl end
+    if #out == 0 then return "0" .. cl end
     return table.concat(out, " ")
 end
 FM.PerfCoins = Coins
 
-local function Signed(copper)
-    if copper >= 0.5 then return "+" .. Coins(copper) end
-    if copper <= -0.5 then return "-" .. Coins(copper) end
-    return Coins(0)
+local function Signed(copper, plain)
+    if copper >= 0.5 then return "+" .. Coins(copper, nil, plain) end
+    if copper <= -0.5 then return "-" .. Coins(copper, nil, plain) end
+    return Coins(0, nil, plain)
 end
 
 local function Percent(pct)
@@ -74,15 +76,26 @@ end
 
 ---------------------------------------------------------------- tooltip
 
+-- The graph's own tooltip (GameTooltipTemplate): its first line's right text, Total gains, in the normal tooltip
+-- font, which the shared GameTooltip's header line must keep for everyone else
+local tooltip
+local function Tooltip()
+    if not tooltip then
+        tooltip = CreateFrame("GameTooltip", "ForeverMarketPerfTooltip", UIParent, "GameTooltipTemplate")
+        if tooltip.TextRight1 and GameTooltipText then tooltip.TextRight1:SetFontObject(GameTooltipText) end
+    end
+    return tooltip
+end
+
 -- A list under a header: the top 3, all of them while Shift is held
 local function List(title, list, row, color)
     if #list == 0 then return end
     local c = color or LABEL_RGB
-    GameTooltip:AddLine(title, c[1], c[2], c[3])
+    Tooltip():AddLine(title, c[1], c[2], c[3])
     local all = IsShiftKeyDown and IsShiftKeyDown()
     local n = all and #list or math_min(#list, TOP)
-    for i = 1, n do GameTooltip:AddLine("  " .. row(list[i]), 1, 1, 1) end
-    if #list > n then GameTooltip:AddLine(string_format("  +%d more (hold Shift)", #list - n), 0.62, 0.62, 0.62) end
+    for i = 1, n do Tooltip():AddLine("  " .. row(list[i]), 1, 1, 1) end
+    if #list > n then Tooltip():AddLine(string_format("  +%d more (hold Shift)", #list - n), 0.62, 0.62, 0.62) end
 end
 
 local function Item(e)
@@ -105,20 +118,20 @@ local function Losses(p)
 end
 
 local function ShowPeriod(owner, p, mode)
-    GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
-    local total = ChangeColor(p.value)
-    GameTooltip:AddDoubleLine(PeriodTitle(p, mode), "Total gains: " .. Signed(p.value), 1, 1, 1, total[1], total[2], total[3])
+    local tip = Tooltip()
+    tip:SetOwner(owner, "ANCHOR_CURSOR")
+    tip:AddDoubleLine(PeriodTitle(p, mode), "Total gains: " .. Signed(p.value, true), 1, 1, 1, 1, 1, 1)
     local c = ChangeColor(p.change)
-    GameTooltip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
+    tip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
     List("Sold", p.sold, Item)
     List("Bought", p.bought, Item)
     List("Real losses", Losses(p), function(l)
         return string_format("%s: %sx %s (-%s)", l.label, FM.FormatCount(l.e.qty), l.e.name, Coins(l.e.money))
     end, RED_RGB)
     if #p.sold + #p.bought == 0 and p.lossTotal < 0.5 then
-        GameTooltip:AddLine("Nothing sold or bought", 0.62, 0.62, 0.62)
+        tip:AddLine("Nothing sold or bought", 0.62, 0.62, 0.62)
     end
-    GameTooltip:Show()
+    tip:Show()
 end
 
 ---------------------------------------------------------------- drawing
@@ -244,7 +257,7 @@ function FM.PerfHover(i)
     panel.hover = i
     local p = i and series and series.periods[i]
     if not p then
-        GameTooltip:Hide()
+        Tooltip():Hide()
         return
     end
     if panel.dots[i] then panel.dots[i]:SetSize(DOT_HOVER, DOT_HOVER) end
