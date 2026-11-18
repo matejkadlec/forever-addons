@@ -1,8 +1,8 @@
 local _, FM = ...
 
 -- The Performance tab of the market table: your AH result as a line from 0 with one dot per day, week or month
--- (trade/Performance.lua). Hover a dot for that period: the change, what sold, what you bought, what expired
--- unsold and the real losses. Daily / Weekly / Monthly sit in the filter row.
+-- (trade/Performance.lua). Hover a dot for that period: the AH result so far, the change, what sold, what you
+-- bought and the real losses. Daily / Weekly / Monthly sit in the filter row.
 
 local type = type
 local ipairs = ipairs
@@ -10,6 +10,7 @@ local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
 local math_abs = math.abs
+local math_ceil = math.ceil
 local string_format = string.format
 
 local GREY = "|cFF9D9D9D"
@@ -76,13 +77,15 @@ end
 
 ---------------------------------------------------------------- tooltip
 
--- The graph's own tooltip (GameTooltipTemplate): its first line's right text, Total gains, in the normal tooltip
--- font, which the shared GameTooltip's header line must keep for everyone else
-local tooltip
+-- The graph's own tooltip (GameTooltipTemplate) with the AH result so far in small grey text in its top right
+-- corner; the shared GameTooltip is left alone
+local tooltip, totalText
 local function Tooltip()
     if not tooltip then
         tooltip = CreateFrame("GameTooltip", "ForeverMarketPerfTooltip", UIParent, "GameTooltipTemplate")
-        if tooltip.TextRight1 and GameTooltipText then tooltip.TextRight1:SetFontObject(GameTooltipText) end
+        totalText = tooltip:CreateFontString(nil, "ARTWORK", "GameTooltipTextSmall")
+        totalText:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -8, -7)
+        totalText:SetTextColor(GREY_RGB[1], GREY_RGB[2], GREY_RGB[3])
     end
     return tooltip
 end
@@ -120,7 +123,10 @@ end
 local function ShowPeriod(owner, p, mode)
     local tip = Tooltip()
     tip:SetOwner(owner, "ANCHOR_CURSOR")
-    tip:AddDoubleLine(PeriodTitle(p, mode), "Total gains: " .. Signed(p.value, true), 1, 1, 1, 1, 1, 1)
+    tip:AddLine(PeriodTitle(p, mode), 1, 1, 1)
+    -- "+80g 93s 55c since 11/15/2026" in the corner, with room for it next to the date
+    totalText:SetText(Signed(p.value, true) .. " since " .. date("%m/%d/%Y", series.since or p.from))
+    tip:SetMinimumWidth(math_ceil(tip.TextLeft1:GetStringWidth() + totalText:GetStringWidth() + 40))
     local c = ChangeColor(p.change)
     tip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
     List("Sold", p.sold, Item)

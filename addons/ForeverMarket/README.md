@@ -231,8 +231,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 * Header: the AH result over the dots shown (green / red), what you hold from the AH and your gold. The line is green
   when the range went up, red when down; each dot green / red by its own change. The axis starts at 0 unless the
   line goes under it.
-* Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`) with **Total gains** (the AH result
-  since the first dot) on the right in the normal tooltip font and white (the graph has its own tooltip for that), the
+* Hover a dot: the date (`11/18/2026`, `Week of 11/16/2026`, `November 2026`) with the AH result up to that dot in
+  small grey text in the top right corner, `+80g 93s 55c since 11/15/2026` (the start of tracking: your first reading
+  or AH money, or the first dot's start when the range begins later; the graph has its own tooltip for that), the
   change and its % (of the dot's capital: what you had spent on the AH by its end, purchases, won auctions and
   deposits, as if you had started with it, plus the AH result before it; later purchases don't change an older dot's
   %), then the top 3 of **Sold** (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and

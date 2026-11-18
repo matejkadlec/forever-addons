@@ -354,6 +354,8 @@ local function Build(r, char, mode, now)
     end
     local from = periods[1].from
     series.startFlow, series.startGold = FlowAt(flows, from), GoldAt(golds, from)
+    -- what the values count from: the start of tracking, or of the first dot when the range starts later
+    series.since = math_max(firstT, from)
 
     -- which period a moment is in
     local first, last = periods[1].from, periods[#periods].to
@@ -431,7 +433,7 @@ end
 local cache = {} -- mode -> { sig, series }
 
 -- { mode, periods = { { from, to, value, change, pct, flow, heldDelta, gold, sold, bought, expired, losses,
--- lossTotal } }, change, heldSince, heldNow, goldNow }: value = the AH result since the first dot's start; the
+-- lossTotal } }, change, since, heldSince, heldNow, goldNow }: value = the AH result since the first dot's start; the
 -- last period ends now with a live reading
 function FM.PerfSeries(modeId, now)
     now = now or FM.Now()
