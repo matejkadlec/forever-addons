@@ -25,7 +25,8 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
 
 * Tooltip: `Market 3s 50c · 374 listed · ~120 circulating/day · 2h ago` and `Claude list at 3s 45c (90% in 8h)`,
   then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
-  gold header and indented rows, values right-aligned, "-" when there is nothing to show (never bought, no AH price):
+  gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
+  price or deposit estimate):
   * **Cost (n pcs)** (**Craft cost (n pcs)** when the price is of a learned craft's materials), n = your sellable
     units, else one stack:
     * **vendor** instead of the next two rows for an item a vendor sells without limit: what the vendor sells it for
