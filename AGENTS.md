@@ -177,12 +177,12 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
   - Anything major that acts for the player or costs gold (ForeverMarket's sniper and buying, posting, cancelling)
   - A major change to parts several AddOns share (the shared settings category, the keybinding category)
 - **Optional test** (merged after the independent review as usual; What to test still lists what he can look at when he likes):
-  - A bug fix with a narrow, stated result in existing behavior (a wrong number, text, color, sort order, an error from `Logs/`), with no change of layout or data format
+  - A bug fix with a narrow, stated result in existing behavior (a wrong number, text, color, sort order, an error from `Logs/`), with no change of layout
   - Refactoring and performance work that must leave behavior the same
   - Everything from the list above that is not major
   - A change to the format or the cleanup of SavedVariables, including migrations: he cannot test it in the game, so the independent review is its proof (the reviewer is told to check the migration against the old format and that no data is dropped). `ForeverMarketDB` holds market data that cannot be recreated: What to test starts with the file to copy before the `/reload` (`WTF/Account/<account>/SavedVariables/ForeverMarket.lua`) and one look that the old data is still there
 - **Nothing to test:** documentation, agent guides, `tools/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
-- When one pull request mixes kinds, the stricter kind counts; when a change fits no line above or more than one, ask what he could notice in the game if it went wrong: new things to look at or lost data and gold need his test, a corrected detail does not; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
+- When one pull request mixes kinds, the stricter kind counts; when in doubt whether a change is major, decide yourself (see above) and do not ask: a doubtful case is the optional kind; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
 - Jira: a ticket whose pull request waits for his test stays In Review with the label `in-game-qa`, so the board shows what needs his attention; remove the label when he has answered and add it again when a fix waits for his retest
 
 ---
