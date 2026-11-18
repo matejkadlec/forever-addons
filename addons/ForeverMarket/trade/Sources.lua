@@ -457,9 +457,9 @@ function FM.MinListPrice(key, p)
     local stack = stackCache[key]
     if stack == nil then
         local id = tonumber(key)
-        if id and C_Item and C_Item.GetItemMaxStackByID then
-            local ok, n = pcall(C_Item.GetItemMaxStackByID, id)
-            if ok and type(n) == "number" then stack = n end
+        if id and C_Item and C_Item.GetItemMaxStackSizeByID then
+            local ok, n = pcall(C_Item.GetItemMaxStackSizeByID, id)
+            if ok and type(n) == "number" and not FM.IsSecret(n) then stack = n end
         end
         local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
         if stack == nil and id and getInfo then

@@ -73,7 +73,7 @@ local function P1g(value, approx)
     elseif value > 0 then
         text = GREEN .. "+|r" .. text
     end
-    return text .. (approx and (GREY .. "~|r") or "")
+    return text .. (approx and (GREY .. "*|r") or "") -- * = some material prices are estimates
 end
 
 local function Count(n)
@@ -86,7 +86,7 @@ local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to rese
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
 local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 12h, else 24h)."
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
-local CIRC_TIP = "Circulating ~12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
+local CIRC_TIP = "Circulating 12h: units that left the AH before their time ran out in about 12 hours, bought or taken down (Forever hides sellers). Grey = from the 3 day window."
 
 -- Circulating ~12h: "?" without enough coverage, grey when it had to come from the 3 day window
 local function Sold(n, wide)
@@ -292,7 +292,7 @@ local FARM_COLUMNS = {
     { title = "Zone", width = 190, align = "LEFT", text = function(r) return GREY .. (r.zone or "?") .. "|r" end,
         sort = function(r) return r.zone or "" end },
     { title = "Level", width = 64, text = FarmLevel, sort = function(r) return r.minL end },
-    { title = "Gold/h", width = 112, text = function(r) return Money(r.gph, GREEN) .. (r.estimated and (GREY .. "~|r") or "") end,
+    { title = "Gold/h", width = 112, text = function(r) return Money(r.gph, GREEN) .. (r.estimated and (GREY .. "*|r") or "") end,
         sort = function(r) return r.gph end, default = true },
     { title = "Per kill", width = 96, text = function(r) return Money(r.perKill) end, sort = function(r) return r.perKill end },
     { title = "Best drop", width = 230, align = "LEFT", text = function(r)
@@ -728,9 +728,9 @@ end
 local function MarketLines(row)
     Line("On AH", OnAH(row) .. ((row.own or 0) > 0 and (GREY .. "  (yours in brackets)|r") or ""))
     if row.sold12 then
-        Line("Circulating ~12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
+        Line("Circulating 12h", Count(row.sold12) .. (row.soldWide and (GREY .. "  from 3 days|r") or ""))
     else
-        Line("Circulating ~12h", GREY .. "not enough scans yet|r")
+        Line("Circulating 12h", GREY .. "not enough scans yet|r")
     end
     if row.sold3d and not row.soldWide then Line("Per 12h over 3 days", Count(row.sold3d)) end
     Note("Circulating = units that left the AH before their time ran out: bought, or taken down by the seller (Forever hides sellers, so both look the same).")
@@ -751,7 +751,7 @@ local function CraftTooltip(row, past)
         LearnLines(craft)
         if row.learnCost and not past then
             Line("Cheapest", Money(row.learnCost) ..
-                (row.payback and (GREY .. string_format("  pays back after ~%d crafts", math.ceil(row.payback)) .. "|r") or ""))
+                (row.payback and (GREY .. string_format("  pays back after %d crafts", math.ceil(row.payback)) .. "|r") or ""))
         end
     end
     if past then
@@ -792,7 +792,7 @@ local function CraftTooltip(row, past)
     Header(string_format("Materials (priced for %d crafts)", FM.TRADE.BATCH))
     for _, m in ipairs(row.parts or {}) do
         local note = SRC_LABEL[m.src] or m.src
-        if m.src == "ah" and m.approx then note = note .. " ~" end
+        if m.src == "ah" and m.approx then note = note .. " *" end
         if m.src == "craft" then
             note = "craft it" .. (m.buy and (", buying costs " .. Money(m.buy.unit)) or "")
         end
@@ -838,7 +838,7 @@ local function CraftTooltip(row, past)
     end
     Header("Market")
     MarketLines(row)
-    if row.approx then Note("~ some material prices are estimates (short or stored ladders).") end
+    if row.approx then Note("* some material prices are estimates (short or stored ladders).") end
 end
 
 local function VendorTooltip(row)
