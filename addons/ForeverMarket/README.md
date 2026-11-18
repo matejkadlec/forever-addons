@@ -207,7 +207,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   back (from the sale mails), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own
   mail left out) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now):
   the units of each item bought there and not sold there since (purchases of a year and won auctions less your
-  sale mails; the purchase log has no character, alts' purchases mix in) that you still hold in bags, bank (as
+  sale mails, in time order: a sale before a purchase sold farmed units, not bought ones; the purchase log has no character, alts' purchases mix in) that you still hold in bags, bank (as
   scanned this session, else as last seen), mailbox (as last seen), purchases made after the last look into the
   mailbox (they wait in the mail) and your auctions, at the usual AH price; plus the deposits of your running
   auctions and the money of sold ones still on its way. So buying and posting move gold into items and deposits
@@ -218,8 +218,10 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   cancelled since (oldest first); sold and ended ones count as on their way by mail only after the last look into
   the mailbox (without any mailbox reading: since login).
 * Before the first reading of what you hold (1.15.2 on) purchases count as neutral, and a sale counts its money
-  less what its units cost you (your purchases before it). Held changes count only between readings that saw the
-  same (`seen`: `h` + `b` bank + `m` mailbox), so the first look at the bank or the mailbox is no jump.
+  less what its units cost you (your purchases before it). What you hold counts step by step between consecutive
+  readings (the stored ones and one of right now), each step in the period of its later reading; the first reading
+  is the baseline, and a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox,
+  e.g. the first look at the bank) counts nothing.
 * **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
   left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
   rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it

@@ -118,13 +118,6 @@ local function At(points, t)
     return found
 end
 
--- What you held from the AH at t and what that reading saw (nil before the first reading)
-local function HeldAt(readings, t)
-    local reading = At(readings, t)
-    if reading then return reading[3], reading[4] end
-    return nil, nil
-end
-
 -- Your gold at t (nil before the first record)
 local function GoldAt(golds, t)
     local g = At(golds, t)
@@ -334,14 +327,12 @@ local function Build(r, char, mode, now)
     local periods = series.periods
     for i, from in ipairs(starts) do
         local p = { from = from, to = NextStart(mode, from), sold = {}, bought = {}, expired = {},
-            losses = { under = {}, over = {}, deposit = {} }, lossTotal = 0 }
+            losses = { under = {}, over = {}, deposit = {} }, lossTotal = 0, heldDelta = 0 }
         p.flow, p.gold = FlowAt(flows, p.to), GoldAt(golds, p.to)
-        p.held, p.seen = HeldAt(readings, p.to)
         periods[i] = p
     end
     local from = periods[1].from
     series.startFlow, series.startGold = FlowAt(flows, from), GoldAt(golds, from)
-    series.startHeld, series.startSeen = HeldAt(readings, from)
 
     -- which period a moment is in
     local first, last = periods[1].from, periods[#periods].to
@@ -353,6 +344,15 @@ local function Build(r, char, mode, now)
             if periods[mid].from <= t then lo = mid else hi = mid - 1 end
         end
         return periods[lo]
+    end
+
+    -- what you hold from the AH, step by step between readings that saw the same (h, bank, mailbox): each step
+    -- counts in the period of its later reading, the first reading is the baseline, a step across a change of
+    -- what they saw (the first look at the bank) counts nothing
+    for k = 2, #readings do
+        local a, b = readings[k - 1], readings[k]
+        local p = PeriodOf(b[1])
+        if p and a[4] == b[4] then p.heldDelta = p.heldDelta + (b[3] - a[3]) end
     end
 
     for _, inv in ipairs(invoices) do
@@ -409,7 +409,7 @@ end
 
 local cache = {} -- mode -> { sig, series }
 
--- { mode, periods = { { from, to, value, change, pct, flow, held, seen, gold, sold, bought, expired, losses,
+-- { mode, periods = { { from, to, value, change, pct, flow, heldDelta, gold, sold, bought, expired, losses,
 -- lossTotal } }, change, heldSince, heldNow, goldNow }: value = the AH result since the first dot's start; the
 -- last period ends now with a live reading
 function FM.PerfSeries(modeId, now)
@@ -428,29 +428,24 @@ function FM.PerfSeries(modeId, now)
     end
     local periods = series.periods
     local last = periods[#periods]
-    -- the last period: the AH's money until now and a reading of right now
+    -- the last period: the AH's money until now, and a reading of right now as one more step after the last one
     last.flow = FlowAt(series.flows, now + 1)
     local liveGold, liveHeld, liveSeen
     if FM.WorthNow then liveGold, liveHeld, liveSeen = FM.WorthNow() end
-    if liveGold then
-        last.gold, last.held, last.seen = liveGold, liveHeld, liveSeen
-    else
-        last.gold = GoldAt(series.golds, now + 1)
-        last.held, last.seen = HeldAt(series.readings, now + 1)
-    end
-    series.heldNow, series.goldNow = last.held, last.gold
-    -- change against the end of the period before (the first: against its start); what you hold counts only
-    -- where both ends saw the same (the first reading, or the first look at the bank, is no gain)
-    local prevFlow, prevHeld, prevSeen, prevGold = series.startFlow, series.startHeld, series.startSeen, series.startGold
+    local lastReading = series.readings[#series.readings]
+    local liveStep = (liveGold and lastReading and lastReading[4] == liveSeen) and (liveHeld - lastReading[3]) or 0
+    last.gold = liveGold or GoldAt(series.golds, now + 1)
+    series.heldNow = liveHeld or (lastReading and lastReading[3])
+    series.goldNow = last.gold
+    -- change against the end of the period before (the first: against its start)
+    local prevFlow, prevGold = series.startFlow, series.startGold
     local value = 0
     for _, p in ipairs(periods) do
-        local heldChange = (p.held and prevHeld and p.seen == prevSeen) and (p.held - prevHeld) or 0
-        p.change = (p.flow - prevFlow) + heldChange
+        p.change = (p.flow - prevFlow) + p.heldDelta + (p == last and liveStep or 0)
         value = value + p.change
         p.value = value
         p.pct = (prevGold and prevGold > 0) and p.change / prevGold * 100 or nil -- of your gold before
         prevFlow = p.flow
-        if p.held then prevHeld, prevSeen = p.held, p.seen end
         if p.gold then prevGold = p.gold end
     end
     series.change = value

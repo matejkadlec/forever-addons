@@ -166,6 +166,7 @@ local function Auctions(r, char, now, mailT, add)
     local owned = type(r.owned) == "table" and r.owned[char]
     local listT = type(owned) == "table" and owned.t or nil
     local running, inList = {}, {}
+    local soldInList = {} -- key -> units the list shows sold: their sale mails are no units off running ones
     local total = 0
     -- posts of the last days: their duration and deposit, by auction ID
     local posts, byAid = {}, {}
@@ -191,6 +192,7 @@ local function Auctions(r, char, now, mailT, add)
                 local deposit = post and PostDeposit(key, post.qty, post.duration) * qty / math_max(post.qty, 1) or 0
                 inList[aid] = true
                 if status == "s" then
+                    soldInList[key] = (soldInList[key] or 0) + qty
                     -- commodities store the unit price, items the auction's buyout
                     if listT >= lookT then total = total + (qty > 1 and buyout * qty or buyout) * (1 - AH_CUT) + deposit end
                 else
@@ -220,6 +222,10 @@ local function Auctions(r, char, now, mailT, add)
         for _, line in ipairs(r.invoices or {}) do
             local f = FM.Split(line, ",")
             if f[2] == char and f[3] == "seller" and f[4] then Take(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]) or 0) end
+        end
+        -- the sale mails of auctions the list already shows sold took nothing off the running ones
+        for key, qty in pairs(soldInList) do
+            if taken[key] then taken[key] = math_max(0, taken[key] - qty) end
         end
         for _, line in ipairs(r.events or {}) do
             local f = FM.Split(line, ",")
@@ -251,28 +257,41 @@ local function Auctions(r, char, now, mailT, add)
 end
 
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
--- of other items, less your sales from the mail (the purchase log has no character: alts' purchases mix in)
+-- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:
+-- those were farmed or looted). The purchase log has no character: alts' purchases mix in.
 local function NetBought(r, char)
-    local net = {}
+    local moves = {} -- key -> { { t, units }, ... }
+    local function Move(key, t, units)
+        moves[key] = moves[key] or {}
+        moves[key][#moves[key] + 1] = { t, units }
+    end
     for _, line in ipairs(r.buys or {}) do
-        local key, qty = line:match("^%d+,([^,]+),(%d+),")
-        if key then net[key] = (net[key] or 0) + tonumber(qty) end
+        local t, key, qty = line:match("^(%d+),([^,]+),(%d+),")
+        if key then Move(key, tonumber(t), tonumber(qty)) end
     end
     local nameKeys = NameKeys(r)
     for _, line in ipairs(r.invoices or {}) do
         local f = FM.Split(line, ",")
         local key = f[2] == char and f[4] and nameKeys[f[4]]
-        if key then
+        local t = key and FM.Unstamp(f[1])
+        if t then
             local qty = Dec(f[6]) or 1
             if f[3] == "seller" then
-                net[key] = (net[key] or 0) - qty
+                Move(key, t, -qty)
             elseif f[3] == "buyer" then
                 -- a commodity's won mail is in the purchase log already
                 local id = FM.ItemIDFromKey(key)
                 local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
-                if IsNumber(stack) and stack == 1 then net[key] = (net[key] or 0) + qty end
+                if IsNumber(stack) and stack == 1 then Move(key, t, qty) end
             end
         end
+    end
+    local net = {}
+    for key, list in pairs(moves) do
+        table_sort(list, function(a, b) return a[1] < b[1] end)
+        local n = 0
+        for _, m in ipairs(list) do n = math_max(0, n + m[2]) end
+        net[key] = n
     end
     return net
 end
