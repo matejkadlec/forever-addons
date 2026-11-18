@@ -7,8 +7,24 @@
   - `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT` (`18`), `.toc` interface version `16001` (client 1.60.x)
   - NOT WotLK 3.3.5a, NOT Classic Era, NOT plain retail: AddOn access to combat data is restricted (secret values, no combat log)
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
-- `services/` holds programs that run outside the game: `services/forever-market-feed` (Python, stdlib only) reads the auction house from the Battle.net API (namespace `dynamic-forever-{region}`, `/data/wow/ruleset/{id}/auctions/{house}` + `/commodities`) and writes the load-on-demand AddOn `ForeverMarket_Feed` straight into the game folder (generated, not in the repo, never synced); its port of `scan/Diff.lua` / `FM.FinalizeSnapshot` must stay in step with ForeverMarket's record format; in server mode `server.py` collects into PostgreSQL on the shared host `matejkadlec-cz1` (tenant `fmf-deploy`, API `https://market.matejkadlec.cz/v1/`) and the PC pulls from it; `.github/workflows/market-feed.yml` deploys master when `services/forever-market-feed/**` or the workflow itself changes; the service README's Server section documents the tenant, secrets, deploys, backups and restore, and must be kept current with `compose.yml` and `deploy/`
+- `services/` holds programs that run outside the game: `services/forever-market-feed` feeds ForeverMarket from the Battle.net API and has a deployed server part (see its guide)
 - There is no copy of the Blizzard UI source in this repository
+
+## Guide Map
+
+This file holds the rules for the whole repository. Before changing a subtree, also read the nearest nested guide; a nested guide adds rules for its subtree and never weakens this file.
+
+| Guide | Holds |
+| ----- | ----- |
+| [`addons/AGENTS.md`](addons/AGENTS.md) | First-party AddOns: naming and `.toc`, chat messages, settings panels, slash commands |
+| [`addons/ForeverMarket/AGENTS.md`](addons/ForeverMarket/AGENTS.md) | ForeverMarket: feature inventory, `/fm` commands, data, coupling with the feed |
+| [`backports/AGENTS.md`](backports/AGENTS.md) | Backported AddOns: rules and the port details of Quartz and Skada |
+| [`services/forever-market-feed/AGENTS.md`](services/forever-market-feed/AGENTS.md) | The feed service: what it is, checks, deploy, documentation duties |
+| [`docs/AGENTS.md`](docs/AGENTS.md) | Rules for the documents in `docs/`; index in [`docs/README.md`](docs/README.md) |
+
+- [`SKILLS.md`](SKILLS.md) describes the reusable workflows
+- [`CLAUDE.md`](CLAUDE.md) imports this file and adds what only Claude Code sessions need; the shared Claude Code configuration (hooks) is versioned in `.claude/`
+- Agent guides (`AGENTS.md`) inside an AddOn folder are not AddOn files: they are not synced into the game and need no version bump
 
 ---
 
@@ -20,30 +36,7 @@
   - API documentation: `Interface/AddOns/Blizzard_APIDocumentationGenerated/` (functions, events, secret value flags, restrictions)
   - Camelot overrides: `Camelot/` folders and `[Game]` entries in Blizzard `.toc` files take precedence over `Mainline/`
 - Read `docs/forever-api-notes.md` before writing code, it lists verified Forever-specific behavior
-- IMPORTANT: Keep this file and `README.md` updated when AddOns are added, removed, renamed, backported, or when user-facing behavior, slash commands, settings, installation/sync behavior, screenshots, or documentation-relevant details change
-
-## Communication Rules
-
-- When making code or file changes, summarize the changes you did at the end of the response
-  - Only mention core/bigger changes (for smaller changes overall, mention the small change)
-  - Do not include a summary when only answering a question and making no changes to any files
-    (but if even one change was done to ANY file, then include it)
-- AUTOMATIC SYNC (VERY IMPORTANT): at the end of EVERY change to AddOn files inside `addons/` or `backports/`, sync the changed AddOns into the game yourself, without asking and before replying to the user
-  - The user expects this on every edit, also for small fixes; never let the in-game copies lag behind the repository
-  - Run `scripts/sync-addons.sh <AddOnName> [...]` (without arguments it syncs every AddOn)
-  - The script loads developer-specific paths from `.env.sync-addons`
-  - The template file `.env.sync-addons.example` shows the required variables
-  - If `.env.sync-addons` is missing, create it from the template with the default path on the maintainer's machine, `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"` (WSL), but only after checking that this folder exists; otherwise do not create it and use the fallback below or report that the sync is unavailable
-  - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it
-  - Syncing never deletes AddOn folders: after an AddOn is renamed or removed, delete its old folder from the game's AddOns folder too (ask for delete permission if needed), otherwise the old copy keeps loading next to the new one
-  - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder (`C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`), copy the changed AddOn folders there instead and verify the copies
-  - The Git hooks in `.githooks/` are an optional extra for manual work, they do not replace this rule
-- After syncing changed addon files, tell the user what was updated and whether `/reload` or a full restart is needed
-  - If sync succeeds: "I updated {AddOn Name} for you. Please {run "/reload"}/{restart the game} for these changes to take effect in-game."
-  - If sync fails or is unavailable: explain that the sync did not complete and tell the user to update the AddOn manually
-  - Use **restart the game** when a `.toc` file changed, a new AddOn was added, or Lua/XML files were added/removed
-  - Use **run "/reload"** only for changes where a UI reload is enough
-  - Whole message bold
+- IMPORTANT: Keep this file, the nested guides and `README.md` updated when AddOns are added, removed, renamed, backported, or when user-facing behavior, slash commands, settings, installation/sync behavior, screenshots, or documentation-relevant details change
 
 ### Interpretation Rules
 
@@ -54,9 +47,17 @@
   - `HasRestrictions` → only call it from user actions (clicks) and never in combat
 - Retail API exists on Forever, retail **game data** does not (spell IDs, talents, creature types are vanilla)
 
----
+### API Safety Rules
 
-## Allowed Sources (priority order)
+- NEVER hallucinate API functions
+- NEVER assume an API works on Forever just because it exists on retail; check secret value flags and restrictions
+- NEVER assume Classic Era API (`GetTrackingTexture`, `CombatLogGetCurrentEventInfo`, `UnitAura`, ...) exists
+- If unsure:
+  - search the `forever` branch of wow-ui-source
+  - search AddOns with official Forever support (e.g. https://github.com/Questie/Questie)
+  - if not found → say it's unsupported
+
+### Allowed Sources (priority order)
 
 1. `forever` branch of https://github.com/Gethe/wow-ui-source (PRIMARY, most reliable)
 2. `docs/forever-api-notes.md` in this repository
@@ -68,6 +69,8 @@
 
 ## Coding Rules
 
+These apply to all Lua in `addons/` and `backports/`.
+
 - Prefer **existing patterns** from Blizzard's FrameXML over inventing new solutions
 - Reuse Blizzard-style structures (frames, events, handlers, mixins)
 - Avoid unnecessary abstractions
@@ -76,6 +79,7 @@
 - Add simple yet descriptive one line comments to the code
 - Never write fields onto Blizzard frames that handle secret data and never replace Blizzard functions; use `hooksecurefunc` and `HookScript` (see `docs/forever-api-notes.md`, Taint)
 - Every value that can be secret is checked with `issecretvalue` before it is compared or used in math
+- Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
 
 ---
 
@@ -89,126 +93,40 @@
 | ForeverTrackingAid | FTA | `/fta` | Hunter tracking switcher by target creature type (renamed from ForeverTracking `/ftr` in 2.0.0); Hunters only; settings panel `Tracking Aid` |
 | ForeverRangeIndicator | FRI | `/fri` | Colored marker above the target's nameplate (Plater or Blizzard) for Auto Shot range: in range, close to min/max range, too close, too far; shape/size/offset/colors configurable; embeds LibRangeCheck-3.0 (MIT); Hunters only; settings panel `Range Indicator` |
 | ForeverHawkTimer | FHT | `/fht` | Countdown bars for Summon Hawk (up to 2 hawks, 18 s each) from the player's `UNIT_SPELLCAST_SUCCEEDED`; moved in Edit Mode (own overlay on the `EditMode.Enter`/`Exit` callbacks, snaps to the screen's horizontal center within Blizzard's magnetism range when `Snap to Elements` is on), width/height/color/icon configurable; Hunters only; settings panel `Hawk Timer` |
-| ForeverMarket | FM | `/fm` | Auction House logger and market table: deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales, sniper `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget), market table `/fm` or key `U` (`Bindings.xml` under the `Jim's Forever AddOns` keybinding category, `U` given once per binding set; sniper binding without a key) (tabs Picks / Favorites / Materials, Craft / Vendor / Flip, Profit (1.15: graph of the AH result only = the AH's money + items bought there still held at the usual AH price and running deposits, Daily / Weekly / Monthly dots, hover = date with the AH result "since <start of tracking>" small and grey in the corner, change and % (of what was spent on the AH by the dot + the result before), top 3 of sold / bought / real losses, Shift for all; readings `R.worth`, purchases kept a year, invoices and posts 10000 lines, mail money booked when read, only the span all logs cover counts), Learn (every recipe still to learn) / Farm from Questie drop data and its own farm log; Shift-click headers for multi-column sort; right-click menu Favorize / Ignore / Track <NPC> = TomTom arrow to the vendor or teacher, only where there is one, else the light blue, unclickable "Recipe on AH" for a recipe sold only as a pattern there (1.16); Picks with Expected 8h / 24h, "% to invest", "Ignore vendor"; short headers PPG / PPH / Min. price / On AH / C/8h / C/24h explained on hover; 1.16 replaced the one "Circ. 12h" column with C/8h and C/24h, the same measured rate over both listing durations), item tooltip cost section (Cost / Craft cost: now and what you paid from its purchase log; Sell at least: 8h / 24h listing with measured deposits; "-" without data; 1.16 dropped its own "Market ..." line, the AH price is Auctionator's `Auction` line, which ForeverMarket adds itself in the same format where Auctionator leaves none: not installed, auction tooltips off, or skipped (bound items, item info not cached yet); never on bind on pickup or quest items (`FM.NeverSellable`); priced from `FM.FreshUnitPrice`, the ladder the Cost section uses), Auctionator price feed (every refresh of our data writes the lowest price and quantity per item ID into Auctionator's database: deep scans, Battle.net feed imports and item searches, 1.16, so its `Auction` line never disagrees with ours); SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `tools/` holds Claude's analysis script and the Battle.net API probe; settings panel `Market`; details in `addons/ForeverMarket/README.md` |
+| ForeverMarket | FM | `/fm` | Auction House logger and market table (deep scans, your posts and sales, sniper, market table on key `U`, item tooltip cost section, Auctionator price export); SavedVariables `ForeverMarketDB`; settings panel `Market`; full inventory in [`addons/ForeverMarket/AGENTS.md`](addons/ForeverMarket/AGENTS.md) |
 
 ### Backported AddOns (`backports/`)
 
 | AddOn | Slash command | Notes |
 | ----- | ------------- | ----- |
-| Quartz | `/quartz`, `/q3` | Quartz 3.7.9 cast bars ported to Forever; Swing module rewritten on `PLAYER_SWING` with an Auto Shot wind-up zone; Target, Focus, Buff, Interrupt and EnemyCasts disable themselves when the client hides their data |
-| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based) from the official package without its dev files (AGENTS.md, API.md, generate-version.py), LF line endings; `Skada_Camelot.toc`/`Skada_Forever.toc` are what Forever loads and must stay identical; port changes: native resets within 2 s of another reset are skipped (`NativeAPI.lua`, `Skada.lua`), the media picker's search box, rows and title fit the picker (`Settings.lua`), in combat secret numbers are abbreviated with `AbbreviateNumbers` after a plain-number format check (`Skada.lua`), ranks are added to secret names with `FontString:SetFormattedText` (`BarDisplay.lua`) and percentages come from a hidden 100 unit wide StatusBar that is used only after a self-test with plain numbers (`SecretValueHelper.lua`, `ModuleBase.lua`, `NativeAPI.lua`); `/skada debug` before the first fight of a session prints both self-test results; totals still get condensed when only small rates fail the format check; `GetSetTotal` returns the secret session total in combat instead of the first source's amount (`ModuleBase.lua`); version `v2.6.2-forever3`, bump it in all three tocs (the hook only checks `Skada.toc`); `X-Curse-Project-ID`/`X-Wago-ID` were removed so AddOn managers do not replace the port |
+| Quartz | `/quartz`, `/q3` | Quartz 3.7.9 cast bars ported to Forever; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
+| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based), version `v2.6.2-forever3`; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
 
 ---
 
-## Backported AddOn Rules
+## Communication Rules
 
-- Treat `backports/` as separate from first-party `addons/`
-- Backported AddOns are third-party AddOns being fixed for WoW: Forever compatibility
-- Keep fixes conservative and focused on compatibility, bug fixes, and robustness
-- Preserve the original AddOn name, folder name, slash commands, chat style, and user-facing behavior unless a bug requires changing them
-- Do not apply first-party naming, shortname, slash command, or chat formatting rules to `backports/` unless the backported AddOn already follows them
-- Do not move backported AddOns into `addons/` or make first-party AddOns depend on them
-- Respect the original license; for GPL AddOns mark every modified file with a one line `-- Modified ... for the unofficial WoW: Forever port: ...` comment below the license header
-- When adding or updating a backported AddOn `.toc`, keep original attribution and mark the backport:
-  - `## Author: Original Author (backported by Matej Kadlec)`
-  - `## X-Repository: https://github.com/matejkadlec/forever-addons`
-- Document each maintained backported AddOn in the README under `Backported AddOns`
-
----
-
-## Naming and `.toc` Rules
-
-- First-party AddOns are named `Forever{AddonName}`, for example `ForeverTweaks` or `ForeverTrackingAid`; the name part does not have to be two words
-- Each AddOn picks a unique three letter shortname starting with `F` (used for the chat prefix and the slash command)
-- Each AddOn is fully standalone, no cross-AddOn dependencies
-- Required `.toc` fields for first-party AddOns:
-  ```ini
-  ## Interface: 16001
-  ## Title: |cFFFF8000Forever|r {Addon Name}
-  ## Notes: One sentence description.
-  ## Category: Jim's Forever AddOns
-  ## IconTexture: Interface\Icons\{IconName}
-  ## Author: Matej Kadlec (https://github.com/matejkadlec)
-  ## Version: 1.0.0
-  ## X-Repository: https://github.com/matejkadlec/forever-addons
-  ## SavedVariables: Forever{AddonName}Settings
-  ```
-  - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name, `ForeverMarket` uses `ForeverMarketDB` (it stores market data, not only settings)
-  - `## Category: Jim's Forever AddOns` groups all first-party AddOns under one collapsible header in the AddOn list (`Blizzard_AddOnList/AddonList.lua`, the header's right-click menu enables/disables the whole category); keep the exact same text in every AddOn
-  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`
-- Key bindings go in the AddOn's `Bindings.xml` (the client loads it from the AddOn folder, it is not listed in the `.toc`) with `category="Jim's Forever AddOns"`, names in `BINDING_NAME_*` globals
-- Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
-- Update `## Interface:` when the WoW: Forever client changes its interface version
-
----
-
-## WoW Chat Message Rules
-
-- These rules apply to first-party Forever AddOns in `addons/`
-- Backported AddOns in `backports/` keep their original chat/message style unless intentionally fixed
-- All addon chat messages use a `[SHORTNAME]` prefix
-- Prefix `[SHORTNAME]` is **all orange** (`|cFFFF8000`)
-  - Format: `|cFFFF8000[PREFIX]`
-- Regular message text: **yellow** (`|cFFFFFF00`)
-- Important values (names, creature types, numbers): **orange** (`|cFFFF8000`)
-- Error text: **red** (`|cFFFF0000`) with same orange prefix, body starts with `Failed to ...`
-- Messages are built by a `FormatMessage(prefix, msg, value)` / `FormatErrorMessage(prefix, msg)` pair (ForeverTweaks wraps them with a fixed prefix as `FTW.FormatMessage(msg, value)` / `FTW.Print`)
-- Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.2.3 loaded`
-  - The version is read from the `.toc` via `C_AddOns.GetAddOnMetadata`
-  - AddOns that only activate for some characters (ForeverTrackingAid, ForeverRangeIndicator, ForeverHawkTimer: Hunters) print it only when active
-
----
-
-## Settings Panel Rules
-
-- First-party AddOns with settings register under `Esc -> Options -> AddOns -> Jim's Forever AddOns` (same name as the AddOn list category)
-- The shared `Jim's Forever AddOns` parent category is created by whichever AddOn loads first (global frame `JimsForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
-- Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking Aid`, `Range Indicator` or `Hawk Timer`
-- Panel layout follows the warmane-addons style: large title `Forever {Addon Name}` with the version, `User Settings` header, enable checkbox first, indented child options below it
-- Everything that can be set with a slash command must also be settable in the panel
-- Child options are greyed out while the AddOn is disabled
-- Implement `panel.OnRefresh` and `panel.OnDefault` (called by the Settings panel's "Restore All Defaults")
-- Canvas pages get no Blizzard `Defaults` button; panels with more than the enable checkbox add their own `Defaults` button (top right)
-
----
-
-## Slash Command Rules
-
-- These rules apply to first-party Forever AddOns in `addons/` that expose slash commands
-- Backported AddOns in `backports/` keep their original slash commands and parser behavior unless the user asks to normalize them
-- Register using Blizzard pattern: `SLASH_NAME1 = "/cmd"` + `SlashCmdList["NAME"]`
-- Command name is the AddOn shortname in lowercase (e.g. `/ftw`, `/fta`, `/fri`, `/fht`); no extra aliases, short ones like `/ft` are ambiguous between Forever AddOns
-- Typing `/cmd` with no arguments shows help (list of available subcommands)
-- `help` subcommand also shows the same help output
-- All first-party slash commands include `on` and `off` subcommands that enable/disable the AddOn without requiring a UI reload
-- Keep slash commands small; setting subcommands are fine when they mirror settings panel options (ForeverTweaks)
-- In help output, `on` and `off` are listed immediately after the bare `/cmd` entry, `help` is listed last
-- Help format: one line per subcommand, indented with two spaces:
-  - `  |cFFFF8000/cmd subcommand |cFFFFFF00- Description of the subcommand|r`
-- Unknown subcommand → error: `"find subcommand 'X'. Use /cmd help to see available commands"`
-- Wrong argument count → error: `"execute command. Wrong number of arguments for 'X' (expected N)"`
-- Invalid argument value → error: `"execute command. Invalid value 'V' for 'X' (expected ...)"`
-- Error messages use `FormatErrorMessage` (orange prefix, red body)
-- Input is trimmed and lowercased before command lookup
-- Define subcommands in a `SUBCOMMANDS` table with `handler` and `args` (or `minArgs`/`maxArgs`) fields
-- Current first-party slash commands:
-  - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
-  - `/fta`: bare command behaves like `help`; `on`, `off`, `help`
-  - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
-  - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
-  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
-
----
-
-## API Safety Rules
-
-- NEVER hallucinate API functions
-- NEVER assume an API works on Forever just because it exists on retail; check secret value flags and restrictions
-- NEVER assume Classic Era API (`GetTrackingTexture`, `CombatLogGetCurrentEventInfo`, `UnitAura`, ...) exists
-- If unsure:
-  - search the `forever` branch of wow-ui-source
-  - search AddOns with official Forever support (e.g. https://github.com/Questie/Questie)
-  - if not found → say it's unsupported
+- When making code or file changes, summarize the changes you did at the end of the response
+  - Only mention core/bigger changes (for smaller changes overall, mention the small change)
+  - Do not include a summary when only answering a question and making no changes to any files
+    (but if even one change was done to ANY file, then include it)
+- AUTOMATIC SYNC (VERY IMPORTANT): at the end of EVERY change to AddOn files inside `addons/` or `backports/`, sync the changed AddOns into the game yourself, without asking and before replying to the user
+  - The user expects this on every edit, also for small fixes; never let the in-game copies lag behind the repository
+  - Run `scripts/sync-addons.sh <AddOnName> [...]` (without arguments it syncs every AddOn)
+  - The script loads developer-specific paths from `.env.sync-addons`
+    - A worktree has no `.env.sync-addons` (it is ignored by Git): run the worktree's script with the main checkout's file, `ENV_FILE=<main checkout>/.env.sync-addons scripts/sync-addons.sh <AddOnName>`
+  - The template file `.env.sync-addons.example` shows the required variables
+  - If `.env.sync-addons` is missing, create it from the template with the default path on the maintainer's machine, `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"` (WSL), but only after checking that this folder exists; otherwise do not create it and use the fallback below or report that the sync is unavailable
+  - The script syncs each top-level AddOn folder in `addons/` and `backports/` that contains a `.toc` file, including all nested files and subfolders inside it (except agent guides, `AGENTS.md`)
+  - Syncing never deletes AddOn folders: after an AddOn is renamed or removed, delete its old folder from the game's AddOns folder too (ask for delete permission if needed), otherwise the old copy keeps loading next to the new one
+  - If the script cannot run in your environment (for example a remote agent without the user's file system) but you have another way to write into the user's `_forever_/Interface/AddOns` folder (`C:\Program Files (x86)\World of Warcraft\_forever_\Interface\AddOns`), copy the changed AddOn folders there instead and verify the copies
+  - The Git hooks in `.githooks/` are an optional extra for manual work, they do not replace this rule
+- After syncing changed addon files, tell the user what was updated and whether `/reload` or a full restart is needed
+  - If sync succeeds: "I updated {AddOn Name} for you. Please {run "/reload"}/{restart the game} for these changes to take effect in-game."
+  - If sync fails or is unavailable: explain that the sync did not complete and tell the user to update the AddOn manually
+  - Use **restart the game** when a `.toc` file changed, a new AddOn was added, or Lua/XML files were added/removed
+  - Use **run "/reload"** only for changes where a UI reload is enough
+  - Whole message bold
 
 ---
 
@@ -221,20 +139,40 @@ When implementing features:
 3. Adapt minimally
 4. Keep compatibility over elegance
 5. Bump the `.toc` version of every changed AddOn
-6. Update `AGENTS.md` and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
-7. Sync the changed AddOns automatically (see Communication Rules)
-8. Ship it through a pull request (see Pull Requests and Code Review)
+6. Update `AGENTS.md` (this file or the nested guide that holds the topic) and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
+7. Check the changed files: `luac5.1 -p <file>` for every changed Lua file (syntax in the Lua 5.1 dialect); for `services/`, the checks in its guide
+8. Sync the changed AddOns automatically (see Communication Rules)
+9. Ship it through a pull request (see Pull Requests and Code Review)
 
 ---
 
 ## Issue Tracking (Jira)
 
 - All improvements, bugs and analyses go to Jira, in English: project **FRV** "Forever AddOns" on `envelopment.atlassian.net` (board: https://envelopment.atlassian.net/jira/software/projects/FRV/boards/100/backlog); the Atlassian MCP tools reach it
-- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket)
+- Jira is not reachable at the start of a session: in every session the Atlassian tools attach only after a few minutes
+  - When a task needs Jira and the tools are missing, wait and check again every minute, and start the Jira work as soon as they are there
+  - Never report Jira as unavailable and never skip or postpone the Jira step because of a first failed check; work that needs no Jira can go on while waiting
+  - Only when the tools are still missing after 10 checks (10 minutes), tell the maintainer
+- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket; `tooling` for work on the repository itself)
 - Work types: Epic (a larger goal), Task (a change or an analysis; analyses start with `Analysis:`), Bug, Subtask; label `fable-5.2` = must be done with the Fable 5.2 model
 - Statuses: To Do -> In Progress (work started) -> In Review (pull request open, under review) -> Done (merged)
 - Work on a ticket happens on a branch named after it (for example `frv-13-table-batch`); commit messages and the pull request title start with the key (`FRV-13: ...`), the pull request links the ticket
 - When the maintainer asks for something in the chat, file it as a ticket first (or with the work) and keep it in step with the pull request
+
+---
+
+## Branches and Worktrees
+
+- Every piece of work happens in its own git worktree, never in the main checkout: the main checkout belongs to the maintainer and to whatever he is testing in the game
+  - Location: `../forever-addons-worktrees/<branch>`, outside the repository
+  - New work: `git fetch origin && git worktree add -b <branch> ../forever-addons-worktrees/<branch> origin/master`
+  - Existing branch: `git worktree add ../forever-addons-worktrees/<branch> <branch>`; a branch lives in only one worktree, so when `git worktree list` shows it checked out somewhere, work there (and tell the maintainer when that is the main checkout)
+  - Run every command, check, sync and commit inside the worktree
+- Before creating a branch, look for existing work on the same task (`git branch -a`, `git worktree list`, open pull requests) and continue it instead of starting a parallel one
+- Never switch, reset, stash or clean a checkout that holds uncommitted changes you did not make, and never discard work you did not create
+- Stage explicit paths and read `git diff --staged` before each commit; never commit `.env` files (only the `.example` templates), logs or secrets; let the hooks run, never `--no-verify`
+- Push only your own branch; force-push only your own branch and only with `--force-with-lease`; never force-push `master`
+- After the merge, remove only what you created: `git worktree remove <path>` (never `--force` over uncommitted changes), `git branch -d <branch>`, `git worktree prune`
 
 ---
 

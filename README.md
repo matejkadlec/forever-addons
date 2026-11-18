@@ -223,7 +223,9 @@ This project is under active development as of November 2026.
 
 ### 🔄️ Development Sync
 
-AI agents working on this repository sync every changed AddOn into the game automatically at the end of each change (see `AGENTS.md`). If you are developing the AddOns yourself, you can sync them into your WoW: Forever client with the helper script:
+AI agents working on this repository follow `AGENTS.md` (the shared rules for the whole repository) and the nested `AGENTS.md` guide of the folder they change (`addons/`, `addons/ForeverMarket/`, `backports/`, `services/forever-market-feed/`, `docs/`). `CLAUDE.md` imports `AGENTS.md` and adds the Claude Code specifics, `SKILLS.md` lists the workflows, `docs/README.md` indexes the documentation, and `.claude/` holds the shared Claude Code settings (a hook that checks every edited Lua file with `luac5.1 -p`). Agents sync every changed AddOn into the game automatically at the end of each change.
+
+If you are developing the AddOns yourself, you can sync them into your WoW: Forever client with the helper script:
 
 1. Copy `.env.sync-addons.example` to `.env.sync-addons`
 2. Set `SYNC_ADDONS_DEST_DIR` to the absolute path of your `_forever_/Interface/AddOns` folder, in quotes
@@ -232,6 +234,8 @@ AI agents working on this repository sync every changed AddOn into the game auto
    - Set it to `true` if you want the script to try installing `rsync` automatically with `apt-get`
    - Set it to `false` if you prefer the script to skip installation attempts and use `cp` fallback when needed
 4. Run `./scripts/sync-addons.sh` to sync every AddOn from `addons/` and `backports/`, or `./scripts/sync-addons.sh ForeverTweaks Quartz` to sync only some of them
+   - `AGENTS.md` agent guides inside an AddOn folder are not copied into the game
+   - From a git worktree, point the script at your main checkout's file: `ENV_FILE=/path/to/forever-addons/.env.sync-addons ./scripts/sync-addons.sh`
 
 Optional variables:
 
@@ -240,7 +244,7 @@ Optional variables:
 
 Optional Git hooks (`git config core.hooksPath .githooks`):
 
-- `pre-commit` rejects commits that change an AddOn without bumping its `## Version:`
+- `pre-commit` rejects commits that change an AddOn without bumping its `## Version:` (an `AGENTS.md` agent guide inside an AddOn folder does not count)
 - `post-commit`, `post-merge`, `post-rewrite` and `post-checkout` automatically sync the AddOns changed by a commit, a pull (merge or rebase) or a branch switch (only when `.env.sync-addons` exists)
   - AddOns that were removed or renamed in the repository have to be deleted from your AddOns folder manually, the hooks print a reminder
 
