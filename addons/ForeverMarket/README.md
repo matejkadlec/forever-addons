@@ -52,7 +52,7 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
     8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
     replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
     `R.deposits[key][2|3] = { rate, floor }`)
-* Auctionator's price database (`scan/Auctionator.lua`, setting "Save deep scan prices into Auctionator too"):
+* Auctionator's price database (`scan/Auctionator.lua`, setting "Keep Auctionator's prices fed from our data"):
   every refresh of our data writes the lowest unit price and the quantity per item ID into it the way
   Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and full item searches (1.16;
   a search the AH did not finish may not hold the cheapest unit, so it is skipped rather than guessed).

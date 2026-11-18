@@ -145,8 +145,13 @@ local function Import(data)
         FM.ResetSignatures()
         FM.dataVersion = FM.dataVersion + 1
         FM.feedImporting = nil
-        -- the feed is a refresh of our data like a deep scan: Auctionator's prices follow it
-        FM.FeedAuctionatorKeys(touched)
+        -- the feed is a refresh of our data like a deep scan: Auctionator's prices follow it.
+        -- A frame later, because Auctionator builds its database in its own PLAYER_LOGIN handler
+        -- and a small import still runs inside ours.
+        C_Timer.After(0, function()
+            local ok, err = pcall(FM.FeedAuctionatorKeys, touched)
+            if not ok and geterrorhandler then geterrorhandler()(err) end
+        end)
         if #snapshots > 0 then
             FM.Print(string.format("Battle.net feed: %d snapshots imported, newest %s old, %s item records%s",
                 #snapshots, FM.FormatAge(FM.Now() - snapshots[#snapshots].t), FM.FormatCount(added),

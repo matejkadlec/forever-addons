@@ -143,8 +143,8 @@ function FM.FeedAuctionatorKeys(keys, onDone)
     end)
 end
 
--- One item, written right away: a full AH search of it is the freshest price we have. A nil quantity
--- leaves the one Auctionator has (it keeps the largest it saw that day) and writes only the price.
+-- One item, written right away: a full AH search of it is the freshest price we have. Auctionator
+-- keeps the largest quantity it saw that day, so a smaller one here never lowers what it has.
 function FM.FeedAuctionatorItem(key, minPrice, qty)
     local db = PriceDB()
     local id = db and FM.ItemIDFromKey(key)
