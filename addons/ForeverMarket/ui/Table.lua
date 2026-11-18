@@ -766,7 +766,9 @@ end
 local function DepNote(row)
     if not row.depUnit then return "" end
     local hours = row.depHours or 8
-    local why = hours == 8 and "100+ circulate in 24h" or "under 100 circulate in 24h"
+    -- 24h also when the circulation is not known yet (too few scans)
+    local why = hours == 8 and "100+ circulate in 24h"
+        or (type(row.sold12) == "number" and "under 100 circulate in 24h" or "circulation not known yet")
     return GREY .. string_format(", incl. a lost %dh deposit (", hours) .. "|r" .. Money(row.depUnit)
         .. GREY .. " per unit; " .. why .. ")|r"
 end
