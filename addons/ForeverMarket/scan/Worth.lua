@@ -6,7 +6,8 @@ local _, FM = ...
 -- overpaying, selling under cost, the AH cut and lost deposits make the AH result fall. Loot, quests, vendors,
 -- trainers and the like don't count: an item you didn't buy on the AH counts when it sells there.
 --
--- R.worth[char]   = { "t,gold,held,hseen", ... }  t = FM.Stamp minutes, one line per hour (its last reading);
+-- R.worth[char]   = { "t,gold,held,hseen", ... }  t = FM.Stamp minutes, about one line per hour (its last reading;
+--   the first reading that saw something new stays as its own line);
 --   held = the units of each item bought on the AH (purchases of a year and won auctions, less your sales of it)
 --   that you still hold (bags, bank, mailbox, purchases still in the mail, your auctions) at the usual AH price,
 --   plus the deposits of your running auctions and the money of sold ones still on its way by mail;
@@ -402,11 +403,13 @@ function FM.RecordWorth(force)
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
     local line = FM.Stamp(now) .. "," .. Enc(gold) .. "," .. Enc(held) .. "," .. seen
-    -- one line per hour: a later reading of the same hour that saw the same replaces it (one that saw more, e.g.
-    -- the first look at the mailbox, is kept apart so the steps before it still count)
-    local last = list[#list]
+    -- one line per hour: a later reading of the same hour replaces it when it and the one before it saw the same;
+    -- the first reading that saw something new (e.g. the first look at the mailbox) is kept as the anchor of the
+    -- steps after it
+    local last, prev = list[#list], list[#list - 1]
     local lastT = last and FM.Unstamp(last:match("^(%w+),"))
-    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and last:match(",([^,]*)$") == seen then
+    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and last:match(",([^,]*)$") == seen
+        and (not prev or prev:match(",([^,]*)$") == seen) then
         list[#list] = line
     else
         FM.CapList(list, WORTH_MAX)

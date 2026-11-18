@@ -38,7 +38,8 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
       older) are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when
       every level is that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap
       units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
-    * **you paid**: your latest purchases of the last 30 days covering your units (`R.buys` "t,key,qty,total", kept a year, recorded from
+    * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
+      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; recorded from
       any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
       `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
       looted or skinned units are not counted: never bought = "-"
@@ -308,8 +309,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut`: on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
-* `worth[char]` readings `t,gold,held,seen` (one per hour, `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]`
-  `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
+* `worth[char]` readings `t,gold,held,seen` (about one per hour, the first that saw something new kept apart;
+  `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
+  `t|money|id:count,...` as last seen
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`
