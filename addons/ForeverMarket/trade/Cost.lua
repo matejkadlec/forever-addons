@@ -321,7 +321,7 @@ end
 --   now    materials price per unit now (a crafted item: its materials; anything else: buying it), from the
 --          freshest prices: your last AH search of an item when it is newer than the latest snapshot
 --   paid   what those materials cost you per unit (your purchases; vendor materials at the vendor), nil = no data
---   plural true when the price is of 2+ different materials (a crafted item), else the item is its own material
+--   crafted true when now / paid are a learned craft's materials (the tooltip shows "Craft cost")
 --   min8 / min24  lowest price per unit for n units listed for 8h / 24h: (latest AH price x n + deposit) / 0.95 n
 function FM.CostInfo(key)
     local id = FM.ItemIDFromKey(key)
@@ -354,7 +354,6 @@ function FM.CostInfo(key)
         end
         info.paid = sum and sum / makes or nil
         info.crafted = true
-        info.plural = #craft.craft.reagents > 1
     else
         info.now = BuyNow(key, n)
         info.paid = paid
