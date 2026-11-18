@@ -26,12 +26,15 @@ declare -A addon_names=()
 declare -A removed_names=()
 while IFS= read -r -d '' file; do
     case "$file" in
-        # agent guide files at an AddOn's top level are not AddOn files and are never synced
-        addons/*/AGENTS.md|addons/*/CLAUDE.md|backports/*/AGENTS.md|backports/*/CLAUDE.md) ;;
         addons/*/*|backports/*/*)
             group="${file%%/*}"
             rest="${file#*/}"
             name="${rest%%/*}"
+            # agent guide files at an AddOn's top level are not AddOn files and are never synced
+            # (plain string compare, a case pattern's * would also match deeper paths)
+            if [[ "$file" == "$group/$name/AGENTS.md" || "$file" == "$group/$name/CLAUDE.md" ]]; then
+                continue
+            fi
             if [[ -d "$REPO_ROOT/$group/$name" ]]; then
                 addon_names["$name"]=1
             else

@@ -12,12 +12,16 @@ fi
 declare -A addon_roots=()
 while IFS= read -r -d '' file; do
     case "$file" in
-        # agent guide files at an AddOn's top level are not AddOn files: no version bump needed
-        addons/*/AGENTS.md|addons/*/CLAUDE.md|backports/*/AGENTS.md|backports/*/CLAUDE.md) ;;
         addons/*/*|backports/*/*)
             group="${file%%/*}"
             rest="${file#*/}"
-            addon_roots["$group/${rest%%/*}"]=1
+            name="${rest%%/*}"
+            # agent guide files at an AddOn's top level are not AddOn files: no version bump needed
+            # (plain string compare, a case pattern's * would also match deeper paths)
+            if [[ "$file" == "$group/$name/AGENTS.md" || "$file" == "$group/$name/CLAUDE.md" ]]; then
+                continue
+            fi
+            addon_roots["$group/$name"]=1
             ;;
     esac
 done < <(git diff --cached --name-only -z --diff-filter=ACMR)
