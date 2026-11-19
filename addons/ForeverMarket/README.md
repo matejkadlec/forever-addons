@@ -314,8 +314,13 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   default on at 50%). The `?` explains the rules. Both parts move together.
 * Runs only while the window is open at the AH: the sniped items are searched round robin with
   `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
-  AH throttle; pauses in combat, while a deep scan runs and while Blizzard shows a commodity's Buy or Sell page,
-  whose list and selection every search would reset). Units of other sellers at or under the price that fit
+  AH throttle; pauses in combat, while a deep scan runs, on Blizzard's commodity Sell page and on the Buy page of
+  an item you don't snipe: those pages read the results of their own item and reset on every new result, so a
+  search of another item would empty them). On the Buy page of a sniped item (1.17.2, before it paused there
+  too) only that item is searched, every 2 s (its list jumps to the top on every result), and its hits are
+  bought with the wheel like any other: the page itself never takes a quote, only its buy window does. Setting
+  or changing a snipe looks at the results the client already holds for the item, so its offers become a hit
+  without waiting for a search. Units of other sellers at or under the price that fit
   the budget become a hit (sound). Your own units are subtracted (`numOwnerItems`), like Blizzard's buy page
   does; units of your other characters count as offers (the server sells them like any other).
 * While sniping, the mouse wheel (up and down) is an override binding that clicks a hidden button, a hardware

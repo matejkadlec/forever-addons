@@ -12,6 +12,9 @@ local addonName, FM = ...
 --      budget and your gold; everything else is cancelled
 --   3. COMMODITY_PURCHASE_SUCCEEDED / COMMODITY_PURCHASE_FAILED end it
 -- Only one purchase is in flight at a time and a hit is used once; the next search finds what is left.
+-- While Blizzard shows the Buy page of a sniped commodity, only that item is searched (every search of another
+-- item would empty the page's list), every 2 s; on the Sell page and another item's Buy page sniping pauses.
+-- Setting a snipe looks at the results the client already holds for the item, so a hit needs no new search.
 -- The server's quotes and answers carry no item, so nothing new starts while an older one could still arrive:
 -- after a purchase that got no quote, after a confirm that got no answer, and while Blizzard's buy window is open
 -- (whose answers are never taken for ours). A quote under what the hit's cheapest units cost is not ours either.
@@ -47,6 +50,7 @@ local table_sort = table.sort
 local DEFAULT_PCT = 50
 local TICK = 0.1               -- seconds between two looks at the search queue
 local SEARCH_GAP = 0.65        -- at least this long between two searches (the AH allows 100 per minute)
+local PAGE_SEARCH_GAP = 2      -- on Blizzard's Buy page of a sniped item: its list jumps to the top on every search
 local RESULT_TIMEOUT = 3       -- a search without results in time is given up
 local HIT_MAX_AGE = 8          -- an older hit is not bought, the next search refreshes it
 local QUOTE_TIMEOUT = 5        -- the server's quote has to arrive within this
@@ -291,6 +295,17 @@ end
 FM.SnipeKind = Kind
 
 local CancelBuy -- defined below
+local Evaluate -- defined below
+
+-- Results of an item the client already holds (Blizzard's Buy page, an earlier search): evaluated right away.
+-- An old result is safe: the server's quote is checked against it before any gold leaves.
+local function EvaluateHeld(key)
+    local itemID = FM.ItemIDFromKey(key)
+    local ah = C_AuctionHouse
+    if not (S.active and itemID and ah and ah.GetNumCommoditySearchResults) then return end
+    local ok, n = pcall(ah.GetNumCommoditySearchResults, itemID)
+    if ok and IsNumber(n) and n > 0 then Evaluate(itemID) end
+end
 
 -- Add or update a snipe; pct nil keeps the item's saved % (new items start with the universal %)
 function FM.SnipeSet(key, price, pct)
@@ -306,6 +321,7 @@ function FM.SnipeSet(key, price, pct)
     if not IndexOf(s.list, key) then s.list[#s.list + 1] = key end
     S.hits[key] = nil -- an old hit was sized for the old price
     if S.buy and S.buy.key == key and S.buy.stage ~= "confirm" then CancelBuy() end
+    EvaluateHeld(key) -- the new price may already have offers in the results the client holds
     Refresh()
     return true
 end
@@ -351,10 +367,32 @@ local function BlizzardBuying()
     return type(ah) == "table" and Shown(ah.BuyDialog)
 end
 
--- Blizzard shows a commodity's buy or sell page: our searches would reset its list and selection
-local function BlizzardCommodityPage()
+-- The item Blizzard's commodity Buy page shows, nil while it is closed (only reads the page)
+local function BuyPageItem()
     local ah = _G.AuctionHouseFrame
-    return type(ah) == "table" and (Shown(ah.CommoditiesBuyFrame) or Shown(ah.CommoditiesSellFrame))
+    local page = type(ah) == "table" and ah.CommoditiesBuyFrame
+    if not Shown(page) then return nil end
+    local ok, itemID = false, nil
+    if type(page.GetItemID) == "function" then ok, itemID = pcall(page.GetItemID, page) end
+    if not (ok and IsNumber(itemID)) then
+        -- its item link is not cached yet: the price list's own item
+        local list = page.ItemList
+        itemID = type(list) == "table" and list.itemID or nil
+    end
+    if IsNumber(itemID) then return itemID end
+    return nil
+end
+
+-- Blizzard shows a commodity's Sell page, or the Buy page of an item that is not sniped: its list reads the
+-- results of its own item and resets on every new result, so our searches would empty it ("sell" / "buy")
+local function BlizzardPageInTheWay()
+    local ah = _G.AuctionHouseFrame
+    if type(ah) ~= "table" then return nil end
+    if Shown(ah.CommoditiesSellFrame) then return "sell" end
+    if not Shown(ah.CommoditiesBuyFrame) then return nil end
+    local itemID = BuyPageItem()
+    if itemID and FM.IsSniped(tostring(itemID)) then return nil end -- sniped there, see Tick
+    return "buy"
 end
 
 -- Why no purchase may start now (nil = it may)
@@ -440,17 +478,25 @@ local function Tick()
         return
     end
     ExpireHits()
-    if S.buy or InCombatLockdown() or DeepScanBusy() or BlizzardBuying() or BlizzardCommodityPage() then return end
+    if S.buy or InCombatLockdown() or DeepScanBusy() or BlizzardBuying() or BlizzardPageInTheWay() then return end
     local now = GetTime()
     if S.waiting and now - S.waiting.sent < RESULT_TIMEOUT then return end
     S.waiting = nil
-    if now - S.lastSent < SEARCH_GAP then return end
+    -- the Buy page of a sniped item: only that item (the page keeps it), and less often
+    local pageItem = BuyPageItem()
+    if now - S.lastSent < (pageItem and PAGE_SEARCH_GAP or SEARCH_GAP) then return end
     local ah = C_AuctionHouse
     if not (ah and ah.SendSearchQuery and ah.MakeItemKey) then return end
     if ah.IsThrottledMessageSystemReady and not ah.IsThrottledMessageSystemReady() then return end
     local b = Budget(true)
     if not b then return end
-    local key = NextKey(b)
+    local key
+    if pageItem then
+        local pageKey = tostring(pageItem)
+        if Searchable(pageKey, b) then key = pageKey end
+    else
+        key = NextKey(b)
+    end
     if key then SendSearch(key) end
 end
 
@@ -474,7 +520,7 @@ local function TakeUnits(rows, room)
 end
 
 -- Units of others at or under the price, cheapest first, as many as the gold left allows: the hit
-local function Evaluate(itemID)
+Evaluate = function(itemID)
     local key = tostring(itemID)
     if not FM.IsSniped(key) then return end
     local limit = Limit(key)
@@ -969,8 +1015,11 @@ function FM.SnipeStatus()
     local hold = HoldReason()
     if hold then return "Paused: " .. hold .. ".", 1, 0.5, 0.2 end
     if DeepScanBusy() then return "Paused while the deep scan runs.", 1, 0.82, 0 end
-    if BlizzardCommodityPage() then
-        return "Paused while the AH shows a commodity's Buy or Sell page. Go back to the item list.", 1, 0.82, 0
+    local page = BlizzardPageInTheWay()
+    if page == "sell" then
+        return "Paused while the AH shows a Sell page. Go back to the item list.", 1, 0.82, 0
+    elseif page == "buy" then
+        return "Paused while the AH shows the Buy page of an item you don't snipe. Go back to the item list.", 1, 0.82, 0
     end
     local hit = NewestHit()
     if hit then
@@ -1001,6 +1050,12 @@ function FM.SnipeStatus()
                 return "Offers at your price, but the gold limit left is too small for one unit.", 1, 0.5, 0.2
             end
         end
+    end
+    local pageItem = BuyPageItem()
+    if pageItem then
+        -- the Buy page of a sniped item: only that one is searched
+        return "Sniping " .. Name(tostring(pageItem)) .. " on its Buy page" .. (#list > 1 and
+            ". Go back to the item list for the others." or " ..."), 0.8, 0.8, 0.8
     end
     local waiting = S.waiting
     if waiting then return "Searching " .. Name(waiting.key) .. " ...", 0.8, 0.8, 0.8 end

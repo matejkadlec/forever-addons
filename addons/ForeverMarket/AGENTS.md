@@ -14,6 +14,7 @@ Auction House logger and market table.
 
 - **Scans:** deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales
 - **Sniper:** `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget)
+  - On Blizzard's Buy page of a sniped item it snipes that item only (1.17.2); on the Sell page and another item's Buy page it pauses (`BlizzardPageInTheWay`); setting a snipe evaluates the results the client already holds
 - **Market table:** `/fm` or key `U` (`Bindings.xml` under the `Jim's Forever AddOns` keybinding category, `U` given once per binding set; sniper binding without a key)
   - Tabs Picks / Favorites / Materials, Craft / Vendor / Flip, Profit, Learn (every recipe still to learn) / Farm from Questie drop data and its own farm log
   - Profit (1.15): graph of the AH result only = the AH's money + items bought there still held at the usual AH price and running deposits, Daily / Weekly / Monthly dots, hover = date with the AH result "since <start of tracking>" small and grey in the corner, change and % (of what was spent on the AH by the dot + the result before), top 3 of sold / bought / real losses, Shift for all; readings `R.worth`, purchases kept a year, invoices and posts 10000 lines, mail money booked when read, only the span all logs cover counts

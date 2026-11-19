@@ -280,7 +280,7 @@ end
 ---------------------------------------------------------------- help
 
 local HELP = {
-    "Sniping runs while this window is open at the Auction House. It searches your items one after another (it pauses in combat, during a deep scan and while the AH shows a commodity's Buy or Sell page).",
+    "Sniping runs while this window is open at the Auction House. It searches your items one after another (it pauses in combat, during a deep scan, on a Sell page and on the Buy page of an item you don't snipe; on a sniped item's Buy page it searches only that item).",
     "Scroll the mouse wheel (up or down) to buy: every wheel step buys the newest offer at or under an item's price. Keep the cursor off lists that scroll, for example over this window.",
     "Before gold leaves, the server's price is checked: never more than the offers you saw, never more than your price per unit, never more than your gold limit. Anything else is cancelled.",
     "Gold limit: a percent of your gold baseline, your gold when this window first opened after the daily reset (Reset budget sets a new one).",
