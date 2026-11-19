@@ -196,11 +196,14 @@ function FM.BuildOwnPool()
         end
         list[#list + 1] = { units = units, left = qty }
     end
-    local since = {}
+    local since, inList = {}, {}
     for char, snap in pairs(r.owned) do
         if type(snap) == "table" and snap.t then
             since[char] = snap.t
-            for _, e in pairs(ParseOwned(snap.list)) do
+            local aids = {}
+            inList[char] = aids
+            for aid, e in pairs(ParseOwned(snap.list)) do
+                aids[aid] = true
                 local qty = Dec(e.qty) or 1
                 local buyout = Dec(e.buyout) or 0
                 if e.status ~= "s" and buyout > 0 and EndsAt(snap.t, e) > now then
@@ -214,8 +217,11 @@ function FM.BuildOwnPool()
         local f = FM.Split(r.posts[i], ",")
         local t = FM.Unstamp(f[1])
         if not t or now - t > 2 * 86400 then break end
-        -- stamps have minute precision: a post of the same minute as the list may be in it already
-        if f[3] and (not since[f[2]] or t >= since[f[2]] - 60) then
+        -- stamps have minute precision: a post of the same minute as the list may be in it already, then its
+        -- auction ID tells (as in FM.OwnListings); counted twice, its second entry would take a neighbour's auction
+        local after = not since[f[2]] or t >= since[f[2]] - 60
+        if after and f[8] and inList[f[2]] and inList[f[2]][f[8]] then after = false end
+        if f[3] and after then
             local unit = Dec(f[5]) or 0
             if unit > 0 then add(f[3], { unit }, Dec(f[4]) or 1) end
         end

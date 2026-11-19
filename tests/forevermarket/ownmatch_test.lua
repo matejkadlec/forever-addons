@@ -142,3 +142,27 @@ H.test("own match: a deep scan's record counts your auction as yours and the nei
         }, "fingerprints" .. what)
     end
 end)
+
+-- Rule (FM.BuildOwnPool): a post of the minute the latest list of your auctions was read in counts once when that
+-- list already holds its auction (same auction ID); a second entry for it would take a neighbour's auction 1c off
+H.test("own pool: a post the latest auction list already holds is one entry, the neighbour stays unmarked", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Diff.lua", "scan/Snapshot.lua", "scan/Ledger.lua" })
+    FM.InitializeSavedData()
+    local nowMinutes = 400000
+    env.clock = FM.EPOCH + nowMinutes * 60
+    local r = FM.R()
+    -- the list was read 20 s into the minute the posts are stamped with; it holds auction 77 (200 at 9s 99c)
+    r.owned.Tester = { t = env.clock - 30 * 60 + 20,
+        list = table.concat({ B(77), "4304", B(200), B(999), "a", B(80000) }, ":") }
+    local function Post(aid, qty)
+        return table.concat({ B(nowMinutes - 30), "Tester", "4304", B(qty), B(999), "3", "c", B(aid) }, ",")
+    end
+    r.posts[1] = Post(77, 200) -- that auction: in the list already
+    r.posts[2] = Post(78, 5)   -- same minute, not in the list: posted after it was read
+    local pool = FM.BuildOwnPool()
+    H.eq(#pool["4304"], 2, "the list's 200 and the 5 posted after it")
+    H.eq(pool["4304"][1].left + pool["4304"][2].left, 205, "units in the pool")
+    local auctions = { { count = 20, unit = 1000 }, { count = 200, unit = 999 }, { count = 5, unit = 999 } }
+    H.eq(Marked(FM.MatchOwnAuctions(pool["4304"], auctions), auctions), "2 3", "your 200 and 5, not the neighbour's 20")
+end)
