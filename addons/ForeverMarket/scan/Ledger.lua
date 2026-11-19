@@ -231,7 +231,7 @@ local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
 -- caller's latest snapshot, less its lag) are summed in `old` with their unit prices in `units`, so the caller
 -- can check them against that snapshot. An auction without a buyout is never `old`: the scans leave those out.
 -- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, old = units last
--- seen before cutT, units = { [unit price] = true } of the old ones (nil without any), t = the oldest moment a
+-- seen before cutT, units = { [unit price] = units } of the old ones (nil without any), t = the oldest moment a
 -- counted auction was last seen (its list, or its post) } and info = { lists = characters with a list,
 -- newest = when the latest list was read }
 function FM.OwnListings(cutT)
@@ -251,7 +251,7 @@ function FM.OwnListings(cutT)
         if prices and cutT and seen < cutT then
             e.old = e.old + qty
             e.units = e.units or {}
-            for _, unit in ipairs(prices) do e.units[unit] = true end
+            for _, unit in ipairs(prices) do e.units[unit] = (e.units[unit] or 0) + qty end
         end
         if not e.t or seen < e.t then e.t = seen end
     end
@@ -279,7 +279,8 @@ function FM.OwnListings(cutT)
                     local qty = Dec(e.qty) or 1
                     local buyout = Dec(e.buyout) or 0
                     -- buyout is the unit price for commodities and the auction's total for items
-                    local prices = not bidOnly[char .. ":" .. aid] and buyout > 0 and { buyout, math_floor(buyout / qty + 0.5) } or nil
+                    local perUnit = math_floor(buyout / qty + 0.5)
+                    local prices = not bidOnly[char .. ":" .. aid] and buyout > 0 and (perUnit == buyout and { buyout } or { buyout, perUnit }) or nil
                     add(e.key, qty, "list", snap.t, prices)
                 end
             end

@@ -176,9 +176,11 @@ end
 
 -- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings). Units
 -- last seen before the latest snapshot count only as far as they can still be in it: what it marks as yours plus
--- what it holds within 1c of your prices (the mark goes by item, unit price and quantity, and another seller's
--- auction at your price can take it from yours). The rest sold or ended. The snapshot alone adds nothing: it
--- knows your auctions from the same lists and posts.
+-- what it holds unmarked at exactly your prices, up to the units you listed at each (the mark goes by item, unit
+-- price and quantity, and another seller's auction can take it from yours, FRV-58). A price 1c off is the seller
+-- you undercut, not you. The rest sold or ended. The snapshot alone adds nothing: it knows your auctions from the
+-- same lists and posts. Units listed in the last minutes before the snapshot count in full: whether it has them
+-- is not known, and counting too many shows in the reason, too few would plan against your own auctions.
 local function Yours(key)
     local e = P.listings[key]
     if not e then return 0 end
@@ -187,12 +189,8 @@ local function Yours(key)
     local there = p and p.own or 0
     if p and there < e.old then
         for _, level in ipairs(p.ladder) do
-            for unit in pairs(e.units) do
-                if level[1] - unit <= 1 and unit - level[1] <= 1 then
-                    there = there + level[2]
-                    break
-                end
-            end
+            local mine = e.units[level[1]]
+            if mine then there = there + math_min(level[2], mine) end
         end
     end
     return e.n - e.old + math_min(e.old, there)

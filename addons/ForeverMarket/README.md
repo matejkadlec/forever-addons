@@ -193,10 +193,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab. Until
     1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
     both was not counted. Units last seen more than 10 minutes before the latest snapshot count only as far as
-    they can still be in it: what it marks as yours plus what it holds within 1c of your prices (deep scans and
-    feed imports mark your auctions by item, unit price and quantity, and another seller's auction at your price
-    can take the mark from yours, FRV-58; an auction without a buyout is in no scan and always counts). The rest
-    sold or ended. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
+    they can still be in it: what it marks as yours plus what it holds unmarked at exactly your prices, up to the
+    units you listed at each (deep scans and feed imports mark your auctions by item, unit price and quantity, and
+    another seller's auction can take the mark from yours, FRV-58; a price 1c off is the seller you undercut; an
+    auction without a buyout is in no scan and always counts). The rest sold or ended. Units listed in the last 10
+    minutes before the snapshot count in full. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
     says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you
     listed can still be in the latest snapshot"), and in orange when no list was ever read or the latest one is
     older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather
