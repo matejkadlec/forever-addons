@@ -21,13 +21,23 @@ smaller stacks at the same price are partial buys, and the same quantity listed 
 (70-100% of the old unit price) is taken as an undercut repost, because Forever's full scan does not
 say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyzer only uses shorter ones.
 
+For the same reason a deep scan and a Battle.net feed import mark an auction as yours ("@") when it fits one of your
+running auctions or recent posts (`FM.BuildOwnPool`) by item, quantity and unit price, decided once all of the
+item's auctions are read (`FM.MatchOwnAuctions` in scan/Snapshot.lua, 1.20.3): first an auction of exactly your
+quantity at your exact unit price, then the largest auctions that still fit what is left of yours (a partly sold
+commodity auction, a post spread over several auctions) at your exact price, and 1c off (rounding) only for an
+auction of yours that found nothing at its exact price. Until 1.20.2 the first auction that fit took the mark, so
+another seller's smaller auction at (or 1c off) your price could take it and leave your own unmarked (FRV-58). It
+stays a guess at your exact unit price: someone else's auction there gets the mark when it has exactly your
+quantity, or when it fits what is left of yours (your 200 down to 150 next to their 20: both marked; next to their
+180: theirs marked, yours not). A post the latest list of your auctions already holds (same auction ID) counts once.
+
 ## In game
 
 * Tooltip (1.16: the own "Market ..." line is gone, the hover only prices now): the AH price is Auctionator's own
   `Auction` line at the top, which ForeverMarket keeps fed from every refresh of its data (below), so it never
-  disagrees with ours. Where Auctionator leaves no such line, ForeverMarket adds it itself in the same format
-  (`ui/Tooltip.lua`, a copy of Auctionator's `CreatePaddedMoneyString`: left `Auction`, right the coin icons),
-  priced from `FM.FreshUnitPrice` — the same freshest ladder of others the Cost section's "now" is walked on,
+  disagrees with ours. Where Auctionator leaves no such line, ForeverMarket adds it itself (`ui/Tooltip.lua`: left
+  `Auction`, right the price with coin icons in Blizzard's own format, `GetMoneyString`, since 1.20.3), priced from `FM.FreshUnitPrice` — the same freshest ladder of others the Cost section's "now" is walked on,
   so the two always agree. Auctionator leaves none when it is not installed, when its auction tooltips are off,
   and when it skips the item: it bails on anything whose item info is not cached yet (its `cannotAuction`
   starts at `0`, which is true in Lua) and on bound items, which we skip too: its `IsBound` set (bind type not
@@ -203,11 +213,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     both was not counted. Units last seen more than 10 minutes before the latest deep scan (2 hours before a feed
     snapshot: it carries the newer time of the API's item and commodity lists, one of which can be an hour older)
     count only as far as they can still be in it: the units it holds at exactly your unit prices, marked as yours or
-    not, up to what you listed at each. The marks themselves are not asked: deep scans and feed imports mark your
-    auctions by item, quantity and a unit price within 1c, so the mark lands on the seller you undercut as easily
-    as on you (FRV-58). An auction without a buyout is in no scan and always counts. The rest sold or ended. Units
+    not, up to what you listed at each. The marks themselves are not asked: deep scans and feed imports can only
+    guess which auctions are yours (by item, quantity and unit price, see What it records), and before 1.20.3 the
+    mark landed on the seller you undercut as easily as on you (FRV-58). An auction without a buyout is in no scan and always counts. The rest sold or ended. Units
     listed inside those last minutes or hours count in full. A post and a newly read auction list make the table
-    plan again the next time it is opened (`FM.listingsVersion`, `FM.EnsureTrade`): until 1.19 the plan stayed as
+    plan again within 15 seconds while it is open (its 15 s tick, 1.20.3; before, only the next time it was
+    opened), or when it is opened next (`FM.listingsVersion`, `FM.EnsureTrade`; nothing plans while nothing
+    changed): until 1.19 the plan stayed as
     it was computed for the latest scan, so what you listed after that scan did not change it before the next scan
     or `/reload`. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
     says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you

@@ -79,19 +79,12 @@ end
 -- Mark the newest snapshot's auctions that are yours ("@"), like a deep scan does (Forever hides sellers)
 local function TagOwn(fpByKey)
     local ok, pool = pcall(FM.BuildOwnPool)
-    if not ok or type(pool) ~= "table" or not FM.MatchOwn then return fpByKey end
+    if not ok or type(pool) ~= "table" or not FM.TagOwnFingerprints then return fpByKey end
     local tagged = {}
     for key, fps in pairs(fpByKey) do
         if pool[key] then
-            local list = FM.Split(fps, ",")
-            for i, fp in ipairs(list) do
-                local count, buyout = string_match(fp, "^%?:([^:]+):([^:]+):")
-                count, buyout = Dec(count), Dec(buyout)
-                if count and buyout and FM.MatchOwn(pool, key, count, FM.UnitPrice(count, buyout)) then
-                    list[i] = "@" .. string_sub(fp, 2)
-                end
-            end
-            tagged[key] = table_concat(list, ",")
+            -- the same best fit over all of the item's auctions as a deep scan (scan/Snapshot.lua)
+            tagged[key] = FM.TagOwnFingerprints(pool[key], fps)
         else
             tagged[key] = fps
         end

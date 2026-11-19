@@ -181,8 +181,8 @@ end
 
 -- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings). Units
 -- last seen before the latest snapshot count only as far as they can still be in it: the units it holds at
--- exactly your unit prices, up to what you listed at each. Its "yours" marks are not asked: the mark goes by
--- item, quantity and a unit price within 1c, so it lands on the seller you undercut as easily as on you (FRV-58).
+-- exactly your unit prices, up to what you listed at each. Its "yours" marks are not asked: the mark is a guess by
+-- item, quantity and unit price (a best fit since FRV-58), so it can still land on another seller at your price.
 -- The rest sold or ended. The snapshot alone adds nothing: it knows your auctions from the same lists and posts.
 -- Units listed in the last minutes before the snapshot count in full: whether it has them is not known, and
 -- counting too many shows in the reason, too few would plan against your own auctions.

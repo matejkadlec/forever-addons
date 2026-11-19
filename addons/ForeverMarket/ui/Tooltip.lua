@@ -6,7 +6,7 @@ local _, FM = ...
 -- so they never fight with other tooltip AddOns.
 -- The AH price itself is Auctionator's own "Auction" line at the top of the tooltip, which
 -- scan/Auctionator.lua keeps fed from every refresh of our data; where Auctionator leaves none we
--- add that line ourselves, in its own format.
+-- add that line ourselves, with the same label and the price in Blizzard's coin format.
 
 local math_floor = math.floor
 local math_ceil = math.ceil
@@ -34,24 +34,13 @@ local COST_AGE = 10 -- seconds a cost section stays cached (your bags change)
 local costCache = {}
 
 local AUCTION_LABEL = "Auction" -- Auctionator's enUS label; its own locale wins while it is loaded
-local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t"
-local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t"
-local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
 
--- A copy of Auctionator's CreatePaddedMoneyString (Source/Utilities/CreatePaddedMoneyString.lua), so our
--- line looks the same whether Auctionator is installed or not. Copied, not called: without Auctionator
--- there is nothing to call.
-local function PaddedMoney(amount)
+-- The price with coin icons: Blizzard's own formatter (Blizzard_SharedXML/FormattingUtil.lua), the one its AH
+-- dialogs use; our plain text format only if it is ever missing
+local function CoinMoney(amount)
     amount = math_floor(amount)
-    local copper = amount % 100
-    local silver = (amount % 10000 - copper) / 100
-    local gold = (amount - silver * 100 - copper) / 10000
-    local result = copper .. " " .. COPPER_ICON
-    if (gold ~= 0 or silver ~= 0) and copper < 10 then result = "0" .. result end
-    if silver ~= 0 or gold ~= 0 then result = silver .. " " .. SILVER_ICON .. " " .. result end
-    if gold ~= 0 and silver < 10 then result = "0" .. result end
-    if gold ~= 0 then result = gold .. " " .. GOLD_ICON .. " " .. result end
-    return result
+    if GetMoneyString then return GetMoneyString(amount, true) end
+    return FM.FormatMoney(amount)
 end
 
 -- Is that label already the left text of a line on this tooltip?
@@ -93,7 +82,7 @@ local function AuctionLine(tooltip, key, link)
     end
     local price = FM.FreshUnitPrice and FM.FreshUnitPrice(key)
     if not price or price <= 0 then return nil end
-    return label, PaddedMoney(price)
+    return label, CoinMoney(price)
 end
 
 local function AdviceLine(key)
