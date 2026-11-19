@@ -5,7 +5,7 @@ local _, FM = ...
 --   past    the same craft numbers averaged over the scans of the last 3 days
 --   vendor  items a vendor sells for clearly less than they go for on the AH (with buyers)
 --   flips   AH listings cheap enough to relist under the next real price level (15%+ profit after the cut)
---   mats    every material of your crafts: sell it, or is it worth more crafted?
+--   learn   every recipe still to learn, now or at a higher skill
 -- Prices come from the exact ladders of the latest deep scan (r.last.fp, your own auctions left out).
 -- One compact line of craft numbers per deep scan is kept for 72h in r.track.h; "Past 3 days"
 -- averages them. Scans from before this version are filled in once from the stored records
@@ -903,46 +903,6 @@ function FM.ComputeTrade(record, onDone)
                 row.sold12 = Sold(row.key, HISTORY_MIN)
             end
             done()
-        end,
-        function(done)
-            -- materials: best value of each one when crafted (learned recipes), against selling it now
-            local best = {}
-            local function Offer(key, value, row, buy, via)
-                local b = best[key]
-                if not b or value > b.value then
-                    best[key] = { value = value, row = row, buy = buy, via = via }
-                end
-            end
-            for _, row in ipairs(out.crafts) do
-                if row.learned and row.net and row.cost then
-                    for _, m in ipairs(row.parts) do
-                        if m.src ~= "vendor" then
-                            local value = (row.net - (row.cost - m.unit * m.n)) / m.n
-                            Offer(m.key, value, row, m.unit)
-                            -- one level down: Light Hide inside Cured Light Hide inside the bag
-                            if m.src == "craft" and m.parts then
-                                local runCost = m.unit * m.makes
-                                for _, sub in ipairs(m.parts) do
-                                    if sub.src ~= "vendor" then
-                                        local subValue = (value * m.makes - (runCost - sub.unit * sub.n)) / sub.n
-                                        Offer(sub.key, subValue, row, sub.unit, m.key)
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            local mats = {}
-            for key, b in pairs(best) do
-                local sell, sellSrc, p, atFloor = SellPrice(key, view)
-                mats[#mats + 1] = { key = key, value = b.value, best = b.row, via = b.via, buy = b.buy, sell = sell, sellSrc = sellSrc, atFloor = atFloor,
-                    sellNet = sell and sell * (1 - AH_CUT), qty = p and p.qty or 0, own = p and p.own or 0 }
-            end
-            out.mats = mats
-            FM.RunSliced(mats, 40, Safe(function(m)
-                m.sold12, m.soldWide = Sold(m.key, WINDOW_12H)
-            end), done)
         end,
         function(done)
             -- Learn tab: every recipe still to learn, now or at a higher skill (sliced: usual prices parse records)

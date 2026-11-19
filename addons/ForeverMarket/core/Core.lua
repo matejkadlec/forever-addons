@@ -159,6 +159,9 @@ function FM.InitializeSavedData()
             db.settings[key] = value
         end
     end
+    -- the Materials tab is gone (1.18): a table saved on it opens on the default tab, its saved sort goes
+    if db.settings.tableTab == "mats" then db.settings.tableTab = nil end
+    if type(db.settings.tableSort) == "table" then db.settings.tableSort.mats = nil end
     if type(db.realms) ~= "table" then db.realms = {} end
     FM.db = db
 end
