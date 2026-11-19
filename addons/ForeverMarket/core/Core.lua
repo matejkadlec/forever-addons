@@ -43,6 +43,7 @@ FM.DEFAULTS = {
     tableLearnMaxAbove = 10, -- Learn tab: at most this many points above your skill now
     tableIgnoreVendor = false, -- picks: plan without vendor resells
     tableInvestPct = 90, -- picks: the most of your gold one pick may use, in percent
+    tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
     snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
     snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)

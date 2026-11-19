@@ -61,11 +61,13 @@ end
 
 ---------------------------------------------------------------- market views
 -- A view answers Get(key) -> { ladder = sorted {{unit, qty}} of others' auctions, qty = all listed,
--- own = your qty, ownMin, approx } or nil when nothing is listed.
+-- own = your qty, ownMin, approx } or nil when nothing is listed. The latest scan's view also has ownLevels =
+-- { [unit price] = units } of the auctions marked as yours.
 
 local function ParseFps(s)
     if type(s) ~= "string" or s == "" then return nil end
     local levels, qty, own, ownMin, stacked = {}, 0, 0, nil, false
+    local ownLevels = {}
     for tag, c, b in string_gmatch(s, "([^:,]*):([^:,]*):([^:,]*):%d") do
         local count = Dec(c) or 1
         local buyout = Dec(b) or 0
@@ -75,6 +77,7 @@ local function ParseFps(s)
             local unit = math_floor(buyout / count + 0.5)
             if tag == "@" then
                 own = own + count
+                ownLevels[unit] = (ownLevels[unit] or 0) + count
                 if not ownMin or unit < ownMin then ownMin = unit end
             else
                 levels[unit] = (levels[unit] or 0) + count
@@ -82,14 +85,14 @@ local function ParseFps(s)
         end
     end
     if qty == 0 then return nil end
-    return { ladder = FM.SortedLevels(levels), qty = qty, own = own, ownMin = ownMin, stacked = stacked }
+    return { ladder = FM.SortedLevels(levels), qty = qty, own = own, ownMin = ownMin, stacked = stacked, ownLevels = ownLevels }
 end
 FM.ParseFps = ParseFps
 
 local function FpView(last)
     local fp = type(last) == "table" and type(last.fp) == "table" and last.fp or {}
     local cache = {}
-    local view = { t = last and last.t }
+    local view = { t = last and last.t, source = type(last) == "table" and last.source or nil }
     function view.Get(key)
         local c = cache[key]
         if c == nil then
@@ -803,7 +806,8 @@ function FM.ComputeTrade(record, onDone)
     shown.busy = true
     FM.trade = shown
     if FM.RefreshTable then FM.RefreshTable() end
-    local out = { t = r.last.t }
+    -- listingsVersion: your posts and auction lists the picks were planned with (FM.EnsureTrade)
+    local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0 }
     local sources
     local soldCache = {}
     local function Sold(key, window)
@@ -1031,12 +1035,15 @@ function FM.OnDeepScanSaved()
     FM.ComputeTrade(true)
 end
 
--- The table wants numbers: compute when there are none for the latest scan
+-- The table wants numbers: compute when there are none for the latest scan, or when you posted or your auction
+-- list was read since they were computed (your listings are an input of the picks)
 function FM.EnsureTrade()
     local r = FM.R()
     local t = r.last and r.last.t
     if running then return end
-    if not FM.trade or FM.trade.t ~= t or (FM.trade.empty and t) then
+    local trade = FM.trade
+    if not trade or trade.t ~= t or (trade.empty and t)
+        or (not trade.empty and trade.listingsVersion ~= (FM.listingsVersion or 0)) then
         FM.ComputeTrade(false)
     end
 end

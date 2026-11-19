@@ -87,6 +87,9 @@ local OPTIONS = {
 -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
 local MIN_PROFIT_STEPS = { { false, "Any" }, { 10, "10c" }, { 100, "1s" }, { 500, "5s" }, { 2000, "20s" }, { 10000, "1g" } }
 
+-- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
+local CIRC_SHARE_STEPS = { 10, 15, 20, 25, 33, 50, 100 }
+
 local function Refresh()
     if not panel then return end
     local settings = FM.GetSettings()
@@ -94,6 +97,7 @@ local function Refresh()
         checkbox:SetChecked(settings[checkbox.settingKey] and true or false)
     end
     if panel.minProfit and panel.minProfit.GenerateMenu then panel.minProfit:GenerateMenu() end
+    if panel.circShare and panel.circShare.GenerateMenu then panel.circShare:GenerateMenu() end
     if infoText and FM.realm then
         local r = FM.realm
         local items = 0
@@ -157,6 +161,30 @@ function FM.RegisterSettingsPanel()
         end)
     end
     panel.minProfit = minProfit
+    y = y - 34
+    local circLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    circLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
+    circLabel:SetText("Picks: share of an item's C/24h one pick may plan")
+    local circShare = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    circShare:SetWidth(120)
+    circShare:SetPoint("LEFT", circLabel, "RIGHT", 12, 0)
+    if circShare.SetupMenu then
+        circShare:SetupMenu(function(_, root)
+            local default = FM.DEFAULTS.tableCircPct
+            local function IsSelected(value) return (tonumber(FM.GetSettings().tableCircPct) or default) == value end
+            local function SetSelected(value)
+                local changed = not IsSelected(value)
+                FM.GetSettings().tableCircPct = value
+                -- an input of the picks plan: plan again (only when there are numbers already)
+                if changed and FM.trade and FM.ComputeTrade then FM.ComputeTrade(false) end
+                if FM.RefreshTable then FM.RefreshTable() end
+            end
+            for _, pct in ipairs(CIRC_SHARE_STEPS) do
+                root:CreateRadio(pct .. "%" .. (pct == default and " (default)" or ""), IsSelected, SetSelected, pct)
+            end
+        end)
+    end
+    panel.circShare = circShare
     y = y - 40
     local saveButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     saveButton:SetSize(220, 24)

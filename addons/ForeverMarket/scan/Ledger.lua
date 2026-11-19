@@ -45,6 +45,8 @@ local function RecordPost(itemLocation, duration, quantity, unit, kind)
     posts[#posts + 1] = table_concat({ FM.Stamp(), FM.PlayerName(), key, Enc(quantity), Enc(unit),
         tostring(duration or ""), kind }, ",")
     pendingPosts[#pendingPosts + 1] = { index = #posts, at = GetTime() }
+    -- your listings are an input of the picks: the table plans again when it is opened next (FM.EnsureTrade)
+    FM.listingsVersion = (FM.listingsVersion or 0) + 1
     FM.CapList(posts, FM.LIMITS.postsMax)
     FM.AddWatch(key, "p")
     FM.LearnName(key, link and link:match("%[(.-)%]"))
@@ -164,11 +166,19 @@ local function SnapshotOwned()
         end
     end
     r.owned[char] = { t = now, list = table_concat(entries, ",") }
+    FM.listingsVersion = (FM.listingsVersion or 0) + 1 -- the picks plan again (FM.EnsureTrade)
 end
 
 FM.On("AUCTION_HOUSE_SHOW", function()
     FM.ahOpenedAt = FM.Now()
 end)
+
+-- When an auction of a list read at listT ends. The client may hand an owned auction out without its seconds
+-- left (timeLeftSeconds is nilable, stored as 0): then it counts as running for the longest listing, 24h
+local LONGEST_LISTING = 86400
+local function EndsAt(listT, entry)
+    return listT + (entry.left > 0 and entry.left or LONGEST_LISTING)
+end
 
 -- Your auctions that should be on the AH right now, by item: the last list of your auctions of each of
 -- your characters (still running) plus what was posted after it. Forever's full scan does not tell
@@ -193,7 +203,7 @@ function FM.BuildOwnPool()
             for _, e in pairs(ParseOwned(snap.list)) do
                 local qty = Dec(e.qty) or 1
                 local buyout = Dec(e.buyout) or 0
-                if e.status ~= "s" and buyout > 0 and snap.t + e.left > now then
+                if e.status ~= "s" and buyout > 0 and EndsAt(snap.t, e) > now then
                     -- buyout is the unit price for commodities and the auction's total for items
                     add(e.key, { buyout, math_floor(buyout / qty + 0.5) }, qty)
                 end
@@ -211,6 +221,86 @@ function FM.BuildOwnPool()
         end
     end
     return pool
+end
+
+-- Hours of Blizzard's duration menu (index 1 to 3) on Forever, seen in game
+local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
+
+-- Units you have listed right now, per item, all your characters: each character's last list of its auctions
+-- (active ones that have not run out since) plus what it posted after that list and can still be running.
+-- The client hands the list out only when something asks for it (Blizzard's Auctions tab), so a list is as old
+-- as the last look at that tab and the posts since must count too. What sold since is not known: it stays
+-- counted until its time runs out, unless a newer snapshot of the AH tells: units last seen before cutT (the
+-- caller's latest snapshot, less its lag) are summed in `old` with their unit prices in `units`, so the caller
+-- can check them against that snapshot. An auction without a buyout is never `old`: the scans leave those out.
+-- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, old = units last
+-- seen before cutT, units = { [unit price] = units } of the old ones (nil without any), t = the oldest moment a
+-- counted auction was last seen (its list, or its post) } and info = { lists = characters with a list,
+-- newest = when the latest list was read }
+function FM.OwnListings(cutT)
+    local r = FM.R()
+    local now = FM.Now()
+    local byKey = {}
+    local info = { lists = 0 }
+    -- prices: the unit prices the auction can show in a scan (nil: without a buyout, in no scan)
+    local function add(key, qty, field, seen, prices)
+        local e = byKey[key]
+        if not e then
+            e = { n = 0, list = 0, posts = 0, old = 0 }
+            byKey[key] = e
+        end
+        e.n = e.n + qty
+        e[field] = e[field] + qty
+        if prices and cutT and seen < cutT then
+            e.old = e.old + qty
+            e.units = e.units or {}
+            for _, unit in ipairs(prices) do e.units[unit] = (e.units[unit] or 0) + qty end
+        end
+        if not e.t or seen < e.t then e.t = seen end
+    end
+    -- the posts of the last 24h (the longest listing), newest first; those without a buyout by auction ID:
+    -- the auction list does not tell a bid from a buyout
+    local posts, bidOnly = {}, {}
+    for i = #r.posts, 1, -1 do
+        local f = FM.Split(r.posts[i], ",")
+        local t = FM.Unstamp(f[1])
+        if not t or now - t > LONGEST_LISTING then break end
+        posts[#posts + 1] = { t = t, f = f }
+        if f[7] == "b" and f[8] then bidOnly[f[2] .. ":" .. f[8]] = true end
+    end
+    local since, inList = {}, {}
+    for char, snap in pairs(r.owned) do
+        if type(snap) == "table" and snap.t then
+            since[char] = snap.t
+            info.lists = info.lists + 1
+            if not info.newest or snap.t > info.newest then info.newest = snap.t end
+            local aids = {}
+            inList[char] = aids
+            for aid, e in pairs(ParseOwned(snap.list)) do
+                aids[aid] = true
+                if e.status ~= "s" and EndsAt(snap.t, e) > now then
+                    local qty = Dec(e.qty) or 1
+                    local buyout = Dec(e.buyout) or 0
+                    -- buyout is the unit price for commodities and the auction's total for items
+                    local perUnit = math_floor(buyout / qty + 0.5)
+                    local prices = not bidOnly[char .. ":" .. aid] and buyout > 0 and (perUnit == buyout and { buyout } or { buyout, perUnit }) or nil
+                    add(e.key, qty, "list", snap.t, prices)
+                end
+            end
+        end
+    end
+    for _, post in ipairs(posts) do
+        local f, t = post.f, post.t
+        local char, listT = f[2], since[f[2]]
+        -- stamps have minute precision: a post of the same minute as the list is told apart by its auction ID
+        local after = not listT or t >= listT - 60
+        if after and f[8] and inList[char] and inList[char][f[8]] then after = false end
+        if f[3] and after and now < t + (DURATION_HOURS[f[6]] or 24) * 3600 then
+            local unit = Dec(f[5]) or 0
+            add(f[3], Dec(f[4]) or 1, "posts", t, f[7] ~= "b" and unit > 0 and { unit } or nil)
+        end
+    end
+    return byKey, info
 end
 
 local ownedPending = false

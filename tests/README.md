@@ -20,7 +20,7 @@ Nothing here is synced into the game: the sync script copies only the AddOn fold
 | `lib/wow_stubs.lua` | The only stubs of WoW globals (`CreateFrame`, `C_Timer`, `time`, `print`, `issecretvalue`, ...): a test sets the clock, reads what was printed and runs queued timers |
 | `lib/fixtures.lua` | Readers of the shared fixtures |
 | `fixtures/` | Shared fixtures: deep scan diffs (`diff_cases.txt`) and whole scans with the records they must write (`market_snapshots.txt`) |
-| `forevermarket/` | ForeverMarket: `scan/Diff.lua`, `FM.FinalizeSnapshot`, the codec and format helpers, `/fm` parsing, the saved settings `FM.InitializeSavedData` fills in and cleans up |
+| `forevermarket/` | ForeverMarket: `scan/Diff.lua`, `FM.FinalizeSnapshot`, the codec and format helpers, `/fm` parsing, the saved settings `FM.InitializeSavedData` fills in and cleans up, your listings on all characters (`FM.OwnListings`), the room a pick has on the AH (`FM.ComputePicks` on rows built in the test), the view of one item from the latest scan (`FM.ParseFps`) |
 | `feed/test_feed.py` | The feed service's Python port of the diff and the records, on the same fixtures |
 
 ## Writing tests
