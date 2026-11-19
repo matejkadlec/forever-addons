@@ -210,3 +210,33 @@ H.test("characters: ForeverArtisan's skinning skill is found by the first name, 
     env.ForeverArtisanSkinningDB = { chars = { ["Other-TestRealm-1"] = { skill = 1 }, ["Tester-TestRealm-2B"] = { skill = 150 } } }
     H.eq(FM.SkinningSkill(), 150, "the skill under ForeverArtisan's key")
 end)
+
+-- Rule: a character that gets its full name as its key logged its mail under its first name before 1.23; that mail,
+-- still in its inbox, is not logged a second time
+H.test("characters: a new full-name key does not log the mail it logged under its first name again", function()
+    local function Run(loggedUnderFirstName)
+        local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua" })
+        env.clock = NOW
+        env.UnitName = function() return "Tester", "Second" end
+        env.UnitNameUnmodified = function() return "Tester", "Second" end
+        env.UnitGUID = function() return "Player-1-B" end
+        FM.InitializeSavedData()
+        local r = FM.R()
+        r.charInfo.Tester = { guid = "Player-1-A" }
+        H.eq(FM.PlayerName(), "Tester Second", "the full-name key")
+        -- one sale mail, sent a day ago (29 of 30 days left)
+        local sentMinutes = math.floor((NOW - 86400 - FM.EPOCH) / 60)
+        r.mailSeen = {}
+        if loggedUnderFirstName then
+            r.mailSeen[table.concat({ "Tester", "seller", "Silk Cloth", "Buyer", B(1), B(1000), B(1000) }, "|")] = B(sentMinutes)
+        end
+        env.GetInboxNumItems = function() return 1 end
+        env.GetInboxHeaderInfo = function() return nil, nil, nil, "Auction successful", nil, nil, 29 end
+        env.GetInboxInvoiceInfo = function() return "seller", "Silk Cloth", "Buyer", 1000, 1000, 50, 50, nil, nil, nil, 1 end
+        env.FireEvent("MAIL_INBOX_UPDATE")
+        env.FlushTimers()
+        return #r.invoices
+    end
+    H.eq(Run(true), 0, "seen under the first name: not logged again")
+    H.eq(Run(false), 1, "a new mail is logged")
+end)

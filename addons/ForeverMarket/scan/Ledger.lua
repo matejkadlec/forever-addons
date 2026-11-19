@@ -472,6 +472,10 @@ local function ScanInbox()
     local now = FM.Now()
     local nowMinutes = math_floor((now - FM.EPOCH) / 60)
     local char = FM.PlayerName()
+    -- a character keyed by its full name since 1.23 (FRV-35) logged its mail under its first name before: those
+    -- entries count as seen too, so the mail still in its inbox is not logged a second time
+    local first = FM.PlayerFirstName and FM.PlayerFirstName()
+    local alias = (first and first ~= char) and (first .. "|") or nil
     local expiredPattern = PatternFromFormat(AUCTION_EXPIRED_MAIL_SUBJECT)
     local cancelledPattern = PatternFromFormat(AUCTION_REMOVED_MAIL_SUBJECT)
 
@@ -512,6 +516,11 @@ local function ScanInbox()
         table.sort(mails, function(a, b) return a.minutes < b.minutes end)
         local seen = {}
         for _, s in ipairs(FM.Split(r.mailSeen[base], ",")) do seen[#seen + 1] = { minutes = Dec(s) or 0 } end
+        if alias then
+            for _, s in ipairs(FM.Split(r.mailSeen[alias .. base:sub(#char + 2)], ",")) do
+                seen[#seen + 1] = { minutes = Dec(s) or 0 }
+            end
+        end
         for _, mail in ipairs(mails) do
             local match
             for _, s in ipairs(seen) do

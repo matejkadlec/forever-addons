@@ -141,7 +141,8 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   character with the same first name on this realm and faction gets its full name ("First Surname") as its key,
   in its records and in new log lines. Each key remembers its character's GUID (`charInfo[key]`), so existing keys
   never move; a key from before 1.23 goes to the first of its characters that logs in. ForeverArtisan's data is
-  still found by the first name
+  still found by the first name, and the mail a character logged under its first name before counts as seen under
+  its new key (it is not logged twice)
 
 ## Market table (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
