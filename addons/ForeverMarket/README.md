@@ -46,25 +46,59 @@ quantity, or when it fits what is left of yours (your 200 down to 150 next to th
   (`## OptionalDeps` loads it first) so its line is already there when we look; for gear its key lookup is
   asynchronous and only finishes late while the item is uncached, so we stay out of that case instead of
   risking a second line, and the next hover is right. Then `Claude list at 3s 45c (90% in 8h)`,
-  then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): two groups with a
+  then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
-  price or deposit estimate):
-  * **Cost (n pcs)** (**Craft cost (n pcs)** when the price is of a learned craft's materials), n = your sellable
-    units, else one stack:
+  price or deposit estimate). n = your sellable units, else one stack. Your units are grouped by how they came to
+  you (1.21, FRV-64 / FRV-65): your newest purchases and crafts of the item cover them, newest first (the ones you
+  most likely still hold); units of an item you can make (a learned recipe of the ForeverArtisan data, or a craft
+  of yours in the craft log) that no record covers count as crafted before the log; units you do not hold are one
+  stack you would make. Before 1.21 the crafted branch ("Craft cost") applied only once the market table had
+  computed its numbers in the session (opening it or a deep scan), so after a login a crafted item showed its own
+  AH price
+  * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
+    * **now**: the materials of one unit at today's prices, priced the way the market table prices them
+      (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, whichever is cheaper, an intermediate you
+      can make yourself up to 2 levels deep when that beats buying by 3%), here on the freshest ladders (below);
+      the recipe is the learned one of the ForeverArtisan data, else the one your newest craft of it used. Never the
+      item's own price: a material without any price leaves "-"
+    * **you paid**: the materials' basis per unit that the craft log recorded at the craft (below), over the units
+      your newest crafts cover with a known basis; **you paid (3 of 5)** when they cover only some of them, "-" when
+      none (units crafted before 1.21 have no record). A grey line **no price at the craft: <material>** names the
+      materials that had no price at such a craft
+  * **Cost (n pcs)** for units you bought, and for anything that is no craft of yours, exactly as before 1.21:
     * **vendor** instead of the next two rows for an item a vendor sells without limit: what the vendor sells it for
-    * **now**: buying your units now (a learned craft that you never bought: its materials for that many crafts,
-      each from the vendor or the AH, or made yourself when the table found that cheaper; anything else: the AH
-      ladder walked for that many units). Prices come from your last AH search of an item (`item.a`, others'
-      auctions only) when it is newer than the latest snapshot, else from the snapshot. One scan is no fact: price
-      levels under 75% of the cheapest price of the scan before (deep / feed record or search, 5 min to 2 days
-      older) are left out until a later scan shows them too (8-10c for hours, then 2c once = 2c skipped); when
-      every level is that cheap, the whole market moved and it counts. Tooltip only: the market table keeps cheap
-      units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
+    * **now**: buying your units now: the AH ladder walked for that many units. Prices come from your last AH search
+      of an item (`item.a`, others' auctions only) when it is newer than the latest snapshot, else from the snapshot.
+      One scan is no fact: price levels under 75% of the cheapest price of the scan before (deep / feed record or
+      search, 5 min to 2 days older) are left out until a later scan shows them too (8-10c for hours, then 2c once =
+      2c skipped); when every level is that cheap, the whole market moved and it counts. Tooltip only: the market
+      table keeps cheap units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper,
+      green 5%+ dearer (the same colors for "now" of crafted units)
     * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
       "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; recorded from
       any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
-      `COMMODITY_PURCHASE_SUCCEEDED`); for a craft the materials you bought (vendor ones at the vendor). Farmed,
-      looted or skinned units are not counted: never bought = "-"
+      `COMMODITY_PURCHASE_SUCCEEDED`). Farmed, looted or skinned units of an item you cannot make are not counted:
+      never bought = "-"
+  * Units partly crafted and partly bought (some Cured Thick Hide bought, the rest made by you): each part keeps its
+    own basis in a group of its own, **Material cost (3 of 5 pcs)** with the materials and **Cost (2 of 5 pcs)** with
+    the AH price now and what those purchases cost
+  * **Craft log** (`trade/Crafts.lua`, `R.crafts`): every craft you make with any profession, from the profession
+    window's Create / Create All (`C_TradeSkillUI.CraftRecipe` hooked, so also crafts another AddOn starts through
+    it). The recipe's schematic (`C_TradeSkillUI.GetRecipeSchematic`; ForeverArtisan's recipe of that spell when the
+    schematic has no item product) gives the product and the materials per craft; their counts (bags and every
+    bank) are taken before the first cast, and after every bag update crafts done = the fewest of (a material's
+    units gone / its units per craft) and units made = the product's count now - before, so Create All batches,
+    multi-unit recipes and random amounts count as they came out. One line per batch, written again as it goes; a
+    batch ends once its crafts are done and nothing changed for 3 s, after 30 s without a change, or with the next
+    craft. A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
+    already left your bags) and a craft uses the oldest first: your purchases (`R.buys`, at what you paid) and your
+    own crafts of it (`R.crafts`, at their recorded basis, so an intermediate like Cured Thick Hide passes its basis
+    on) cover your units newest first; what they leave (skinned, looted, gathered, fished, from the mail or older
+    than the logs) counts as the oldest, at the vendor price when a vendor sells it without limit (thread, salt,
+    vials), else at its AH price at the craft (the cheapest of others, the price of the `Auction` line: 5 hides that
+    sell for 1.1g make 1.1g of material cost next to a 1g item, sell the hides). A material with no price at all
+    leaves the basis unknown. `/fm item <item>` adds a line with your crafts of it (how many, the newest and its
+    materials' basis per unit)
   * **Sell at least (n pcs)**, rows **8h listing** / **24h listing**: a guard against selling under price by
     mistake: the lowest price per unit that still nets the units' AH value (the item's cheapest price of others,
     from the same freshest source, x n, whatever you paid) after the 5% cut and one lost deposit. Deposit =
@@ -454,6 +488,10 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
   `t|money|id:count,...` as last seen
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
+* `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
+  its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
+  the recipe ID; `mats` = `key:units:copper` per material joined by `/`, copper = the units' basis at the craft,
+  empty when one of them had no price; newest last, a year and 5000 lines at most
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`
 

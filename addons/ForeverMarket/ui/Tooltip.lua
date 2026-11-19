@@ -131,7 +131,31 @@ local function Row(label, v, color, up)
     return { INDENT .. label, Money(v, up), color }
 end
 
--- { label, value, color } lines of the cost section (a group header has no value), or false
+-- One group of units (trade/Cost.lua, FM.CostInfo): its header, now and what you paid. Crafted units are
+-- "Material cost"; when your units are partly crafted and partly bought each group says how many of them it holds.
+-- "you paid (3 of 5)" when your craft lines give a basis for only some of the crafted units, then the materials
+-- that had no price at a craft.
+local function GroupLines(lines, group, total, single)
+    local title = group.kind == "crafted" and "Material cost" or "Cost"
+    if single then
+        lines[#lines + 1] = { string_format("%s (%s pcs)", title, total) }
+    else
+        lines[#lines + 1] = { string_format("%s (%s of %s pcs)", title, FM.FormatCount(group.n), total) }
+    end
+    lines[#lines + 1] = Row("now", group.now, NowColor(group.now, group.paid))
+    local label = "you paid"
+    if group.kind == "crafted" and group.paid and group.paidN < group.n then
+        label = string_format("you paid (%s of %s)", FM.FormatCount(group.paidN), FM.FormatCount(group.n))
+    end
+    lines[#lines + 1] = Row(label, group.paid, WHITE)
+    if group.missing and group.missing[1] then
+        local names = {}
+        for i, key in ipairs(group.missing) do names[i] = FM.GetName(key) end
+        lines[#lines + 1] = { INDENT .. "no price at the craft: " .. table.concat(names, ", "), note = true }
+    end
+end
+
+-- { label, value, color } lines of the cost section (a group header has no value, a note line only text), or false
 local function CostLines(key)
     local entry = costCache[key]
     if entry and GetTime() - entry.at <= COST_AGE then return entry.lines end
@@ -139,13 +163,12 @@ local function CostLines(key)
     local info = FM.CostInfo and FM.CostInfo(key)
     if info then
         local n = FM.FormatCount(info.n)
-        -- what your units cost: a learned craft's materials, a vendor's fixed price, or the AH now and what you paid
-        lines = { { string_format(info.crafted and "Craft cost (%s pcs)" or "Cost (%s pcs)", n) } }
+        -- what your units cost: a vendor's fixed price, or per group (crafted, bought) now and what you paid
         if info.vendor then
-            lines[2] = Row("vendor", info.now, WHITE)
+            lines = { { string_format("Cost (%s pcs)", n) }, Row("vendor", info.now, WHITE) }
         else
-            lines[2] = Row("now", info.now, NowColor(info.now, info.paid))
-            lines[3] = Row("you paid", info.paid, WHITE)
+            lines = {}
+            for _, group in ipairs(info.groups) do GroupLines(lines, group, n, #info.groups == 1) end
         end
         -- the lowest unit price that doesn't sell under the AH value, per listing duration
         lines[#lines + 1] = { string_format("Sell at least (%s pcs)", n) }
@@ -206,7 +229,9 @@ local function OnItemTooltip(tooltip, data)
         tooltip:AddLine(" ")
         for _, line in ipairs(cost) do
             local c = line[3]
-            if line[2] then
+            if line.note then
+                tooltip:AddLine(line[1], NONE[1], NONE[2], NONE[3])
+            elseif line[2] then
                 tooltip:AddDoubleLine(line[1], line[2], ROW[1], ROW[2], ROW[3], c[1], c[2], c[3])
             else
                 tooltip:AddLine(line[1], LABEL[1], LABEL[2], LABEL[3])

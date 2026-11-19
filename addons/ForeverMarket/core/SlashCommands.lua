@@ -29,7 +29,7 @@ local function PrintHelp()
     PrintHelpLine("exclude / include <item links or IDs>", "Ignore items in the market table and picks (or right-click a row > Ignore this item)")
     PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("advice", "Show Claude's current advice")
-    PrintHelpLine("item <item link or ID>", "Market summary of one item")
+    PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it)")
     PrintHelpLine("tooltip <on|off>", "AH price, cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
@@ -118,6 +118,9 @@ local function ItemSummary(rest)
                 FM.FormatCount(FM.Dec(f[3]) or 0),
                 perDay and (", " .. FM.FormatCount(perDay) .. " circulating/24h") or ""))
         end
+        -- this character's crafts of it (trade/Crafts.lua): how many, the newest and its materials' basis
+        local crafted = FM.CraftReport and FM.CraftReport(key)
+        if crafted then FM.Print(FM.GetName(key) .. ":", crafted) end
     end
 end
 
