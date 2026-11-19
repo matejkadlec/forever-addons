@@ -112,6 +112,48 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - The minimap has no `SetPlayerTexture` / `SetPlayerTextureHeight`, the engine player arrow cannot be resized
 - World map player arrow: `GroupMembersPinTemplate` pins, `pin.dataProvider:GetUnitPinSizesTable().player`, then `pin:SynchronizePinSizes()`
 
+## Character names
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game by this repository.
+
+- Characters have a first name and a surname: Camelot's own `Blizzard_FrameXMLUtil/Camelot/NameUtil.lua` reads `local name, surname = UnitName(unit)` (and the same from `UnitNameUnmodified`), so the second return is the surname here, where retail has the realm; the full name is `name .. Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR .. surname` (a space)
+- Character creation takes both and checks them together (`C_CharacterCreation.CreateCharacter(name, surname, ...)`, `CheckName(name, surname)` in `Blizzard_CharacterCreate/Camelot/Blizzard_CharacterCreate.lua`) while `C_CharacterCreation.AreRegionalUniqueNamesEnabled()`; in game `RegionalUniqueNamesEnabled()` tells whether surnames are on
+- So a character is identified by both names together (or by `UnitGUID("player")`); a first name alone may repeat, also among one player's characters on a realm
+  - Read the two parts with `UnitNameUnmodified("player")` and guard a missing surname: AceDB-3.0 builds its character key that way, `name .. " " .. surname` while `RegionalUniqueNamesEnabled()` (the copy in `backports/Skada/lib/AceDB-3.0/AceDB-3.0.lua`)
+  - Whether the first return of `UnitName("player")` is the first name alone is not settled by the source: `NameUtil.GetUnitFirstName` in the same Camelot file splits it at the separator ("name can be both name + surname"), while the third-party AddOn ForeverArtisan says of the live game that `UnitName` gives only the first name (`ForeverArtisan_Core/Alts.lua`); check in game before relying on either
+  - ForeverMarket keys its per-character data by that first return (`FM.PlayerName()`): if it is the first name alone, two of your characters with the same first name on one realm and faction share their records (tracked in FRV-35)
+
+## Bags and bank
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMarket already reads bags and the character bank through `C_Container` with `BANKFRAME_OPENED`, `BANKFRAME_CLOSED` and `PLAYERBANKSLOTS_CHANGED`; the `C_Bank` functions, `BANK_TABS_CHANGED` and everything about the account bank are verified against the source only (no AddOn of this repository uses them, not yet verified in game).
+
+- Containers: `C_Container.GetContainerNumSlots(bag)` and `C_Container.GetContainerItemInfo(bag, slot)` (a table with `itemID`, `stackCount`, `isBound`, `hyperlink`, ...; nothing for an empty slot); neither is flagged secret
+- `Enum.BagIndex`: `Backpack` 0, `Bag_1`..`Bag_4` 1-4, `ReagentBag` 5, `CharacterBankTab_1`..`9` 6-14, `AccountBankTab_1`..`9` 15-23; `Keyring` is -1, and `Characterbanktab` -2 / `Accountbanktab` -3 are the bank's bag slots themselves (the bag in a slot, not its items)
+- The bank is Camelot's own frame (`Blizzard_UIPanels_Game/Camelot/BankFrame.lua`) on Mainline's bank panel (`Mainline/BankFrameTemplates.lua`): what retail calls bank tabs are bank bag slots to buy here, and each bought one is a container
+  - `C_Bank.FetchPurchasedBankTabIDs(bankType)` lists the containers, `C_Bank.FetchPurchasedBankTabData(bankType)` adds their data (`ID` = the container); bank types: `Enum.BankType.Character` 0, `Guild` 1, `Account` 2
+  - Events: `BANKFRAME_OPENED`, `BANKFRAME_CLOSED`, `PLAYERBANKSLOTS_CHANGED(slot)`, `BANK_TABS_CHANGED(bankType)`
+  - ForeverMarket scans the character bank slot by slot (`CharacterBankTab_1`..`9` through `C_Container`) only while the bank is open and keeps the last reading per character (`R.bank`, `trade/Sources.lua`, `scan/Worth.lua`)
+- Account bank: the Camelot frame also handles `Enum.BankType.Account` (page tabs with the `UI_Warbands` icon, containers `AccountBankTab_1`.., event `PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED(slot)`) and shows its tab only when `C_Bank.CanViewBank(Enum.BankType.Account)` is true
+  - Whether the live game gives characters an account bank is not yet verified in game: ask `CanViewBank` at runtime, never assume either way
+- `C_Item.GetItemCount(itemInfo, includeBank, includeUses, includeReagentBank, includeAccountBank)`: the account bank is a flag of its own (the fifth argument), every flag defaults to false
+
+## Professions
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game: no AddOn of this repository calls these (ForeverMarket takes its recipes from the SavedVariables of the third-party AddOn ForeverArtisan).
+
+- The profession window is Mainline's `Blizzard_Professions` with Camelot overrides, so recipes come from `C_TradeSkillUI`; the Classic Era functions (`GetNumTradeSkills`, `GetTradeSkillInfo`, `GetNumCrafts`, `GetCraftInfo`) appear nowhere in the branch
+  - `C_TradeSkillUI.GetRecipeInfo(recipeSpellID)` returns a table with `learned`, `relativeDifficulty`, `recipeID`, ... (or nil); `C_TradeSkillUI.GetRecipeSchematic(recipeSpellID, isRecraft)` returns `outputItemID`, `quantityMin` / `quantityMax` and `reagentSlotSchematics`
+  - Events: `TRADE_SKILL_SHOW`, `TRADE_SKILL_LIST_UPDATE`, `TRADE_SKILL_CLOSE`, `NEW_RECIPE_LEARNED(recipeID)`
+- `C_TradeSkillUI.GetAllRecipeIDs` appears nowhere in the `forever` branch (not documented, not used by Blizzard's Lua): treat it as missing
+  - Blizzard's recipe list comes from `C_TradeSkillUI.GetFilteredRecipeIDs()` in `Professions.GenerateCraftingDataProvider` (`Blizzard_ProfessionsTemplates/Blizzard_Professions.lua`); the window rebuilds it on `TRADE_SKILL_LIST_UPDATE`, and not while `C_TradeSkillUI.IsDataSourceChanging()` is true (`Blizzard_Professions/Blizzard_ProfessionsFrame.lua`)
+  - It is the filtered list of the open window: Camelot calls `C_TradeSkillUI.SetShowUnlearned(false)` after every build (`Blizzard_ProfessionsTemplates/Camelot/Blizzard_Professions.lua`), so expect unlearned recipes to be left out of it
+  - `C_TradeSkillUI.IsTradeSkillReady()` exists, but Blizzard asks it only for the rank bar (`CanShowBar` in `Blizzard_ProfessionsTemplates/Blizzard_Professions.lua`); using it as the gate for reading recipes is an assumption
+  - `GetFilteredRecipeIDs`, `IsDataSourceChanging` and `IsTradeSkillReady` are used by Blizzard's Lua without an entry in the generated documentation
+- A character's professions without a profession window: `GetProfessions()` returns profession indexes and `GetProfessionInfo(index)` returns `name, texture, rank, maxRank, numSpells, spellOffset, skillLine, rankModifier, ...` (`Blizzard_ProfessionsBook/Camelot/Blizzard_ProfessionsBook.lua`)
+  - How many indexes `GetProfessions()` returns is not settled by the source: the Camelot book reads five (`prof1, prof2, faid, fish, cook`, First Aid third, where retail has Archaeology), the Camelot profession window reads seven (`prim1, prim2, sec1`..`sec5`, `Blizzard_Professions/Camelot/Blizzard_ProfessionsFrame.lua`); collect every non-nil return and take the profession from `GetProfessionInfo`, not from the position
+  - `C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLine)` returns `skillLevel` / `maxSkillLevel`; the Camelot book falls back to `rank` / `maxRank` when both are 0
+- Every skill line (professions, weapon skills, Defense): `C_SkillInfo.GetNumSkillLines()` and `C_SkillInfo.GetSkillLineInfo(index)` (`skillID`, `name`, `rank`, `maxRank`, `isHeader`, `parentSkillLineID`, ...), event `SKILL_LINES_CHANGED` (`Blizzard_UIPanels_Game/Camelot/SkillsFrame.lua`)
+
 ## AddOn list
 
 - `Blizzard_AddOnList/AddonList.lua` reads these `.toc` fields:
