@@ -128,9 +128,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
   row of its best use. Items in no tab show the latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
-  the tooltip. Order: the gold plan, then further good picks "beyond your gold now" (each judged on its own
-  with the plan's gold, up to 20 rows together; `pick.extra`, `FM.trade.pickPlan` = plan size), then recipes
-  worth leveling for (info). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
+  the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
+  together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
+  and the list sit one row lower on this tab. Two sections (1.17, they replace the orange "beyond your gold now" and
+  the footer sentence): **Plan: fits your gold**, then **Also good, beyond your gold** (each judged on its own with
+  the plan's gold, up to 20 picks together; `pick.extra`); sorting works inside each section, the default is the
+  rank. Recipes worth leveling for left Picks in 1.17: they are nothing to do now (`FM.trade.pickLevels`, up to 3;
+  their rows on Learn say so in the tooltip). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
   plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
   AH listings always count); off: your stock is used first and counts as stock to sell. Your stock =
   bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are used for crafting
@@ -140,14 +144,27 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     of the buyers, or your own pace (osold/opart since your first post, 3+ sales) when that is more.
     Time to sell = your listings + bag/bank units + the new ones over that rate; the queue of others at the
     same price counts only at the 1s floor (elsewhere you undercut it).
-  * Columns: Pick, **Expected 8h**, **Expected 24h** (1.14: one listing of the pick's units for that long, at its
-    confidence: what buyers take in that time earns the profit, the deposit of the rest is lost when the auction
-    expires; deposits from trade/Cost.lua, non-stacking items pay the 1s floor per unit; flips use the source
-    confidence only, the listing already counts the time to sell; the better one white, the worse grey, a tie goes to 8h), PPG, Plan (the
-    gold it needs, then what to do). The rank still follows a day's expected profit (the score).
+  * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
+    Flip), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
+    explains). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
+    behind it (`pick.expected`, `pick.listHours`, a tie goes to 8h; sorting uses the shown value): what buyers take
+    in that time earns the profit, the deposit of the rest is lost when the auction expires, at the pick's
+    confidence; deposits from trade/Cost.lua, non-stacking items pay the 1s floor per unit; flips use the source
+    confidence only, the listing already counts the time to sell. The tooltip's "One listing of all of it" keeps
+    both lengths. The rank still follows a day's expected profit (the score). Until 1.16: Pick (rank and type
+    before the name), Expected 8h, Expected 24h, PPG and a cut off Plan column.
+  * The second line of a pick: its steps in order, ">" between them (`pick.steps`): learn (where, price) > buy
+    (the main purchase: how many, what, up to which AH price or at which vendor; the other purchases and tools
+    counted as "(+n more)", the tooltip lists them) > make > list (price, and the length of Expected). Evidence
+    (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * "% to invest" (1.14, number box left of the professions, default 90, `tableInvestPct`): the most of your gold
     one pick may use (before 1.14: 35% of the plan; the plan as a whole stays at 90%, so above 90 changes nothing). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
     without vendor resells. Both recompute the picks.
+  * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
+    picks whose gold stayed reserved): "Not learned" off plans without recipes to learn, the profession dropdown
+    limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
+    leaves out picks that earn less per item. Each change computes the plan again, so the ranks run 1..n without
+    gaps. The name search only finds rows of the finished plan.
   * One plan for 90% of your gold, one pick at most "% to invest" of it, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
@@ -180,7 +197,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
 * **Min. price** (Craft, Vendor, Flip; 1.13, until 1.14 "Min item sell") includes one lost deposit per unit for listing a stack: the 8h deposit
-  when 200+ units circulate in 24h (the C/24h column), else (or unknown) the 24h one, since a slow item may not sell in 8h
+  when 100+ units circulate in 24h (the C/24h column; 1.17, before: 200+), else (or unknown) the 24h one, since a slow item may not sell in 8h;
+  the tooltip line says which and why
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
 * **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
   inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
@@ -212,7 +230,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the feed what the game already has.
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
-  (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item.
+  (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
+  Picks the plan leaves them out instead (1.17).
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.
 

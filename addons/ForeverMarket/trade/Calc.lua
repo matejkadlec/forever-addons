@@ -757,13 +757,14 @@ local function LearnInfo(row)
     row.p1g7 = row.profit7 / cost7 * 10000
 end
 
--- One lost deposit per unit, listed a stack at a time, added to the min item sell (and today's break-even)
+-- One lost deposit per unit, listed a stack at a time, added to the min item sell (and today's break-even):
+-- the 8h deposit when 100+ units circulate in 24h (C/24h = sold12 x 2), else (or unknown) the 24h one
 local function AddDeposit(row)
     if row.depUnit or not row.minSell or not FM.Deposit then return end
     local id = FM.ItemIDFromKey(row.key)
     local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
     if type(stack) ~= "number" or FM.IsSecret(stack) or stack < 1 then stack = 1 end
-    local duration = (type(row.sold12) == "number" and row.sold12 >= 100) and 2 or 3
+    local duration = (type(row.sold12) == "number" and row.sold12 >= 50) and 2 or 3
     local deposit = FM.Deposit(row.key, stack, duration)
     if not deposit then return end
     row.depUnit, row.depHours = deposit / stack, duration == 2 and 8 or 24
@@ -1029,7 +1030,7 @@ function FM.ComputeTrade(record, onDone)
             end)
         end,
         function(done)
-            -- Min item sell includes one lost deposit for a stack: 8h when 200+ units circulate in 24h, else 24h
+            -- Min item sell includes one lost deposit for a stack: 8h when 100+ units circulate in 24h, else 24h
             -- (it may well not sell in 8h); measured or estimated by trade/Cost.lua
             local seen = {}
             for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {} }) do

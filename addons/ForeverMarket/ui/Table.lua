@@ -85,7 +85,7 @@ end
 
 local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to resell)."
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
-local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 200+ circulate in 24h, else 24h)."
+local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 24h, else 24h)."
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
 local C8_TIP = "C/8h: units that leave the AH in about 8 hours, bought or taken down (Forever hides sellers). From the measured circulation rate, so it says whether an 8h listing sells. Grey = from the 3 day window."
 local C24_TIP = "C/24h: the same over about 24 hours, so it says whether a 24h listing sells. Grey = from the 3 day window."
@@ -318,38 +318,38 @@ local KIND_LABEL = {
     craft = GREEN .. "Craft|r", learn = BLUE .. "Learn|r", level = GREY .. "Level for|r", vendor = YELLOW .. "Vendor|r",
     flip = YELLOW .. "Flip|r"
 }
+local KIND_NAME = { craft = "Craft", learn = "Learn", level = "Level for", vendor = "Vendor", flip = "Flip" }
 
--- Expected 8h / 24h of a pick: the better listing white, the worse one grey
-local EXPECTED_TIP = "Expected profit of one listing of the pick's units for 8h or for 24h: what buyers take in that time, minus the deposit lost on what doesn't sell (8h: smaller deposit, fewer buyers in time; 24h: bigger deposit, more buyers). The better one is white."
+local RANK_TIP = "#: the pick's place in the plan, by a day's expected profit at its confidence."
+local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH and at vendors, plus a recipe or tool it still needs."
+local EXPECTED_TIP = "Expected: the profit of one listing of all of the pick's units, for 8h or 24h, whichever pays better (grey behind it): what buyers take in that time, minus the deposit lost on what doesn't sell, at the pick's confidence. The row tooltip shows both."
+local CONF_TIP = "Conf.: how far the numbers can be trusted: where the buyer counts come from (your sales, measured, estimated), price swings, a falling price today, days of stock listed, estimated prices. The row tooltip says what lowered it."
 
-local function GreyP1g(value)
-    if type(value) ~= "number" then return GREY .. "-|r" end
-    if math_abs(value) < 0.5 then value = 0 end
-    local text = Money(math_abs(value)):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return GREY .. (value < 0 and "-" or (value > 0 and "+" or "")) .. text .. "|r"
+-- A pick's icon and name in its quality color; favorite and Claude's note marks as everywhere
+local function PickName(p)
+    local text = IconText(p.key) .. QualityColor(p.key) .. Name(p.key) .. "|r"
+    if FM.TrackedNote(p.key) then text = text .. BLUE .. " *|r" end
+    if FM.IsFavorite(p.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
+    return text
 end
 
-local function Expected(p, mine, other)
-    local value, rival = p[mine], p[other]
-    if type(value) ~= "number" then return GREY .. "-|r" end
-    -- a tie goes to 8h: the smaller deposit and the gold back sooner
-    local better = type(rival) ~= "number" or value > rival + 0.5 or (math_abs(value - rival) <= 0.5 and mine == "exp8")
-    return better and P1g(value) or GreyP1g(value)
+-- Expected: the better listing of the two (pick.expected) with its length grey behind it
+local function ExpectedCell(p)
+    if type(p.expected) ~= "number" then return GREY .. "-|r" end
+    return P1g(p.expected) .. GREY .. string_format(" %dh", p.listHours or 8) .. "|r"
 end
 
 local PICK_COLUMNS = {
-    { title = "Pick", width = 320, align = "LEFT", text = function(p)
-        return string_format("%s%d.|r %s %s", GREY, p.rank or 0, KIND_LABEL[p.kind] or p.kind, QualityColor(p.key) .. Name(p.key) .. "|r")
-    end, sort = function(p) return -(p.rank or 999) end, default = true },
-    { title = "Expected 8h", tip = EXPECTED_TIP, width = 104, text = function(p) return Expected(p, "exp8", "exp24") end,
-        sort = function(p) return p.exp8 end },
-    { title = "Expected 24h", tip = EXPECTED_TIP, width = 104, text = function(p) return Expected(p, "exp24", "exp8") end,
-        sort = function(p) return p.exp24 end },
-    { title = "PPG", tip = PPG_TIP, width = 90, text = function(p) return P1g(p.p1g) end, sort = function(p) return p.p1g end },
-    -- the gold the pick needs leads its plan
-    { title = "Plan", width = 314, align = "LEFT", text = function(p)
-        return p.invest and (Money(p.invest) .. GREY .. ":|r " .. (p.plan or "")) or (p.plan or "")
-    end, sort = function(p) return p.invest end }
+    { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
+        sort = function(p) return p.rank end },
+    { title = "Pick", width = 420, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
+    { title = "Type", width = 92, align = "LEFT", text = function(p) return KIND_LABEL[p.kind] or p.kind end,
+        sort = function(p) return KIND_NAME[p.kind] or p.kind end },
+    { title = "Invest", tip = INVEST_TIP, width = 120, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
+    { title = "Expected", tip = EXPECTED_TIP, width = 160, text = ExpectedCell, sort = function(p) return p.expected end },
+    { title = "Conf.", tip = CONF_TIP, width = 100, text = function(p)
+        return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
+    end, sort = function(p) return p.conf end }
 }
 
 -- Favorites: one row per item, its best use among the tabs (highest PPG; a material only when
@@ -409,7 +409,9 @@ local LEARN_COLUMNS = {
 -- (Profit) and group 3 green (Learn, Farm)
 local TABS = {}
 if FM.PICKS_READY then
-    TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1 }
+    -- the icon is part of the Pick cell (after the rank), the default sort is the rank
+    TABS[#TABS + 1] = { id = "picks", label = "Picks", columns = PICK_COLUMNS, data = "picks", picks = true, group = 1,
+        inlineIcon = true, defaultSort = { { 1, false } } }
 end
 TABS[#TABS + 1] = { id = "favs", label = "Favorites", columns = FAV_COLUMNS, favs = true, group = 1 }
 TABS[#TABS + 1] = { id = "mats", label = "Materials", columns = MAT_COLUMNS, data = "mats", group = 1 }
@@ -614,15 +616,15 @@ local function BuildRows()
                 local above = s.tableLearnHigher == false and 0 or (tonumber(s.tableLearnMaxAbove) or 10)
                 if row.minSkill > (row.skillNow or row.craft.skillNow or 0) + above then keep = false end
             end
-            if tab.crafts or tab.picks then
+            -- Picks: these filters are inputs of the plan (trade/Picks.lua), they never hide a finished plan's picks
+            if tab.crafts then
                 if row.learned == false and not s.tableLearn then keep = false end
-                local rowProf = row.prof or (row.craft and row.craft.prof)
-                if keep and prof and rowProf ~= prof then keep = false end
+                if keep and prof and row.craft.prof ~= prof then keep = false end
             end
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             local minProfit = s.tableMinProfit
-            if keep and minProfit and tab.id ~= "mats" and not tab.favs and not tab.learn then
-                local per = tab.picks and row.unitProfit or ProfitPerItem(row)
+            if keep and minProfit and tab.id ~= "mats" and not tab.favs and not tab.learn and not tab.picks then
+                local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
             -- ignored items: hidden, or the only ones shown in the "Ignored" view
@@ -663,11 +665,24 @@ local function BuildRows()
         return Name(a.key) < Name(b.key)
     end)
     if tab.picks then
-        -- every pick takes two lines: the numbers, then why
-        local lines = {}
+        -- two sections, each sorted on its own: the plan, then good picks beyond your gold; every pick takes two
+        -- lines: its numbers, then its steps (listPos = its place in the shown list, for the footer)
+        local plan, extra = {}, {}
         for _, pick in ipairs(out) do
-            lines[#lines + 1] = pick
-            lines[#lines + 1] = { key = pick.key, reasonOf = pick }
+            local list = pick.extra and extra or plan
+            list[#list + 1] = pick
+        end
+        local lines, pos = {}, 0
+        for _, section in ipairs({ { id = "plan", list = plan }, { id = "extra", list = extra } }) do
+            if section.list[1] then
+                lines[#lines + 1] = { section = section.id }
+                for _, pick in ipairs(section.list) do
+                    pos = pos + 1
+                    pick.listPos = pos
+                    lines[#lines + 1] = pick
+                    lines[#lines + 1] = { key = pick.key, stepsOf = pick }
+                end
+            end
         end
         return lines
     end
@@ -747,10 +762,15 @@ local function MarketLines(row)
     Note("Circulating = units that left the AH before their time ran out: bought, or taken down by the seller (Forever hides sellers, so both look the same).")
 end
 
--- The lost deposit inside a min item sell
+-- The lost deposit inside a min item sell, and why that length (trade/Calc.lua AddDeposit)
 local function DepNote(row)
     if not row.depUnit then return "" end
-    return GREY .. string_format(", incl. a lost %dh deposit (%s per unit)", row.depHours or 8, Money(row.depUnit)) .. "|r"
+    local hours = row.depHours or 8
+    -- 24h also when the circulation is not known yet (too few scans)
+    local why = hours == 8 and "100+ circulate in 24h"
+        or (type(row.sold12) == "number" and "under 100 circulate in 24h" or "circulation not known yet")
+    return GREY .. string_format(", incl. a lost %dh deposit (", hours) .. "|r" .. Money(row.depUnit)
+        .. GREY .. " per unit; " .. why .. ")|r"
 end
 
 local function CraftTooltip(row, past)
@@ -962,7 +982,8 @@ local function PickStatus(row)
     if not rank and not reason then return end
     Header("Picks")
     if rank then
-        Note(string_format("In the picks (#%d%s)", rank, trade.pickExtra and trade.pickExtra[row.key] and ", beyond your gold now" or ""), GREEN)
+        Note(string_format("In the picks (#%d, %s)", rank, trade.pickExtra and trade.pickExtra[row.key] and "also good, beyond your gold"
+            or "in the plan"), GREEN)
     else
         Note("Not in the picks: " .. reason, ORANGE)
     end
@@ -982,7 +1003,7 @@ end
 -- main material at its max buy price, a flip at its buy-up-to price
 local function SnipeTarget(row)
     local key, price
-    row = row.reasonOf or row -- a pick's second line (its reasons) belongs to the pick above
+    row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
     tab, row = RowSource(row)
     if not tab then return nil end
@@ -1247,10 +1268,24 @@ local function ColumnX(columns, index)
     return x
 end
 
+-- Picks: its summary line takes the header's place, the header and the list move down one row
+local function ListShift(tab)
+    return tab.picks and ROW_H or 0
+end
+
+local function VisibleRows(tab)
+    return ROWS - ListShift(tab) / ROW_H
+end
+
 local function LayoutColumns()
     local tab = CurrentTab()
     local columns = tab.columns
     local levels = SortState(tab).list
+    local shift = ListShift(tab)
+    local iconRoom = tab.inlineIcon and 0 or 22 -- room for the row icon left of the first column
+    frame.headerLine:ClearAllPoints()
+    frame.headerLine:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, TOP + 1 - shift)
+    frame.headerLine:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, TOP + 1 - shift)
     for i, header in ipairs(frame.headers) do
         local col = columns[i]
         if col then
@@ -1260,7 +1295,7 @@ local function LayoutColumns()
             end
             local x = ColumnX(columns, i)
             header:ClearAllPoints()
-            header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, TOP + 24)
+            header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, TOP + 24 - shift)
             header:SetSize(col.width - 4, 22)
             header.text:ClearAllPoints()
             local align = col.align or "RIGHT"
@@ -1283,16 +1318,18 @@ local function LayoutColumns()
             header:Hide()
         end
     end
-    for _, button in ipairs(frame.rows) do
+    for r, button in ipairs(frame.rows) do
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, TOP - shift - (r - 1) * ROW_H)
         for i, cell in ipairs(button.cells) do
             local col = columns[i]
             if col then
                 local x = ColumnX(columns, i) - 14
                 cell:ClearAllPoints()
                 local align = col.align or "RIGHT"
-                cell:SetWidth(col.width - 6 - (i == 1 and 24 or 0))
+                cell:SetWidth(col.width - 6 - (i == 1 and iconRoom + 2 or 0))
                 if align == "LEFT" then
-                    cell:SetPoint("LEFT", button, "LEFT", x + (i == 1 and 24 or 2), 0)
+                    cell:SetPoint("LEFT", button, "LEFT", x + 2 + (i == 1 and iconRoom or 0), 0)
                 else
                     cell:SetPoint("RIGHT", button, "LEFT", x + col.width - 4, 0)
                 end
@@ -1336,7 +1373,19 @@ local function FooterText(total)
     local last = math_min(total, view.offset + ROWS)
     local text = string_format("%d-%d of %d", first, last, total)
     if tab.picks then
-        text = string_format("%d-%d of %d", total > 0 and view.offset / 2 + 1 or 0, math_min(total, view.offset + ROWS) / 2, total / 2)
+        -- count picks, not lines (section and step lines)
+        local firstPos, lastPos, count = nil, nil, 0
+        local visible = VisibleRows(tab)
+        for i, row in ipairs(rowsCache or {}) do
+            if row.listPos and not row.stepsOf then
+                count = count + 1
+                if i > view.offset and i <= view.offset + visible then
+                    firstPos = firstPos or row.listPos
+                    lastPos = row.listPos
+                end
+            end
+        end
+        text = string_format("%d-%d of %d", firstPos or 0, lastPos or 0, count)
     end
     if trade and trade.empty then
         return "No deep scan yet: open the Auction House and click \"FM: scan\"."
@@ -1354,10 +1403,7 @@ local function FooterText(total)
             f.kph and string_format("%.0f", f.kph) or "?", f.kphOwn and "yours" or "default until 30 min of your farming") .. "|r"
     end
     if tab.picks then
-        local gold = trade and trade.pickGold
-        local plan = trade and trade.pickPlan
-        text = text .. "  ·  rank = a day's profit, Expected = one listing" .. ((plan and plan > 0) and string_format(", #1-%d fit your gold", plan)
-            .. (gold and (" (" .. Money(gold) .. ")") or "") or "") .. ", the rest is beyond it  ·  hover for why"
+        text = text .. "  ·  # = a day's profit, Expected = one listing of all of it  ·  hover for why"
     elseif tab.favs then
         text = text .. "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs"
     elseif tab.crafts then
@@ -1374,6 +1420,30 @@ local function FooterText(total)
     return GREY .. text .. "|r"
 end
 
+-- Picks, above the header: "Plan for your 10g 22s:   3 picks  ·  needs 9g 80s  ·  expected +1g 64s"
+local function PickSummary()
+    local trade = FM.trade
+    if not (trade and trade.picks and trade.pickGold) then return "" end
+    local n = trade.pickPlan or 0
+    local text = "Plan for your " .. Money(trade.pickGold) .. ":   "
+    if n == 0 then return text .. GREY .. "no pick fits your gold now|r" end
+    local sep = GREY .. "  ·  |r"
+    return text .. string_format("%d pick%s", n, n == 1 and "" or "s") .. sep .. "needs " .. Money(trade.pickNeed)
+        .. sep .. "expected " .. P1g(trade.pickExpected)
+end
+
+-- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h"
+local function StepsText(p)
+    local steps = p.steps or {}
+    local parts = {}
+    for i, step in ipairs(steps) do
+        parts[i] = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
+    end
+    return table.concat(parts, GREY .. "  >  |r")
+end
+
+local SECTION_TEXT = { plan = "Plan: fits your gold", extra = "Also good, beyond your gold" }
+
 -- Where the Profit graph sits: from under the filter row to above the footer
 local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
 
@@ -1382,7 +1452,7 @@ local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
-        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty }) do
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary }) do
         w:Hide()
     end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
@@ -1403,26 +1473,41 @@ Render = function()
     if FM.PerfShow then FM.PerfShow(frame, false) end
     if not rowsCache then rowsCache = BuildRows() end
     local total = #rowsCache
-    view.offset = math_max(0, math_min(view.offset, math_max(0, total - ROWS)))
-    if tab.picks and view.offset % 2 == 1 then view.offset = view.offset - 1 end
+    local visible = VisibleRows(tab)
+    view.offset = math_max(0, math_min(view.offset, math_max(0, total - visible)))
+    if tab.picks then
+        -- a pick's steps never open the list: show the pick above them (at the end: the next line instead)
+        local first = rowsCache[view.offset + 1]
+        if first and first.stepsOf then
+            view.offset = view.offset + ((view.offset + visible >= total) and 1 or -1)
+        end
+    end
     LayoutColumns()
+    frame.summary:SetShown(tab.picks and true or false)
+    if tab.picks then frame.summary:SetText(PickSummary()) end
+    -- the steps line under a pick starts where the pick's name does (after its icon)
+    local stepsX = tab.picks and (ColumnX(tab.columns, 2) - 14 + 22) or 24
     for i, button in ipairs(frame.rows) do
-        local row = rowsCache[view.offset + i]
-        button.row = row and (row.reasonOf or row)
+        local row = i <= visible and rowsCache[view.offset + i] or nil
+        -- a section line is no row: no tooltip, no click, no highlight
+        button.row = row and not row.section and (row.stepsOf or row) or nil
+        local highlight = button:GetHighlightTexture()
+        if highlight then highlight:SetAlpha((row and row.section) and 0 or 1) end
         button.wide:Hide()
-        if row and row.reasonOf then
-            -- the "why" line under a pick
+        if row and (row.section or row.stepsOf) then
             button.icon:Hide()
             for _, cell in ipairs(button.cells) do cell:Hide() end
-            button.wide:SetText((row.reasonOf.extra and (ORANGE .. "beyond your gold now|r" .. GREY .. "  ·  |r") or "")
-                .. GREY .. (row.reasonOf.why or "") .. "|r")
+            button.wide:ClearAllPoints()
+            button.wide:SetPoint("LEFT", button, "LEFT", row.section and 4 or stepsX, 0)
+            button.wide:SetPoint("RIGHT", button, "RIGHT", -4, 0)
+            button.wide:SetText(row.section and (HEAD .. SECTION_TEXT[row.section] .. "|r") or StepsText(row.stepsOf))
             button.wide:Show()
             button:Show()
         elseif row then
             for c, cell in ipairs(button.cells) do cell:SetShown(tab.columns[c] ~= nil) end
             local icon = Icon(row.key)
             button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-            button.icon:Show()
+            button.icon:SetShown(not tab.inlineIcon)
             for c, cell in ipairs(button.cells) do
                 local col = tab.columns[c]
                 if col then
@@ -1595,6 +1680,12 @@ local function CreateTable()
     f.searchLabel = searchLabel
 
     f.learn = Check(f, "Not learned", 202, "tableLearn")
+    f.learn:SetScript("OnClick", function(self)
+        Settings().tableLearn = self:GetChecked() and true or false
+        view.offset = 0
+        FM.ComputeTrade(false) -- the picks plan again, with or without recipes to learn
+        FM.RefreshTable()
+    end)
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
     -- picks without vendor resells (the gold goes to the other picks)
     f.vendorOff = Check(f, "Ignore vendor", 290, "tableIgnoreVendor")
@@ -1694,8 +1785,10 @@ local function CreateTable()
         prof:SetupMenu(function(_, root)
             local function IsSelected(short) return (ProfFilter() or false) == short end
             local function SetSelected(short)
+                if (ProfFilter() or false) == (short or false) then return end
                 Settings().tableProf = short or nil
                 view.offset = 0
+                FM.ComputeTrade(false) -- the picks plan again: crafts and recipes of that profession only
                 FM.RefreshTable()
             end
             root:CreateRadio("All professions", IsSelected, SetSelected, false)
@@ -1768,6 +1861,12 @@ local function CreateTable()
     line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, TOP + 1)
     line:SetHeight(1)
     f.headerLine = line
+    -- Picks: the plan's summary in the header's place (the header and the list move down one row there)
+    f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.summary:SetPoint("LEFT", f, "TOPLEFT", 18, TOP + 24 - ROW_H / 2)
+    f.summary:SetJustifyH("LEFT")
+    f.summary:SetWordWrap(false)
+    f.summary:Hide()
 
     -- rows
     f.rows = {}
