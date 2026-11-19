@@ -175,11 +175,32 @@ local function Marks(row)
     return text
 end
 
+-- What learning a recipe costs (row.learnCost, the cheapest route); a recipe sold only as a pattern that is not on
+-- the AH now: its last seen price, true as the second value (shown grey, as the tooltip's LearnLines does)
+local function LearnCost(row)
+    if row.learnCost then return row.learnCost, false end
+    local route = row.route
+    if route and route.kind == "ah" then
+        local f = FM.LatestRecord(route.key)
+        local price = f and FM.Dec(f[2])
+        if type(price) == "number" then return price, true end
+    end
+    return nil, false
+end
+
+-- A learn cost for a cell: grey when it is a last seen price
+local function LearnCostText(row)
+    local cost, seen = LearnCost(row)
+    if not cost then return nil end
+    return Money(cost, seen and GREY or nil)
+end
+
 -- A recipe still to learn (Craft): grey name, a blue "learn" and what learning it costs
 local function NameCell(row)
     local text = QualityColor(row.key) .. Name(row.key) .. "|r"
     if row.learned == false then
-        text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r" .. (row.learnCost and (" " .. Money(row.learnCost)) or "")
+        local cost = LearnCostText(row)
+        text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r" .. (cost and (" " .. cost) or "")
     end
     return text .. Marks(row)
 end
@@ -395,14 +416,23 @@ local function WhereCell(r)
     return GREY .. NoCoords(route.where) .. "|r"
 end
 
--- Crafts until the recipe has paid for itself, at the profit per craft now (row.payback)
+-- Crafts until the recipe has paid for itself at the profit per craft now (row.payback; from the last seen price of a
+-- pattern not on the AH now)
+local function Payback(r)
+    local cost = LearnCost(r)
+    if not cost or type(r.profit) ~= "number" or r.profit <= 0 then return nil end
+    return cost / r.profit
+end
+
 local function PaybackCell(r)
-    if not r.learnCost then return GREY .. "?|r" end
-    if r.learnCost <= 0 then return GREY .. "-|r" end -- nothing to pay back
+    local cost, seen = LearnCost(r)
+    if not cost then return GREY .. "?|r" end
+    if cost <= 0 then return GREY .. "-|r" end -- nothing to pay back
     if type(r.profit) ~= "number" then return GREY .. "?|r" end
-    if not r.payback then return GREY .. "never|r" end -- no profit per craft now
-    local n = math_max(1, math.ceil(r.payback))
-    return string_format("%s craft%s", FM.FormatCount(n), n == 1 and "" or "s")
+    local payback = Payback(r)
+    if not payback then return GREY .. "never|r" end -- no profit per craft now
+    local n = math_max(1, math.ceil(payback))
+    return (seen and GREY or "") .. string_format("%s craft%s", FM.FormatCount(n), n == 1 and "" or "s") .. (seen and "|r" or "")
 end
 
 -- Profession last: it is shown only while the dropdown says "All professions" (ShownCount), so the other columns
@@ -411,10 +441,10 @@ local LEARN_COLUMNS = {
     { title = "Recipe", width = 222, align = "LEFT", text = LearnNameCell, sort = function(r) return Name(r.key) end },
     { title = "Skill", tip = "Skill: the lowest any trainer, vendor or pattern asks for (white: you have it, red: not yet).", width = 50,
         text = SkillCell, sort = function(r) return r.minSkill end, asc = true },
-    { title = "Cost", tip = "Cost: what learning the recipe costs, the cheapest trainer, vendor or pattern on the AH.", width = 86,
-        text = function(r) return r.learnCost and Money(r.learnCost) or (GREY .. "?|r") end, sort = function(r) return r.learnCost end, asc = true },
-    { title = "Pays back", tip = "Pays back: crafts until the recipe has paid for itself, at the profit per craft now (\"never\" without a profit).",
-        width = 84, text = PaybackCell, sort = function(r) return r.payback end, asc = true },
+    { title = "Cost", tip = "Cost: what learning the recipe costs, the cheapest trainer, vendor or pattern on the AH. Grey: a pattern not on the AH now, its last seen price.",
+        width = 86, text = function(r) return LearnCostText(r) or (GREY .. "?|r") end, sort = function(r) return (LearnCost(r)) end, asc = true },
+    { title = "Pays back", tip = "Pays back: crafts until the recipe has paid for itself, at the profit per craft now (\"never\" without a profit; grey: from a last seen price).",
+        width = 84, text = PaybackCell, sort = Payback, asc = true },
     { title = "PPG", tip = PPG_TIP .. " At the prices now.", width = 94, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
     { title = "PPG 7d", tip = "PPG at the usual prices of the last 7 days (median daily low of the product and every AH material).", width = 94,
         text = function(r) return P1g(r.p1g7) end, sort = function(r) return r.p1g7 end },

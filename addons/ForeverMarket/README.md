@@ -116,8 +116,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   craft tooltip shows the craft time and the time per 1g of materials.
 * **Learn** = every recipe still to learn, losing ones too (1.18 layout): **Recipe** first (icon, quality color, no
   "learn": every row is one), **Skill** (until 1.17 "Min": the lowest skill of its routes; white when you have it,
-  red when not), **Cost** (the cheapest route, `row.learnCost`), **Pays back** (crafts until the recipe has paid for
-  itself at the profit per craft now, `row.payback`; "never" without a profit), PPG now (as in Craft) and PPG 7d
+  red when not), **Cost** (the cheapest route, `row.learnCost`; grey = the last seen price of a pattern that is not
+  on the AH now), **Pays back** (crafts until the recipe has paid for itself at the profit per craft now,
+  `row.payback`; "never" without a profit, grey when from a last seen price), PPG now (as in Craft) and PPG 7d
   (usual prices = median daily low of the product and every AH material, vendor materials at the vendor;
   `row.p1g7`), Where to get (a trainer or vendor beats a pattern on the AH, then the cheapest; a pattern shows
   "Pattern on the AH", its price is Cost), and **Profession** last, only while the dropdown says "All professions"
