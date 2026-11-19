@@ -187,6 +187,8 @@ local function Yours(key)
     local e = P.listings[key]
     if not e then return 0 end
     if e.old == 0 then return e.n end
+    local known = P.yours[key]
+    if known then return known end
     local p = P.view.Get(key)
     local there = 0
     if p then
@@ -199,7 +201,9 @@ local function Yours(key)
             there = there + math_min(mine, held)
         end
     end
-    return e.n - e.old + math_min(e.old, there)
+    known = e.n - e.old + math_min(e.old, there)
+    P.yours[key] = known
+    return known
 end
 
 -- How fresh "you list" is, for the reasons: the snapshot took units off, or when the listings were last seen
@@ -265,7 +269,7 @@ local function ListingNote(key, listed)
     return string_format("Your listings: none known (auctions last read %s ago, posts since counted).", FM.FormatAge(age)), GREY
 end
 
--- The tooltip's account of the room: "C/24h 43, cap 11 (25%), you list 0 -> make 10", then how "you list" is known
+-- The tooltip's account of the room: "C/24h 43, cap 11 (25%), you list 0 -> make 11", then how "you list" is known
 local function RoomLines(list, row, room, verb, n)
     list[#list + 1] = { "h", "Room on the AH" }
     list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%d%%), you list %s -> %s %s", Count(room.circ),
@@ -1088,11 +1092,10 @@ function FM.ComputePicks(out, ctx, done)
     local gold = GetMoney and GetMoney() or 0
     local s = FM.GetSettings()
     -- your auctions seen before the latest snapshot are checked against it (Yours)
-    local last = FM.R().last
-    local lag = (type(last) == "table" and last.source == "api") and FEED_LAG or SNAPSHOT_LAG
+    local lag = ctx.view.source == "api" and FEED_LAG or SNAPSHOT_LAG
     local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - lag or nil)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
-        demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo,
+        demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo, yours = {},
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
         ignoreStock = s.tableIgnoreStock ~= false, ignoreVendor = s.tableIgnoreVendor == true,
         -- the table's filters are inputs of the plan (the table changes call FM.ComputeTrade again)

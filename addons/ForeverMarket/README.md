@@ -198,7 +198,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     not, up to what you listed at each. The marks themselves are not asked: deep scans and feed imports mark your
     auctions by item, quantity and a unit price within 1c, so the mark lands on the seller you undercut as easily
     as on you (FRV-58). An auction without a buyout is in no scan and always counts. The rest sold or ended. Units
-    listed inside those last minutes or hours count in full. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
+    listed inside those last minutes or hours count in full. A post and a newly read auction list make the table
+    plan again the next time it is opened (`FM.listingsVersion`, `FM.EnsureTrade`): until 1.19 the plan stayed as
+    it was computed for the latest scan, so what you listed after that scan did not change it before the next scan
+    or `/reload`. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
     says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you
     listed can still be in the latest snapshot"), and in orange when no list was ever read or the latest one is
     older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather

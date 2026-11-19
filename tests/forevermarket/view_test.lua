@@ -30,6 +30,36 @@ H.test("view: marked and unmarked units are kept apart, each per unit price", fu
     H.same(p.ladder, { { 999, 200 }, { 1000, 3 } }, "unmarked units per unit price, ascending")
 end)
 
+H.test("view: the latest scan's view carries its time and its source", function()
+    local FM = H.LoadAddon("addons/ForeverMarket", FILES)
+    local view = FM.FpView({ t = 1234, source = "api", fp = {} })
+    H.eq(view.t, 1234, "time")
+    H.eq(view.source, "api", "a feed snapshot")
+    H.eq(FM.FpView({ t = 5, source = "fm", fp = {} }).source, "fm", "a deep scan")
+end)
+
+-- Rule: the table computes its numbers again when there are none for the latest scan, and when you posted or your
+-- auction list was read since they were computed (FM.listingsVersion counts both)
+H.test("trade: a post or a new auction list makes the table plan again, nothing else does", function()
+    local FM = H.LoadAddon("addons/ForeverMarket", FILES)
+    FM.InitializeSavedData()
+    FM.R().last = { t = 1000, fp = {} }
+    local computes = 0
+    FM.ComputeTrade = function() computes = computes + 1 end
+    FM.trade = { t = 1000, listingsVersion = 0 }
+    FM.EnsureTrade()
+    H.eq(computes, 0, "numbers of the latest scan, nothing listed since")
+    FM.listingsVersion = 1 -- a post, or a list of your auctions
+    FM.EnsureTrade()
+    H.eq(computes, 1, "after a post or a new auction list")
+    FM.trade = { t = 1000, listingsVersion = 1 }
+    FM.EnsureTrade()
+    H.eq(computes, 1, "planned with it: no new compute")
+    FM.trade = { t = 900, listingsVersion = 1 }
+    FM.EnsureTrade()
+    H.eq(computes, 2, "a newer scan still computes")
+end)
+
 H.test("view: an item without auctions has no view", function()
     local FM = H.LoadAddon("addons/ForeverMarket", FILES)
     H.eq(FM.ParseFps(""), nil, "empty")

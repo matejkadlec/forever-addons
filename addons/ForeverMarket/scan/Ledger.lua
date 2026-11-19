@@ -45,6 +45,8 @@ local function RecordPost(itemLocation, duration, quantity, unit, kind)
     posts[#posts + 1] = table_concat({ FM.Stamp(), FM.PlayerName(), key, Enc(quantity), Enc(unit),
         tostring(duration or ""), kind }, ",")
     pendingPosts[#pendingPosts + 1] = { index = #posts, at = GetTime() }
+    -- your listings are an input of the picks: the table plans again when it is opened next (FM.EnsureTrade)
+    FM.listingsVersion = (FM.listingsVersion or 0) + 1
     FM.CapList(posts, FM.LIMITS.postsMax)
     FM.AddWatch(key, "p")
     FM.LearnName(key, link and link:match("%[(.-)%]"))
@@ -164,6 +166,7 @@ local function SnapshotOwned()
         end
     end
     r.owned[char] = { t = now, list = table_concat(entries, ",") }
+    FM.listingsVersion = (FM.listingsVersion or 0) + 1 -- the picks plan again (FM.EnsureTrade)
 end
 
 FM.On("AUCTION_HOUSE_SHOW", function()

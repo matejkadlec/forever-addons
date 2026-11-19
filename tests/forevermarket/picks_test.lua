@@ -57,9 +57,9 @@ local function Setup(buyers, settings)
 end
 
 -- The market the picks see: the material is plentiful at 10s, every product has 50 units of others at 1g.
--- t = when the snapshot was taken (nil: no snapshot newer than your listings)
-local function View(ladders, t)
-    return { t = t, Get = function(key)
+-- t = when the snapshot was taken (nil: no snapshot newer than your listings), source = "api" for a feed snapshot
+local function View(ladders, t, source)
+    return { t = t, source = source, Get = function(key)
         if ladders and ladders[key] then return ladders[key] end
         if key == "900" then return { ladder = { { 1000, 100000 } }, qty = 100000, own = 0 } end
         return { ladder = { { 10000, 50 } }, qty = 50, own = 0 }
@@ -218,9 +218,8 @@ H.test("picks: a feed snapshot can lack what was posted in the 2 hours before it
     local function Run(source)
         local FM, env, r = Setup({ ["101"] = 14 })
         r.posts[1] = table.concat({ B(NOW_MINUTES - 90), "Tester", "101", B(10), B(9000), "3", "i" }, ",")
-        r.last = { t = env.clock - 3600, source = source }
         local out = { crafts = { Craft("101", 28) } }
-        return Compute(FM, env, out, View(nil, env.clock - 3600)), out
+        return Compute(FM, env, out, View(nil, env.clock - 3600, source)), out
     end
     local picks, out = Run("api")
     H.eq(picks["101"], nil, "feed: the post counts in full, no pick")
