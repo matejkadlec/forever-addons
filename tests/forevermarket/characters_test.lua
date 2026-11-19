@@ -197,3 +197,16 @@ H.test("characters: /fm forget removes a character's records and readings, keeps
     slash("forget")
     H.eq(env.printed[#env.printed]:find("Wrong number of arguments for 'forget' (expected 1)", 1, true) ~= nil, true, "no name")
 end)
+
+H.test("characters: ForeverArtisan's skinning skill is found by the first name, also under a full-name key", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/FarmLog.lua" })
+    env.clock = NOW
+    env.UnitName = function() return "Tester", "Second" end
+    env.UnitNameUnmodified = function() return "Tester", "Second" end
+    env.UnitGUID = function() return "Player-1-B" end
+    FM.InitializeSavedData()
+    FM.R().charInfo.Tester = { guid = "Player-1-A" }
+    H.eq(FM.PlayerName(), "Tester Second", "this character's record key")
+    env.ForeverArtisanSkinningDB = { chars = { ["Other-TestRealm-1"] = { skill = 1 }, ["Tester-TestRealm-2B"] = { skill = 150 } } }
+    H.eq(FM.SkinningSkill(), 150, "the skill under ForeverArtisan's key")
+end)

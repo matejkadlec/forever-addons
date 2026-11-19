@@ -274,8 +274,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     Blizzard's Auctions tab (or another AddOn) asks for it, so until 1.23 a list was as old as the last look at that
     tab. Since 1.23 (FRV-57) ForeverMarket asks for it itself (`C_AuctionHouse.QueryOwnedAuctions`, the sorts of
     Blizzard's Auctions tab): 1.5 s after the AH opens and 3 s after the last of a row of posts, never while its
-    deep scan waits for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s,
-    up to 20 tries) or Blizzard's Auctions tab is shown (it asks itself). Until
+    deep scan waits for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s
+    until the AH closes) or Blizzard's Auctions tab is shown (it asks itself). Until
     1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
     both was not counted. Units last seen more than 10 minutes before the latest deep scan (2 hours before a feed
     snapshot: it carries the newer time of the API's item and commodity lists, one of which can be an hour older)

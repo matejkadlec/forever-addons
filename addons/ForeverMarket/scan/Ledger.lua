@@ -173,13 +173,13 @@ end
 -- Blizzard asks for the list only from its Auctions tab, so a visit that only bought or posted left it as old as
 -- the last look at that tab. ForeverMarket asks once per AH visit, a moment after it opens, and again once your
 -- posts settle. Never while its deep scan waits for the server, Auctionator scans, or the AH's message throttle is
--- busy (the sniper's searches and Auctionator's queue share it): then a few seconds later. Not while Blizzard's
+-- busy (the sniper's searches and Auctionator's queue share it): then a few seconds later, for as long as the visit
+-- lasts. Not while Blizzard's
 -- Auctions tab is shown (it asks itself), and with that tab's own sorts, so its list keeps its order.
 -- C_AuctionHouse.QueryOwnedAuctions is verified against the source only (docs/forever-api-notes.md)
 local OWNED_DELAY = 1.5   -- seconds after the AH opens
 local POSTS_SETTLE = 3    -- seconds after the last auction created
-local OWNED_RETRY = 3     -- seconds between tries while the AH is busy
-local OWNED_TRIES = 20
+local OWNED_RETRY = 3     -- seconds between tries while the AH is busy (until it closes)
 local visit = 0
 
 -- The sorts of Blizzard's Auctions tab (its saved g_auctionHouseSortsBySearchContext), copied; name and price
@@ -215,16 +215,15 @@ local function AHBusy(ah)
     return false
 end
 
-local function QueryOwned(forVisit, tries)
+local function QueryOwned(forVisit)
     if not FM.ahOpen or forVisit ~= visit then return end
     local ah = C_AuctionHouse
     if not (ah and ah.QueryOwnedAuctions) then return end
     local tab = _G.AuctionHouseFrame and _G.AuctionHouseFrame.AuctionsFrame
     if tab and tab.IsShown and tab:IsShown() then return end
     if AHBusy(ah) then
-        if tries < OWNED_TRIES then
-            C_Timer.After(OWNED_RETRY, function() QueryOwned(forVisit, tries + 1) end)
-        end
+        -- an Auctionator scan and the deep scan after it can keep the AH busy for minutes: ask again until it closes
+        C_Timer.After(OWNED_RETRY, function() QueryOwned(forVisit) end)
         return
     end
     local sorts = OwnedSorts()
@@ -238,7 +237,7 @@ FM.On("AUCTION_HOUSE_SHOW", function()
     FM.ahOpenedAt = FM.Now()
     visit = visit + 1
     local thisVisit = visit
-    C_Timer.After(OWNED_DELAY, function() QueryOwned(thisVisit, 0) end)
+    C_Timer.After(OWNED_DELAY, function() QueryOwned(thisVisit) end)
 end)
 
 local postsSettle = 0
@@ -247,7 +246,7 @@ FM.On("AUCTION_HOUSE_AUCTION_CREATED", function()
     local mine, thisVisit = postsSettle, visit
     C_Timer.After(POSTS_SETTLE, function()
         -- the last of a row of posts asks once
-        if mine == postsSettle then QueryOwned(thisVisit, 0) end
+        if mine == postsSettle then QueryOwned(thisVisit) end
     end)
 end)
 

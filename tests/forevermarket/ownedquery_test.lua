@@ -1,7 +1,7 @@
 -- ForeverMarket scan/Ledger.lua: asking the AH for the list of your auctions (FRV-57).
 -- Rule: once per AH visit, a moment after it opens, and once after a row of posts settles; never while the deep
 -- scan waits for the server, an Auctionator scan runs or the AH's message throttle is busy (then again a few
--- seconds later), never while Blizzard's Auctions tab is shown (it asks itself), never after the AH closed; with
+-- seconds later, until the AH closes), never while Blizzard's Auctions tab is shown (it asks itself), never after the AH closed; with
 -- the sorts of Blizzard's Auctions tab, name and price without them.
 
 local H = require("harness")
@@ -61,6 +61,35 @@ H.test("owned query: waits while the AH is busy, then asks", function()
     env.FlushTimers()
     H.eq(#ah.queries, 1, "asked once the AH was free")
     H.eq(tries, 5, "after waiting")
+end)
+
+H.test("owned query: keeps asking while the AH stays busy for minutes, stops when it closes", function()
+    local FM, env, ah = Load()
+    ah.ready = false
+    local tries = 0
+    local after = env.C_Timer.After
+    env.C_Timer.After = function(seconds, fn)
+        after(seconds, function()
+            tries = tries + 1
+            if tries == 60 then ah.ready = true end -- three minutes of an Auctionator scan and a deep scan
+            fn()
+        end)
+    end
+    OpenAH(FM, env)
+    env.FlushTimers()
+    H.eq(#ah.queries, 1, "asked once the AH was free")
+    ah.ready, tries = false, 0
+    OpenAH(FM, env)
+    env.C_Timer.After = function(seconds, fn)
+        after(seconds, function()
+            tries = tries + 1
+            if tries == 10 then FM.ahOpen = false end -- you leave the AH
+            fn()
+        end)
+    end
+    env.FlushTimers()
+    H.eq(#ah.queries, 1, "no query after the AH closed")
+    H.eq(tries <= 11, true, "and no more tries")
 end)
 
 H.test("owned query: not while Blizzard's Auctions tab is shown, not after the AH closed", function()

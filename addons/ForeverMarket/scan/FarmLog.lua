@@ -101,13 +101,19 @@ local function SkinningSkill()
     local db = _G.ForeverArtisanSkinningDB
     local chars = type(db) == "table" and db.chars
     if type(chars) ~= "table" then return 0 end
-    local prefix = FM.PlayerName() .. "-"
+    -- ForeverArtisan keys a character "Name-Realm-GUIDPART" by UnitName's first return, not by ForeverMarket's
+    -- record key (FRV-35: a second character with the same first name has its full name there)
+    local name = FM.PlayerFirstName()
+    local withRealm = name .. "-" .. (GetRealmName and GetRealmName() or "") .. "-"
+    local prefix = name .. "-"
+    local fallback
     for key, data in pairs(chars) do
-        if type(key) == "string" and key:sub(1, #prefix) == prefix and type(data) == "table" then
-            return data.skill or 0
+        if type(key) == "string" and type(data) == "table" then
+            if key:sub(1, #withRealm) == withRealm then return data.skill or 0 end
+            if key:sub(1, #prefix) == prefix then fallback = data.skill or 0 end
         end
     end
-    return 0
+    return fallback or 0
 end
 FM.SkinningSkill = SkinningSkill
 
