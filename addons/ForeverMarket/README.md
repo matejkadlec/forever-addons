@@ -28,7 +28,9 @@ quantity at your exact unit price, then the largest auctions that still fit what
 commodity auction, a post spread over several auctions) at your exact price, and 1c off (rounding) only for an
 auction of yours that found nothing at its exact price. Until 1.20.2 the first auction that fit took the mark, so
 another seller's smaller auction at (or 1c off) your price could take it and leave your own unmarked (FRV-58). It
-stays a guess: an auction of someone else at exactly your price and quantity can still get the mark.
+stays a guess at your exact unit price: someone else's auction there gets the mark when it has exactly your
+quantity, or when it fits what is left of yours (your 200 down to 150 next to their 20: both marked; next to their
+180: theirs marked, yours not). A post the latest list of your auctions already holds (same auction ID) counts once.
 
 ## In game
 

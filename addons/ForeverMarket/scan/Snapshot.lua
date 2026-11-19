@@ -111,7 +111,8 @@ end
 
 -- Forever's full scan and the Battle.net feed hide the seller: an auction is yours when it matches one of your
 -- running auctions (or recent posts) by item, unit price and quantity. A best fit over all of an item's auctions
--- at once, so a neighbour's smaller auction at (or 1c off) your price never takes the mark from yours:
+-- at once, so a neighbour's smaller auction no longer takes the mark from yours of exactly the listed quantity, and
+-- one 1c off never from yours at your exact price (at your exact price the rest stays a guess, see the README):
 --   1. an auction of exactly an entry's quantity at one of its exact unit prices
 --   2. what still fits an entry (a partly sold commodity auction, a post spread over several auctions), the
 --      largest auctions first, at an exact unit price
