@@ -114,12 +114,14 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 
 ## Character names
 
-Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game by this repository; the third-party AddOn ForeverArtisan states the same of the live game (`ForeverArtisan_Core/Alts.lua`: `UnitName` gives only the first name).
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game by this repository.
 
 - Characters have a first name and a surname: Camelot's own `Blizzard_FrameXMLUtil/Camelot/NameUtil.lua` reads `local name, surname = UnitName(unit)` (and the same from `UnitNameUnmodified`), so the second return is the surname here, where retail has the realm; the full name is `name .. Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR .. surname` (a space)
 - Character creation takes both and checks them together (`C_CharacterCreation.CreateCharacter(name, surname, ...)`, `CheckName(name, surname)` in `Blizzard_CharacterCreate/Camelot/Blizzard_CharacterCreate.lua`) while `C_CharacterCreation.AreRegionalUniqueNamesEnabled()`; in game `RegionalUniqueNamesEnabled()` tells whether surnames are on
-- So the first return of `UnitName("player")` is only the first name, and it may repeat, also among one player's characters on a realm: a per-character key needs the surname or `UnitGUID("player")`
-  - ForeverMarket keys its per-character data by the first name alone (`FM.PlayerName()`), so two of your characters with the same first name on one realm and faction would share their records (tracked in FRV-35)
+- So a character is identified by both names together (or by `UnitGUID("player")`); a first name alone may repeat, also among one player's characters on a realm
+  - Read the two parts with `UnitNameUnmodified("player")` and guard a missing surname: AceDB-3.0 builds its character key that way, `name .. " " .. surname` while `RegionalUniqueNamesEnabled()` (the copy in `backports/Skada/lib/AceDB-3.0/AceDB-3.0.lua`)
+  - Whether the first return of `UnitName("player")` is the first name alone is not settled by the source: `NameUtil.GetUnitFirstName` in the same Camelot file splits it at the separator ("name can be both name + surname"), while the third-party AddOn ForeverArtisan says of the live game that `UnitName` gives only the first name (`ForeverArtisan_Core/Alts.lua`); check in game before relying on either
+  - ForeverMarket keys its per-character data by that first return (`FM.PlayerName()`): if it is the first name alone, two of your characters with the same first name on one realm and faction share their records (tracked in FRV-35)
 
 ## Bags and bank
 
