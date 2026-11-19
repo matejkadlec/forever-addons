@@ -287,10 +287,15 @@ H.test("characters: the account bank follows item moves while open and keeps its
     env.FireEvent("BAG_UPDATE_DELAYED")
     env.FlushTimers()
     H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1o:1o", "read again after the move")
+    units = 70 -- a move right before the bank closes: read before it closes
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FireEvent("BANKFRAME_CLOSED")
+    env.FlushTimers()
+    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1y:1y", "the last move is in")
     env.FireEvent("BANKFRAME_CLOSED")
     units = 0 -- what a read after closing could see
     env.FireEvent("BAG_UPDATE_DELAYED")
     env.FlushTimers()
-    H.eq(reads, 2, "nothing read as it closed or after")
-    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1o:1o", "the open reading stays")
+    H.eq(reads, 3, "nothing read as it closed or after")
+    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1y:1y", "the open reading stays")
 end)

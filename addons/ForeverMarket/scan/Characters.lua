@@ -157,7 +157,10 @@ FM.On("BANKFRAME_OPENED", function()
 end)
 FM.On("BANKFRAME_CLOSED", function() bankOpen = false end)
 FM.On("BAG_UPDATE_DELAYED", function()
-    if bankOpen then SaveAccountBankSoon() end
+    -- at once (the containers have changed by now): a move just before the bank closes is not lost to a delay
+    if not bankOpen then return end
+    local ok, err = pcall(SaveAccountBank)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
 end)
 FM.On("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED", SaveAccountBankSoon)
 FM.On("BANK_TABS_CHANGED", SaveAccountBankSoon)
