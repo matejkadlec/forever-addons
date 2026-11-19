@@ -3,8 +3,9 @@
 -- setting tableCircPct, default 25%), less what you already list on all your characters; an item whose room
 -- is under one craft (the recipe's "makes") or one unit is no pick and says why.
 -- Your listings = what your auction lists and posts know; of the units last seen more than 10 minutes before the
--- latest snapshot only what can still be in it: what it marks as yours plus what it holds unmarked at exactly your
--- prices, up to the units you listed at each.
+-- latest snapshot (2 hours for a feed snapshot) only what can still be in it: the units it holds at exactly your
+-- unit prices, marked as yours or not, up to what you listed at each.
+-- A view as the scans produce it: ladder = the auctions not marked as yours, own / ownLevels = the marked ones.
 
 local H = require("harness")
 local F = require("fixtures")
@@ -141,8 +142,8 @@ H.test("picks: units listed before the latest snapshot count only as far as it s
         local FM, env, r = Setup({ ["101"] = 14 })
         -- posted at 90s, the others list at 1g
         r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(9000), "3", "i" }, ",")
-        local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 50 + ownInSnapshot, own = ownInSnapshot } },
-            env.clock - 3600)
+        local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 50 + ownInSnapshot, own = ownInSnapshot,
+            ownLevels = { [9000] = ownInSnapshot } } }, env.clock - 3600)
         local out = { crafts = { Craft("101", 28) } }
         return Compute(FM, env, out, view), out
     end
@@ -154,19 +155,20 @@ H.test("picks: units listed before the latest snapshot count only as far as it s
     picks = Run(4)
     H.eq(HasStep(picks["101"], "make 3"), true, "4 still listed: make 3")
     H.eq(Reason(picks["101"], "C/24h 28, cap 7 (25%), you list 4 -> make 3") ~= nil, true, "the room line")
-    H.eq(Reason(picks["101"], "Your listings: 4 of the 10 you listed can still be in the latest snapshot (1h old: yours or "
-        .. "at your price), the rest sold or ended.") ~= nil, true, "where the number comes from")
+    H.eq(Reason(picks["101"], "Your listings: 4 of the 10 you listed can still be in the latest snapshot (1h old: what it "
+        .. "holds at your prices), the rest sold or ended.") ~= nil, true, "where the number comes from")
     -- it shows none: all sold, the whole cap is free
     picks = Run(0)
     H.eq(HasStep(picks["101"], "make 7"), true, "none left: make 7")
 end)
 
 H.test("picks: the seller you undercut by 1c is not you: what sold stops counting", function()
-    -- cap 7; 10 were posted 5h ago at 99s 99c, 1c under the others' 1g, and all sold: the 1h old snapshot marks
-    -- nothing as yours and holds the others' 50 at 1g
+    -- cap 7; 10 were posted 5h ago at 99s 99c, 1c under the others' 1g, and all sold. The 1h old snapshot holds
+    -- the others' 50 at 1g, and its mark (within 1c) went to 10 of them: own = 10 at 1g, 40 unmarked at 1g
     local FM, env, r = Setup({ ["101"] = 14 })
     r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(9999), "3", "i" }, ",")
-    local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 50, own = 0 } }, env.clock - 3600)
+    local view = View({ ["101"] = { ladder = { { 10000, 40 } }, qty = 50, own = 10, ownLevels = { [10000] = 10 } } },
+        env.clock - 3600)
     local picks = Compute(FM, env, { crafts = { Craft("101", 28) } }, view)
     H.eq(HasStep(picks["101"], "make 7"), true, "the whole cap is free")
     H.eq(Reason(picks["101"], "C/24h 28, cap 7 (25%), you list 0 -> make 7") ~= nil, true, "the room line")
@@ -189,21 +191,42 @@ end)
 
 H.test("picks: units the snapshot holds at your price count as yours, whoever it marks", function()
     -- 600 circulate a day: cap 150. 200 were posted 5h ago in one auction at 9s 99c; the 1h old snapshot gave the
-    -- mark to another seller's 20 at 10s (own = 20), your 200 stand unmarked at 9s 99c
-    local function Run(ladder)
+    -- mark to another seller's 20 at 10s (own = 20 at 10s)
+    local function Run(ladder, ownLevels, own)
         local FM, env, r = Setup({ ["102"] = 200 })
         r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "102", B(200), B(999), "3", "c" }, ",")
-        local view = View({ ["102"] = { ladder = ladder, qty = 300, own = 20 } }, env.clock - 3600)
+        local view = View({ ["102"] = { ladder = ladder, qty = 300, own = own or 20, ownLevels = ownLevels or { [1000] = 20 } } },
+            env.clock - 3600)
         local out = { crafts = { Craft("102", 600) } }
         return Compute(FM, env, out, view), out
     end
+    -- your 200 stand unmarked at 9s 99c: they are yours
     local picks, out = Run({ { 999, 200 }, { 1100, 80 } })
     H.eq(picks["102"], nil, "200 at your price: no pick")
     H.eq(out.pickWhy["102"], "you list 200 already (last seen 5h ago): the cap is 150 (25% of C/24h 600)", "the reason")
-    -- nothing at your price any more: only the 20 it marks can be yours, room for 130, the pick stops at 100 units
+    -- nothing at your price any more: the marked 20 at 10s are the other seller's, the whole cap is free and the
+    -- pick stops at its 100 units
     picks = Run({ { 1100, 280 } })
-    H.eq(HasStep(picks["102"], "make 100"), true, "20 left: make 100 of a room of 130")
-    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), you list 20 -> make 100") ~= nil, true, "the room line")
+    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), you list 0 -> make 100") ~= nil, true, "nothing of yours left")
+    -- 120 marked at exactly your price and nothing unmarked there: 120 of yours are left, room for 30
+    picks = Run({ { 1100, 180 } }, { [999] = 120 }, 120)
+    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), you list 120 -> make 30") ~= nil, true, "120 left: make 30")
+end)
+
+H.test("picks: a feed snapshot can lack what was posted in the 2 hours before its time, a deep scan 10 minutes", function()
+    -- cap 7; 10 posted 90 minutes ago, the 1h old snapshot holds none at your price
+    local function Run(source)
+        local FM, env, r = Setup({ ["101"] = 14 })
+        r.posts[1] = table.concat({ B(NOW_MINUTES - 90), "Tester", "101", B(10), B(9000), "3", "i" }, ",")
+        r.last = { t = env.clock - 3600, source = source }
+        local out = { crafts = { Craft("101", 28) } }
+        return Compute(FM, env, out, View(nil, env.clock - 3600)), out
+    end
+    local picks, out = Run("api")
+    H.eq(picks["101"], nil, "feed: the post counts in full, no pick")
+    H.eq(out.pickWhy["101"], "you list 10 already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "the reason")
+    picks = Run("fm")
+    H.eq(HasStep(picks["101"], "make 7"), true, "deep scan: it would hold them, they sold")
 end)
 
 H.test("picks: units posted after the latest snapshot count in full, whatever it shows", function()

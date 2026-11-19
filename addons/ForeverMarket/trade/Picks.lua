@@ -54,7 +54,9 @@ local MAX_LEVEL = 3
 local MAX_UNITS = 100           -- per pick and day
 local CIRC_PCT = 25             -- default share of an item's C/24h one pick may add to the AH (tableCircPct)
 local LONGEST_LISTING = 86400   -- a 24h auction: an auction list older than this holds nothing still running
-local SNAPSHOT_LAG = 600        -- what you listed up to 10 min before a snapshot's time may be missing in it
+local SNAPSHOT_LAG = 600        -- what you listed up to 10 min before a deep scan's time may be missing in it
+local FEED_LAG = 7200           -- a feed snapshot: 2h (it carries the newer time of the API's item and commodity
+                                -- lists, each renewed about hourly, so one half can be an hour older)
 local VENDOR_LISTED_SHARE = 0.2 -- vendor goods: at most 20% of what others list
 local DEPOSIT_SHARE = 0.12      -- deposit per listing as a share of the price when invoices don't tell
 local LIST_HOURS = 24
@@ -175,22 +177,26 @@ local function DepositShares()
 end
 
 -- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings). Units
--- last seen before the latest snapshot count only as far as they can still be in it: what it marks as yours plus
--- what it holds unmarked at exactly your prices, up to the units you listed at each (the mark goes by item, unit
--- price and quantity, and another seller's auction can take it from yours, FRV-58). A price 1c off is the seller
--- you undercut, not you. The rest sold or ended. The snapshot alone adds nothing: it knows your auctions from the
--- same lists and posts. Units listed in the last minutes before the snapshot count in full: whether it has them
--- is not known, and counting too many shows in the reason, too few would plan against your own auctions.
+-- last seen before the latest snapshot count only as far as they can still be in it: the units it holds at
+-- exactly your unit prices, up to what you listed at each. Its "yours" marks are not asked: the mark goes by
+-- item, quantity and a unit price within 1c, so it lands on the seller you undercut as easily as on you (FRV-58).
+-- The rest sold or ended. The snapshot alone adds nothing: it knows your auctions from the same lists and posts.
+-- Units listed in the last minutes before the snapshot count in full: whether it has them is not known, and
+-- counting too many shows in the reason, too few would plan against your own auctions.
 local function Yours(key)
     local e = P.listings[key]
     if not e then return 0 end
     if e.old == 0 then return e.n end
     local p = P.view.Get(key)
-    local there = p and p.own or 0
-    if p and there < e.old then
+    local there = 0
+    if p then
+        local unmarked = {}
         for _, level in ipairs(p.ladder) do
-            local mine = e.units[level[1]]
-            if mine then there = there + math_min(level[2], mine) end
+            if e.units[level[1]] then unmarked[level[1]] = level[2] end
+        end
+        for price, mine in pairs(e.units) do
+            local held = (unmarked[price] or 0) + (p.ownLevels and p.ownLevels[price] or 0)
+            there = there + math_min(mine, held)
         end
     end
     return e.n - e.old + math_min(e.old, there)
@@ -237,8 +243,8 @@ local function ListingNote(key, listed)
     local known = e and e.n or 0
     local info = P.listInfo
     if listed < known then
-        return string_format("Your listings: %s of the %s you listed can still be in the latest snapshot (%s old: yours or "
-            .. "at your price), the rest sold or ended.", Count(listed), Count(known), FM.FormatAge(P.now - (P.view.t or P.now))), GREY
+        return string_format("Your listings: %s of the %s you listed can still be in the latest snapshot (%s old: what it "
+            .. "holds at your prices), the rest sold or ended.", Count(listed), Count(known), FM.FormatAge(P.now - (P.view.t or P.now))), GREY
     end
     if known > 0 then
         local bits = {}
@@ -1082,7 +1088,9 @@ function FM.ComputePicks(out, ctx, done)
     local gold = GetMoney and GetMoney() or 0
     local s = FM.GetSettings()
     -- your auctions seen before the latest snapshot are checked against it (Yours)
-    local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - SNAPSHOT_LAG or nil)
+    local last = FM.R().last
+    local lag = (type(last) == "table" and last.source == "api") and FEED_LAG or SNAPSHOT_LAG
+    local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - lag or nil)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo,
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),

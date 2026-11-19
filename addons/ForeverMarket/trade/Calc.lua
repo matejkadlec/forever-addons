@@ -61,11 +61,13 @@ end
 
 ---------------------------------------------------------------- market views
 -- A view answers Get(key) -> { ladder = sorted {{unit, qty}} of others' auctions, qty = all listed,
--- own = your qty, ownMin, approx } or nil when nothing is listed.
+-- own = your qty, ownMin, approx } or nil when nothing is listed. The latest scan's view also has ownLevels =
+-- { [unit price] = units } of the auctions marked as yours.
 
 local function ParseFps(s)
     if type(s) ~= "string" or s == "" then return nil end
     local levels, qty, own, ownMin, stacked = {}, 0, 0, nil, false
+    local ownLevels = {}
     for tag, c, b in string_gmatch(s, "([^:,]*):([^:,]*):([^:,]*):%d") do
         local count = Dec(c) or 1
         local buyout = Dec(b) or 0
@@ -75,6 +77,7 @@ local function ParseFps(s)
             local unit = math_floor(buyout / count + 0.5)
             if tag == "@" then
                 own = own + count
+                ownLevels[unit] = (ownLevels[unit] or 0) + count
                 if not ownMin or unit < ownMin then ownMin = unit end
             else
                 levels[unit] = (levels[unit] or 0) + count
@@ -82,7 +85,7 @@ local function ParseFps(s)
         end
     end
     if qty == 0 then return nil end
-    return { ladder = FM.SortedLevels(levels), qty = qty, own = own, ownMin = ownMin, stacked = stacked }
+    return { ladder = FM.SortedLevels(levels), qty = qty, own = own, ownMin = ownMin, stacked = stacked, ownLevels = ownLevels }
 end
 FM.ParseFps = ParseFps
 
