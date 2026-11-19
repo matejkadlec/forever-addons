@@ -244,9 +244,11 @@ local passCrafts = {}
 local MAX_DEPTH = 2
 
 -- Cost of one unit of a material: vendor (unlimited stock), the AH ladder for a batch of crafts,
--- or crafting it yourself from its own materials (learned recipes, up to 2 levels deep)
-local function MaterialUnit(key, need, view, depth)
+-- or crafting it yourself from its own materials (learned recipes, up to 2 levels deep).
+-- crafts: the recipes by product (this pass's when nil); the item tooltip passes its own (trade/Cost.lua)
+local function MaterialUnit(key, need, view, depth, crafts)
     depth = depth or 0
+    crafts = crafts or passCrafts
     local best
     local vendorUnit, offer = FM.VendorUnit(key, false)
     if vendorUnit then best = { unit = vendorUnit, src = "vendor", where = offer and offer.where } end
@@ -257,14 +259,14 @@ local function MaterialUnit(key, need, view, depth)
             best = { unit = ahUnit, src = "ah", short = short, approx = p.approx, listed = p.qty - (p.own or 0) }
         end
     end
-    local craft = depth < MAX_DEPTH and passCrafts[key]
+    local craft = depth < MAX_DEPTH and crafts[key]
     if craft and craft.learned then
         local makes = craft.makes or 1
         local runs = math.ceil(need / makes)
         local cost, parts, approx = 0, {}, false
         for i, g in ipairs(craft.reagents) do
             if g.key == key then cost = nil break end
-            local m = MaterialUnit(g.key, g.n * runs, view, depth + 1)
+            local m = MaterialUnit(g.key, g.n * runs, view, depth + 1, crafts)
             if not m then
                 cost = nil
                 break
@@ -290,6 +292,7 @@ local function MaterialUnit(key, need, view, depth)
     end
     return nil
 end
+FM.MaterialUnit = MaterialUnit
 
 ---------------------------------------------------------------- crafts
 

@@ -38,7 +38,37 @@ function Stubs.NewEnvironment()
         end
     end
 
-    env.CreateFrame = function() return setmetatable({}, frameMeta) end
+    -- Frames keep their OnEvent script and events; FireEvent delivers an event to the frames registered for it
+    -- (every other frame method is a no-op)
+    local frames = {}
+    env.CreateFrame = function()
+        local frame = setmetatable({ scripts = {}, events = {} }, frameMeta)
+        function frame:SetScript(name, fn) self.scripts[name] = fn end
+        function frame:RegisterEvent(event) self.events[event] = true end
+        function frame:UnregisterEvent(event) self.events[event] = nil end
+        frames[#frames + 1] = frame
+        return frame
+    end
+    function env.FireEvent(event, ...)
+        for _, frame in ipairs(frames) do
+            local onEvent = frame.events[event] and frame.scripts.OnEvent
+            if onEvent then onEvent(frame, event, ...) end
+        end
+    end
+
+    -- hooksecurefunc(table, name, hook): the original runs first, then the hook with the same arguments
+    env.hooksecurefunc = function(tbl, name, hook)
+        if type(tbl) == "string" then tbl, name, hook = env, tbl, name end
+        local original = tbl[name]
+        tbl[name] = function(...)
+            local results = { original(...) }
+            hook(...)
+            return unpack(results)
+        end
+    end
+
+    -- GetTime() follows the same test clock as time()
+    env.GetTime = function() return env.clock end
     env.issecretvalue = function() return false end -- the client's secret values do not exist outside it
     env.geterrorhandler = function() return function(err) error(err, 0) end end
     env.SlashCmdList = {}
