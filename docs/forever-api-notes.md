@@ -126,7 +126,7 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified i
 
 ## Bags and bank
 
-Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMarket already reads bags and the character bank through `C_Container` with `BANKFRAME_OPENED`, `BANKFRAME_CLOSED` and `PLAYERBANKSLOTS_CHANGED`; the `C_Bank` functions, `BANK_TABS_CHANGED` and everything about the account bank are verified against the source only (no AddOn of this repository uses them, not yet verified in game).
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMarket already reads bags and the character bank through `C_Container` with `BANKFRAME_OPENED`, `BANKFRAME_CLOSED` and `PLAYERBANKSLOTS_CHANGED`; the `C_Bank` functions, `BANK_TABS_CHANGED` and everything about the account bank are verified against the source only (ForeverMarket 1.23 uses them for the account bank, below; not yet verified in game).
 
 - Containers: `C_Container.GetContainerNumSlots(bag)` and `C_Container.GetContainerItemInfo(bag, slot)` (a table with `itemID`, `stackCount`, `isBound`, `hyperlink`, ...; nothing for an empty slot); neither is flagged secret
 - `Enum.BagIndex`: `Backpack` 0, `Bag_1`..`Bag_4` 1-4, `ReagentBag` 5, `CharacterBankTab_1`..`9` 6-14, `AccountBankTab_1`..`9` 15-23; `Keyring` is -1, and `Characterbanktab` -2 / `Accountbanktab` -3 are the bank's bag slots themselves (the bag in a slot, not its items)
