@@ -1,0 +1,32 @@
+name: Tests
+
+# Runs tests/run.sh on every pull request and on master: the Lua tests of the AddOns' pure logic and the
+# feed service's parity test on the shared fixtures (tests/README.md). Nothing is deployed here.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q lua5.1
+
+      - name: Run tests
+        run: tests/run.sh

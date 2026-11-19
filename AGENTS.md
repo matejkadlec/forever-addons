@@ -8,6 +8,7 @@
   - NOT WotLK 3.3.5a, NOT Classic Era, NOT plain retail: AddOn access to combat data is restricted (secret values, no combat log)
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
 - `services/` holds programs that run outside the game: `services/forever-market-feed` feeds ForeverMarket from the Battle.net API and has a deployed server part (see its guide)
+- `tests/` holds the tests of logic that runs without the game client (ForeverMarket's diff and records, shared with the feed service): `tests/run.sh`, details in [`tests/README.md`](tests/README.md)
 - There is no copy of the Blizzard UI source in this repository
 
 ## Guide Map
@@ -123,7 +124,7 @@ These apply to all Lua in `addons/` and `backports/`.
   - When AddOns could not be synced (a cloud session, a failed sync): in place of the "I updated" sentence say that the sync did not complete, give the commands for his clone, one per line (`git fetch origin`, `git switch <branch>`, `scripts/sync-addons.sh <AddOnName>`), and still say in bold whether to run `/reload` or restart the game afterwards
   - Last line of the part when the test is needed before the merge: how he answers (`qa1` when it works, `qa2` with what is wrong)
 - When AddOn files changed but there is nothing to test, the bold sync message (or the note that the sync did not complete, with the same commands and the bold `/reload` or restart instruction) stands on its own after What changed
-- **Verification:** what ran in this response and what it showed, one bullet each (`luac5.1 -p`, the hooks, the service checks, each independent review and what it found, the pull request's checks, the feed deploy run)
+- **Verification:** what ran in this response and what it showed, one bullet each (`luac5.1 -p`, `tests/run.sh`, the hooks, the service checks, each independent review and what it found, the pull request's checks, the feed deploy run)
   - A `Not run:` bullet names what did not run and why; never "all checks passed" for a partial run, and "nothing ran" when nothing did
 - **Tickets:** the last line names the tickets worked on, `Tickets: FRV-13, FRV-14`, or `Tickets: none`
 
@@ -161,6 +162,7 @@ When implementing features:
 6. Update `AGENTS.md` (this file or the nested guide that holds the topic) and `README.md` in the same change when the work changes AddOn inventory, commands, settings, setup/sync behavior, or documented user-facing behavior
 7. Check the changed files: `luac5.1 -p <file>` for every changed Lua file (syntax in the Lua 5.1 dialect); for `services/`, the checks in its guide
    - A few third-party files start with a UTF-8 byte order mark, which WoW accepts and `luac5.1` rejects (`unexpected symbol near '\xEF'`): check those with `tail -c +4 <file> | luac5.1 -p -` and keep the mark
+   - Run `tests/run.sh` (needs `lua5.1` and `python3`; the `Tests` workflow runs it on every pull request); a change of logic it covers updates or adds tests in the same change ([`tests/README.md`](tests/README.md))
 8. Sync the changed AddOns automatically (see Communication Rules)
 9. Classify the change (see In-Game QA) and ship it through a pull request (see Pull Requests and Code Review)
 10. End the response with What changed, What to test, Verification and Tickets (see Communication Rules)
@@ -169,7 +171,7 @@ When implementing features:
 
 ## In-Game QA
 
-Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's test in WoW is the only proof that an AddOn change works. He does not test everything: only major changes wait for him. What is major is the agent's judgment (one new table column is not, a new tab is); the border is not straight, and he accepts the risk of a wrong call rather than testing everything. A change is classified before its pull request opens, and the What to test heading says which kind it is.
+Nothing here runs the game: `luac5.1 -p` proves syntax only and `tests/run.sh` covers only logic that runs without the client, so the maintainer's test in WoW is the only proof that an AddOn change works. He does not test everything: only major changes wait for him. What is major is the agent's judgment (one new table column is not, a new tab is); the border is not straight, and he accepts the risk of a wrong call rather than testing everything. A change is classified before its pull request opens, and the What to test heading says which kind it is.
 
 - **Needs his test before the merge** (the pull request says "do not merge before in-game QA" in its description and waits for his answer, like any pull request that needs the maintainer; the independent review runs first, so he tests reviewed code, and a fix made after his test is reviewed again and he is told whether a retest is needed):
   - Anything major that is new or redesigned in what he sees or does in the game: a new AddOn or feature, a new window, tab or panel, a reworked layout or flow (a single new column, tooltip line, option, chat message or subcommand is not major; a bug fix that restores the stated, intended value or behavior of an existing element is the optional kind below)
@@ -181,7 +183,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
   - Refactoring and performance work that must leave behavior the same
   - Everything from the list above that is not major
   - A change to the format or the cleanup of SavedVariables, including migrations: he cannot test it in the game, so the independent review is its proof (the reviewer is told to check the migration against the old format and that no data is dropped). `ForeverMarketDB` holds market data that cannot be recreated: the first numbered item of What to test is the file to copy before the `/reload`, and the sync message above it says to copy it first (`WTF/Account/<account>/SavedVariables/ForeverMarket.lua`) and one look that the old data is still there
-- **Nothing to test:** documentation, agent guides, `tools/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
+- **Nothing to test:** documentation, agent guides, `tools/`, `tests/`, Git hooks and scripts, `.claude/`, and `services/` (its own checks and the deploy run are its proof)
 - When one pull request mixes kinds, the stricter kind counts; when in doubt whether a change is major, decide yourself (see above) and do not ask: a doubtful case is the optional kind; when the maintainer says in the ticket or the chat that he wants or does not want to test something, that decides
 - Jira: a ticket whose pull request waits for his test stays In Review with the label `in-game-qa`, so the board shows what needs his attention; remove the label when he has answered and add it again when a fix waits for his retest
 - He answers with `qa1` (it works: the pull request is merged) or `qa2` and what is wrong (the same branch is revised, reviewed again and handed back); the procedure is [`docs/ai-development-flow.md`](docs/ai-development-flow.md#in-game-qa-handoff)
@@ -231,7 +233,7 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only, so the maintainer's
 - Once the review of the last commit passes and the pull request's checks are green, merge your own pull request yourself (merge commit, the way the maintainer merges) without waiting for the maintainer
   - A pull request that needs the maintainer before it may be merged (a step on the host, a new secret or config file, his decision, his in-game test (see In-Game QA), a "do not merge before ..." note in its description) is not merged: leave it open and tell him what it waits for
   - Your own = GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork) and the Claude Code attribution ends the description; anyone else's pull requests, made with Claude Code or not, are left to the maintainer
-  - Checks: the REST endpoint `repos/{owner}/{repo}/commits/{sha}/check-runs`; no checks reported counts as green (a pull request touching the `market-feed.yml` paths waits for its `Checks` run to appear), pending checks are waited for, failing checks keep the pull request open like a failed review
+  - Checks: the REST endpoint `repos/{owner}/{repo}/commits/{sha}/check-runs`; every pull request waits for its `Tests` run to appear and pass (`.github/workflows/tests.yml`), and one touching the `market-feed.yml` paths also for its `Checks` run; other checks not reported count as green, pending checks are waited for, failing checks keep the pull request open like a failed review
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
 - A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server: say so, check the workflow run and report a failed run to the maintainer
 - The automatic sync into the game still happens after every change, before the review and merge

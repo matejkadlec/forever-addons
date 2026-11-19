@@ -40,3 +40,4 @@ The same list is kept in [`addons/AGENTS.md`](../AGENTS.md) with the other first
 
 - `services/forever-market-feed` ports `scan/Diff.lua` / `FM.FinalizeSnapshot` to Python and writes the load-on-demand AddOn `ForeverMarket_Feed`, which `scan/Feed.lua` imports
 - A change of the record format, of `scan/Diff.lua` or of `FM.FinalizeSnapshot` must be made on both sides in the same change (see [`services/forever-market-feed/AGENTS.md`](../../services/forever-market-feed/AGENTS.md)); a change on the service side deploys the feed server when it merges
+- The shared fixtures in [`tests/fixtures/`](../../tests/fixtures/) state the expected diff results and records; `tests/run.sh` checks both sides against them, so such a change updates the fixtures too ([`tests/README.md`](../../tests/README.md))

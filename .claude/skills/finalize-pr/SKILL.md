@@ -48,7 +48,7 @@ The run is not finished at a clean review or a green check. It ends only at one 
 
 ## Checks
 
-Read `gh api repos/matejkadlec/forever-addons/commits/<head sha>/check-runs`. No check runs counts as green, except with a feed deploy hold, where the `Checks` run is waited for. Pending runs are waited for. A failing run is read (`gh run view <id> --log-failed`) and fixed on the branch like a finding; it is never re-run to get a different answer and never worked around.
+Read `gh api repos/matejkadlec/forever-addons/commits/<head sha>/check-runs`. Every pull request waits for its `Tests` run (`.github/workflows/tests.yml`) to appear and pass; with a feed deploy hold the `Checks` run is waited for too. Any other check not reported counts as green. Pending runs are waited for. A failing run is read (`gh run view <id> --log-failed`) and fixed on the branch like a finding; it is never re-run to get a different answer and never worked around.
 
 ## Handoff instead of a merge
 
