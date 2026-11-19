@@ -228,17 +228,19 @@ local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
 -- The client hands the list out only when something asks for it (Blizzard's Auctions tab), so a list is as old
 -- as the last look at that tab and the posts since must count too. What sold since is not known: it stays
 -- counted until its time runs out, unless a newer snapshot of the AH tells: units last seen before cutT (the
--- caller's latest snapshot, less its lag) are summed in `old`, and of those only what that snapshot still shows
--- as yours is listed. A post without a buyout is never `old`: the scans leave such auctions out.
+-- caller's latest snapshot, less its lag) are summed in `old` with their unit prices in `units`, so the caller
+-- can check them against that snapshot. An auction without a buyout is never `old`: the scans leave those out.
 -- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, old = units last
--- seen before cutT, t = the oldest moment a counted auction was last seen (its list, or its post) } and
--- info = { lists = characters with a list, newest = when the latest list was read }
+-- seen before cutT, units = { [unit price] = true } of the old ones (nil without any), t = the oldest moment a
+-- counted auction was last seen (its list, or its post) } and info = { lists = characters with a list,
+-- newest = when the latest list was read }
 function FM.OwnListings(cutT)
     local r = FM.R()
     local now = FM.Now()
     local byKey = {}
     local info = { lists = 0 }
-    local function add(key, qty, field, seen, scanned)
+    -- prices: the unit prices the auction can show in a scan (nil: without a buyout, in no scan)
+    local function add(key, qty, field, seen, prices)
         local e = byKey[key]
         if not e then
             e = { n = 0, list = 0, posts = 0, old = 0 }
@@ -246,8 +248,22 @@ function FM.OwnListings(cutT)
         end
         e.n = e.n + qty
         e[field] = e[field] + qty
-        if scanned and cutT and seen < cutT then e.old = e.old + qty end
+        if prices and cutT and seen < cutT then
+            e.old = e.old + qty
+            e.units = e.units or {}
+            for _, unit in ipairs(prices) do e.units[unit] = true end
+        end
         if not e.t or seen < e.t then e.t = seen end
+    end
+    -- the posts of the last 24h (the longest listing), newest first; those without a buyout by auction ID:
+    -- the auction list does not tell a bid from a buyout
+    local posts, bidOnly = {}, {}
+    for i = #r.posts, 1, -1 do
+        local f = FM.Split(r.posts[i], ",")
+        local t = FM.Unstamp(f[1])
+        if not t or now - t > LONGEST_LISTING then break end
+        posts[#posts + 1] = { t = t, f = f }
+        if f[7] == "b" and f[8] then bidOnly[f[2] .. ":" .. f[8]] = true end
     end
     local since, inList = {}, {}
     for char, snap in pairs(r.owned) do
@@ -259,20 +275,25 @@ function FM.OwnListings(cutT)
             inList[char] = aids
             for aid, e in pairs(ParseOwned(snap.list)) do
                 aids[aid] = true
-                if e.status ~= "s" and EndsAt(snap.t, e) > now then add(e.key, Dec(e.qty) or 1, "list", snap.t, true) end
+                if e.status ~= "s" and EndsAt(snap.t, e) > now then
+                    local qty = Dec(e.qty) or 1
+                    local buyout = Dec(e.buyout) or 0
+                    -- buyout is the unit price for commodities and the auction's total for items
+                    local prices = not bidOnly[char .. ":" .. aid] and buyout > 0 and { buyout, math_floor(buyout / qty + 0.5) } or nil
+                    add(e.key, qty, "list", snap.t, prices)
+                end
             end
         end
     end
-    for i = #r.posts, 1, -1 do
-        local f = FM.Split(r.posts[i], ",")
-        local t = FM.Unstamp(f[1])
-        if not t or now - t > 86400 then break end
+    for _, post in ipairs(posts) do
+        local f, t = post.f, post.t
         local char, listT = f[2], since[f[2]]
         -- stamps have minute precision: a post of the same minute as the list is told apart by its auction ID
         local after = not listT or t >= listT - 60
         if after and f[8] and inList[char] and inList[char][f[8]] then after = false end
         if f[3] and after and now < t + (DURATION_HOURS[f[6]] or 24) * 3600 then
-            add(f[3], Dec(f[4]) or 1, "posts", t, f[7] ~= "b")
+            local unit = Dec(f[5]) or 0
+            add(f[3], Dec(f[4]) or 1, "posts", t, f[7] ~= "b" and unit > 0 and { unit } or nil)
         end
     end
     return byKey, info

@@ -175,21 +175,34 @@ local function DepositShares()
 end
 
 -- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings). Units
--- last seen before the latest snapshot count only as far as it still shows them as yours: the rest sold or ended.
--- The snapshot alone adds nothing: it knows your auctions from the same lists and posts.
+-- last seen before the latest snapshot count only as far as they can still be in it: what it marks as yours plus
+-- what it holds within 1c of your prices (the mark goes by item, unit price and quantity, and another seller's
+-- auction at your price can take it from yours). The rest sold or ended. The snapshot alone adds nothing: it
+-- knows your auctions from the same lists and posts.
 local function Yours(key)
     local e = P.listings[key]
     if not e then return 0 end
     if e.old == 0 then return e.n end
     local p = P.view.Get(key)
-    return e.n - e.old + math_min(e.old, p and p.own or 0)
+    local there = p and p.own or 0
+    if p and there < e.old then
+        for _, level in ipairs(p.ladder) do
+            for unit in pairs(e.units) do
+                if level[1] - unit <= 1 and unit - level[1] <= 1 then
+                    there = there + level[2]
+                    break
+                end
+            end
+        end
+    end
+    return e.n - e.old + math_min(e.old, there)
 end
 
 -- How fresh "you list" is, for the reasons: the snapshot took units off, or when the listings were last seen
 local function ListingSeen(key, listed)
     local e = P.listings[key]
     if not e then return "none known" end
-    if listed < e.n then return string_format("%s of %s still in the latest snapshot", Count(listed), Count(e.n)) end
+    if listed < e.n then return string_format("%s of %s can still be in the latest snapshot", Count(listed), Count(e.n)) end
     return string_format("last seen %s ago", FM.FormatAge(P.now - e.t))
 end
 
@@ -207,7 +220,7 @@ local function Room(row, need)
     -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
     if share < need then
         -- not rounded: "is 5, one craft makes 5" would contradict itself
-        local shown = share < 1 and "<1" or (string_format("%.1f", share):gsub("%.0$", ""))
+        local shown = share < 1 and "<1" or (string_format("%.1f", math_floor(share * 10) / 10):gsub("%.0$", ""))
         return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown, craft)
     end
     local listed = Yours(row.key)
@@ -226,8 +239,8 @@ local function ListingNote(key, listed)
     local known = e and e.n or 0
     local info = P.listInfo
     if listed < known then
-        return string_format("Your listings: %s of the %s you listed are still in the latest snapshot (%s old), the rest sold "
-            .. "or ended.", Count(listed), Count(known), FM.FormatAge(P.now - (P.view.t or P.now))), GREY
+        return string_format("Your listings: %s of the %s you listed can still be in the latest snapshot (%s old: yours or "
+            .. "at your price), the rest sold or ended.", Count(listed), Count(known), FM.FormatAge(P.now - (P.view.t or P.now))), GREY
     end
     if known > 0 then
         local bits = {}

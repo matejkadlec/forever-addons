@@ -192,12 +192,14 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     after that list and can still be running (2h / 8h / 24h). The client hands the auction list out only when
     Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab. Until
     1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
-    both was not counted. Units last seen more than 10 minutes before the latest snapshot count only as far as that
-    snapshot still shows them as yours (deep scans and feed imports mark your auctions by item, unit price and
-    quantity): the rest sold or ended. What sold after the snapshot is not known and still counts until its time
-    runs out. The tooltip says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago",
-    "4 of the 10 you listed are still in the latest snapshot"), and in orange when no list was ever read or the
-    latest one is older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather
+    both was not counted. Units last seen more than 10 minutes before the latest snapshot count only as far as
+    they can still be in it: what it marks as yours plus what it holds within 1c of your prices (deep scans and
+    feed imports mark your auctions by item, unit price and quantity, and another seller's auction at your price
+    can take the mark from yours, FRV-58; an auction without a buyout is in no scan and always counts). The rest
+    sold or ended. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
+    says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you
+    listed can still be in the latest snapshot"), and in orange when no list was ever read or the latest one is
+    older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather
     Hats next to 10 listed and 100 Cured Thick Hides next to 200 on 2026-11-19, uncounted posts or a buyer rate
     that left room beside them; the saved variables of that day tell (FRV-56).
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid

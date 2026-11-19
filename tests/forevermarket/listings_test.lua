@@ -101,8 +101,22 @@ H.test("listings: units last seen before the cut are summed in old, a post witho
     r.posts[2] = Post(200, "Tester", "600", 2, 3, nil, "b")      -- bid only, 3h 20m ago: no scan shows it
     r.posts[3] = Post(30, "Tester", "100", 3, 3)                 -- posted 30 min ago
     local byKey = FM.OwnListings(now - 3600)                     -- the cut: an hour ago
-    H.same(byKey["100"], { n = 17, list = 4, posts = 13, old = 14, t = now - 5 * 3600 }, "the list and the 4h old post are old")
+    -- with the unit prices they can show in a scan: the list's buyout as a unit price (a commodity) or as the
+    -- total of its 4 units (an item), 5000 or 1250, and the post's unit price, 500
+    H.same(byKey["100"], { n = 17, list = 4, posts = 13, old = 14, units = { [5000] = true, [1250] = true, [500] = true },
+        t = now - 5 * 3600 }, "the list and the 4h old post are old")
     H.same(byKey["600"], { n = 2, list = 0, posts = 2, old = 0, t = now - 200 * 60 }, "bid only")
+end)
+
+H.test("listings: a bid only auction stays out of old once the auction list holds it", function()
+    local FM, r, now = Load()
+    r.posts[1] = Post(300, "Tester", "600", 2, 3, 91, "b") -- bid only, 5h ago, auction 91
+    r.posts[2] = Post(290, "Tester", "601", 1, 3, 92)       -- with a buyout, auction 92
+    r.owned.Tester = { t = now - 4 * 3600, list = Entry(91, "600", 2, "a", 60000) .. "," .. Entry(92, "601", 1, "a", 60000) }
+    local byKey = FM.OwnListings(now - 3600)
+    H.same(byKey["600"], { n = 2, list = 2, posts = 0, old = 0, t = now - 4 * 3600 }, "the bid only auction, from the list")
+    H.same(byKey["601"], { n = 1, list = 1, posts = 0, old = 1, units = { [5000] = true }, t = now - 4 * 3600 },
+        "the buyout auction is old")
 end)
 
 H.test("listings: an active auction the client gave no time left for counts for 24h after its list", function()
