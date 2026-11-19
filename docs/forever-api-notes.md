@@ -112,6 +112,33 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - The minimap has no `SetPlayerTexture` / `SetPlayerTextureHeight`, the engine player arrow cannot be resized
 - World map player arrow: `GroupMembersPinTemplate` pins, `pin.dataProvider:GetUnitPinSizesTable().player`, then `pin:SynchronizePinSizes()`
 
+## Bags and bank
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10; ForeverMarket already reads bags and the character bank this way in game, the account bank is not yet verified in game.
+
+- Containers: `C_Container.GetContainerNumSlots(bag)` and `C_Container.GetContainerItemInfo(bag, slot)` (a table with `itemID`, `stackCount`, `isBound`, `hyperlink`, ...; nothing for an empty slot); neither is flagged secret
+- `Enum.BagIndex`: `Backpack` 0, `Bag_1`..`Bag_4` 1-4, `ReagentBag` 5, `CharacterBankTab_1`..`9` 6-14, `AccountBankTab_1`..`9` 15-23; `Keyring` is -1, and `Characterbanktab` -2 / `Accountbanktab` -3 are the bank's bag slots themselves (the bag in a slot, not its items)
+- The bank is Camelot's own frame (`Blizzard_UIPanels_Game/Camelot/BankFrame.lua`) on Mainline's bank panel (`Mainline/BankFrameTemplates.lua`): what retail calls bank tabs are bank bag slots to buy here, and each bought one is a container
+  - `C_Bank.FetchPurchasedBankTabIDs(bankType)` lists the containers, `C_Bank.FetchPurchasedBankTabData(bankType)` adds their data (`ID` = the container); bank types: `Enum.BankType.Character` 0, `Guild` 1, `Account` 2
+  - Events: `BANKFRAME_OPENED`, `BANKFRAME_CLOSED`, `PLAYERBANKSLOTS_CHANGED(slot)`, `BANK_TABS_CHANGED(bankType)`
+  - ForeverMarket scans the character bank slot by slot only while the bank is open and keeps the last reading per character (`R.bank`, `trade/Sources.lua`, `scan/Worth.lua`)
+- Account bank: the Camelot frame also handles `Enum.BankType.Account` (page tabs with the `UI_Warbands` icon, containers `AccountBankTab_1`.., event `PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED(slot)`) and shows its tab only when `C_Bank.CanViewBank(Enum.BankType.Account)` is true
+  - Whether the live game gives characters an account bank is not yet verified in game: ask `CanViewBank` at runtime, never assume either way
+- `C_Item.GetItemCount(itemInfo, includeBank, includeUses, includeReagentBank, includeAccountBank)`: the account bank is a flag of its own (the fifth argument), every flag defaults to false
+
+## Professions
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game: no AddOn of this repository calls these (ForeverMarket takes its recipes from the SavedVariables of the third-party AddOn ForeverArtisan).
+
+- The profession window is Mainline's `Blizzard_Professions` with Camelot overrides, so recipes come from `C_TradeSkillUI`; the Classic Era functions (`GetNumTradeSkills`, `GetTradeSkillInfo`, `GetNumCrafts`, `GetCraftInfo`) appear nowhere in the branch
+  - `C_TradeSkillUI.GetRecipeInfo(recipeSpellID)` returns a table with `learned`, `relativeDifficulty`, `recipeID`, ... (or nil); `C_TradeSkillUI.GetRecipeSchematic(recipeSpellID, isRecraft)` returns `outputItemID`, `quantityMin` / `quantityMax` and `reagentSlotSchematics`
+  - Events: `TRADE_SKILL_SHOW`, `TRADE_SKILL_LIST_UPDATE`, `TRADE_SKILL_CLOSE`, `NEW_RECIPE_LEARNED(recipeID)`
+- `C_TradeSkillUI.GetAllRecipeIDs` appears nowhere in the `forever` branch (not documented, not used by Blizzard's Lua): treat it as missing
+  - Blizzard's recipe list is built from `C_TradeSkillUI.GetFilteredRecipeIDs()` once `C_TradeSkillUI.IsTradeSkillReady()` is true (`Blizzard_ProfessionsTemplates/Blizzard_Professions.lua`); both are used by Blizzard's Lua without an entry in the generated documentation
+- A character's professions without a profession window: `GetProfessions()` returns the indexes `prof1, prof2, faid, fish, cook` (First Aid third, where retail has Archaeology) and `GetProfessionInfo(index)` returns `name, texture, rank, maxRank, numSpells, spellOffset, skillLine, rankModifier, ...` (`Blizzard_ProfessionsBook/Camelot/Blizzard_ProfessionsBook.lua`)
+  - `C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLine)` returns `skillLevel` / `maxSkillLevel`; the Camelot book falls back to `rank` / `maxRank` when both are 0
+- Every skill line (professions, weapon skills, Defense): `C_SkillInfo.GetNumSkillLines()` and `C_SkillInfo.GetSkillLineInfo(index)` (`skillID`, `name`, `rank`, `maxRank`, `isHeader`, `parentSkillLineID`, ...), event `SKILL_LINES_CHANGED` (`Blizzard_UIPanels_Game/Camelot/SkillsFrame.lua`)
+
 ## AddOn list
 
 - `Blizzard_AddOnList/AddonList.lua` reads these `.toc` fields:
