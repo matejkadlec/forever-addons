@@ -352,6 +352,7 @@ function FM.SnipeFromTable(key, price)
     if not FM.SnipeSet(key, price, saved and saved.pct) then return false end
     FM.Print("Sniping " .. Name(key) .. " at up to", FM.FormatMoney(math_floor(price)))
     if FM.ShowSnipe then FM.ShowSnipe(key) end
+    EvaluateHeld(key) -- the window may have started sniping only now, after SnipeSet
     return true
 end
 
@@ -1015,16 +1016,17 @@ function FM.SnipeStatus()
     local hold = HoldReason()
     if hold then return "Paused: " .. hold .. ".", 1, 0.5, 0.2 end
     if DeepScanBusy() then return "Paused while the deep scan runs.", 1, 0.82, 0 end
+    -- a hit can be bought on any page (only the searches pause there): it comes first
+    local hit = NewestHit()
+    if hit then
+        return string_format("Scroll the mouse wheel: buy %dx %s for %s", hit.qty, Name(hit.key), FM.FormatMoney(hit.total)),
+            0.2, 1, 0.4
+    end
     local page = BlizzardPageInTheWay()
     if page == "sell" then
         return "Paused while the AH shows a Sell page. Go back to the item list.", 1, 0.82, 0
     elseif page == "buy" then
         return "Paused while the AH shows the Buy page of an item you don't snipe. Go back to the item list.", 1, 0.82, 0
-    end
-    local hit = NewestHit()
-    if hit then
-        return string_format("Scroll the mouse wheel: buy %dx %s for %s", hit.qty, Name(hit.key), FM.FormatMoney(hit.total)),
-            0.2, 1, 0.4
     end
     local b = Budget(false)
     if b then
