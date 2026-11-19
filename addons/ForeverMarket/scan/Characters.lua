@@ -147,13 +147,17 @@ local function SaveAccountBankSoon()
     end)
 end
 
+-- Read while the bank is open only, and saved at each read: when it opens, after every item move (items moving
+-- in the bank fire BAG_UPDATE_DELAYED; PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED is about the bags in its slots) and
+-- when a tab is bought. Nothing is read as it closes: the containers may already be gone, an empty reading would
+-- replace a good one (the character bank keeps its last open reading the same way, trade/Sources.lua)
 FM.On("BANKFRAME_OPENED", function()
     bankOpen = true
     SaveAccountBankSoon()
 end)
-FM.On("BANKFRAME_CLOSED", function()
-    pcall(SaveAccountBank)
-    bankOpen = false
+FM.On("BANKFRAME_CLOSED", function() bankOpen = false end)
+FM.On("BAG_UPDATE_DELAYED", function()
+    if bankOpen then SaveAccountBankSoon() end
 end)
 FM.On("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED", SaveAccountBankSoon)
 FM.On("BANK_TABS_CHANGED", SaveAccountBankSoon)

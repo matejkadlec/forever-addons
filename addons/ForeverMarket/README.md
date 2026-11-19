@@ -133,7 +133,8 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   auction list, inventory reading and last gold, so it counts nowhere any more (its posts, invoices, events,
   purchases and Profit readings stay; the logged-in character is refused). Each character's bags are saved at
   logout and a few minutes after bag changes (`bags[char]`), the account bank once for the realm bucket while the
-  bank is open and Blizzard lets you view it (`accountBank`; `C_Bank.CanViewBank`, not yet verified in game).
+  bank is open and Blizzard lets you view it, when it opens and after every item move (`accountBank`;
+  `C_Bank.CanViewBank`, not yet verified in game; never read as the bank closes).
   `FM.StockElsewhere(key)` is the one reader of what your other characters hold (bags, bank, mailbox, account bank,
   with the age of each reading); `FM.Owned` stays the logged-in character, live. Nothing the table, the tooltip or
   Picks show uses it yet (FRV-11, FRV-36, FRV-37 build on it)

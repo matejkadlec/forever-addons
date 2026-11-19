@@ -267,3 +267,30 @@ H.test("characters: mail the other same-name character logs after the switch is 
     H.eq(r.mailSeen["Tester Second|" .. base], B(minutes(1)), "only its own mail is kept under its key")
     H.eq(r.mailSeen["Tester|" .. base], B(minutes(1)) .. "," .. B(minutes(10)), "the other character's entries stay")
 end)
+
+-- Rule: the account bank is read again after every item move while the bank is open, never as it closes
+H.test("characters: the account bank follows item moves while open and keeps its reading after it closes", function()
+    local FM, env = Load("Player-1-A", "Tester", "Surname")
+    FM.InitializeSavedData()
+    env.Enum = { BankType = { Character = 0, Guild = 1, Account = 2 } }
+    env.C_Bank = { CanViewBank = function() return true end, FetchPurchasedBankTabIDs = function() return { 15 } end }
+    local units = 40
+    local reads = 0
+    FM.ScanContainers = function()
+        reads = reads + 1
+        return { [12359] = { all = units, free = units } }
+    end
+    env.FireEvent("BANKFRAME_OPENED")
+    env.FlushTimers()
+    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":14:14", "read when it opened")
+    units = 60 -- you deposit 20
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FlushTimers()
+    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1o:1o", "read again after the move")
+    env.FireEvent("BANKFRAME_CLOSED")
+    units = 0 -- what a read after closing could see
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FlushTimers()
+    H.eq(reads, 2, "nothing read as it closed or after")
+    H.eq(FM.R().accountBank, FM.Stamp(NOW) .. "|" .. B(12359) .. ":1o:1o", "the open reading stays")
+end)
