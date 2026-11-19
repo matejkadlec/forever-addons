@@ -176,7 +176,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     without vendor resells. Both recompute the picks.
   * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
     table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
-    "share of an item's C/24h per pick" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
+    "share of an item's C/24h one pick may plan" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
     everything that leaves the AH, bought or taken down, and other sellers undercut you during the day, so a
     quarter of it is what one more seller can expect to sell in a 24h listing; before 1.19 the only limits were half
     of the buyers (18 of 43 Barbaric Bracers a day) and 100 units. What you already list uses up the cap first:
@@ -278,7 +278,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
-  Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h per pick (1.19,
+  Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h one pick may plan (1.19,
   default 25%, `tableCircPct`; see Picks, Room on the AH).
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.

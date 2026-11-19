@@ -164,7 +164,7 @@ function FM.RegisterSettingsPanel()
     y = y - 34
     local circLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     circLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
-    circLabel:SetText("Picks: at most this share of an item's C/24h per pick (your listings count)")
+    circLabel:SetText("Picks: share of an item's C/24h one pick may plan")
     local circShare = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
     circShare:SetWidth(120)
     circShare:SetPoint("LEFT", circLabel, "RIGHT", 12, 0)
