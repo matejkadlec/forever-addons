@@ -156,7 +156,15 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified i
 
 ## Auction House
 
-Verified against wow-ui-source `forever` (1.60.1) for FRV-7. ForeverMarket already uses the scan, search, commodity purchase, owned auction and deposit functions in game, and what it found there is marked "seen in game by ForeverMarket"; posting, cancelling and bidding from an AddOn's own button, `SearchForItemKeys` and every call into Blizzard's `AuctionHouseFrame` are verified against the source only (not yet verified in game).
+Verified against wow-ui-source `forever` (1.60.1) for FRV-7. In game ForeverMarket already calls the functions below, and what it found there is marked "seen in game by ForeverMarket":
+
+- the full scan: `ReplicateItems`, the `GetReplicateItem...` getters and `GetNumReplicateItems`, `REPLICATE_ITEM_LIST_UPDATE`
+- searches of one item: `MakeItemKey`, `SendSearchQuery`, the commodity and item search result getters, `HasFullCommoditySearchResults` / `HasFullItemSearchResults`, `COMMODITY_SEARCH_RESULTS_UPDATED`, `ITEM_SEARCH_RESULTS_UPDATED`
+- commodity purchases: `StartCommoditiesPurchase`, `ConfirmCommoditiesPurchase`, `CancelCommoditiesPurchase`, `GetQuoteDurationRemaining`, `COMMODITY_PRICE_UPDATED`, `COMMODITY_PRICE_UNAVAILABLE`, `COMMODITY_PURCHASE_SUCCEEDED`, `COMMODITY_PURCHASE_FAILED`
+- your auctions as Blizzard's window asks for them: `OWNED_AUCTIONS_UPDATED`, `GetNumOwnedAuctions`, `GetOwnedAuctionInfo`
+- `CalculateCommodityDeposit`, `IsThrottledMessageSystemReady` with `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`, `AUCTION_HOUSE_AUCTION_CREATED`, and `hooksecurefunc` on `PostItem` / `PostCommodity`
+
+Everything else in this section is verified against the source only (not yet verified in game): posting, confirming, cancelling and bidding from an AddOn's own button, `QueryOwnedAuctions`, `SendSellSearchQuery`, `CalculateItemDeposit`, the item key functions other than `MakeItemKey`, every browse and favorites function, and every call into Blizzard's `AuctionHouseFrame`.
 
 - The Auction House is Mainline's `Blizzard_AuctionHouseUI` on `C_AuctionHouse` (item keys, commodities, a quote before a commodity purchase); Camelot's only own file is the category list `Blizzard_AuctionHouseUI/Camelot/Blizzard_AuctionData.lua`
   - The Classic Era functions (`QueryAuctionItems`, `GetAuctionItemInfo`, `PostAuction`) are called nowhere in the branch
