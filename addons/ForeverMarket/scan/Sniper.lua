@@ -1015,13 +1015,13 @@ function FM.SnipeStatus()
     if not S.active then return "Sniping is off.", 1, 0.82, 0 end
     local hold = HoldReason()
     if hold then return "Paused: " .. hold .. ".", 1, 0.5, 0.2 end
-    if DeepScanBusy() then return "Paused while the deep scan runs.", 1, 0.82, 0 end
-    -- a hit can be bought on any page (only the searches pause there): it comes first
+    -- a hit can be bought during a deep scan and on any page (only the searches pause then): it comes first
     local hit = NewestHit()
     if hit then
         return string_format("Scroll the mouse wheel: buy %dx %s for %s", hit.qty, Name(hit.key), FM.FormatMoney(hit.total)),
             0.2, 1, 0.4
     end
+    if DeepScanBusy() then return "Paused while the deep scan runs.", 1, 0.82, 0 end
     local page = BlizzardPageInTheWay()
     if page == "sell" then
         return "Paused while the AH shows a Sell page. Go back to the item list.", 1, 0.82, 0
