@@ -4,20 +4,22 @@ local _, FM = ...
 -- (trade/Calc.lua); the design was reviewed by a second, independent agent against real data:
 --   * buyers per day come from units that left the AH while nothing cheaper stayed listed (soldLow,
 --     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales
---   * one plan for all your gold (90%; one pick at most "% to invest" of your gold, default 90): picks are chosen greedily, each one buys
+--   * one plan for your gold: "Invest [X] % across [Y] picks" (1.20; X = the share of your gold the plan may use,
+--     default and at most 90, Y = its picks at most, default 3). Picks are chosen greedily, each gets a fair share
+--     of the gold that is left (left / picks still open), so what one does not use goes to the later ones; each buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
 --     dearer), crafting stops where a craft no longer earns its margin
 --   * your position first: units you already list or hold count against the buyers, your own materials
 --     are used first (valued at what they would sell for), nothing is bought that you are selling
 --   * no loss: at the lowest sell price of the last 3 days, minus deposits lost on relists, still a profit
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan
---   * after the plan: further good picks, each judged on its own as if it had the plan's gold ("beyond your
---     gold"), so there are options to choose from even when a few picks take all the gold
+--   * after the plan: further good picks, each judged on its own with one pick's share of the plan's gold ("out
+--     of scope"), so each can take the place of a plan pick
 --   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
 --     its profit, the deposit of the rest is lost when the auction expires (smaller deposit and fewer buyers
 --     in time vs. bigger deposit and more buyers); the table shows the better one (pick.expected, listHours)
 --   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: "Ignore vendor",
---     "Ignore stock", "% to invest", "Not learned", the profession (crafts and recipes only) and the settings
+--     "Ignore stock", "Invest [X] % across [Y] picks", "Not learned", the profession (crafts and recipes only) and the settings
 --     panel's minimum profit per item and share of C/24h
 --   * room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h (the table's
 --     C/24h, default 25%), less what you already list on all your characters (FM.OwnListings: the auction lists
@@ -40,14 +42,14 @@ local table_concat = table.concat
 
 local AH_CUT = 0.05
 local GOLD_SHARE = 0.9          -- of your gold goes into the plan (the rest pays deposits)
-local PICK_SHARE = 0.9          -- default "% to invest": at most this share of your gold in one pick
+local PICK_SLOTS = 3            -- default "across [Y] picks": the plan has up to this many picks
 local SHARE_OF_BUYERS = 0.5     -- of the buyers you get while you are the cheapest only part of the time
 local OLD_RECORD_FACTOR = 0.3   -- records from before soldLow: share of early-gone units that were bought
 local BURST_SHARE = 0.3         -- over this share of the listings gone in one interval, with relists...
 local BURST_KEEP = 0.15         -- ...counts as at most this share bought
 local MIN_UNIT = 10             -- profit per item at least 10c...
 local MIN_UNIT_SHARE = 0.03     -- ...and 3% of its cost
-local MIN_SCORE = 200           -- 2s expected profit, or 1% of the plan's gold when that is more
+local MIN_SCORE = 200           -- 2s expected profit, or 1% of one pick's share of the plan's gold when that is more
 local MAX_PICKS = 12
 local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
@@ -68,6 +70,7 @@ local DAY0 = time({ year = 2020, month = 1, day = 1, hour = 0 })
 local EMPTY = {}
 
 FM.PICKS_READY = true
+FM.PICKS_MAX = MAX_PICKS -- the most "across [Y] picks" takes
 
 local function M(copper)
     return (FM.MoneyShort or FM.FormatMoney)(copper)
@@ -691,6 +694,15 @@ local function LearnStep(c)
     return string_format("learn at %s (%s)", ShortWhere(c.where), M(c.learnCost))
 end
 
+-- Why a candidate got no gold in its first reading: one pick's share of the plan does not pay for one unit of it
+-- (the reasons are kept from the first pass, where nothing is spent yet)
+local function NoGold()
+    if P.slots > 1 then
+        return string_format("one pick's share (%s) does not pay for it: fewer picks or a higher %% in the Picks row", M(P.perPick))
+    end
+    return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
+end
+
 -- A craft (learned, or learn = the recipe price goes into the plan, or level = info only)
 local function EvaluateCraft(c)
     local row = c.row
@@ -722,9 +734,12 @@ local function EvaluateCraft(c)
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
-    if cap <= 0 then return nil, "no gold left for it in the plan" end
+    if cap <= 0 then return nil, NoGold() end
     local plan = PlanCraft(row, cap, unitsCap)
-    if plan.runs == 0 then return nil, "no craft earns its margin with the materials on the AH now" end
+    if plan.runs == 0 then
+        if plan.stop == "gold" then return nil, NoGold() end
+        return nil, "no craft earns its margin with the materials on the AH now"
+    end
     local items = plan.items
     local costPerItem = plan.value / items
     -- you list under the cheapest: only your own units wait before these (at the 1s floor, all of them)
@@ -830,7 +845,7 @@ local function EvaluateVendor(c)
     local cap = math_min(P.perPick, P.budgetLeft)
     local n = math_floor(math_min(MAX_UNITS, vLeft, room.room, row.offer.limited or math.huge,
         math_max(1, VENDOR_LISTED_SHARE * others), cap / unit))
-    if n < 1 then return nil, "no gold left for it in the plan" end
+    if n < 1 then return nil, NoGold() end
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
     local depositLoss = DepositPerItem(row.key, row.sell) * relists
@@ -916,7 +931,7 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
-    if n < 1 then return nil, "no gold left for it in the plan" end
+    if n < 1 then return nil, NoGold() end
     local yours = SellableOf(row.key)
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
@@ -1101,13 +1116,16 @@ function FM.ComputePicks(out, ctx, done)
         -- the table's filters are inputs of the plan (the table changes call FM.ComputeTrade again)
         learnOn = s.tableLearn and true or false, prof = s.tableProf,
         minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit or nil }
-    P.budget = gold * GOLD_SHARE
+    -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (at most 90%, the rest
+    -- pays deposits), Y = the picks it has at most; Step gives each pick its share of what is left
+    local share = tonumber(s.tableInvestPct)
+    share = share and math_max(1, math_min(100, share)) / 100 or GOLD_SHARE
+    P.budget = gold * math_min(share, GOLD_SHARE)
     P.budgetLeft = P.budget
-    -- "% to invest": the most of your gold one pick may use (the plan as a whole stays at 90%)
-    local share = tonumber(FM.GetSettings().tableInvestPct)
-    share = share and math_max(1, math_min(100, share)) / 100 or PICK_SHARE
-    P.perPick = math_max(math_min(P.budget, gold * share), 0)
-    P.minScore = math_max(MIN_SCORE, 0.01 * P.budget)
+    local slots = tonumber(s.tableInvestPicks)
+    P.slots = slots and math_max(1, math_min(MAX_PICKS, math_floor(slots))) or PICK_SLOTS
+    P.perPick = P.budget / P.slots
+    P.minScore = math_max(MIN_SCORE, 0.01 * P.budget / P.slots)
     -- "share of C/24h" (settings panel): the most of an item's daily circulation one pick may add to the AH
     local circPct = tonumber(s.tableCircPct)
     P.circShare = (circPct and math_max(1, math_min(100, circPct)) or CIRC_PCT) / 100
@@ -1121,6 +1139,8 @@ function FM.ComputePicks(out, ctx, done)
     local iteration = 0
     local function Step()
         iteration = iteration + 1
+        -- the next pick's share: the gold left over the picks still open (the first pass: one pick's share of all)
+        P.perPick = P.budgetLeft / math_max(1, P.slots - #chosen)
         local best
         for i, c in ipairs(candidates) do
             if not taken[i] then
@@ -1131,7 +1151,7 @@ function FM.ComputePicks(out, ctx, done)
                 end
                 cache[i] = pick
                 if iteration == 1 then
-                    first[i] = pick -- judged on its own, with all the plan's gold
+                    first[i] = pick -- judged on its own, with one pick's share of the plan's gold
                     if pick then c.valid = true elseif reason then why[c.row.key] = reason end
                 end
                 if pick and c.kind ~= "level" and (not best or pick.score > cache[best].score) then best = i end
@@ -1145,17 +1165,19 @@ function FM.ComputePicks(out, ctx, done)
             table_sort(levels, function(a, b) return a.score > b.score end)
             for i = #levels, MAX_LEVEL + 1, -1 do levels[i] = nil end
         end
-        if best and #chosen < MAX_PICKS and P.budgetLeft > 0 then
+        if best and #chosen < P.slots and P.budgetLeft > 0 then
             -- one pick per item
             for i, c in ipairs(candidates) do
                 if c.row.key == candidates[best].row.key then taken[i] = true end
             end
             Commit(cache[best])
             chosen[#chosen + 1] = cache[best]
-            C_Timer.After(0, Step)
-            return
+            if #chosen < P.slots and P.budgetLeft > 0 then
+                C_Timer.After(0, Step)
+                return
+            end
         end
-        -- done: the plan, then further good picks beyond your gold (each on its own); recipes to level for are
+        -- done: the plan, then further good picks outside it (each on its own); recipes to level for are
         -- kept apart (out.pickLevels), they are nothing to do now
         local shown = {}
         for _, p in ipairs(chosen) do shown[p.key] = true end
@@ -1202,6 +1224,7 @@ function FM.ComputePicks(out, ctx, done)
         out.picks = picks
         out.pickLevels = levels
         out.pickBudget = P.budget
+        out.pickSlots = P.slots
         out.pickWhy = why
         out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
