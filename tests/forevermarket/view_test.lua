@@ -2,6 +2,7 @@
 -- ("owner:count:buyout:band", count and buyout base36, owner "@" = marked as yours).
 -- Rule: ladder = the units not marked as yours per unit price, ascending; own / ownLevels = the marked ones,
 -- in all and per unit price; unit price = buyout / count, rounded.
+-- Also FM.FpView's source and when the table plans again (FM.EnsureTrade, FM.ComputeTrade's listings version).
 
 local H = require("harness")
 local F = require("fixtures")
@@ -58,6 +59,27 @@ H.test("trade: a post or a new auction list makes the table plan again, nothing 
     FM.trade = { t = 900, listingsVersion = 1 }
     FM.EnsureTrade()
     H.eq(computes, 2, "a newer scan still computes")
+end)
+
+-- Rule: a plan stores the version of your listings it started with, so a post during the plan makes the next
+-- FM.EnsureTrade plan again
+H.test("trade: a plan stores the listings version it planned with", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Diff.lua", "scan/Snapshot.lua", "trade/Sources.lua", "trade/Calc.lua" })
+    FM.InitializeSavedData()
+    env.clock = FM.EPOCH + 1000 * 60
+    FM.R().last = { t = env.clock, fp = {} }
+    FM.listingsVersion = 7
+    FM.ComputeTrade(false)
+    FM.listingsVersion = 8 -- a post while the plan runs
+    env.FlushTimers()
+    H.eq(FM.trade.err, nil, "the plan ran through")
+    H.eq(FM.trade.t, env.clock, "planned for the latest scan")
+    H.eq(FM.trade.listingsVersion, 7, "the version it started with")
+    local computes = 0
+    FM.ComputeTrade = function() computes = computes + 1 end
+    FM.EnsureTrade()
+    H.eq(computes, 1, "the post during the plan plans again")
 end)
 
 H.test("view: an item without auctions has no view", function()

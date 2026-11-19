@@ -2019,12 +2019,14 @@ local function CreateTable()
     f.footer = Text(f, "GameFontHighlightSmall", "BOTTOMLEFT", 16, 14)
     f.footer:SetJustifyH("LEFT")
 
-    -- "x min ago" stays fresh
+    -- "x min ago" stays fresh, and the picks plan again while the table stays open
     local elapsed = 0
     f:SetScript("OnUpdate", function(_, dt)
         elapsed = elapsed + dt
         if elapsed >= 15 then
             elapsed = 0
+            -- a post or a newly read auction list since the plan: plan again (returns at once when nothing changed)
+            FM.EnsureTrade()
             f.status:SetText(StatusText())
             -- Flip: the age line comes, goes and counts up with the latest snapshot
             local tab = CurrentTab()

@@ -13,6 +13,7 @@ Jira label: `forever-marketplace`.
 Auction House logger and market table.
 
 - **Scans:** deep scans (`C_AuctionHouse.ReplicateItems`) with diffs into per-item records, your posts and sales
+  - Forever hides sellers: deep scans and feed imports mark your auctions ("@") by a best fit of each item's auctions against your running auctions and posts (`FM.MatchOwnAuctions`, 1.20.3; the first fit before, FRV-58)
 - **Sniper:** `/fm snipe` ("FM: snipe" at the AH, mouse wheel buys commodities at or under a price within a daily gold budget)
   - On Blizzard's Buy page of a sniped item it snipes that item only (1.17.2); on the Sell page and another item's Buy page it pauses (`BlizzardPageInTheWay`); setting a snipe evaluates the results the client already holds
 - **Market table:** `/fm` or key `U` (`Bindings.xml` under the `Jim's Forever AddOns` keybinding category, `U` given once per binding set; sniper binding without a key)
@@ -26,12 +27,13 @@ Auction House logger and market table.
   - The price to list at is "List at" in every header and tooltip (1.18)
   - Picks (1.17): summary line above the header (your gold, plan picks, what they need, the sum of Expected), sections "Plan, fitting parameters" / "Also good, but out of scope" (1.20; its picks sized with one pick's share), columns # / Pick / Type / Invest / Expected (the better of 8h and 24h, its length grey) / Conf., the steps (learn > buy > make > list) on the second line; "Level for" rows only in `FM.trade.pickLevels`
   - "Invest [X] % across [Y] picks" (1.20, `tableInvestPct` default 90 = the share of your gold the whole plan may use, `tableInvestPicks` default 3 = its picks at most; each pick gets the gold left divided by the picks still open); the "Ignored (n)" button sits in the tab row right of Favorites (1.20)
+  - A post or a newly read auction list plans again on the table's 15 s tick while it is open (1.20.3) or when it is opened (`FM.EnsureTrade`)
   - Every Picks filter is an input of the plan ("Invest [X] % across [Y] picks", "Ignore vendor", "Ignore stock", "Not learned", the profession for crafts and recipes only, the settings panel's minimum profit per item and share of C/24h): a change computes the plan again
   - Room on the AH (1.19): a pick plans at most a share of the item's C/24h (settings panel, default 25%, `tableCircPct`) less your listings on all characters (`FM.OwnListings`: each character's last auction list plus its posts since; units seen before the latest snapshot only as far as it still holds units at exactly your prices), whatever "Ignore stock" says; no room for one craft or one unit = no pick, with the reason; the tooltip's "Room on the AH" section shows C/24h, cap, your listings and how they are known
   - Min. price counts the 8h deposit when 100+ circulate in 24h, else the 24h one (1.17, before 200+)
   - Short headers PPG / PPH / Min. price / On AH / C/8h / C/24h explained on hover; 1.16 replaced the one "Circ. 12h" column with C/8h and C/24h, the same measured rate over both listing durations
 - **Item tooltip cost section:** Cost / Craft cost: now and what you paid from its purchase log; Sell at least: 8h / 24h listing with measured deposits; "-" without data
-  - 1.16 dropped its own "Market ..." line, the AH price is Auctionator's `Auction` line, which ForeverMarket adds itself in the same format where Auctionator leaves none: not installed, auction tooltips off, or skipped because the item info is not cached yet (bound items both skip)
+  - 1.16 dropped its own "Market ..." line, the AH price is Auctionator's `Auction` line, which ForeverMarket adds itself (same label, the price with coin icons from Blizzard's `GetMoneyString`, 1.20.3) where Auctionator leaves none: not installed, auction tooltips off, or skipped because the item info is not cached yet (bound items both skip)
   - Never on bind on pickup or quest items (`FM.NeverSellable`); priced from `FM.FreshUnitPrice`, the ladder the Cost section uses
 - **Auctionator price feed:** every refresh of our data writes the lowest price and quantity per item ID into Auctionator's database: deep scans, Battle.net feed imports and item searches (1.16), so its `Auction` line never disagrees with ours
 - **Data:** SavedVariables `ForeverMarketDB` (realm-faction data, not settings only)

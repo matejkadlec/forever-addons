@@ -19,7 +19,10 @@ local _, FM = ...
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
 local math_max = math.max
+local string_sub = string.sub
+local string_match = string.match
 local table_concat = table.concat
+local table_sort = table.sort
 local pairs = pairs
 local ipairs = ipairs
 local type = type
@@ -98,27 +101,100 @@ function FM.NewSnapshot(source)
     }
 end
 
--- Forever's full scan hides the seller: an auction is yours when it matches one of your running
--- auctions (or recent posts) by item, unit price and quantity
-local function MatchOwn(snap, key, count, unit)
-    local list = snap.ownPool[key]
-    if not list then return false end
-    for _, entry in ipairs(list) do
-        if entry.left >= count then
-            for _, candidate in ipairs(entry.units) do
-                if candidate - unit <= 1 and unit - candidate <= 1 then
-                    entry.left = entry.left - count
-                    return true
-                end
-            end
-        end
+-- True when unit is within slack copper of one of the entry's unit prices
+local function PriceFits(entry, unit, slack)
+    for _, candidate in ipairs(entry.units) do
+        if candidate - unit <= slack and unit - candidate <= slack then return true end
     end
     return false
 end
 
--- The same match for a pool from FM.BuildOwnPool (the Battle.net feed's auctions have no sellers either)
-function FM.MatchOwn(pool, key, count, unit)
-    return MatchOwn({ ownPool = pool }, key, count, unit)
+-- Forever's full scan and the Battle.net feed hide the seller: an auction is yours when it matches one of your
+-- running auctions (or recent posts) by item, unit price and quantity. A best fit over all of an item's auctions
+-- at once, so a neighbour's smaller auction at (or 1c off) your price never takes the mark from yours:
+--   1. an auction of exactly an entry's quantity at one of its exact unit prices
+--   2. what still fits an entry (a partly sold commodity auction, a post spread over several auctions), the
+--      largest auctions first, at an exact unit price
+--   3. the same 1c off (rounding), only for entries that found nothing at an exact price
+-- entries: the item's list from FM.BuildOwnPool ({ units, left }, left is reduced by what matched);
+-- auctions: { { count, unit, band }, ... } with unknown sellers. Returns the set of indexes that are yours.
+function FM.MatchOwnAuctions(entries, auctions)
+    local own = {}
+    if type(entries) ~= "table" or type(auctions) ~= "table" then return own end
+    -- larger first; ties by time left and price, so the result never depends on the order the scan read them in
+    local order = {}
+    for i = 1, #auctions do order[i] = i end
+    table_sort(order, function(a, b)
+        local x, y = auctions[a], auctions[b]
+        if x.count ~= y.count then return x.count > y.count end
+        if (x.band or 0) ~= (y.band or 0) then return (x.band or 0) > (y.band or 0) end
+        if x.unit ~= y.unit then return x.unit < y.unit end
+        return a < b
+    end)
+    local exact = {} -- entries that matched an auction at an exact unit price
+    for _, entry in ipairs(entries) do
+        for _, i in ipairs(order) do
+            local a = auctions[i]
+            if not own[i] and a.count == entry.left and PriceFits(entry, a.unit, 0) then
+                own[i] = true
+                entry.left = 0
+                exact[entry] = true
+                break
+            end
+        end
+    end
+    for slack = 0, 1 do
+        for _, entry in ipairs(entries) do
+            if slack == 0 or not exact[entry] then
+                for _, i in ipairs(order) do
+                    if entry.left <= 0 then break end
+                    local a = auctions[i]
+                    if not own[i] and a.count <= entry.left and PriceFits(entry, a.unit, slack) then
+                        own[i] = true
+                        entry.left = entry.left - a.count
+                        if slack == 0 then exact[entry] = true end
+                    end
+                end
+            end
+        end
+    end
+    return own
+end
+
+-- One item's fingerprints "tag:count:buyout:band,..." with the auctions of unknown sellers ("?") that are yours
+-- marked "@" (the Battle.net feed's newest snapshot, scan/Feed.lua)
+function FM.TagOwnFingerprints(entries, fps)
+    local list = FM.Split(fps, ",")
+    local auctions = {}
+    for i, fp in ipairs(list) do
+        local count, buyout, band = string_match(fp, "^%?:([^:]+):([^:]+):(%d*)")
+        count, buyout = Dec(count), Dec(buyout)
+        if count and buyout and count > 0 then
+            auctions[#auctions + 1] = { count = count, unit = FM.UnitPrice(count, buyout), band = tonumber(band), fp = i }
+        end
+    end
+    local own = FM.MatchOwnAuctions(entries, auctions)
+    for i, a in ipairs(auctions) do
+        if own[i] then list[a.fp] = "@" .. string_sub(list[a.fp], 2) end
+    end
+    return table_concat(list, ",")
+end
+
+-- The auctions of unknown sellers that may be yours, once all of the item's auctions are read: marks yours "@"
+-- and counts them as yours, the others as someone else's
+local function ResolveOwn(snap, key, agg)
+    local pending = agg.pending
+    agg.pending = nil
+    local own = FM.MatchOwnAuctions(snap.ownPool[key], pending)
+    for i, a in ipairs(pending) do
+        if own[i] then
+            agg.fps[a.fp] = "@" .. string_sub(agg.fps[a.fp], 2)
+            agg.own = agg.own + a.count
+            if not agg.ownMin or a.unit < agg.ownMin then agg.ownMin = a.unit end
+        elseif not agg.minOther or a.unit < agg.minOther then
+            agg.minOther = a.unit
+        end
+    end
 end
 
 -- count: stack size, buyout: total buyout copper of the auction, band: time left band 0-3
@@ -146,12 +222,23 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
     agg.levels[unit] = (agg.levels[unit] or 0) + count
     if not agg.min or unit < agg.min then agg.min = unit end
 
+    if type(band) ~= "number" or band < 0 or band > 3 then band = 0 end
+    band = math_floor(band)
     local tag
     local unknownOwner = type(owner) ~= "string" or owner == ""
-    if FM.IsOwnChar(owner) or (unknownOwner and MatchOwn(snap, key, count, unit)) then
+    if FM.IsOwnChar(owner) then
         tag = "@"
         agg.own = agg.own + count
         if not agg.ownMin or unit < agg.ownMin then agg.ownMin = unit end
+    elseif unknownOwner and snap.ownPool[key] then
+        -- maybe yours: decided by ResolveOwn once all of the item's auctions are read
+        tag = "?"
+        local pending = agg.pending
+        if not pending then
+            pending = {}
+            agg.pending = pending
+        end
+        pending[#pending + 1] = { count = count, unit = unit, band = band, fp = #agg.fps + 1 }
     else
         if type(owner) == "string" and owner ~= "" then
             tag = snap.hashes[owner]
@@ -164,8 +251,7 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
         end
         if not agg.minOther or unit < agg.minOther then agg.minOther = unit end
     end
-    if type(band) ~= "number" or band < 0 or band > 3 then band = 0 end
-    agg.fps[#agg.fps + 1] = tag .. ":" .. Enc(count) .. ":" .. Enc(buyout) .. ":" .. math_floor(band)
+    agg.fps[#agg.fps + 1] = tag .. ":" .. Enc(count) .. ":" .. Enc(buyout) .. ":" .. band
     snap.nAuctions = snap.nAuctions + 1
 end
 
@@ -263,6 +349,8 @@ function FM.FinalizeSnapshot(snap, onDone)
 
     FM.RunSliced(keys, 250, function(key)
         local agg = snap.keys[key]
+        -- before the diff: it compares the fingerprints with their "@" marks
+        if agg and agg.pending then ResolveOwn(snap, key, agg) end
         local watched = FM.IsWatched(key)
         local stats = useDiff and FM.DiffFingerprints(prev.fp[key], agg and agg.fps or {}, gap, watched) or nil
         if not agg and not stats then return end
