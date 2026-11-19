@@ -2,6 +2,8 @@
 -- Rule: a pick plans at most cap = round(share x C/24h) units (C/24h = the row's sold12 x 2, share = the
 -- setting tableCircPct, default 25%), less what you already list on all your characters; an item whose room
 -- is under one craft (the recipe's "makes") or one unit is no pick and says why.
+-- Your listings = what your auction lists and posts know; of the units last seen more than 10 minutes before the
+-- latest snapshot only what that snapshot still shows as yours.
 
 local H = require("harness")
 local F = require("fixtures")
@@ -52,9 +54,10 @@ local function Setup(buyers, settings)
     return FM, env, r
 end
 
--- The market the picks see: the material is plentiful at 10s, every product has 50 units of others at 1g
-local function View(ladders)
-    return { Get = function(key)
+-- The market the picks see: the material is plentiful at 10s, every product has 50 units of others at 1g.
+-- t = when the snapshot was taken (nil: no snapshot newer than your listings)
+local function View(ladders, t)
+    return { t = t, Get = function(key)
         if ladders and ladders[key] then return ladders[key] end
         if key == "900" then return { ladder = { { 1000, 100000 } }, qty = 100000, own = 0 } end
         return { ladder = { { 10000, 50 } }, qty = 50, own = 0 }
@@ -131,6 +134,49 @@ H.test("picks: listings posted after the auction list count, the pick gets only 
         "where the listings are known from")
 end)
 
+H.test("picks: units listed before the latest snapshot count only as far as it still shows them", function()
+    -- 28 circulate a day: cap 7; 10 were posted 5h ago, the snapshot is 1h old
+    local function Run(ownInSnapshot)
+        local FM, env, r = Setup({ ["101"] = 14 })
+        r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(10000), "3", "i" }, ",")
+        local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 50 + ownInSnapshot, own = ownInSnapshot } },
+            env.clock - 3600)
+        local out = { crafts = { Craft("101", 28) } }
+        return Compute(FM, env, out, view), out
+    end
+    -- the snapshot still shows all 10: no room
+    local picks, out = Run(10)
+    H.eq(picks["101"], nil, "10 still listed: no pick")
+    H.eq(out.pickWhy["101"], "you list 10 already (last seen 5h ago): the cap is 7 (25% of C/24h 28)", "the reason")
+    -- it shows 4: 6 sold or ended, room for 3
+    picks = Run(4)
+    H.eq(HasStep(picks["101"], "make 3"), true, "4 still listed: make 3")
+    H.eq(Reason(picks["101"], "C/24h 28, cap 7 (25%), you list 4 -> make 3") ~= nil, true, "the room line")
+    H.eq(Reason(picks["101"], "Your listings: 4 of the 10 you listed are still in the latest snapshot (1h old), the rest sold "
+        .. "or ended.") ~= nil, true, "where the number comes from")
+    -- it shows none: all sold, the whole cap is free
+    picks = Run(0)
+    H.eq(HasStep(picks["101"], "make 7"), true, "none left: make 7")
+end)
+
+H.test("picks: units posted after the latest snapshot count in full, whatever it shows", function()
+    -- cap 7; 10 posted 30 min ago, the snapshot is 1h old and cannot know them
+    local FM, env, r = Setup({ ["101"] = 14 })
+    r.posts[1] = table.concat({ B(NOW_MINUTES - 30), "Tester", "101", B(10), B(10000), "3", "i" }, ",")
+    local out = { crafts = { Craft("101", 28) } }
+    local picks = Compute(FM, env, out, View(nil, env.clock - 3600))
+    H.eq(picks["101"], nil, "no pick")
+    H.eq(out.pickWhy["101"], "you list 10 already (last seen 30m ago): the cap is 7 (25% of C/24h 28)", "the reason")
+end)
+
+H.test("picks: the snapshot alone adds no listing your lists and posts do not know", function()
+    -- the snapshot marks 10 as yours, but no list and no post of the last 24h holds them: they ran out
+    local FM, env = Setup({ ["101"] = 14 })
+    local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 60, own = 10 } }, env.clock - 3600)
+    local picks = Compute(FM, env, { crafts = { Craft("101", 28) } }, view)
+    H.eq(HasStep(picks["101"], "make 7"), true, "the whole cap")
+end)
+
 H.test("picks: a cap under one craft is no pick", function()
     -- 12 circulate a day: cap 3, one craft makes 5
     local FM, env = Setup({ ["103"] = 9 })
@@ -138,6 +184,14 @@ H.test("picks: a cap under one craft is no pick", function()
     local picks = Compute(FM, env, out)
     H.eq(picks["103"], nil, "no pick")
     H.eq(out.pickWhy["103"], "too little circulation: C/24h 12, your share (25%) is 3, one craft makes 5", "the reason")
+end)
+
+H.test("picks: the reason names the share as it is, not rounded up to one craft", function()
+    -- 18.4 circulate a day: the share is 4.6, one craft makes 5
+    local FM, env = Setup({ ["103"] = 9 })
+    local out = { crafts = { Craft("103", 18.4, 5) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy["103"], "too little circulation: C/24h 18, your share (25%) is 4.6, one craft makes 5", "the reason")
 end)
 
 H.test("picks: a share under one unit is no pick (half a unit a day is not rounded up)", function()

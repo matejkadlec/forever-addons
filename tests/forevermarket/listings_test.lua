@@ -1,6 +1,7 @@
 -- ForeverMarket scan/Ledger.lua: FM.OwnListings, the units you have listed per item on all your characters.
 -- Rule: each character's last list of its auctions (active entries whose time has not run out) plus what that
 -- character posted after the list and can still be running (2h / 8h / 24h for duration 1 / 2 / 3).
+-- Units last seen before the caller's cut (its latest snapshot) are also summed in `old`.
 
 local H = require("harness")
 local F = require("fixtures")
@@ -15,8 +16,8 @@ local function Entry(aid, key, qty, status, left)
 end
 
 -- One post: "t,char,key,qty,unit,duration,kind[,auctionID]"
-local function Post(minutesAgo, char, key, qty, duration, aid)
-    local f = { B(NOW_MINUTES - minutesAgo), char, key, B(qty), B(500), tostring(duration), "c" }
+local function Post(minutesAgo, char, key, qty, duration, aid, kind)
+    local f = { B(NOW_MINUTES - minutesAgo), char, key, B(qty), B(500), tostring(duration), kind or "c" }
     if aid then f[#f + 1] = B(aid) end
     return table.concat(f, ",")
 end
@@ -37,8 +38,8 @@ H.test("listings: active auctions of the last list count, sold and run out ones 
         Entry(4, "200", 20, "a", 80000)
     }, ",") }
     local byKey, info = FM.OwnListings()
-    H.same(byKey, { ["100"] = { n = 4, list = 4, posts = 0, t = now - 3600 }, ["200"] = { n = 20, list = 20, posts = 0, t = now - 3600 } },
-        "listings")
+    H.same(byKey, { ["100"] = { n = 4, list = 4, posts = 0, old = 0, t = now - 3600 },
+        ["200"] = { n = 20, list = 20, posts = 0, old = 0, t = now - 3600 } }, "listings")
     H.same(info, { lists = 1, newest = now - 3600 }, "info")
 end)
 
@@ -51,8 +52,8 @@ H.test("listings: posts after the list count while they can still run, posts bef
     r.posts[4] = Post(60, "Tester", "300", 200, 2)     -- after the list, 8h
     r.posts[5] = Post(30, "Tester", "500", 3, 1)       -- a fresh 2h auction
     local byKey = FM.OwnListings()
-    H.same(byKey["100"], { n = 14, list = 4, posts = 10, t = now - 120 * 60 }, "list and post together")
-    H.same(byKey["300"], { n = 200, list = 0, posts = 200, t = now - 60 * 60 }, "a post only")
+    H.same(byKey["100"], { n = 14, list = 4, posts = 10, old = 0, t = now - 120 * 60 }, "list and post together")
+    H.same(byKey["300"], { n = 200, list = 0, posts = 200, old = 0, t = now - 60 * 60 }, "a post only")
     H.eq(byKey["400"].n, 7, "a 2h auction in its last minute")
     H.eq(byKey["500"].n, 3, "a fresh 2h auction")
 end)
@@ -89,6 +90,25 @@ H.test("listings: all your characters count, each against its own list", functio
     r.posts[2] = Post(240, "Banker", "100", 200, 3) -- after Banker's list (5h old): counted
     r.posts[3] = Post(100, "Crafter", "100", 1, 3)  -- a character without a list: its posts count
     local byKey, info = FM.OwnListings()
-    H.same(byKey["100"], { n = 211, list = 10, posts = 201, t = now - 5 * 3600 }, "three characters")
+    H.same(byKey["100"], { n = 211, list = 10, posts = 201, old = 0, t = now - 5 * 3600 }, "three characters")
     H.same(info, { lists = 2, newest = now - 600 }, "info")
+end)
+
+H.test("listings: units last seen before the cut are summed in old, a post without a buyout never is", function()
+    local FM, r, now = Load()
+    r.owned.Tester = { t = now - 5 * 3600, list = Entry(1, "100", 4, "a", 80000) } -- read 5h ago
+    r.posts[1] = Post(240, "Tester", "100", 10, 3)               -- posted 4h ago
+    r.posts[2] = Post(200, "Tester", "600", 2, 3, nil, "b")      -- bid only, 3h 20m ago: no scan shows it
+    r.posts[3] = Post(30, "Tester", "100", 3, 3)                 -- posted 30 min ago
+    local byKey = FM.OwnListings(now - 3600)                     -- the cut: an hour ago
+    H.same(byKey["100"], { n = 17, list = 4, posts = 13, old = 14, t = now - 5 * 3600 }, "the list and the 4h old post are old")
+    H.same(byKey["600"], { n = 2, list = 0, posts = 2, old = 0, t = now - 200 * 60 }, "bid only")
+end)
+
+H.test("listings: an active auction the client gave no time left for counts for 24h after its list", function()
+    local FM, r, now = Load()
+    r.owned.Tester = { t = now - 23 * 3600, list = Entry(1, "100", 4, "a", 0) }
+    r.owned.Banker = { t = now - 25 * 3600, list = Entry(2, "100", 6, "a", 0) }
+    local byKey = FM.OwnListings()
+    H.eq(byKey["100"].n, 4, "the 23h old list counts, the 25h old one does not")
 end)

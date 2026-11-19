@@ -170,6 +170,13 @@ FM.On("AUCTION_HOUSE_SHOW", function()
     FM.ahOpenedAt = FM.Now()
 end)
 
+-- When an auction of a list read at listT ends. The client may hand an owned auction out without its seconds
+-- left (timeLeftSeconds is nilable, stored as 0): then it counts as running for the longest listing, 24h
+local LONGEST_LISTING = 86400
+local function EndsAt(listT, entry)
+    return listT + (entry.left > 0 and entry.left or LONGEST_LISTING)
+end
+
 -- Your auctions that should be on the AH right now, by item: the last list of your auctions of each of
 -- your characters (still running) plus what was posted after it. Forever's full scan does not tell
 -- who sells an auction, so the deep scan recognizes yours by item, unit price and quantity.
@@ -193,7 +200,7 @@ function FM.BuildOwnPool()
             for _, e in pairs(ParseOwned(snap.list)) do
                 local qty = Dec(e.qty) or 1
                 local buyout = Dec(e.buyout) or 0
-                if e.status ~= "s" and buyout > 0 and snap.t + e.left > now then
+                if e.status ~= "s" and buyout > 0 and EndsAt(snap.t, e) > now then
                     -- buyout is the unit price for commodities and the auction's total for items
                     add(e.key, { buyout, math_floor(buyout / qty + 0.5) }, qty)
                 end
@@ -220,23 +227,26 @@ local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
 -- (active ones that have not run out since) plus what it posted after that list and can still be running.
 -- The client hands the list out only when something asks for it (Blizzard's Auctions tab), so a list is as old
 -- as the last look at that tab and the posts since must count too. What sold since is not known: it stays
--- counted until its time runs out.
--- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, t = the oldest
--- moment a counted auction was last seen (its list, or its post) } and info = { lists = characters with a
--- list, newest = when the latest list was read }
-function FM.OwnListings()
+-- counted until its time runs out, unless a newer snapshot of the AH tells: units last seen before cutT (the
+-- caller's latest snapshot, less its lag) are summed in `old`, and of those only what that snapshot still shows
+-- as yours is listed. A post without a buyout is never `old`: the scans leave such auctions out.
+-- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, old = units last
+-- seen before cutT, t = the oldest moment a counted auction was last seen (its list, or its post) } and
+-- info = { lists = characters with a list, newest = when the latest list was read }
+function FM.OwnListings(cutT)
     local r = FM.R()
     local now = FM.Now()
     local byKey = {}
     local info = { lists = 0 }
-    local function add(key, qty, field, seen)
+    local function add(key, qty, field, seen, scanned)
         local e = byKey[key]
         if not e then
-            e = { n = 0, list = 0, posts = 0 }
+            e = { n = 0, list = 0, posts = 0, old = 0 }
             byKey[key] = e
         end
         e.n = e.n + qty
         e[field] = e[field] + qty
+        if scanned and cutT and seen < cutT then e.old = e.old + qty end
         if not e.t or seen < e.t then e.t = seen end
     end
     local since, inList = {}, {}
@@ -249,7 +259,7 @@ function FM.OwnListings()
             inList[char] = aids
             for aid, e in pairs(ParseOwned(snap.list)) do
                 aids[aid] = true
-                if e.status ~= "s" and snap.t + e.left > now then add(e.key, Dec(e.qty) or 1, "list", snap.t) end
+                if e.status ~= "s" and EndsAt(snap.t, e) > now then add(e.key, Dec(e.qty) or 1, "list", snap.t, true) end
             end
         end
     end
@@ -262,7 +272,7 @@ function FM.OwnListings()
         local after = not listT or t >= listT - 60
         if after and f[8] and inList[char] and inList[char][f[8]] then after = false end
         if f[3] and after and now < t + (DURATION_HOURS[f[6]] or 24) * 3600 then
-            add(f[3], Dec(f[4]) or 1, "posts", t)
+            add(f[3], Dec(f[4]) or 1, "posts", t, f[7] ~= "b")
         end
     end
     return byKey, info

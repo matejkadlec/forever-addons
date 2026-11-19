@@ -54,6 +54,7 @@ local MAX_LEVEL = 3
 local MAX_UNITS = 100           -- per pick and day
 local CIRC_PCT = 25             -- default share of an item's C/24h one pick may add to the AH (tableCircPct)
 local LONGEST_LISTING = 86400   -- a 24h auction: an auction list older than this holds nothing still running
+local SNAPSHOT_LAG = 600        -- what you listed up to 10 min before a snapshot's time may be missing in it
 local VENDOR_LISTED_SHARE = 0.2 -- vendor goods: at most 20% of what others list
 local DEPOSIT_SHARE = 0.12      -- deposit per listing as a share of the price when invoices don't tell
 local LIST_HOURS = 24
@@ -173,14 +174,23 @@ local function DepositShares()
     return out
 end
 
--- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings) or your
--- auctions in the latest scan, whichever is more
+-- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings). Units
+-- last seen before the latest snapshot count only as far as it still shows them as yours: the rest sold or ended.
+-- The snapshot alone adds nothing: it knows your auctions from the same lists and posts.
 local function Yours(key)
     local e = P.listings[key]
-    local n = e and e.n or 0
+    if not e then return 0 end
+    if e.old == 0 then return e.n end
     local p = P.view.Get(key)
-    if p and (p.own or 0) > n then n = p.own end
-    return n
+    return e.n - e.old + math_min(e.old, p and p.own or 0)
+end
+
+-- How fresh "you list" is, for the reasons: the snapshot took units off, or when the listings were last seen
+local function ListingSeen(key, listed)
+    local e = P.listings[key]
+    if not e then return "none known" end
+    if listed < e.n then return string_format("%s of %s still in the latest snapshot", Count(listed), Count(e.n)) end
+    return string_format("last seen %s ago", FM.FormatAge(P.now - e.t))
 end
 
 -- Room for new units of an item on the AH: a share of what circulates of it in 24h (the table's C/24h =
@@ -196,28 +206,28 @@ local function Room(row, need)
     local craft = need > 1 and string_format(", one craft makes %d", need) or ""
     -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
     if share < need then
-        return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, Count(share), craft)
+        -- not rounded: "is 5, one craft makes 5" would contradict itself
+        local shown = share < 1 and "<1" or (string_format("%.1f", share):gsub("%.0$", ""))
+        return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown, craft)
     end
     local listed = Yours(row.key)
     if cap - listed < need then
-        -- how fresh that number is: what sold since it was last seen still counts
-        local e = P.listings[row.key]
-        local seen = (e and e.n >= listed) and string_format("last seen %s ago", FM.FormatAge(P.now - e.t)) or "in the latest snapshot"
-        return nil, string_format("you list %s already (%s): the cap is %s (%d%% of C/24h %s)%s", Count(listed), seen, Count(cap),
-            pct, Count(circ), craft)
+        -- with how fresh that number is: what sold since it was last seen still counts
+        return nil, string_format("you list %s already (%s): the cap is %s (%d%% of C/24h %s)%s", Count(listed),
+            ListingSeen(row.key, listed), Count(cap), pct, Count(circ), craft)
     end
     return { circ = circ, cap = cap, listed = listed, room = cap - listed, pct = pct }
 end
 
 -- How "you list" is known, never a silent 0: the auction lists (as old as the last look at the AH's Auctions
--- tab), the posts since, or the latest snapshot. Returns the note and its color.
+-- tab) and the posts since, checked against the latest snapshot. Returns the note and its color.
 local function ListingNote(key, listed)
     local e = P.listings[key]
     local known = e and e.n or 0
     local info = P.listInfo
-    if listed > known then
-        return string_format("Your listings: %s seen as yours in the latest snapshot (your auction lists and posts know %s).",
-            Count(listed), Count(known)), GREY
+    if listed < known then
+        return string_format("Your listings: %s of the %s you listed are still in the latest snapshot (%s old), the rest sold "
+            .. "or ended.", Count(listed), Count(known), FM.FormatAge(P.now - (P.view.t or P.now))), GREY
     end
     if known > 0 then
         local bits = {}
@@ -1060,7 +1070,8 @@ function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
     local gold = GetMoney and GetMoney() or 0
     local s = FM.GetSettings()
-    local listings, listInfo = FM.OwnListings()
+    -- your auctions seen before the latest snapshot are checked against it (Yours)
+    local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - SNAPSHOT_LAG or nil)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo,
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),

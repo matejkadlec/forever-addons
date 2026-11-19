@@ -188,13 +188,18 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
     cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from.
   * Your listings (1.19, `FM.OwnListings` in scan/Ledger.lua): per character its last auction list (`owned`: active
-    auctions whose time has not run out) plus what it posted after that list and can still be running (2h / 8h /
-    24h), or your auctions in the latest snapshot when that is more. The client hands the auction list out only
-    when Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab:
-    until 1.19 Picks read the lists alone and missed everything posted since. What sold since the list was read is
-    not known and still counts until its time runs out. The tooltip says how the number is known ("6 in your
-    auction lists, 4 posted since; last seen 3h ago"), and in orange when no list was ever read or the latest one
-    is older than 24h (then only posts count).
+    auctions whose time has not run out; one the client gave no time left for counts for 24h) plus what it posted
+    after that list and can still be running (2h / 8h / 24h). The client hands the auction list out only when
+    Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab. Until
+    1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
+    both was not counted. Units last seen more than 10 minutes before the latest snapshot count only as far as that
+    snapshot still shows them as yours (deep scans and feed imports mark your auctions by item, unit price and
+    quantity): the rest sold or ended. What sold after the snapshot is not known and still counts until its time
+    runs out. The tooltip says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago",
+    "4 of the 10 you listed are still in the latest snapshot"), and in orange when no list was ever read or the
+    latest one is older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather
+    Hats next to 10 listed and 100 Cured Thick Hides next to 200 on 2026-11-19, uncounted posts or a buyer rate
+    that left room beside them; the saved variables of that day tell (FRV-56).
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
     picks whose gold stayed reserved): "Not learned" off plans without recipes to learn, the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
