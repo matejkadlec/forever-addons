@@ -95,7 +95,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
   skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
   vendor" and "Ignore stock" (Picks). Right side: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`;
-  Craft, Picks, Learn), "Ignored (n)", and on Picks the "% to invest" box left of the dropdown. Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the dropdown (1.20; "% to invest" before). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; greyed on Farm and Profit, which have no ignored items to show). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
@@ -145,8 +145,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
   together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
   and the list sit one row lower on this tab. Two sections (1.17, they replace the orange "beyond your gold now" and
-  the footer sentence): **Plan: fits your gold**, then **Also good, beyond your gold** (each judged on its own with
-  the plan's gold, up to 20 picks together; `pick.extra`); sorting works inside each section, the default is the
+  the footer sentence): **Plan, fitting parameters**, then **Also good, but out of scope** (1.20; "Plan: fits your gold" and
+  "Also good, beyond your gold" before, which read as if the second could not be afforded. Each of its picks is
+  judged on its own with one pick's share of the plan's gold, so it can take the place of a plan pick; up to 20
+  picks together; `pick.extra`); sorting works inside each section, the default is the
   rank. Recipes worth leveling for left Picks in 1.17: they are nothing to do now (`FM.trade.pickLevels`, up to 3;
   their rows on Learn carry a green arrow and say so in the tooltip). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
   plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
@@ -171,9 +173,15 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (the main purchase: how many, what, up to which AH price or at which vendor; the other purchases and tools
     counted as "(+n more)", the tooltip lists them) > make > list (price, and the length of Expected). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
-  * "% to invest" (1.14, number box left of the professions, default 90, `tableInvestPct`): the most of your gold
-    one pick may use (before 1.14: 35% of the plan; the plan as a whole stays at 90%, so above 90 changes nothing). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
-    without vendor resells. Both recompute the picks.
+  * "Invest [X] % across [Y] picks" (1.20, two number boxes left of the professions): X (`tableInvestPct`, default
+    90) is the share of your gold the whole plan may use, at most 90%: 10% stay for deposits, so above 90 changes
+    nothing. Y (`tableInvestPicks`, default 3, 1 to 12) is how many picks the plan has at most; fewer when fewer
+    good picks exist. Each pick gets a fair share of what is left, the gold left divided by the picks still open
+    (`P.perPick` in `Step`), so what one does not use (the C/24h cap, the margin) goes to the later ones; 1 puts
+    everything into the best pick. From 1.14 to 1.19 the one box "% to invest" was the most of your gold one pick
+    may use and the number of picks fell out by itself: a saved value under 90 now limits the whole plan.
+    "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
+    without vendor resells. All of them recompute the picks.
   * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
     table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
     "share of an item's C/24h one pick may plan" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
@@ -183,7 +191,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     room = cap - your listings, on all your characters, whatever "Ignore stock" says (that box covers bags and
     bank). A room under one craft (the recipe's "makes") or one unit is no pick, and the row says why ("you list 10
     already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "too little circulation: ...", "circulation not known yet"). It holds
-    for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, beyond your gold", and it
+    for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, but out of scope", and it
     is an input of the plan: the gold a smaller pick leaves goes to the next ones. The buyers' limit (half of the
     buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
     cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from.
@@ -212,7 +220,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
     leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change computes the plan again, so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
-  * One plan for 90% of your gold, one pick at most "% to invest" of it, chosen greedily: each pick buys from what the
+  * One plan for X% of your gold (at most 90), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
   * No loss: profit at the usual price (median daily low of the last week) when that is under the sell

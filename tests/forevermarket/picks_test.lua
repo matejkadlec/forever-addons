@@ -6,6 +6,9 @@
 -- latest snapshot (2 hours for a feed snapshot) only what can still be in it: the units it holds at exactly your
 -- unit prices, marked as yours or not, up to what you listed at each.
 -- A view as the scans produce it: ladder = the auctions not marked as yours, own / ownLevels = the marked ones.
+-- The plan's gold: "Invest [X] % across [Y] picks" (tableInvestPct, default 90 and at most 90; tableInvestPicks,
+-- default 3). The plan has up to Y picks; each gets the gold left divided by the picks still open; a pick outside
+-- the plan is sized with one pick's share (X / Y of your gold).
 
 local H = require("harness")
 local F = require("fixtures")
@@ -32,20 +35,21 @@ local function Records(perInterval)
     return table.concat(list, ";")
 end
 
--- A learned craft that sells at 1g and needs one material of 10s per craft
-local function Craft(key, circ24, makes)
+-- A learned craft that sells at 1g (or `sell`) and needs one material of 10s per craft
+local function Craft(key, circ24, makes, sell)
     makes = makes or 1
+    sell = sell or 10000
     return { key = key, craft = { makes = makes, prof = "lw", recipe = "Recipe " .. key, profName = "Leatherworking" },
-        learned = true, sell = 10000, usual = 10000, cost = 1000, profit = 10000 * makes * 0.95 - 1000, qty = 50, own = 0,
+        learned = true, sell = sell, usual = sell, cost = 1000, profit = sell * makes * 0.95 - 1000, qty = 50, own = 0,
         sold12 = circ24 / 2, parts = { { key = "900", n = 1, unit = 1000, src = "ah" } } }
 end
 
 -- Loads the AddOn with a market: `buyers` = units bought per 6h by item, the rows by tab
-local function Setup(buyers, settings)
+local function Setup(buyers, settings, gold)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
     FM.InitializeSavedData()
     env.clock = FM.EPOCH + NOW_MINUTES * 60
-    env.GetMoney = function() return 1000000 end -- 100g: gold limits nothing here
+    env.GetMoney = function() return gold or 1000000 end -- 100g by default: gold limits nothing then
     FM.Owned = function() return 0, 0, 0 end      -- empty bags and bank
     FM.VendorUnit = function() return nil end
     FM.IsExcluded = function() return false end
@@ -322,4 +326,75 @@ H.test("picks: the tooltip says when your auctions were never read, or how old t
         .. "posted since counts.")
     H.eq(old ~= nil, true, "a list older than the longest auction")
     H.eq(old[3], ORANGE, "an old list is orange")
+end)
+
+---------------------------------------------------------------- Invest [X] % across [Y] picks
+
+-- Four crafts with plenty of buyers and circulation (cap 100 each), dearer ones rank first: 5g, 4g, 3g, 2g
+local function FourCrafts()
+    return { Craft("201", 400, 1, 50000), Craft("202", 400, 1, 40000), Craft("203", 400, 1, 30000), Craft("204", 400, 1, 20000) }
+end
+local FOUR_BUYERS = { ["201"] = 200, ["202"] = 200, ["203"] = 200, ["204"] = 200 }
+
+H.test("picks: the plan has up to Y picks, each with its share of the gold that is left", function()
+    -- 1g, 90% across 3: the plan's gold is 90s, each craft costs 10s. First pick: 90s / 3 = 30s, make 3; second:
+    -- 60s / 2 = 30s, make 3; third: 30s / 1, make 3. The fourth craft is out of scope, sized with one share (30s)
+    local FM, env = Setup(FOUR_BUYERS, nil, 10000)
+    local out = { crafts = FourCrafts() }
+    local picks = Compute(FM, env, out)
+    H.eq(out.pickPlan, 3, "picks in the plan")
+    H.eq(out.pickNeed, 9000, "the plan needs all of its 90s")
+    for _, key in ipairs({ "201", "202", "203" }) do
+        H.eq(picks[key].extra, nil, key .. " is in the plan")
+        H.eq(picks[key].invest, 3000, key .. " invests a third")
+        H.eq(HasStep(picks[key], "make 3"), true, key .. " makes 3")
+    end
+    H.eq(picks["204"].extra, true, "the fourth is out of scope")
+    H.eq(picks["204"].invest, 3000, "sized with one pick's share")
+    H.eq(picks["204"].rank, 4, "ranks run on without a gap")
+end)
+
+H.test("picks: across 1 puts the plan's gold into the best pick, across 5 takes what there is", function()
+    local FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 1 }, 10000)
+    local out = { crafts = FourCrafts() }
+    local picks = Compute(FM, env, out)
+    H.eq(out.pickPlan, 1, "one pick")
+    H.eq(picks["201"].invest, 9000, "with all 90s")
+    H.eq(picks["202"].extra, true, "the others are out of scope")
+    H.eq(picks["202"].invest, 9000, "each sized with the one pick's share, 90s")
+
+    -- across 5 with four good crafts: 90s / 5 = 18s, make 1 (10s); then 80s / 4 = 20s, make 2; 60s / 3 = 20s,
+    -- make 2; 40s / 2 = 20s, make 2. Up to 5: four is what there is
+    FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 5 }, 10000)
+    out = { crafts = FourCrafts() }
+    picks = Compute(FM, env, out)
+    H.eq(out.pickPlan, 4, "four picks, there is no fifth")
+    H.eq(picks["201"].invest, 1000, "18s pay one craft")
+    H.eq(picks["202"].invest, 2000, "then 20s each")
+    H.eq(picks["204"].invest, 2000, "to the last")
+end)
+
+H.test("picks: what a pick does not use goes to the later ones", function()
+    -- 1g, 90% across 3. The best craft sells at 10g but only 8 circulate a day: cap 2, it uses 20s of its 30s.
+    -- The second gets 70s / 2 = 35s: make 3 (30s). The third gets the 40s left: make 4
+    local FM, env = Setup({ ["301"] = 9, ["302"] = 200, ["303"] = 200 }, nil, 10000)
+    local out = { crafts = { Craft("301", 8, 1, 100000), Craft("302", 400, 1, 20000), Craft("303", 400, 1, 10000) } }
+    local picks = Compute(FM, env, out)
+    H.eq(out.pickPlan, 3, "picks in the plan")
+    H.eq(HasStep(picks["301"], "make 2"), true, "the capped pick makes 2")
+    H.eq(HasStep(picks["302"], "make 3"), true, "the second makes 3")
+    H.eq(HasStep(picks["303"], "make 4"), true, "the third makes 4 with what the first left")
+    H.eq(out.pickNeed, 9000, "the plan still uses its 90s")
+end)
+
+H.test("picks: X is the share of your gold the whole plan may use, at most 90%", function()
+    local function Need(pct)
+        local FM, env = Setup(FOUR_BUYERS, { tableInvestPct = pct, tableInvestPicks = 1 }, 10000)
+        local out = { crafts = FourCrafts() }
+        Compute(FM, env, out)
+        return out.pickNeed
+    end
+    H.eq(Need(50), 5000, "50% of 1g")
+    H.eq(Need(90), 9000, "90% of 1g")
+    H.eq(Need(100), 9000, "above 90 changes nothing: 10% stay for deposits")
 end)

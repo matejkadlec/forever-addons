@@ -709,7 +709,7 @@ local function BuildRows()
         return Name(a.key) < Name(b.key)
     end)
     if tab.picks then
-        -- two sections, each sorted on its own: the plan, then good picks beyond your gold; every pick takes two
+        -- two sections, each sorted on its own: the plan, then good picks outside it; every pick takes two
         -- lines: its numbers, then its steps (listPos = its place in the shown list, for the footer)
         local plan, extra = {}, {}
         for _, pick in ipairs(out) do
@@ -1012,7 +1012,7 @@ local function PickStatus(row)
         Note(LEVEL_ICON .. " One of the best recipes to level for: the picks would take it once you have the skill"
             .. (need and (" (" .. need .. ")") or "") .. ".", GREEN)
     elseif rank then
-        Note(string_format("In the picks (#%d, %s)", rank, trade.pickExtra and trade.pickExtra[row.key] and "also good, beyond your gold"
+        Note(string_format("In the picks (#%d, %s)", rank, trade.pickExtra and trade.pickExtra[row.key] and "also good, but out of scope"
             or "in the plan"), GREEN)
     else
         Note("Not in the picks: " .. reason, ORANGE)
@@ -1277,12 +1277,20 @@ local function LayoutFilters(f)
         end
     end
     local anchor = f.refresh
-    for _, b in ipairs({ f.excluded, f.prof, f.invest }) do
-        if b:IsShown() then
-            b:ClearAllPoints()
-            b:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
-            anchor = b == f.invest and b.label or b -- the box's label sits left of it
-        end
+    if f.prof:IsShown() then
+        f.prof:ClearAllPoints()
+        f.prof:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
+        anchor = f.prof
+    end
+    -- Picks: "Invest [X] % across [Y] picks" reads from the left and is laid out from the right; each box's label
+    -- sits left of it
+    if f.invest:IsShown() then
+        f.slots.suffix:ClearAllPoints()
+        f.slots.suffix:SetPoint("RIGHT", anchor, "LEFT", -12, 0)
+        f.slots:ClearAllPoints()
+        f.slots:SetPoint("RIGHT", f.slots.suffix, "LEFT", -6, 0)
+        f.invest:ClearAllPoints()
+        f.invest:SetPoint("RIGHT", f.slots.label, "LEFT", -8, 0)
     end
 end
 
@@ -1489,7 +1497,7 @@ local function StepsText(p)
     return table.concat(parts, GREY .. "  >  |r")
 end
 
-local SECTION_TEXT = { plan = "Plan: fits your gold", extra = "Also good, beyond your gold" }
+local SECTION_TEXT = { plan = "Plan, fitting parameters", extra = "Also good, but out of scope" }
 
 -- Where the Profit graph sits: from under the filter row to above the footer
 local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
@@ -1499,9 +1507,11 @@ local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
-        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary }) do
+        frame.slots, frame.slots.label, frame.slots.suffix,
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.empty, frame.summary }) do
         w:Hide()
     end
+    frame.excluded:SetEnabled(false) -- a graph has no ignored items to show; the button keeps its place in the tab row
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
     frame.status:SetText(StatusText())
@@ -1581,6 +1591,10 @@ Render = function()
     frame.invest:SetShown(tab.picks and true or false)
     frame.invest.label:SetShown(tab.picks and true or false)
     if not frame.invest:HasFocus() then frame.invest:SetText(tostring(Settings().tableInvestPct or 90)) end
+    frame.slots:SetShown(tab.picks and true or false)
+    frame.slots.label:SetShown(tab.picks and true or false)
+    frame.slots.suffix:SetShown(tab.picks and true or false)
+    if not frame.slots:HasFocus() then frame.slots:SetText(tostring(Settings().tableInvestPicks or 3)) end
     -- skill limits on Learn and Craft (recipes still to learn)
     local skillTab = (tab.learn or tab.crafts) and true or false
     frame.higher:SetChecked(Settings().tableLearnHigher ~= false)
@@ -1593,7 +1607,7 @@ Render = function()
     frame.maxAbove:SetEnabled(higherOn)
     frame.maxAbove.label:SetTextColor(higherOn and 1 or 0.5, higherOn and 1 or 0.5, higherOn and 1 or 0.5)
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
-    frame.excluded:SetShown(not tab.farm)
+    frame.excluded:SetEnabled(not tab.farm) -- Farm lists mobs, not items: greyed there, its place in the tab row stays
     LayoutFilters(frame)
     frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
@@ -1694,7 +1708,14 @@ local function CreateTable()
             rightIndex = rightIndex + 1
             b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
         else
-            if group and t.group ~= group then x = x + 24 end
+            if group and t.group ~= group then
+                -- the lists you keep end here: the "Ignored (n)" button sits right of Favorites, a place of its own
+                if group == 1 then
+                    f.ignoredX = x
+                    x = x + 98
+                end
+                x = x + 24
+            end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
             x = x + 98
         end
@@ -1752,14 +1773,15 @@ local function CreateTable()
         GameTooltip:Show()
     end)
     f.vendorOff:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- "% to invest": the most of your gold one pick may use (whole percent, 1-100)
+    -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (whole percent, 1-100),
+    -- Y = the picks the plan has at most
     local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
     invest:SetSize(36, 22)
     invest:SetAutoFocus(false)
     invest:SetNumeric(true)
     invest:SetMaxLetters(3)
     invest.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, invest, "LEFT")
-    invest.label:SetText("% to invest")
+    invest.label:SetText("Invest")
     invest:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     invest:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     invest:HookScript("OnEditFocusLost", function(self)
@@ -1774,12 +1796,42 @@ local function CreateTable()
     end)
     invest:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("% to invest")
-        GameTooltip:AddLine("The most of your gold one pick may use (default 90; the plan as a whole keeps 10% for deposits, so above 90 changes nothing). Few gold: one pick takes most of it; more gold: e.g. 30 spreads it over about 3 picks. Enter or click elsewhere to apply.", 1, 1, 1, true)
+        GameTooltip:AddLine("Invest % of your gold")
+        GameTooltip:AddLine("The share of your gold the whole plan may use (default 90; 10% always stay for deposits, so above 90 changes nothing). The box right of it says across how many picks. Enter or click elsewhere to apply.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     invest:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.invest = invest
+    local slotsMax = FM.PICKS_MAX or 12
+    local slots = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
+    slots:SetSize(28, 22)
+    slots:SetAutoFocus(false)
+    slots:SetNumeric(true)
+    slots:SetMaxLetters(2)
+    slots.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, slots, "LEFT")
+    slots.label:SetText("% across")
+    slots.suffix = Text(f, "GameFontHighlight", "TOPRIGHT", -200, FILTER_Y - 4) -- placed by LayoutFilters
+    slots.suffix:SetText("picks")
+    slots:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    slots:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    slots:HookScript("OnEditFocusLost", function(self)
+        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPicks or 3)
+        n = math_max(1, math_min(slotsMax, n))
+        self:SetText(tostring(n))
+        if n == Settings().tableInvestPicks then return end
+        Settings().tableInvestPicks = n
+        view.offset = 0
+        FM.ComputeTrade(false) -- the picks plan again
+        FM.RefreshTable()
+    end)
+    slots:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Across picks")
+        GameTooltip:AddLine(string_format("The plan has up to this many picks (default 3, 1 to %d). Each pick gets a fair share of the gold that is left; what one does not use goes to the later ones. 1 = everything into the best pick. The picks out of scope are sized with one pick's share. Enter or click elsewhere to apply.", slotsMax), 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    slots:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.slots = slots
     f.higher = Check(f, "Above current skill", 202, "tableLearnHigher")
     f.higher:SetChecked(Settings().tableLearnHigher ~= false)
     f.higher:SetScript("OnEnter", function(self)
@@ -1848,11 +1900,19 @@ local function CreateTable()
         end)
     end
     f.prof = prof
-    f.excluded = Button(f, "Ignored", 90, function()
+    -- in the tab row right of Favorites, in the blue of the lists you keep (Picks, Favorites)
+    f.excluded = Button(f, "Ignored", 94, function()
         view.showExcluded = not view.showExcluded
         view.offset = 0
         FM.RefreshTable()
     end)
+    f.excluded:SetPoint("TOPLEFT", f, "TOPLEFT", f.ignoredX or 210, -30)
+    for _, part in ipairs({ f.excluded.Left, f.excluded.Middle, f.excluded.Right }) do
+        if part then
+            part:SetDesaturated(true)
+            part:SetVertexColor(GROUP_COLOR[1][1], GROUP_COLOR[1][2], GROUP_COLOR[1][3])
+        end
+    end
     f.excluded:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")

@@ -28,4 +28,7 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     local s = FM.GetSettings()
     H.eq(s.tableLearn, false, "a saved false stays")
     H.eq(s.tableNoOutliers, true, "a missing setting gets its default")
+    H.eq(s.tableInvestPct, 90, "Invest [X] %: 90")
+    H.eq(s.tableInvestPicks, 3, "across [Y] picks: 3")
+    H.eq(s.tableCircPct, 25, "share of C/24h: 25")
 end)
