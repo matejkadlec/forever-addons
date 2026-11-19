@@ -112,6 +112,15 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 - The minimap has no `SetPlayerTexture` / `SetPlayerTextureHeight`, the engine player arrow cannot be resized
 - World map player arrow: `GroupMembersPinTemplate` pins, `pin.dataProvider:GetUnitPinSizesTable().player`, then `pin:SynchronizePinSizes()`
 
+## Character names
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified in game by this repository; the third-party AddOn ForeverArtisan states the same of the live game (`ForeverArtisan_Core/Alts.lua`: `UnitName` gives only the first name).
+
+- Characters have a first name and a surname: Camelot's own `Blizzard_FrameXMLUtil/Camelot/NameUtil.lua` reads `local name, surname = UnitName(unit)` (and the same from `UnitNameUnmodified`), so the second return is the surname here, where retail has the realm; the full name is `name .. Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR .. surname` (a space)
+- Character creation takes both and checks them together (`C_CharacterCreation.CreateCharacter(name, surname, ...)`, `CheckName(name, surname)` in `Blizzard_CharacterCreate/Camelot/Blizzard_CharacterCreate.lua`) while `C_CharacterCreation.AreRegionalUniqueNamesEnabled()`; in game `RegionalUniqueNamesEnabled()` tells whether surnames are on
+- So the first return of `UnitName("player")` is only the first name, and it may repeat, also among one player's characters on a realm: a per-character key needs the surname or `UnitGUID("player")`
+  - ForeverMarket keys its per-character data by the first name alone (`FM.PlayerName()`), so two of your characters with the same first name on one realm and faction would share their records (tracked in FRV-35)
+
 ## Bags and bank
 
 Verified against wow-ui-source `forever` (1.60.1) for FRV-10; ForeverMarket already reads bags and the character bank this way in game, the account bank is not yet verified in game.
