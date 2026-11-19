@@ -1775,7 +1775,7 @@ local function CreateTable()
     -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (whole percent, 1-100),
     -- Y = the picks the plan has at most
     local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    invest:SetSize(36, 22)
+    invest:SetSize(28, 22) -- three digits
     invest:SetAutoFocus(false)
     invest:SetNumeric(true)
     invest:SetMaxLetters(3)
@@ -1803,7 +1803,7 @@ local function CreateTable()
     f.invest = invest
     local slotsMax = FM.PICKS_MAX or 12
     local slots = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    slots:SetSize(28, 22)
+    slots:SetSize(20, 22) -- two digits
     slots:SetAutoFocus(false)
     slots:SetNumeric(true)
     slots:SetMaxLetters(2)
