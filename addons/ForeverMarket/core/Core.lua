@@ -266,6 +266,8 @@ function FM.PlayerName()
     end
     -- a record of this key from before the GUID could be read keeps what it holds
     if type(info[key]) == "table" then info[key].guid = guid else info[key] = { guid = guid } end
+    -- a full-name key notes when it began: what this character logged under its first name is older (Ledger mail)
+    if key ~= first and not info[key].since then info[key].since = FM.Now() end
     charKey = key
     return key
 end

@@ -113,3 +113,31 @@ H.test("owned query: a row of posts asks once when it settles", function()
     env.FlushTimers()
     H.eq(#ah.queries, 2, "the visit's query and one after the posts")
 end)
+
+-- Rule (scan/Ledger.lua, SnapshotOwned): an auction missing from the second list of one AH visit was cancelled,
+-- unless it could have run out between the two lists (its time left then was at most the gap and 2 minutes)
+H.test("owned query: a second list in one visit logs a run-out auction as gone, the others as cancelled", function()
+    local FM, env, ah = Load()
+    local list = {}
+    ah.GetNumOwnedAuctions = function() return #list end
+    ah.GetOwnedAuctionInfo = function(i) return list[i] end
+    local function Auction(id, left)
+        return { auctionID = id, itemLink = "|cffffffff|Hitem:4306:0|h[Silk Cloth]|h|r", status = 0, quantity = 1,
+            buyoutAmount = 1000, timeLeftSeconds = left }
+    end
+    OpenAH(FM, env)
+    list = { Auction(1, 100), Auction(2, 80000) }
+    env.FireEvent("OWNED_AUCTIONS_UPDATED")
+    env.FlushTimers()
+    env.clock = env.clock + 300 -- five minutes of posting later
+    list = {}
+    env.FireEvent("OWNED_AUCTIONS_UPDATED")
+    env.FlushTimers()
+    local kinds = {}
+    for _, e in ipairs(FM.R().events) do
+        local f = FM.Split(e, ",")
+        kinds[FM.Dec(f[7])] = f[3]
+    end
+    H.eq(kinds[1], "ogone", "100 s left five minutes ago: it ran out")
+    H.eq(kinds[2], "ocancel", "22 h left: you cancelled it")
+end)

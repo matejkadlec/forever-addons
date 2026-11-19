@@ -240,3 +240,30 @@ H.test("characters: a new full-name key does not log the mail it logged under it
     H.eq(Run(true), 0, "seen under the first name: not logged again")
     H.eq(Run(false), 1, "a new mail is logged")
 end)
+
+-- Rule: only mail sent before the full-name key began counts as seen under the first name; what the character that
+-- keeps the first name logs later stays its own, and an entry under the first name no mail used is not copied
+H.test("characters: mail the other same-name character logs after the switch is never taken as this one's", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua" })
+    env.clock = NOW
+    env.UnitName = function() return "Tester", "Second" end
+    env.UnitNameUnmodified = function() return "Tester", "Second" end
+    env.UnitGUID = function() return "Player-1-B" end
+    FM.InitializeSavedData()
+    local r = FM.R()
+    r.charInfo.Tester = { guid = "Player-1-A" }
+    r.charInfo["Tester Second"] = { guid = "Player-1-B", since = NOW - 3 * 86400 } -- the key began 3 days ago
+    H.eq(FM.PlayerName(), "Tester Second", "the full-name key")
+    local base = table.concat({ "seller", "Silk Cloth", "Buyer", B(1), B(1000), B(1000) }, "|")
+    local minutes = function(daysAgo) return math.floor((NOW - daysAgo * 86400 - FM.EPOCH) / 60) end
+    -- the first-name character logged an identical sale a day ago (after the switch) and one 10 days ago
+    r.mailSeen = { ["Tester|" .. base] = B(minutes(1)) .. "," .. B(minutes(10)) }
+    env.GetInboxNumItems = function() return 1 end
+    env.GetInboxHeaderInfo = function() return nil, nil, nil, "Auction successful", nil, nil, 29 end -- sent a day ago
+    env.GetInboxInvoiceInfo = function() return "seller", "Silk Cloth", "Buyer", 1000, 1000, 50, 50, nil, nil, nil, 1 end
+    env.FireEvent("MAIL_INBOX_UPDATE")
+    env.FlushTimers()
+    H.eq(#r.invoices, 1, "this character's sale is logged")
+    H.eq(r.mailSeen["Tester Second|" .. base], B(minutes(1)), "only its own mail is kept under its key")
+    H.eq(r.mailSeen["Tester|" .. base], B(minutes(1)) .. "," .. B(minutes(10)), "the other character's entries stay")
+end)

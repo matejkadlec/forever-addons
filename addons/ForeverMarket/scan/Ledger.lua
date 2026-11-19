@@ -154,8 +154,11 @@ local function SnapshotOwned()
         for aid, old in pairs(before) do
             if not current[aid] and old.status ~= "s" then
                 local kind
-                if watching then
+                if watching and not (old.left > 0 and old.left <= gap + 120) then
+                    -- you were at the AH the whole time and it could not have run out: you cancelled it
                     kind = "ocancel"
+                elseif watching then
+                    kind = "ogone" -- it could have run out between the two lists of this visit (FRV-57 asks twice)
                 elseif old.left > gap + 120 then
                     kind = "osold" -- gone while you were away, but it could not have run out yet
                 else
@@ -473,9 +476,13 @@ local function ScanInbox()
     local nowMinutes = math_floor((now - FM.EPOCH) / 60)
     local char = FM.PlayerName()
     -- a character keyed by its full name since 1.23 (FRV-35) logged its mail under its first name before: those
-    -- entries count as seen too, so the mail still in its inbox is not logged a second time
+    -- entries, of mail sent before its key began, count as seen too, so the mail still in its inbox is not logged a
+    -- second time. Later ones are the other character's (it keeps the first name), never this one's
     local first = FM.PlayerFirstName and FM.PlayerFirstName()
-    local alias = (first and first ~= char) and (first .. "|") or nil
+    local info = type(r.charInfo) == "table" and r.charInfo[char]
+    local since = first and first ~= char and type(info) == "table" and type(info.since) == "number" and info.since
+    local alias = since and (first .. "|") or nil
+    local aliasBefore = since and math_floor((since - FM.EPOCH) / 60)
     local expiredPattern = PatternFromFormat(AUCTION_EXPIRED_MAIL_SUBJECT)
     local cancelledPattern = PatternFromFormat(AUCTION_REMOVED_MAIL_SUBJECT)
 
@@ -518,7 +525,8 @@ local function ScanInbox()
         for _, s in ipairs(FM.Split(r.mailSeen[base], ",")) do seen[#seen + 1] = { minutes = Dec(s) or 0 } end
         if alias then
             for _, s in ipairs(FM.Split(r.mailSeen[alias .. base:sub(#char + 2)], ",")) do
-                seen[#seen + 1] = { minutes = Dec(s) or 0 }
+                local minutes = Dec(s) or 0
+                if minutes < aliasBefore then seen[#seen + 1] = { minutes = minutes, alias = true } end
             end
         end
         for _, mail in ipairs(mails) do
@@ -541,7 +549,10 @@ local function ScanInbox()
             end
         end
         local keep = {}
-        for _, s in ipairs(seen) do keep[#keep + 1] = Enc(s.minutes) end
+        for _, s in ipairs(seen) do
+            -- an entry under the first name moves to this key only when one of this character's mails used it
+            if not s.alias or s.used then keep[#keep + 1] = Enc(s.minutes) end
+        end
         r.mailSeen[base] = table_concat(keep, ",")
     end
 
