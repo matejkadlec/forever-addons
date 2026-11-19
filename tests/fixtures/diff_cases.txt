@@ -1,0 +1,108 @@
+# What a diff of two deep scans of one item infers (ForeverMarket scan/Diff.lua FM.DiffFingerprints).
+# Shared by tests/forevermarket/diff_test.lua and tests/feed/test_feed.py (the feed's Python port):
+# both must reach exactly these results.
+#
+# case <name>                          starts a case
+# gap <minutes>                        time between the two scans
+# prev <owner> <count> <buyout> <band> an auction of the previous scan
+# cur <owner> <count> <buyout> <band>  an auction of the scan now
+#   owner: "?" = seller unknown (Forever's full scan, the Battle.net API), any other word = one seller
+#   buyout: total copper of the auction; band: time left 0 short, 1 medium, 2 long, 3 very long
+#   a band guarantees at least 0 / 30 min / 2 h / 8 h left
+# expect <name>=<value> ...            all eight results; newMin=none when nothing new was listed
+#   sold     units bought          soldN   auctions bought     soldVal  copper paid
+#   amb      units gone that may have expired (sold or expired)
+#   rep      units reposted (cancelled and listed again)
+#   new      units newly listed    newMin  cheapest new unit price
+#   soldLow  units bought that were the cheapest (a cheaper auction that stayed = more likely cancelled)
+
+case partial-buy
+# a commodity stack got smaller at the same unit price: the difference was bought
+gap 60
+prev ? 20 2000 3
+cur ? 15 1500 3
+expect sold=5 soldN=1 soldVal=500 amb=0 rep=0 new=0 newMin=none soldLow=5
+
+case cheapest-gone-is-sold
+# a very long auction cannot expire within an hour: gone = bought, and it was the cheapest
+gap 60
+prev ? 5 500 3
+prev ? 5 600 3
+cur ? 5 600 3
+expect sold=5 soldN=1 soldVal=500 amb=0 rep=0 new=0 newMin=none soldLow=5
+
+case gone-while-cheaper-stayed
+# bought (or cancelled) while a cheaper auction stayed: sold, but not counted as a cheapest buy
+gap 60
+prev ? 5 500 3
+prev ? 5 600 3
+cur ? 5 500 3
+expect sold=5 soldN=1 soldVal=600 amb=0 rep=0 new=0 newMin=none soldLow=0
+
+case short-band-gone-is-ambiguous
+# a short auction can run out any time: gone = sold or expired
+gap 10
+prev ? 3 300 0
+expect sold=0 soldN=0 soldVal=0 amb=3 rep=0 new=0 newMin=none soldLow=0
+
+case long-band-gone-after-its-minimum
+# 9 hours later even a very long auction (at least 8 h left) may have expired
+gap 540
+prev ? 2 400 3
+expect sold=0 soldN=0 soldVal=0 amb=2 rep=0 new=0 newMin=none soldLow=0
+
+case known-seller-reposts
+# the same seller lists the item again: a repost, and the new auction counts as newly listed
+gap 60
+prev ab12 10 1000 3
+cur ab12 10 900 3
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=10 new=10 newMin=90 soldLow=0
+
+case other-seller-lists-new
+# another seller's new auction does not make the first one a repost
+gap 60
+prev ab12 10 1000 3
+cur cd34 10 900 3
+expect sold=10 soldN=1 soldVal=1000 amb=0 rep=0 new=10 newMin=90 soldLow=10
+
+case unknown-seller-undercut-repost
+# seller unknown: the same quantity listed again at 70-130% of the old unit price is most likely a repost
+gap 60
+prev ? 10 1000 3
+cur ? 10 850 3
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=10 new=10 newMin=85 soldLow=0
+
+case unknown-seller-far-cheaper-is-no-repost
+# at 50% of the old unit price it is a new auction, and the old one was bought
+gap 60
+prev ? 10 1000 3
+cur ? 10 500 3
+expect sold=10 soldN=1 soldVal=1000 amb=0 rep=0 new=10 newMin=50 soldLow=10
+
+case band-drop-is-no-change
+# only the time left went down: the same auction, nothing happened
+gap 60
+prev ? 2 200 3
+cur ? 2 200 2
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=0 new=0 newMin=none soldLow=0
+
+case oldest-identical-auction-goes-first
+# of two identical auctions the one with less time left (the older) is the one that went:
+# a medium auction may have expired after an hour
+gap 60
+prev ? 1 100 3
+prev ? 1 100 1
+cur ? 1 100 3
+expect sold=0 soldN=0 soldVal=0 amb=1 rep=0 new=0 newMin=none soldLow=0
+
+case watched-sales
+# a partial buy, a whole auction bought above the cheapest, and a new cheaper listing
+# (diff_test.lua also checks the watched item details: every sale and the new listings ladder)
+gap 60
+prev ? 5 500 3
+prev ? 5 600 3
+prev ? 4 520 3
+cur ? 5 500 3
+cur ? 2 260 3
+cur ? 3 270 3
+expect sold=7 soldN=2 soldVal=860 amb=0 rep=0 new=3 newMin=90 soldLow=2

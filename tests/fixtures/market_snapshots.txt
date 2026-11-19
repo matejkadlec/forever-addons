@@ -1,0 +1,94 @@
+# Deep scans of the whole AH and the per item records they must produce (ForeverMarket scan/Snapshot.lua
+# FM.FinalizeSnapshot, record format in its header and in addons/ForeverMarket/README.md).
+# Shared by tests/forevermarket/snapshot_test.lua and tests/feed/test_feed.py: the feed's Python port
+# (build_records with record_hours 0 and compact records, like a deep scan in the game) must write
+# byte for byte the same records. Every seller is unknown, as in Forever's full scan and the Battle.net API.
+#
+# field <name> <position>               a record field by name (base36 numbers, field 1 is "r<minutes>")
+# scenario <name> <start>               a sequence of scans; start = minutes since FM.EPOCH (2026-01-01 UTC)
+# snapshot <minutes>                    a deep scan this many minutes after the start
+# auction <item> <count> <buyout> <band>  an auction of that scan (buyout = total copper, band = time left 0-3)
+# record <item> <name>=<value> ...      the record the scan must write for the item, values in decimal;
+#                                       fields not named are empty, trailing empty fields are left out
+# unchanged <item> <gap minutes>        the scan must write the compact "unchanged" record "r<minutes>,=,<gap>"
+# Every scan must write records for exactly the items listed under it.
+
+field min 2
+field qty 3
+field auctions 4
+field q5 5
+field q20 6
+field median 7
+field own 8
+field gap 9
+field sold 10
+field soldN 11
+field soldVal 12
+field amb 13
+field rep 14
+field new 15
+field newMin 16
+field ladder 17
+field sales 18
+field newLadder 19
+field ownMin 20
+field minOther 21
+field soldLow 22
+
+scenario linen-day 432000
+
+# First scan: nothing to compare with, market state only.
+# 2589: units 100 (20), 104 (10), 118 (5), 150 (1); within +5% of 100: 30, within +20%: 35;
+# the median unit (by quantity, 36 / 2 = 18) is 100
+snapshot 0
+auction 2589 20 2000 3
+auction 2589 10 1040 3
+auction 2589 5 590 2
+auction 2589 1 150 1
+auction 4306 1 2500 0
+record 2589 min=100 qty=36 auctions=4 q5=30 q20=35 median=100
+record 4306 min=2500 qty=1 auctions=1 q5=1 q20=1 median=2500
+
+# An hour later.
+# 2589: 8 bought off the 20 stack (now 12 at the same unit price, the cheapest buy); the long 5 at 118
+# gone (cannot expire in an hour: sold, but the 104 auction stayed, so not a cheapest buy); the medium 1
+# at 150 gone (may have expired: ambiguous); 4 new at 95
+# 4306: its only (short) auction is gone: a record of an empty market, ambiguous
+# 2592: listed for the first time: all of it is new
+snapshot 60
+auction 2589 12 1200 3
+auction 2589 10 1040 3
+auction 2589 4 380 3
+auction 2592 20 4000 3
+record 2589 min=95 qty=26 auctions=3 q5=4 q20=26 median=100 gap=60 sold=13 soldN=2 soldVal=1390 amb=1 new=4 newMin=95 soldLow=8
+record 4306 qty=0 auctions=0 gap=60 amb=1 soldLow=0
+record 2592 min=200 qty=20 auctions=1 q5=20 q20=20 median=200 gap=60 new=20 newMin=200 soldLow=0
+
+# 2589 did not change: the compact record. 2592 undercut by a seller we cannot see: the same quantity
+# again at 90% of the old unit price = a repost (the new auction still counts as new).
+# 4306 was already gone: no record.
+snapshot 120
+auction 2589 12 1200 3
+auction 2589 10 1040 3
+auction 2589 4 380 3
+auction 2592 20 3600 3
+unchanged 2589 60
+record 2592 min=180 qty=20 auctions=1 q5=20 q20=20 median=180 gap=60 rep=20 new=20 newMin=180 soldLow=0
+
+# 49 hours later: scans more than 48 hours apart are not compared, market state only
+snapshot 3060
+auction 2589 12 1200 3
+auction 2589 10 1040 3
+auction 2589 4 380 3
+auction 2592 20 3600 3
+record 2589 min=95 qty=26 auctions=3 q5=4 q20=26 median=100
+record 2592 min=180 qty=20 auctions=1 q5=20 q20=20 median=180
+
+# Nothing changed since the scan before: compact records against that one
+snapshot 3120
+auction 2589 12 1200 3
+auction 2589 10 1040 3
+auction 2589 4 380 3
+auction 2592 20 3600 3
+unchanged 2589 60
+unchanged 2592 60

@@ -18,7 +18,7 @@ The steps below are what those skills do, for work done without them.
 1. **Ticket:** find or create the FRV ticket, label it, move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
 2. **Worktree:** a branch named after the ticket, in its own worktree from a fresh `origin/master` ([Branches and Worktrees](AGENTS.md#branches-and-worktrees))
 3. **Implement:** follow the [Development Workflow](AGENTS.md#development-workflow) and the nearest nested guide
-4. **Check:** `luac5.1 -p` on every changed Lua file, the version bump of every changed AddOn, the documentation
+4. **Check:** `luac5.1 -p` on every changed Lua file, `tests/run.sh` ([tests/README.md](tests/README.md)), the version bump of every changed AddOn, the documentation
 5. **Sync** the changed AddOns into the game ([Communication Rules](AGENTS.md#communication-rules)) and classify the change: his test before the merge, an optional test, or nothing to test ([In-Game QA](AGENTS.md#in-game-qa))
 6. **Pull request:** title starts with the ticket key and links the ticket; move the ticket to In Review
 7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); a change that needs the maintainer's in-game test waits for his answer first; move the ticket to Done and remove your worktree

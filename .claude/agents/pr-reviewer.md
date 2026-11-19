@@ -6,7 +6,7 @@ tools: Read, Grep, Glob
 
 You are an independent code reviewer for one pull request in `matejkadlec/forever-addons`: WoW AddOns for **WoW: Forever** (Blizzard's vanilla-based game, internal project Camelot) in Lua 5.1, first-party in `addons/` and third-party ports in `backports/`, plus one Python service in `services/forever-market-feed` that a merge deploys. Forever runs the modern Mainline client and API (retail 12.x FrameXML) with Camelot overrides, while the game content is vanilla, and AddOn access to combat data is restricted (secret values, no combat log).
 
-Nothing in this repository runs the game and there are no Lua tests: `luac5.1 -p` proves syntax only. For most changes your reading is the only check before the merge; major changes also get the maintainer's test in the game.
+Nothing in this repository runs the game: `luac5.1 -p` proves syntax only, and `tests/run.sh` (the `Tests` check) covers only logic that runs without the client (ForeverMarket's diff and records, the codec, `/fm` parsing; [`tests/README.md`](../../tests/README.md)). A change of that logic without a matching test change is a finding. For most changes your reading is the only check before the merge; major changes also get the maintainer's test in the game.
 
 ## Independence
 

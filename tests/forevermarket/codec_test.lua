@@ -1,0 +1,73 @@
+-- ForeverMarket core/Codec.lua and the format helpers of core/Core.lua
+
+local H = require("harness")
+
+local function Load()
+    return H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua" })
+end
+
+H.test("codec: numbers are stored base36, rounded, nil as empty", function()
+    local FM = Load()
+    H.eq(FM.Enc(0), "0", "0")
+    H.eq(FM.Enc(35), "z", "35")
+    H.eq(FM.Enc(36), "10", "36")
+    H.eq(FM.Enc(1390), "12m", "1390")
+    H.eq(FM.Enc(2.5), "3", "2.5 rounds half up")
+    H.eq(FM.Enc(-37), "-11", "negative")
+    H.eq(FM.Enc(nil), "", "nil")
+    H.eq(FM.Dec("12m"), 1390, "decode")
+    H.eq(FM.Dec(""), nil, "empty decodes to nil")
+end)
+
+H.test("codec: timestamps are minutes since 2026-01-01 UTC", function()
+    local FM = Load()
+    H.eq(FM.EPOCH, 1767225600, "epoch")
+    H.eq(FM.Stamp(FM.EPOCH + 90), "1", "90 s after the epoch is minute 1")
+    H.eq(FM.Unstamp("1"), FM.EPOCH + 60, "minute 1")
+    H.eq(FM.Unstamp(""), nil, "empty stamp")
+end)
+
+H.test("codec: seller hashes stay the same across versions", function()
+    -- stored fingerprints carry these hashes: a changed hash would turn every auction into a repost
+    local FM = Load()
+    H.eq(FM.Hash("Thrall"), "rwh8", "Thrall")
+    H.eq(FM.Hash("Jaina"), "9jzc", "Jaina")
+    H.eq(FM.Hash(""), "?", "no name")
+    H.eq(FM.Hash(nil), "?", "nil")
+end)
+
+H.test("codec: split keeps empty fields", function()
+    local FM = Load()
+    H.same(FM.Split("a,,b", ","), { "a", "", "b" }, "a,,b")
+    H.same(FM.Split("a,", ","), { "a", "" }, "trailing separator")
+    H.same(FM.Split("", ","), {}, "empty string")
+    H.same(FM.Split(nil, ","), {}, "nil")
+end)
+
+H.test("codec: item keys are plain item IDs, from links first", function()
+    local FM = Load()
+    local link = "|cffffffff|Hitem:2589:0:0:0:0:0:0:0|h[Linen Cloth]|h|r"
+    H.same(FM.KeysFromText(link .. " 4306"), { "2589" }, "a link wins over loose numbers")
+    H.same(FM.KeysFromText("2589 2592"), { "2589", "2592" }, "plain IDs")
+    H.same(FM.KeysFromText(nil), {}, "nil")
+    H.eq(FM.KeyFromLink("item:4306:1:2"), "4306", "link")
+    H.eq(FM.ItemIDFromKey("4306"), 4306, "item ID")
+end)
+
+H.test("format: money, ages and counts", function()
+    local FM = Load()
+    local g, s, c = "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r"
+    H.eq(FM.FormatMoney(12345), "1" .. g .. " 23" .. s .. " 45" .. c, "1g 23s 45c")
+    H.eq(FM.FormatMoney(10000), "1" .. g .. " 0" .. s .. " 0" .. c, "whole gold keeps silver and copper")
+    H.eq(FM.FormatMoney(250), "2" .. s .. " 50" .. c, "under a gold")
+    H.eq(FM.FormatMoney(-50), "-50" .. c, "negative")
+    H.eq(FM.FormatMoney(nil), "?", "no number")
+    H.eq(FM.FormatAge(59), "0m", "59 s")
+    H.eq(FM.FormatAge(3600), "1h", "an hour")
+    H.eq(FM.FormatAge(172799), "47h", "up to two days in hours")
+    H.eq(FM.FormatAge(172800), "2d", "two days")
+    H.eq(FM.FormatAge(-1), "?", "negative")
+    H.eq(FM.FormatCount(1234567), "1,234,567", "thousands")
+    H.eq(FM.FormatCount(-1234), "-1,234", "negative")
+    H.eq(FM.FormatCount(nil), "0", "nil")
+end)
