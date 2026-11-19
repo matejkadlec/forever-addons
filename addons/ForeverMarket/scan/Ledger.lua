@@ -169,8 +169,86 @@ local function SnapshotOwned()
     FM.listingsVersion = (FM.listingsVersion or 0) + 1 -- the picks plan again (FM.EnsureTrade)
 end
 
+---------------------------------------------------------------- asking for your auctions (FRV-57)
+-- Blizzard asks for the list only from its Auctions tab, so a visit that only bought or posted left it as old as
+-- the last look at that tab. ForeverMarket asks once per AH visit, a moment after it opens, and again once your
+-- posts settle. Never while its deep scan waits for the server, Auctionator scans, or the AH's message throttle is
+-- busy (the sniper's searches and Auctionator's queue share it): then a few seconds later. Not while Blizzard's
+-- Auctions tab is shown (it asks itself), and with that tab's own sorts, so its list keeps its order.
+-- C_AuctionHouse.QueryOwnedAuctions is verified against the source only (docs/forever-api-notes.md)
+local OWNED_DELAY = 1.5   -- seconds after the AH opens
+local POSTS_SETTLE = 3    -- seconds after the last auction created
+local OWNED_RETRY = 3     -- seconds between tries while the AH is busy
+local OWNED_TRIES = 20
+local visit = 0
+
+-- The sorts of Blizzard's Auctions tab (its saved g_auctionHouseSortsBySearchContext), copied; name and price
+-- like Blizzard's default without them
+local function OwnedSorts()
+    local order = Enum and Enum.AuctionHouseSortOrder
+    if not order then return nil end
+    local sorts = {}
+    local saved = _G.g_auctionHouseSortsBySearchContext
+    local context = AuctionHouseSearchContext and AuctionHouseSearchContext.AllAuctions
+    local list = type(saved) == "table" and context ~= nil and saved[context]
+    if type(list) == "table" then
+        for _, s in ipairs(list) do
+            if type(s) == "table" and type(s.sortOrder) == "number" then
+                sorts[#sorts + 1] = { sortOrder = s.sortOrder, reverseSort = s.reverseSort == true }
+            end
+        end
+    end
+    if #sorts == 0 then
+        sorts = { { sortOrder = order.Name, reverseSort = false }, { sortOrder = order.Price, reverseSort = false } }
+    end
+    return sorts
+end
+
+local function AHBusy(ah)
+    local deep = FM.deep
+    if deep and deep.state == "waiting" then return true end -- ReplicateItems is waiting for the server
+    if FM.aucScanRunning or FM.aucReplicateRunning then return true end
+    if ah.IsThrottledMessageSystemReady then
+        local ready = ah.IsThrottledMessageSystemReady()
+        if FM.IsSecret(ready) or not ready then return true end
+    end
+    return false
+end
+
+local function QueryOwned(forVisit, tries)
+    if not FM.ahOpen or forVisit ~= visit then return end
+    local ah = C_AuctionHouse
+    if not (ah and ah.QueryOwnedAuctions) then return end
+    local tab = _G.AuctionHouseFrame and _G.AuctionHouseFrame.AuctionsFrame
+    if tab and tab.IsShown and tab:IsShown() then return end
+    if AHBusy(ah) then
+        if tries < OWNED_TRIES then
+            C_Timer.After(OWNED_RETRY, function() QueryOwned(forVisit, tries + 1) end)
+        end
+        return
+    end
+    local sorts = OwnedSorts()
+    if not sorts then return end
+    -- OWNED_AUCTIONS_UPDATED follows: SnapshotOwned writes R.owned
+    local ok, err = pcall(ah.QueryOwnedAuctions, sorts)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
+end
+
 FM.On("AUCTION_HOUSE_SHOW", function()
     FM.ahOpenedAt = FM.Now()
+    visit = visit + 1
+    local thisVisit = visit
+    C_Timer.After(OWNED_DELAY, function() QueryOwned(thisVisit, 0) end)
+end)
+
+local postsSettle = 0
+FM.On("AUCTION_HOUSE_AUCTION_CREATED", function()
+    postsSettle = postsSettle + 1
+    local mine, thisVisit = postsSettle, visit
+    C_Timer.After(POSTS_SETTLE, function()
+        -- the last of a row of posts asks once
+        if mine == postsSettle then QueryOwned(thisVisit, 0) end
+    end)
 end)
 
 -- When an auction of a list read at listT ends. The client may hand an owned auction out without its seconds
@@ -506,8 +584,10 @@ FM.On("PLAYER_LOGOUT", function() FM.RecordGold(false) end)
 
 FM.On("PLAYER_LOGIN", function()
     local r = FM.R()
-    local _, class = UnitClass and UnitClass("player")
-    r.chars[FM.PlayerName()] = class or true
+    -- the class file is UnitClass's second return ("a and f()" kept only the first: every entry was true before 1.23)
+    local class
+    if UnitClass then _, class = UnitClass("player") end
+    r.chars[FM.PlayerName()] = (not FM.IsSecret(class) and type(class) == "string") and class or true
     HookPosting()
     FM.loginAt = FM.Now()
     C_Timer.After(5, function() FM.RecordGold(true) end)

@@ -42,13 +42,15 @@ Auction House logger and market table.
   - Never on bind on pickup or quest items (`FM.NeverSellable`); priced from `FM.FreshUnitPrice`, the ladder the Cost section uses
 - **Auctionator price feed:** every refresh of our data writes the lowest price and quantity per item ID into Auctionator's database: deep scans, Battle.net feed imports and item searches (1.16), so its `Auction` line never disagrees with ours
 - **Data:** SavedVariables `ForeverMarketDB` (realm-faction data, not settings only); `R.crafts` (1.21) is the craft log, a year and 5000 lines (format in [`README.md`](README.md#data-format-forevermarketdbrealmsrealm-faction))
+- **Characters** (1.23, FRV-35, `scan/Characters.lua`): the key of every per-character record is `FM.PlayerName()`: the first name, or the full name for a second character with the same first name (`R.charInfo[key].guid` pins each key to its character; ForeverArtisan lookups use `FM.PlayerFirstName()`); saved bags `R.bags[char]`, the account bank `R.accountBank` (guarded `C_Bank`, not yet verified in game); `FM.StockElsewhere(key)` and `FM.Characters()` are the readers for the multi-character tickets; `/fm chars`, `/fm forget <name>`
+- **Your auctions** (1.23, FRV-57): `scan/Ledger.lua` asks for the list (`C_AuctionHouse.QueryOwnedAuctions`, the sorts of Blizzard's Auctions tab) 1.5 s after the AH opens and after posts settle, never while the deep scan waits, Auctionator scans, the throttle is busy or Blizzard's Auctions tab is shown
 - **`tools/`** holds Claude's analysis script and the Battle.net API probe; `fm_analyze.py room` (1.22, FRV-56) puts Picks' room next to your real sales per item
 - **Settings panel** `Market`
 - Details in [`README.md`](README.md)
 
 ## Slash command
 
-`/fm` (also `/forevermarket`, predates the slash command rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
+`/fm` (also `/forevermarket`, predates the slash command rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
 
 The same list is kept in [`addons/AGENTS.md`](../AGENTS.md) with the other first-party commands: change both together.
 

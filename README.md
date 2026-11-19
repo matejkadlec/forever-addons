@@ -141,7 +141,8 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Single items are never priced under 1s (Forever's server drops cheaper posts); worn and soulbound items are never suggested for sale
 - Optional: keeps Auctionator's prices fed from every refresh of its data (deep scans, Battle.net feed imports, item searches), so Auctionator's `Auction` tooltip line, selling tab and price history never go stale next to ForeverMarket's numbers; uses Questie, TomTom and the ForeverArtisan AddOns when they are installed
 - Key bindings under `Options -> Keybindings -> Jim's Forever AddOns`: market table (`U` by default, it takes the key over once, the chat says from what) and sniper (no key by default)
-- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `options`, ...)
+- Slash commands: `/fm` opens the table, `/fm help` lists the rest (`snipe`, `scan`, `status`, `item`, `watch`, `exclude`, `chars`, `forget`, `options`, ...)
+- Your characters: `/fm chars` lists your characters on the realm and faction (gold, last seen, how old their saved bags, bank and mailbox are), `/fm forget <name>` drops one that was deleted or moved; bags are saved per character and the account bank once, for the multi-character features to come; a second character with the same first name keeps its own records
 - Settings panel: `Jim's Forever AddOns -> Market`
 - Optional Battle.net feed: a server collects the auction house from the Battle.net API around the clock, a Windows task downloads it every 30 minutes and ForeverMarket imports it at login; without the server the Windows task reads the API itself while the PC is on ([`services/forever-market-feed`](services/forever-market-feed/README.md))
 - Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)

@@ -48,7 +48,8 @@ FM.List = List
 local function CharData(db)
     local chars = type(db) == "table" and db.chars
     if type(chars) ~= "table" then return nil end
-    local name = FM.PlayerName()
+    -- ForeverArtisan keys a character by UnitName's first return, not by ForeverMarket's key (FRV-35)
+    local name = FM.PlayerFirstName()
     local realm = GetRealmName and GetRealmName() or ""
     local prefix = name .. "-" .. realm
     local fallback
@@ -573,6 +574,7 @@ local function BagIndex()
     return bagIndex
 end
 FM.BagIndex = BagIndex -- [itemID] = { all, free } of your bags (trade/Cost.lua measures deposits of them)
+FM.ScanContainers = Scan -- [itemID] = { all, free } of the given containers (scan/Characters.lua: the account bank)
 
 local bankOpen = false
 local bankScanned = false
