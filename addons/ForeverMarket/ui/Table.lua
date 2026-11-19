@@ -975,8 +975,9 @@ local function PickStatus(row)
     local reason = trade.pickWhy and trade.pickWhy[row.key]
     if not rank and not reason then return end
     Header("Picks")
-    if LevelFor(row.key) then
-        -- the green arrow on Learn: the reason without its own "one of the best ..." ending
+    if row.craft and LevelFor(row.key) then
+        -- the green arrow on Learn, on the recipe's own row only (a Flip or Vendor row of the same item keeps its
+        -- rank): the reason without its own "one of the best ..." ending
         local need = reason and reason:gsub(", one of the best recipes to level for$", "")
         Note(LEVEL_ICON .. " One of the best recipes to level for: the picks would take it once you have the skill"
             .. (need and (" (" .. need .. ")") or "") .. ".", GREEN)
