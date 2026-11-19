@@ -186,6 +186,10 @@ end
 local function ResolveOwn(snap, key, agg)
     local pending = agg.pending
     agg.pending = nil
+    -- your auctions the scan names as yours use up their running auctions and posts first, so what is left of
+    -- them cannot mark someone else's auction at your price (FRV-70)
+    if agg.named then FM.MatchOwnAuctions(snap.ownPool[key], agg.named) end
+    agg.named = nil
     local own = FM.MatchOwnAuctions(snap.ownPool[key], pending)
     for i, a in ipairs(pending) do
         if own[i] then
@@ -231,6 +235,11 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
         tag = "@"
         agg.own = agg.own + count
         if not agg.ownMin or unit < agg.ownMin then agg.ownMin = unit end
+        if snap.ownPool[key] then
+            local named = agg.named or {}
+            agg.named = named
+            named[#named + 1] = { count = count, unit = unit, band = band }
+        end
     elseif unknownOwner and snap.ownPool[key] then
         -- maybe yours: decided by ResolveOwn once all of the item's auctions are read
         tag = "?"

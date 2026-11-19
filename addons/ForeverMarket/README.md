@@ -7,7 +7,7 @@ act as an AH advisor: what sells, how fast, at which price, what to craft or fli
 
 | Source | When | What |
 |---|---|---|
-| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller; yours are recognized from your auctions and posts) |
+| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller of other players' auctions and names yours "First Surname"; the rest of yours are recognized from your auctions and posts) |
 | Auctionator replicate scan | if Auctionator is set to replicate full scans | same as deep scan |
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
@@ -31,6 +31,13 @@ another seller's smaller auction at (or 1c off) your price could take it and lea
 stays a guess at your exact unit price: someone else's auction there gets the mark when it has exactly your
 quantity, or when it fits what is left of yours (your 200 down to 150 next to their 20: both marked; next to their
 180: theirs marked, yours not). A post the latest list of your auctions already holds (same auction ID) counts once.
+
+The deep scan is not blind to your own auctions: Forever's full scan names their seller, as your first name and
+surname ("Elfiehu Ntress"), and no seller for anyone else. Since 1.22 (FRV-70) `FM.IsOwnChar` knows the logged-in
+character's full name (`FM.PlayerFullName`, `UnitNameUnmodified`), so those auctions are marked "@" at once and
+use up their running auctions and posts before the best fit marks anything else. Before, the name was not
+recognized (your records are keyed by the first name alone): your auctions counted as another seller's (a hash
+of the name in `last.fp`) and the "@" went to someone else's auctions at your price or 1c above it.
 
 ## In game
 
@@ -202,7 +209,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   but never listed (bank: slots seen while it was open, else the bind type).
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
-    of the buyers, or your own pace (osold/opart since your first post, 3+ sales) when that is more.
+    of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
+    3+ sales). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
+    says (1.22, FRV-66): nothing cut your sales short, so it is what buyers take at your price; the reason then
+    names it ("you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h") and the tooltip's
+    "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
+    sold out, your pace was capped by what you listed, so half the buyers counts when it is more; before 1.22 that
+    rule held while you still had units listed too (Barbaric Bracers: "make 14" next to 10 listed).
     Time to sell = your listings + bag/bank units + the new ones over that rate; the queue of others at the
     same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
@@ -259,13 +272,27 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     or `/reload`. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
     says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you
     listed can still be in the latest snapshot"), and in orange when no list was ever read or the latest one is
-    older than 24h (then only posts count). Not known yet: why Picks planned 17 Comfortable Leather
-    Hats next to 10 listed and 100 Cured Thick Hides next to 200 on 2026-11-19, uncounted posts or a buyer rate
-    that left room beside them; the saved variables of that day tell (FRV-56).
+    older than 24h (then only posts count). Why Picks planned 17 Comfortable Leather Hats next to 10 listed and
+    100 Cured Thick Hides next to 200 on 2026-11-19 (FRV-56, from the saved variables): the hats were posted after
+    the plan, which 1.18 did not make again after a post (fixed by 1.19 and 1.20.3); the hides had a buyer rate
+    (half of 1,051 a day) far above the 184 listed and your 150 a day, which the 1.22 rule above stops. The same
+    data puts the 25% share right for items sold per auction (you sold a median 20% of C/24h per day listed) and far
+    too high for commodities (at most 4%, FRV-71). `tools/fm_analyze.py room` shows these numbers per item.
+  * "Lock plan after refresh" (1.22, FRV-63, `tablePicksLock`, on by default and for existing settings): a
+    checkbox at the right of the summary line. On, Picks keeps its plan while you buy, craft and post it: only the
+    Refresh button, a change of a Picks input (below, also Ignore / Stop ignoring an item and `/fm exclude`) and the
+    first view of Picks (or Learn, whose green arrows come from the plan) in a session make a new plan
+    (`FM.PlanPicks`). Deep scans, feed imports, posts, newly read auction lists, opening the table and its 15 s tick
+    compute the other tabs again and keep the plan (`FM.ComputeTrade` copies the `pick*` fields of the plan shown;
+    `FM.EnsureTrade` no longer computes for a post or an auction list). The summary line keeps the gold the plan
+    was made with and its time, "Plan for your 17g 73s (locked 14:05): ..." (`pickGold`, `pickAt`); Refresh's
+    tooltip says what came since ("A newer snapshot and 2 posts since the plan", `pickT`, `pickListings`). The plan
+    is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
+    1.20.3, and turning it off plans at once.
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
     picks whose gold stayed reserved): "Not learned" off plans without recipes to learn, the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
-    leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change computes the plan again, so the ranks run 1..n without
+    leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
   * One plan for X% of your gold (at most 90), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
@@ -509,8 +536,15 @@ python3 tools/fm_analyze.py movers
 python3 tools/fm_analyze.py sales --days 14
 python3 tools/fm_analyze.py craft --prof Leatherworking
 python3 tools/fm_analyze.py flips --budget 5g [--advise 5]
+python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
 python3 tools/fm_analyze.py advice set "Camp Tent" --list 3s45c --conf "90% in 8h"
 ```
+
+`room` (1.22, FRV-56) puts Picks' room on the AH next to your real sales: per item you listed in the window, your
+listings as Picks counts them (auction lists + posts since, and their age), C/24h, the cap and the room, your sales
+by mail and how many you sold per day you had it listed (and that as a share of C/24h), the buyers/2 rate Picks
+plans with and your own pace as Picks reads it; at the end the median share of C/24h you sold, for items sold per
+auction and for commodities.
 
 Sales rates (sold/day) appear once there are 2 hours of deep scans or searches at most 8 hours apart;
 `price --rate <sold/day>` simulates with your own estimate before that. `flips` lists cheap listings

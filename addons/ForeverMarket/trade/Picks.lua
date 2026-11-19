@@ -3,7 +3,9 @@ local _, FM = ...
 -- Picks: what to do after a deep scan, ranked, with the reasons. Built on the market table's rows
 -- (trade/Calc.lua); the design was reviewed by a second, independent agent against real data:
 --   * buyers per day come from units that left the AH while nothing cheaper stayed listed (soldLow,
---     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales
+--     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales: with 3+
+--     of them your pace is the rate while units of yours are still listed (1.22, FRV-66), the market share counts
+--     only once you sold out
 --   * one plan for your gold: "Invest [X] % across [Y] picks" (1.20; X = the share of your gold the plan may use,
 --     default and at most 90, Y = its picks at most, default 3). Picks are chosen greedily, each gets a fair share
 --     of the gold that is left (left / picks still open), so what one does not use goes to the later ones; each buys
@@ -354,17 +356,44 @@ local function Demand(key)
     return d
 end
 
--- Units per day you can expect to sell: your own record, or half the buyers of a well documented market
+-- Units per day you can expect to sell: your own record, or half the buyers of a well documented market.
+-- With 3+ sales of yours in the window and units of yours still listed, nothing cut your sales short: your pace is
+-- what buyers take at your price, so it is the rate (FRV-66; d.paceListed). Once you sold out, your pace was capped
+-- by what you listed, so the market share counts when it is more.
 local function SellRate(key)
     local d = Demand(key)
     local market = (d.perDay and d.trusted) and SHARE_OF_BUYERS * d.perDay or nil
     if d.own and d.own.units >= 3 then
-        -- your own pace is capped by how much you listed: the market share can be more
-        if market and market > d.own.perDay then return market, d.source, d end
+        d.paceListed = Yours(key) > 0
+        if not d.paceListed and market and market > d.own.perDay then return market, d.source, d end
         return d.own.perDay, "your sales", d
     end
     if market then return market, d.source, d end
     return nil, nil, d
+end
+
+-- A rate per day for the reasons: one decimal under 10 ("3.3"), whole units above
+local function PerDay(n)
+    if n < 10 then return (string_format("%.1f", n):gsub("%.0$", "")) end
+    return Count(n)
+end
+
+-- Why nothing is left to add: what you list or hold already covers a day of the rate
+local function Covered(d, yours, V)
+    if d.paceListed then
+        return string_format("you list %s and sell %s a day yourself (%s sold in 3 days): they cover %s", Count(yours),
+            PerDay(V), Count(d.own.units), FM.FormatAge(yours / math_max(V, 0.01) * 86400))
+    end
+    return "you already list or hold what buyers take in a day"
+end
+
+-- The tooltip's account of your own sales: how many, your pace, and whether it is the plan's rate
+local function OwnSalesLines(list, d)
+    if not d.own then return end
+    list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days, %s a day", Count(d.own.units), PerDay(d.own.perDay)) }
+    if d.paceListed then
+        list[#list + 1] = { "n", "Yours are still listed: your own pace is the rate.", GREY }
+    end
 end
 
 -- "Ignore stock" (default on): the plans treat your bags and bank as empty (tools you own still count)
@@ -714,7 +743,7 @@ local function EvaluateCraft(c)
     if not room then return nil, noRoom end
     local yours = Yours(row.key) + SellableOf(row.key)
     local vLeft = V - yours
-    if vLeft < makes then return nil, "you already list or hold what buyers take in a day" end
+    if vLeft < makes then return nil, Covered(d, yours, V) end
     local buyers = d.perDay or V
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
@@ -813,7 +842,7 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "l", "List at", M(row.sell) .. (row.capped and (GREY .. "  usual price; cheapest now " .. M(row.capped) .. "|r") or "") }
     if row.rawMin and row.rawMax then list[#list + 1] = { "l", "Last 3 days", M(row.rawMin) .. " - " .. M(row.rawMax) } end
     list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay or V), d.source == "estimated" and " (estimated)" or "") }
-    if d.own then list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days", Count(d.own.units)) } end
+    OwnSalesLines(list, d)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
     if yours > 0 then list[#list + 1] = { "l", "Yours listed or held", Count(yours) } end
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
@@ -838,7 +867,7 @@ local function EvaluateVendor(c)
     if not room then return nil, noRoom end
     local yours = Yours(row.key) + SellableOf(row.key)
     local vLeft = V - yours
-    if vLeft < 1 then return nil, "you already list or hold what buyers take in a day" end
+    if vLeft < 1 then return nil, Covered(d, yours, V) end
     local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
     local unit = row.vendorUnit
@@ -891,6 +920,7 @@ local function EvaluateVendor(c)
     list[#list + 1] = { "l", "List at", M(row.sell) }
     if row.usual then list[#list + 1] = { "l", "Usual price", M(row.usual) } end
     list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) }
+    OwnSalesLines(list, d)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
     RoomLines(list, row, room, "buy", n)

@@ -154,7 +154,7 @@ function FM.RegisterSettingsPanel()
                 local changed = (FM.GetSettings().tableMinProfit or false) ~= (value or false)
                 FM.GetSettings().tableMinProfit = value or nil
                 -- the picks plan without what earns less (only when there are numbers already)
-                if changed and FM.trade and FM.ComputeTrade then FM.ComputeTrade(false) end
+                if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
                 if FM.RefreshTable then FM.RefreshTable() end
             end
             for _, step in ipairs(MIN_PROFIT_STEPS) do root:CreateRadio(step[2], IsSelected, SetSelected, step[1]) end
@@ -176,7 +176,7 @@ function FM.RegisterSettingsPanel()
                 local changed = not IsSelected(value)
                 FM.GetSettings().tableCircPct = value
                 -- an input of the picks plan: plan again (only when there are numbers already)
-                if changed and FM.trade and FM.ComputeTrade then FM.ComputeTrade(false) end
+                if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
                 if FM.RefreshTable then FM.RefreshTable() end
             end
             for _, pct in ipairs(CIRC_SHARE_STEPS) do
