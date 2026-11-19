@@ -93,7 +93,8 @@ quantity, or when it fits what is left of yours (your 200 down to 150 next to th
     craft. A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
     already left your bags) and a craft uses the oldest first: your purchases (`R.buys`, at what you paid) and your
     own crafts of it (`R.crafts`, at their recorded basis, so an intermediate like Cured Thick Hide passes its basis
-    on) cover your units newest first; what they leave (skinned, looted, gathered, fished, from the mail or older
+    on), less what your earlier crafts used of them (replayed in time order by the same rule, with the units you held
+    before each of them), cover your units newest first; what they leave (skinned, looted, gathered, fished, from the mail or older
     than the logs) counts as the oldest, at the vendor price when a vendor sells it without limit (thread, salt,
     vials), else at its AH price at the craft (the cheapest of others, the price of the `Auction` line: 5 hides that
     sell for 1.1g make 1.1g of material cost next to a 1g item, sell the hides). A material with no price at all
@@ -490,8 +491,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
-  the recipe ID; `mats` = `key:units:copper` per material joined by `/`, copper = the units' basis at the craft,
-  empty when one of them had no price; newest last, a year and 5000 lines at most
+  the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
+  craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
+  and 5000 lines at most
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
   `budget[character] = { base, since, reset, total, spent[key] }`
 

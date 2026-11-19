@@ -3,9 +3,10 @@
 --   * a Create / Create All batch (C_TradeSkillUI.CraftRecipe) is one line "t,key,units,crafts,char,spell,mats":
 --     crafts done = the fewest of (a material's units gone / its units per craft), units = the product's count now
 --     - before; written once both have moved, then rewritten in place
---   * a material's basis: the units you hold are your newest acquisitions (purchases, own crafts) and the craft uses
---     the oldest first; units no record covers are the oldest, at the vendor price, else the AH price at the craft,
---     else unknown ("" in the line)
+--   * a material's basis: the units you hold are your newest acquisitions (purchases, own crafts, less what your
+--     earlier crafts used of them) and the craft uses the oldest first; units no record covers are the oldest, at the
+--     vendor price, else the AH price at the craft, else unknown ("" in the line); each material also records the
+--     units held before the batch
 --   * the tooltip groups your units: crafted (materials now, the recorded basis of the units the newest lines cover),
 --     bought next to crafted ones (AH now, what you paid); an item that is no craft of yours keeps its old "cost"
 
@@ -74,10 +75,10 @@ H.test("crafts: a Create All batch is one line with its crafts, units and the ma
     Bags(env, { ["1"] = -2, ["2"] = -1 })
     H.eq(#r.crafts, 0, "materials gone, no product yet: nothing written")
     Bags(env, { ["100"] = 1 })
-    H.same(r.crafts, { Line(NOW, "100", 1, 1, 900, "1:2:100/2:1:200") }, "first craft")
+    H.same(r.crafts, { Line(NOW, "100", 1, 1, 900, "1:2:100:10/2:1:200:5") }, "first craft")
     Bags(env, { ["1"] = -2, ["2"] = -1, ["100"] = 1 })
     Bags(env, { ["1"] = -2, ["2"] = -1, ["100"] = 1 })
-    H.same(r.crafts, { Line(NOW, "100", 3, 3, 900, "1:6:300/2:3:600") }, "the batch's line, rewritten in place")
+    H.same(r.crafts, { Line(NOW, "100", 3, 3, 900, "1:6:300:10/2:3:600:5") }, "the batch's line, rewritten in place")
 end)
 
 H.test("crafts: a multi-unit recipe counts the units that came out", function()
@@ -87,7 +88,7 @@ H.test("crafts: a multi-unit recipe counts the units that came out", function()
     env.schematics[901] = Schematic(200, { { 1, 2 } })
     env.C_TradeSkillUI.CraftRecipe(901, 2)
     Bags(env, { ["1"] = -4, ["200"] = 10 })
-    H.same(r.crafts, { Line(NOW, "200", 10, 2, 901, "1:4:200") }, "2 crafts, 10 units")
+    H.same(r.crafts, { Line(NOW, "200", 10, 2, 901, "1:4:200:4") }, "2 crafts, 10 units")
 end)
 
 H.test("crafts: units beyond your records are the oldest, at the AH price; a vendor material at the vendor", function()
@@ -99,7 +100,7 @@ H.test("crafts: units beyond your records are the oldest, at the AH price; a ven
     env.C_TradeSkillUI.CraftRecipe(902, 2)
     Bags(env, { ["1"] = -8, ["3"] = -2, ["100"] = 2 })
     -- the 6 skinned ones first at 60c, then 2 of the bought ones at 50c; the thread at the vendor's 30c
-    H.same(r.crafts, { Line(NOW, "100", 2, 2, 902, "1:8:460/3:2:60") }, "line")
+    H.same(r.crafts, { Line(NOW, "100", 2, 2, 902, "1:8:460:10/3:2:60:5") }, "line")
 end)
 
 H.test("crafts: a material without any price leaves the basis unknown, the tooltip names it", function()
@@ -110,7 +111,7 @@ H.test("crafts: a material without any price leaves the basis unknown, the toolt
     env.schematics[903] = Schematic(100, { { 1, 2 }, { 4, 1 } })
     env.C_TradeSkillUI.CraftRecipe(903, 1)
     Bags(env, { ["1"] = -2, ["4"] = -1, ["100"] = 1 })
-    H.same(r.crafts, { Line(NOW, "100", 1, 1, 903, "1:2:100/4:1:") }, "line")
+    H.same(r.crafts, { Line(NOW, "100", 1, 1, 903, "1:2:100:2/4:1::1") }, "line")
     local info = FM.CostInfo("100")
     -- no price for the reagent now either: "now" stays empty, never the item's own price
     H.same(info.groups, { { kind = "crafted", n = 1, paidN = 0, missing = { "4" } } }, "groups")
@@ -128,9 +129,39 @@ H.test("crafts: an intermediate you crafted passes its recorded basis on", funct
     env.C_TradeSkillUI.CraftRecipe(905, 2)
     Bags(env, { ["200"] = -2, ["3"] = -2, ["300"] = 2 })
     H.same(r.crafts, {
-        Line(NOW, "200", 2, 2, 904, "1:4:200"),
-        Line(NOW + 60, "300", 2, 2, 905, "200:2:200/3:2:60")
+        Line(NOW, "200", 2, 2, 904, "1:4:200:4"),
+        Line(NOW + 60, "300", 2, 2, 905, "200:2:200:2/3:2:60:2")
     }, "the hide at 100c each goes into the kit")
+end)
+
+H.test("crafts: materials your earlier crafts used are gone, units you get later count at their AH price", function()
+    local FM, env, r = Load()
+    r.buys = { (NOW - 3600) .. ",1,10,1000,Tester" } -- 10 hides at 1s each
+    Ladder(r, "1", 30)
+    env.counts = { ["1"] = 10 }
+    env.schematics[904] = Schematic(200, { { 1, 2 } })
+    env.C_TradeSkillUI.CraftRecipe(904, 5)
+    Bags(env, { ["1"] = -10, ["200"] = 5 })
+    env.clock = NOW + 60
+    env.FlushTimers()
+    env.counts["1"] = 10 -- skinned 10 more
+    env.C_TradeSkillUI.CraftRecipe(904, 5)
+    Bags(env, { ["1"] = -10, ["200"] = 5 })
+    H.same(r.crafts, {
+        Line(NOW, "200", 5, 5, 904, "1:10:1000:10"),
+        Line(NOW + 60, "200", 5, 5, 904, "1:10:300:10")
+    }, "the bought hides went into the first batch, the skinned ones count at 30c")
+    -- you hold 10 cured hides: 5 of each batch, newest first
+    H.same(FM.CostInfo("200").groups, { { kind = "crafted", n = 10, now = 60, paid = 130, paidN = 10 } }, "groups")
+end)
+
+H.test("crafts: only the materials without a price are named, wherever they stand", function()
+    local FM, env, r = Load()
+    r.names["4"] = "Salt"
+    r.crafts = { Line(NOW - 60, "100", 1, 1, 900, "4:1::1/1:2:100:2") }
+    env.counts = { ["100"] = 1 }
+    H.same(FM.CostInfo("100").groups[1].missing, { "4" }, "missing")
+    H.eq(FM.CraftReport("100"):find("(no price: Salt)", 1, true) ~= nil, true, FM.CraftReport("100"))
 end)
 
 H.test("crafts: a finished batch ends once nothing changed for 3 s, later bag changes leave its line", function()
@@ -143,7 +174,7 @@ H.test("crafts: a finished batch ends once nothing changed for 3 s, later bag ch
     env.clock = NOW + 5
     env.FlushTimers()
     Bags(env, { ["1"] = -4, ["200"] = 5 }) -- sold, mailed or crafted elsewhere: not this batch
-    H.same(r.crafts, { Line(NOW, "200", 1, 1, 904, "1:2:100") }, "line")
+    H.same(r.crafts, { Line(NOW, "200", 1, 1, 904, "1:2:100:6") }, "line")
 end)
 
 H.test("crafts: lines older than a year go, the log keeps its newest 5000", function()

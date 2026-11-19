@@ -11,15 +11,17 @@ local _, FM = ...
 --     for 3 s, after 30 s without a change, or with the next craft
 -- Cost basis of the materials (FM.HeldLots): the units you hold are taken to be your newest acquisitions (older ones
 -- already left your bags), and a craft uses the oldest of them first:
---   * acquisitions of an item = your AH purchases of it (R.buys) and your own crafts of it (R.crafts, at their
---     recorded basis), newest first, until they cover the units you hold
+--   * lots of an item = your AH purchases of it (R.buys) and your own crafts of it (R.crafts, at their recorded
+--     basis), less what your earlier crafts used of them (the same rule, replayed in time order with the units you
+--     held before each of those crafts); the lots left cover the units you hold, newest first
 --   * what they do not cover (skinned, looted, gathered, fished, from the mail, or older than the logs) counts as the
 --     oldest: at the vendor price when a vendor sells it without limit, else at its AH price at the craft (the
 --     cheapest of others, the price of the tooltip's Auction line); with neither the craft's basis is unknown
 --
 -- R.crafts { "t,key,units,crafts,char,spell,mats", ... }  newest last, a year, 5000 lines at most
 --   t = start of the batch, key = the product, units made, crafts done, char = FM.PlayerName(), spell = recipe ID
---   mats = "key:units:copper" per material joined by "/", copper = their basis, "" when one of them had no price
+--   mats = "key:units:copper:held" per material joined by "/", copper = the used units' basis ("" when one of them
+--   had no price), held = the units of it you held before the batch
 
 local type = type
 local pairs = pairs
@@ -67,23 +69,24 @@ end
 
 ---------------------------------------------------------------- what you acquired
 
--- One craft line -> { t, key, units, crafts, char, spell, mats = { { key, units, cost|nil } }, total|nil, missing }
+-- One craft line -> { t, key, units, crafts, char, spell, mats = { { key, units, cost|nil, held|nil } }, total|nil,
+-- missing = { keys of the materials without a price } }
 local function ParseCraft(line)
     local t, key, units, crafts, char, spell, mats = line:match("^(%d+),([^,]+),(%d+),(%d+),([^,]*),(%d*),(.*)$")
     if not t then return nil end
     local c = { t = tonumber(t), key = key, units = tonumber(units), crafts = tonumber(crafts), char = char,
         spell = tonumber(spell), mats = {}, total = 0 }
     for mat in mats:gmatch("[^/]+") do
-        local mk, mu, mc = mat:match("^([^:]+):(%d+):(%d*)$")
+        local mk, mu, mc, mh = mat:match("^([^:]+):(%d+):(%d*):?(%d*)$")
         if mk then
             local cost = tonumber(mc)
-            c.mats[#c.mats + 1] = { key = mk, units = tonumber(mu), cost = cost }
-            if cost and c.total then
-                c.total = c.total + cost
-            else
+            c.mats[#c.mats + 1] = { key = mk, units = tonumber(mu), cost = cost, held = tonumber(mh) }
+            if not cost then
                 c.total = nil
                 c.missing = c.missing or {}
                 c.missing[#c.missing + 1] = mk
+            elseif c.total then
+                c.total = c.total + cost
             end
         end
     end
@@ -91,53 +94,104 @@ local function ParseCraft(line)
     return c
 end
 
--- Per item, this character's purchases and crafts newest first: { t, qty, unit|nil, src = "b"|"c", craft }
--- (purchase lines without a character, from before 1.15.5, count for every character). Built again whenever
--- either log changed.
-local index, indexSig
-local function Acquisitions(key)
+-- The lots you still hold of an item after a craft took `used` of the `held` units you had (oldest first, lots
+-- are { qty, unit|nil, src, craft }): the newest lots covering `held` were yours, older ones had already left; units
+-- no lot covers are the oldest and go first, then the oldest lots. held nil (no count known): the oldest lots go.
+local function AfterUse(lots, used, held)
+    local kept, left = {}, held or math.huge
+    for i = #lots, 1, -1 do
+        if left <= 0 then break end
+        local lot = lots[i]
+        local qty = math_min(lot.qty, left)
+        table_insert(kept, 1, { qty = qty, unit = lot.unit, src = lot.src, craft = lot.craft })
+        left = left - qty
+    end
+    local take = used - (held and math_max(0, left) or 0) -- what the units no lot covers could not give
+    while take > 0 and kept[1] do
+        local lot = kept[1]
+        if lot.qty <= take then
+            take = take - lot.qty
+            table_remove(kept, 1)
+        else
+            lot.qty = lot.qty - take
+            take = 0
+        end
+    end
+    return kept
+end
+
+-- This character's lots of each item still held by the logs, newest first: { qty, unit|nil, src = "b"|"c", craft }.
+-- Purchases (R.buys, lines without a character from before 1.15.5 count for every character) and own crafts
+-- (R.crafts) add lots, your crafts that used the item take them (AfterUse), all in time order; built again
+-- whenever either log changed. crafted[key] = this character's craft lines of the item, newest first.
+local index, crafted, indexSig
+local function Build()
     local r = FM.R()
     local buys = type(r.buys) == "table" and r.buys or {}
     local crafts = Crafts()
     local char = FM.PlayerName()
     local sig = table_concat({ tostring(buys), #buys, buys[#buys] or "", tostring(crafts), #crafts, crafts[#crafts] or "",
         char }, "\1")
-    if sig ~= indexSig then
-        index, indexSig = {}, sig
-        local function add(k, entry)
-            local list = index[k]
-            if not list then
-                list = {}
-                index[k] = list
-            end
-            list[#list + 1] = entry
+    if sig == indexSig then return end
+    index, crafted, indexSig = {}, {}, sig
+    local events, order = {}, 0
+    local function add(key, event)
+        order = order + 1
+        event.order = order
+        local list = events[key]
+        if not list then
+            list = {}
+            events[key] = list
         end
-        local order = 0
-        for _, line in ipairs(buys) do
-            local t, k, q, cost, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
-            q, cost = tonumber(q), tonumber(cost)
-            if t and q and q > 0 and (who == "" or who == char) then
-                order = order + 1
-                add(k, { t = tonumber(t), qty = q, unit = cost / q, src = "b", order = order })
-            end
-        end
-        for _, line in ipairs(crafts) do
-            local c = ParseCraft(line)
-            if c and c.char == char and c.units > 0 then
-                order = order + 1
-                add(c.key, { t = c.t, qty = c.units, unit = c.total and c.total / c.units, src = "c", craft = c,
-                    order = order })
-            end
-        end
-        -- newest first; within one second the line written later is the newer one
-        for _, list in pairs(index) do
-            table_sort(list, function(a, b)
-                if a.t ~= b.t then return a.t > b.t end
-                return a.order > b.order
-            end)
+        list[#list + 1] = event
+    end
+    for _, line in ipairs(buys) do
+        local t, k, q, cost, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        q, cost = tonumber(q), tonumber(cost)
+        if t and q and q > 0 and (who == "" or who == char) then
+            add(k, { t = tonumber(t), qty = q, unit = cost / q, src = "b" })
         end
     end
+    for _, line in ipairs(crafts) do
+        local c = ParseCraft(line)
+        if c and c.char == char then
+            for _, m in ipairs(c.mats) do add(m.key, { t = c.t, used = m.units, held = m.held }) end
+            if c.units > 0 then
+                add(c.key, { t = c.t, qty = c.units, unit = c.total and c.total / c.units, src = "c", craft = c })
+                local list = crafted[c.key] or {}
+                crafted[c.key] = list
+                table_insert(list, 1, c)
+            end
+        end
+    end
+    for key, list in pairs(events) do
+        -- in time order; within one second the line written first (purchases before crafts)
+        table_sort(list, function(a, b)
+            if a.t ~= b.t then return a.t < b.t end
+            return a.order < b.order
+        end)
+        local lots = {}
+        for _, e in ipairs(list) do
+            if e.used then
+                lots = AfterUse(lots, e.used, e.held)
+            else
+                lots[#lots + 1] = { qty = e.qty, unit = e.unit, src = e.src, craft = e.craft }
+            end
+        end
+        local newest = {}
+        for i = #lots, 1, -1 do newest[#newest + 1] = lots[i] end
+        index[key] = newest
+    end
+end
+
+local function Acquisitions(key)
+    Build()
     return index[key] or {}
+end
+
+local function CraftLines(key)
+    Build()
+    return crafted[key] or {}
 end
 
 -- A unit nobody recorded (looted, skinned, from the mail, older than the logs): a vendor's price when a vendor
@@ -151,7 +205,7 @@ local function UnrecordedUnit(key)
 end
 
 -- The units of an item you hold, oldest first: { { qty, unit|nil, src }, ... } covering `held` units.
--- Your newest purchases and crafts cover them newest first; what they leave is the oldest, at UnrecordedUnit.
+-- The lots the logs still hold cover them newest first; what they leave is the oldest, at UnrecordedUnit.
 function FM.HeldLots(key, held)
     local lots = {}
     local left = held
@@ -182,8 +236,8 @@ local function Take(lots, n)
     return total
 end
 
--- How your n units of an item came to you: your newest purchases and crafts of it cover them, newest first
--- (the ones you most likely still hold), the way FM.BoughtUnit walks purchases; craftsOnly = crafts only.
+-- How your n units of an item came to you: the lots the logs still hold cover them newest first (the ones you
+-- most likely still hold), the way FM.BoughtUnit walks purchases; craftsOnly = crafted lots only.
 -- { bought, boughtTotal, crafted = units your craft lines cover, known = of those with a known basis,
 --   knownTotal, missing = { material keys without a price }, uncovered = units no line covers }
 function FM.UnitsBasis(key, n, craftsOnly)
@@ -220,27 +274,18 @@ end
 -- The recipe of an item this character makes: the learned one of the ForeverArtisan data (as the market table
 -- uses it), else the one your newest craft of it used (materials per craft and units per craft as they came out).
 -- { key, reagents = { { key, n } }, makes, learned = true } or nil
-local logRecipes, logRecipesSig = {}, nil
 function FM.RecipeOf(key)
     local sources = FM.Sources and FM.Sources()
     local craft = sources and sources.byKey and sources.byKey[key]
     if craft and craft.learned then return craft end
-    local list = Acquisitions(key)
-    if logRecipesSig ~= indexSig then logRecipes, logRecipesSig = {}, indexSig end
-    local cached = logRecipes[key]
-    if cached ~= nil then return cached or nil end
-    local recipe = false
-    for _, a in ipairs(list) do
-        local c = a.craft
-        if c and c.crafts > 0 and #c.mats > 0 then
+    for _, c in ipairs(CraftLines(key)) do
+        if c.crafts > 0 and c.units > 0 and #c.mats > 0 then
             local reagents = {}
             for i, m in ipairs(c.mats) do reagents[i] = { key = m.key, n = m.units / c.crafts } end
-            recipe = { key = key, reagents = reagents, makes = c.units / c.crafts, learned = true, spell = c.spell, log = true }
-            break
+            return { key = key, reagents = reagents, makes = c.units / c.crafts, learned = true, spell = c.spell }
         end
     end
-    logRecipes[key] = recipe
-    return recipe or nil
+    return nil
 end
 
 ---------------------------------------------------------------- recording
@@ -302,7 +347,7 @@ local function Write(b)
     for i, m in ipairs(b.mats) do
         local used = m.n * b.done
         local cost = Take(m.lots, used)
-        parts[i] = string_format("%s:%d:%s", m.key, used, cost and tostring(math_floor(cost + 0.5)) or "")
+        parts[i] = string_format("%s:%d:%s:%d", m.key, used, cost and tostring(math_floor(cost + 0.5)) or "", m.before)
     end
     local line = string_format("%d,%s,%d,%d,%s,%d,%s", b.t, b.key, b.units, b.done, FM.PlayerName(), b.spell,
         table_concat(parts, "/"))
@@ -393,23 +438,19 @@ FM.On("BAG_UPDATE_DELAYED", Update)
 
 -- One line for /fm item: this character's crafts of the item, the newest, and its materials' basis per unit
 function FM.CraftReport(key)
-    local crafts, units, newest = 0, 0, nil
-    for _, a in ipairs(Acquisitions(key)) do
-        if a.src == "c" then
-            crafts = crafts + 1
-            units = units + a.qty
-            newest = newest or a
-        end
-    end
+    local lines = CraftLines(key)
+    local newest = lines[1]
     if not newest then return nil end
+    local units = 0
+    for _, c in ipairs(lines) do units = units + c.units end
     local basis
-    if newest.unit then
-        basis = "materials " .. FM.FormatMoney(math_floor(newest.unit + 0.5)) .. " per unit"
+    if newest.total and newest.units > 0 then
+        basis = "materials " .. FM.FormatMoney(math_floor(newest.total / newest.units + 0.5)) .. " per unit"
     else
         local names = {}
-        for i, mk in ipairs(newest.craft.missing or {}) do names[i] = FM.GetName(mk) end
+        for i, mk in ipairs(newest.missing or {}) do names[i] = FM.GetName(mk) end
         basis = "materials unknown (no price: " .. table_concat(names, ", ") .. ")"
     end
-    return string_format("crafted %s in %d batch%s; newest %s ago, %s units, %s", FM.FormatCount(units), crafts,
-        crafts == 1 and "" or "es", FM.FormatAge(FM.Now() - newest.t), FM.FormatCount(newest.qty), basis)
+    return string_format("crafted %s in %d batch%s; newest %s ago, %s units, %s", FM.FormatCount(units), #lines,
+        #lines == 1 and "" or "es", FM.FormatAge(FM.Now() - newest.t), FM.FormatCount(newest.units), basis)
 end
