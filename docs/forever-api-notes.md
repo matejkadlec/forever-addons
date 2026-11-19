@@ -120,8 +120,8 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified i
 - Character creation takes both and checks them together (`C_CharacterCreation.CreateCharacter(name, surname, ...)`, `CheckName(name, surname)` in `Blizzard_CharacterCreate/Camelot/Blizzard_CharacterCreate.lua`) while `C_CharacterCreation.AreRegionalUniqueNamesEnabled()`; in game `RegionalUniqueNamesEnabled()` tells whether surnames are on
 - So a character is identified by both names together (or by `UnitGUID("player")`); a first name alone may repeat, also among one player's characters on a realm
   - Read the two parts with `UnitNameUnmodified("player")` and guard a missing surname: AceDB-3.0 builds its character key that way, `name .. " " .. surname` while `RegionalUniqueNamesEnabled()` (the copy in `backports/Skada/lib/AceDB-3.0/AceDB-3.0.lua`)
-  - Whether the first return of `UnitName("player")` is the first name alone is not settled by the source: `NameUtil.GetUnitFirstName` in the same Camelot file splits it at the separator ("name can be both name + surname"), while the third-party AddOn ForeverArtisan says of the live game that `UnitName` gives only the first name (`ForeverArtisan_Core/Alts.lua`); check in game before relying on either
-  - ForeverMarket keys its per-character data by that first return (`FM.PlayerName()`): if it is the first name alone, two of your characters with the same first name on one realm and faction share their records (tracked in FRV-35)
+  - The source does not settle whether the first return of `UnitName("player")` is the first name alone (`NameUtil.GetUnitFirstName` in the same Camelot file splits it at the separator, "name can be both name + surname"). Seen in game (the maintainer's saved variables, 1.60.1, FRV-56): it is the first name alone, as ForeverArtisan says (`ForeverArtisan_Core/Alts.lua`): ForeverMarket's character key is "Elfiehu", while AceDB's key from `UnitNameUnmodified("player")` in Skada's and Quartz's saved variables is "Elfiehu Ntress" (first name, space, surname)
+  - ForeverMarket keys its per-character data by that first return (`FM.PlayerName()`), so two of your characters with the same first name on one realm and faction share their records (tracked in FRV-35); `FM.PlayerFullName()` builds the full name from `UnitNameUnmodified("player")` (FRV-70)
 
 ## Bags and bank
 
@@ -207,7 +207,8 @@ Everything else in this section is verified against the source only (not yet ver
   - `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` are documented and would name it, but Blizzard's Lua on the branch never registers them: check in game whether they fire before building on them
 - An auction of an item that is no commodity is bought with `PlaceBid(auctionID, bidAmount)`: the buyout as the amount buys it (Blizzard's `BUYOUT_AUCTION` popup), `AUCTION_HOUSE_PURCHASE_COMPLETED(auctionID)` follows
 - Full scans: `ReplicateItems()`, then `REPLICATE_ITEM_LIST_UPDATE`, `GetNumReplicateItems()`, `GetReplicateItemInfo(index)`, `GetReplicateItemLink(index)`, `GetReplicateItemTimeLeft(index)`
-  - Seen in game by ForeverMarket: the server allows it once per 15 minutes, the event fires many times while the list arrives, and the list does not say who sells (ForeverMarket knows its own auctions from the owned list and its posts)
+  - Seen in game by ForeverMarket: the server allows it once per 15 minutes and the event fires many times while the list arrives
+  - The seller (`owner` / `ownerFull` of `GetReplicateItemInfo`) is given only for your own auctions, as your first name and surname ("Elfiehu Ntress", no realm); every other auction has none. Seen in game in the maintainer's saved variables (FRV-56): in the deep scan of 2026-11-19 20:59, 46 of 313,085 auctions carried a seller, all of them his. Whether the auctions of your other characters are named too is not known. ForeverMarket recognizes the logged-in character's full name (`FM.IsOwnChar`, FRV-70) and finds the rest of yours from the owned list and its posts
 
 ## AddOn list
 

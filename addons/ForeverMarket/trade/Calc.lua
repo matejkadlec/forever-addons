@@ -782,6 +782,23 @@ end
 FM.trade = nil
 local running = false
 local queued = false
+local planRequested = false
+
+-- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked
+local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
+    "pickNeed", "pickExpected", "pickGold", "pickAt", "pickT", "pickListings" }
+
+-- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
+function FM.PicksLocked()
+    return FM.GetSettings().tablePicksLock ~= false
+end
+
+-- A new Picks plan, asked for by you: the refresh button, a change of a Picks input, the first view of Picks in a
+-- session. The other tabs are computed again in the same pass
+function FM.PlanPicks()
+    planRequested = true
+    FM.ComputeTrade(false)
+end
 
 -- record: store this scan's craft numbers in the 3 day history (after a deep scan)
 function FM.ComputeTrade(record, onDone)
@@ -797,6 +814,13 @@ function FM.ComputeTrade(record, onDone)
         return
     end
     running = true
+    -- Picks plans anew when asked, when it is not locked, or when there is no plan yet and the table shows Picks;
+    -- otherwise this pass keeps the plan shown now (held)
+    local held = FM.trade
+    local hasPlan = held and held.picks and true or false
+    local plan = planRequested or not FM.PicksLocked()
+        or (not hasPlan and FM.PicksShown ~= nil and FM.PicksShown())
+    planRequested = false
     local now = FM.Now()
     local nowMinutes = Minutes(now)
     local latestMinutes = Minutes(r.last.t)
@@ -1012,11 +1036,19 @@ function FM.ComputeTrade(record, onDone)
             done()
         end,
         function(done)
-            if FM.ComputePicks then
-                FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, done)
-            else
-                done()
+            if not FM.ComputePicks then return done() end
+            if not plan then
+                -- the locked plan stays as it was made (none yet: Picks plans when it is shown)
+                if hasPlan then
+                    for _, field in ipairs(PICK_FIELDS) do out[field] = held[field] end
+                end
+                return done()
             end
+            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, function()
+                -- when, and with which snapshot and listings, this plan was made (the summary line, Refresh's tooltip)
+                out.pickAt, out.pickT, out.pickListings = now, r.last.t, out.listingsVersion
+                done()
+            end)
         end
     }, function(err)
         running = false
@@ -1039,14 +1071,14 @@ function FM.OnDeepScanSaved()
 end
 
 -- The table wants numbers: compute when there are none for the latest scan, or when you posted or your auction
--- list was read since they were computed (your listings are an input of the picks)
+-- list was read since they were computed (your listings are an input of the picks; a locked plan keeps its own)
 function FM.EnsureTrade()
     local r = FM.R()
     local t = r.last and r.last.t
     if running then return end
     local trade = FM.trade
     if not trade or trade.t ~= t or (trade.empty and t)
-        or (not trade.empty and trade.listingsVersion ~= (FM.listingsVersion or 0)) then
+        or (not trade.empty and not FM.PicksLocked() and trade.listingsVersion ~= (FM.listingsVersion or 0)) then
         FM.ComputeTrade(false)
     end
 end

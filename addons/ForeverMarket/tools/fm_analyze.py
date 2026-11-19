@@ -13,6 +13,7 @@ Usage (from anywhere):
   python3 fm_analyze.py sales
   python3 fm_analyze.py craft --prof Leatherworking
   python3 fm_analyze.py flips --budget 5g [--advise 5]
+  python3 fm_analyze.py room [item ...] [--days 7] [--share 25]
   python3 fm_analyze.py advice set "Camp Tent" --list 350 --conf "90% in 8h" --note "..."
   python3 fm_analyze.py advice render
 
@@ -383,6 +384,7 @@ class Market:
                 return stamp_to_epoch(scans[-1].split(',')[0][1:]) if scans else 0
             self.realm_key = max(realms, key=last_scan)
         self.r = realms[self.realm_key]
+        self.settings = data.get('settings') or {}
         self.items = self.r.get('items') or {}
         self.names = {k: fix_text(v) for k, v in (self.r.get('names') or {}).items()}
         self.watch = self.r.get('watch') or {}
@@ -1378,6 +1380,199 @@ def money_plain(c):
     """12345 -> '1g23s45c' without spaces, for short notes"""
     return money(c).replace(' ', '')
 
+# --------------------------------------------------------------------------- room (Picks' cap against your sales)
+
+PICKS_WINDOW = 72 * 3600  # Picks reads 3 days of deep scans and of your sales
+PICKS_SHARE_OF_BUYERS = 0.5  # trade/Picks.lua SHARE_OF_BUYERS
+PICKS_OWN_MIN = 3  # your own record counts from 3 units sold in the window
+
+
+def picks_buyers(m, key, now):
+    """Buyers per day as Picks counts them (trade/Picks.lua Demand): units gone at or under the cheapest auction
+    still listed (soldLow) over intervals of at most 8h in the last 3 days, relist bursts capped, records before
+    soldLow at 0.3 of what vanished. Returns (per day or None below 2h of intervals, trusted)"""
+    since = now - PICKS_WINDOW
+    bought = cover = 0.0
+    intervals = auctions = 0
+    prev_qty = None
+    for rec in m.records(key):
+        if rec['kind'] != 'r':
+            continue
+        gap = rec.get('gap')
+        if rec['t'] and since < rec['t'] <= now and gap and 0 < gap <= CLEAN_GAP_MIN:
+            cover += gap
+            if not rec.get('unchanged'):
+                sold = rec.get('sold') or 0
+                units = rec.get('soldLow')
+                if units is None:
+                    units = sold * 0.3
+                # relist burst: a big share of the listings gone while about as many came back
+                if prev_qty and sold > 0.3 * prev_qty and (rec.get('new') or 0) >= 0.5 * sold:
+                    units = min(units, 0.15 * prev_qty)
+                if units > 0:
+                    bought += units
+                    intervals += 1
+                    auctions += rec.get('soldN') or 0
+        prev_qty = rec.get('qty') or 0
+    if cover < MIN_COVER_H * 60:
+        return None, False
+    return bought / cover * 1440, intervals >= 3 and auctions >= 5
+
+
+def picks_circulation(m, key, now):
+    """C/24h as the market table shows it (trade/Calc.lua SoldLatest x 2): sold plus half the ambiguous units over
+    intervals of at most 8h in the last 12h, or the last 3 days when 12h has under 2h of them"""
+    for window in (12 * 3600, PICKS_WINDOW):
+        sold = cover = 0.0
+        for rec in m.records(key):
+            gap = rec.get('gap')
+            if rec['kind'] == 'r' and rec['t'] and now - window < rec['t'] <= now and gap and 0 < gap <= CLEAN_GAP_MIN:
+                cover += gap
+                if not rec.get('unchanged'):
+                    sold += (rec.get('sold') or 0) + 0.5 * (rec.get('amb') or 0)
+        if cover >= MIN_COVER_H * 60:
+            return sold * 1440 / cover
+    return None
+
+
+def own_listings(m, now):
+    """Your listings per item as Picks counts them (FM.OwnListings): each character's last auction list (running
+    auctions) plus the posts after it that still run. Returns {key: {'list', 'posts', 'seen'}} and the newest list"""
+    out, since, in_list, newest = {}, {}, {}, None
+
+    def add(key, qty, field, seen):
+        e = out.setdefault(key, {'list': 0, 'posts': 0, 'seen': seen})
+        e[field] += qty
+        e['seen'] = min(e['seen'], seen)
+
+    for char, snap in (m.r.get('owned') or {}).items():
+        if not isinstance(snap, dict) or not snap.get('t'):
+            continue
+        since[char] = snap['t']
+        newest = max(newest or 0, snap['t'])
+        aids = in_list.setdefault(char, set())
+        for entry in (snap.get('list') or '').split(','):
+            f = entry.split(':')  # aid:key:qty:buyout:status:left
+            if len(f) < 6 or not f[0]:
+                continue
+            aids.add(f[0])
+            left = b36(f[-1]) or 0
+            if f[-2] != 's' and snap['t'] + (left if left > 0 else 86400) > now:
+                add(':'.join(f[1:-4]), b36(f[-4]) or 1, 'list', snap['t'])
+    for post in as_list(m.r.get('posts')):
+        f = post.split(',')
+        t = stamp_to_epoch(f[0])
+        if not t or len(f) < 6 or now - t > 86400:
+            continue
+        list_t = since.get(f[1])
+        after = list_t is None or t >= list_t - 60
+        if after and len(f) > 7 and f[7] in in_list.get(f[1], ()):
+            after = False  # a post of the same minute as the list, already in it
+        if after and now < t + POST_HOURS.get(f[5], 24) * 3600:
+            add(f[2], b36(f[3]) or 1, 'posts', t)
+    return out, newest
+
+
+def listed_spans(m, since, now):
+    """Per item: the time its posts ran in the window (by their duration) and whether it is a commodity"""
+    spans, kinds = {}, {}
+    for post in as_list(m.r.get('posts')):
+        f = post.split(',')
+        t = stamp_to_epoch(f[0])
+        if not t or len(f) < 6:
+            continue
+        end = min(t + POST_HOURS.get(f[5], 24) * 3600, now)
+        if end > since and t < now:
+            spans.setdefault(f[2], []).append((max(t, since), end))
+            kinds[f[2]] = 'commodity' if len(f) > 6 and f[6] == 'c' else 'item'
+    return spans, kinds
+
+
+def span_hours(spans):
+    """Hours covered by overlapping (start, end) spans"""
+    total, cur = 0.0, None
+    for a, b in sorted(spans):
+        if cur and a <= cur[1]:
+            cur[1] = max(cur[1], b)
+        else:
+            if cur:
+                total += cur[1] - cur[0]
+            cur = [a, b]
+    if cur:
+        total += cur[1] - cur[0]
+    return total / 3600
+
+
+def cmd_room(m, args):
+    """Picks' room on the AH (FRV-55) against your own sales: your listings as Picks counts them, C/24h, the cap,
+    and how many you really sold per day while you had the item listed (FRV-56)"""
+    now = m.saved_at  # the data ends when the game saved it
+    since = now - args.days * 86400
+    pct = args.share if args.share is not None else (m.settings.get('tableCircPct') or 25)
+    share = pct / 100.0
+    listings, newest = own_listings(m, now)
+    spans, kinds = listed_spans(m, since, now)
+    names = {n: k for k, n in m.names.items()}
+    sold, sold3, first_post = {}, {}, {}
+    for line in as_list(m.r.get('invoices')):
+        f = line.split(',')
+        if len(f) < 7 or f[2] != 'seller':
+            continue
+        t, key = stamp_to_epoch(f[0]), names.get(fix_text(f[3]))
+        if key and t and since <= t <= now:
+            sold[key] = sold.get(key, 0) + (b36(f[5]) or 1)
+    for post in as_list(m.r.get('posts')):
+        f = post.split(',')
+        t = stamp_to_epoch(f[0])
+        if t and len(f) > 2 and now - PICKS_WINDOW < t <= now and (f[2] not in first_post or t < first_post[f[2]]):
+            first_post[f[2]] = t
+    for e in as_list(m.r.get('events')):
+        f = e.split(',')
+        t = stamp_to_epoch(f[0])
+        if len(f) > 4 and f[2] in ('osold', 'opart') and t and now - PICKS_WINDOW < t <= now:
+            sold3[f[3]] = sold3.get(f[3], 0) + (b36(f[4]) or 1)
+    keys = set(spans) | set(listings)
+    if args.items:
+        keys = {k for q in args.items for k in m.find(q)[:1]}
+    print('Room on the AH as Picks plans it (%d%% of C/24h), data saved %s; your auction lists last read %s ago'
+          % (pct, when(now), ago(newest, now) if newest else 'never'))
+    rows, shares = [], {'item': [], 'commodity': []}
+    for key in keys:
+        circ = picks_circulation(m, key, now)
+        buyers, trusted = picks_buyers(m, key, now)
+        e = listings.get(key) or {'list': 0, 'posts': 0, 'seen': None}
+        cap = int(circ * share + 0.5) if circ is not None else None
+        hours = span_hours(spans.get(key, []))
+        pace = sold.get(key, 0) / (hours / 24) if hours >= 6 else None
+        of_circ = pace / circ if pace is not None and circ else None
+        if of_circ is not None and sold.get(key, 0) >= 5:
+            shares[kinds.get(key, 'item')].append(of_circ)
+        units3 = sold3.get(key, 0)
+        # Picks' own rate: sales of 3 days over the time since your first post in them (at least 12h)
+        own_rate = (units3 / max(43200, now - first_post.get(key, now - PICKS_WINDOW)) * 86400
+                    if units3 >= PICKS_OWN_MIN else None)
+        rows.append([m.name(key)[:28], kinds.get(key, '?'), '%d+%d' % (e['list'], e['posts']),
+                     ago(e['seen'], now) if e['seen'] else '-', '%.0f' % circ if circ is not None else '-',
+                     cap if cap is not None else '-', cap - e['list'] - e['posts'] if cap is not None else '-',
+                     sold.get(key, 0), '%.0f' % hours, '%.1f' % pace if pace is not None else '-',
+                     '%.0f%%' % (of_circ * 100) if of_circ is not None else '-',
+                     ('%.0f' % (buyers * PICKS_SHARE_OF_BUYERS) + ('' if trusted else '?')) if buyers is not None else '-',
+                     '%.1f' % own_rate if own_rate is not None else '-'])
+    rows.sort(key=lambda r: (-r[7], r[0]))
+    table(rows, ['item', 'kind', 'listed', 'seen', 'C/24h', 'cap', 'room', 'sold', 'listed h', 'sold/day',
+                 'of C/24h', 'buyers/2', 'pace 3d'])
+    print('  listed = your auction lists + posts since (seen = the oldest of them); sold = sale mails of the last %d '
+          'days; sold/day = per day you had it listed (posts by their duration)' % args.days)
+    print('  buyers/2 = the market rate Picks plans with (? = too few intervals to trust it); pace 3d = your own '
+          'rate as Picks reads it (sales of 3 days over the time since your first post in them)')
+    for kind, values in shares.items():
+        if values:
+            values.sort()
+            print('  %s: you sold %.0f%% of C/24h per day listed at the median (%.0f%% - %.0f%%, %d with 5+ sold)'
+                  % ({'item': 'items', 'commodity': 'commodities'}[kind], values[len(values) // 2] * 100,
+                     values[0] * 100, values[-1] * 100, len(values)))
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -1418,6 +1613,10 @@ def main(argv=None):
     p.add_argument('--max-age', dest='max_age', type=float, default=6, help='market data at most this old (hours)')
     p.add_argument('--top', type=int, default=20)
     p.add_argument('--advise', type=int, default=0, help='write buy alerts + list prices of the top N into the AddOn')
+    p = sub.add_parser('room')
+    p.add_argument('items', nargs='*', help='items to show (default: every item you listed in the window)')
+    p.add_argument('--days', type=int, default=7, help='window for your sales and listings')
+    p.add_argument('--share', type=float, help='share of C/24h in %% (default: your setting, else 25)')
     p = sub.add_parser('advice')
     p.add_argument('action', choices=['show', 'set', 'remove', 'clear', 'note', 'render'])
     p.add_argument('query', nargs='?')
@@ -1438,7 +1637,7 @@ def main(argv=None):
         return cmd_advice(None, args)
     market = Market(sv, args.realm)
     {'summary': cmd_summary, 'item': cmd_item, 'price': cmd_price, 'movers': cmd_movers, 'sales': cmd_sales,
-     'craft': cmd_craft, 'flips': cmd_flips, 'advice': cmd_advice}[args.cmd](market, args)
+     'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room, 'advice': cmd_advice}[args.cmd](market, args)
 
 
 if __name__ == '__main__':

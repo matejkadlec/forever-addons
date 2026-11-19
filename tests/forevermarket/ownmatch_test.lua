@@ -143,6 +143,43 @@ H.test("own match: a deep scan's record counts your auction as yours and the nei
     end
 end)
 
+-- Rule (FRV-70): Forever's full scan names the seller of your own auctions as first name and surname; that is you
+-- (the logged-in character's full name), another player with your first name and another surname is not
+H.test("own match: a deep scan's seller with your first name and surname is you, another surname is not", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
+    FM.InitializeSavedData()
+    env.UnitNameUnmodified = function() return "Tester", "Surname" end
+    FM.R().chars.Tester = true
+    H.eq(FM.IsOwnChar("Tester Surname"), true, "your full name")
+    H.eq(FM.IsOwnChar("Tester Surname-TestRealm"), true, "your full name with the realm")
+    H.eq(FM.IsOwnChar("Tester Other"), false, "another player with your first name")
+    H.eq(FM.IsOwnChar("Tester"), true, "your first name, the key of your records")
+    local written = {}
+    local AppendDetail = FM.AppendDetail
+    FM.AppendDetail = function(key, record, nowMinutes)
+        written[key] = record
+        return AppendDetail(key, record, nowMinutes)
+    end
+    env.clock = FM.EPOCH + 1000 * 60
+    local snap = FM.NewSnapshot("fm")
+    -- yours at 99s 99c (the scan names its seller), someone else's 1c dearer; the pool knows yours from a post
+    snap.ownPool = { ["4304"] = { Entry(1, 9999) } }
+    FM.SnapshotAdd(snap, "4304", nil, 1, 9999, "Tester Surname", 3)
+    FM.SnapshotAdd(snap, "4304", nil, 1, 10000, nil, 3)
+    FM.FinalizeSnapshot(snap, function() end)
+    env.FlushTimers()
+    local f = FM.Split(written["4304"], ",")
+    H.eq(f[8], B(1), "your quantity")
+    H.eq(f[20], B(9999), "your cheapest unit price")
+    H.eq(f[21], B(10000), "the cheapest unit price of others")
+    local tags = FM.Split(FM.R().last.fp["4304"], ",")
+    table.sort(tags)
+    H.same(tags, {
+        F.Fingerprint({ owner = "?", count = 1, buyout = 10000, band = 3 }),
+        F.Fingerprint({ owner = "@", count = 1, buyout = 9999, band = 3 })
+    }, "yours marked, the other seller's 1c dearer left unmarked")
+end)
+
 -- Rule (FM.BuildOwnPool): a post of the minute the latest list of your auctions was read in counts once when that
 -- list already holds its auction (same auction ID); a second entry for it would take a neighbour's auction 1c off
 H.test("own pool: a post the latest auction list already holds is one entry, the neighbour stays unmarked", function()

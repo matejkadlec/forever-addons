@@ -1170,7 +1170,7 @@ local function ShowRowMenu(button, key)
             FM.SetExcluded(key, not ignored)
             FM.Print(ignored and (Name(key) .. " is back in the market table.")
                 or (Name(key) .. " ignored: hidden from the market table and the picks. The Ignored button shows them."))
-            FM.ComputeTrade(false) -- picks plan the gold again without it
+            FM.PlanPicks() -- picks plan the gold again without it
             FM.RefreshTable()
         end)
         local place, why = FM.TrackTarget(key)
@@ -1480,11 +1480,37 @@ local function PickSummary()
     local trade = FM.trade
     if not (trade and trade.picks and trade.pickGold) then return "" end
     local n = trade.pickPlan or 0
-    local text = "Plan for your " .. Money(trade.pickGold) .. ":   "
+    local held = FM.PicksLocked() and trade.pickAt and (GREY .. " (locked " .. date("%H:%M", trade.pickAt) .. ")|r") or ""
+    local text = "Plan for your " .. Money(trade.pickGold) .. held .. ":   "
     if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     local sep = GREY .. "  ·  |r"
     return text .. string_format("%d pick%s", n, n == 1 and "" or "s") .. sep .. "needs " .. Money(trade.pickNeed)
         .. sep .. "expected " .. P1g(trade.pickExpected)
+end
+
+-- What came after the plan, for Refresh's tooltip: "A newer snapshot and 2 posts", nil when nothing did
+local function SincePlan()
+    local trade = FM.trade
+    if not (trade and trade.pickAt) then return nil end
+    local r = FM.R()
+    local bits = {}
+    if r.last and r.last.t and trade.pickT and r.last.t > trade.pickT then bits[#bits + 1] = "a newer snapshot" end
+    local posts = 0
+    for i = #r.posts, 1, -1 do
+        local t = FM.Unstamp(FM.Split(r.posts[i], ",")[1])
+        if not t or t < trade.pickAt then break end
+        posts = posts + 1
+    end
+    if posts > 0 then bits[#bits + 1] = string_format("%d post%s", posts, posts == 1 and "" or "s") end
+    for _, snap in pairs(r.owned) do
+        if type(snap) == "table" and snap.t and snap.t > trade.pickAt then
+            bits[#bits + 1] = "your auctions read again"
+            break
+        end
+    end
+    if #bits == 0 then return nil end
+    local text = #bits == 1 and bits[1] or (table.concat(bits, ", ", 1, #bits - 1) .. " and " .. bits[#bits])
+    return string.upper(text:sub(1, 1)) .. text:sub(2)
 end
 
 -- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h"
@@ -1508,7 +1534,7 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
         frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary }) do
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary, frame.lock }) do
         w:Hide()
     end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
@@ -1517,9 +1543,22 @@ local function RenderGraph(tab)
     frame.footer:SetText(FM.PerfFooter())
 end
 
+-- Picks (or Learn, whose green arrows come from the plan) shown without a plan: a locked plan is never made by an
+-- automatic pass, so the first view plans once. Not while a pass runs (it plans when it started with the tab shown)
+-- and not after one failed
+local function EnsurePlan(tab)
+    local trade = FM.trade
+    if not ((tab.picks or tab.learn) and trade) or trade.empty or trade.busy or trade.err or trade.picks then return false end
+    if FM.TradeBusy and FM.TradeBusy() then return false end
+    FM.PlanPicks()
+    return true
+end
+
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
+    -- the plan's pass shows "Computing..." and renders itself
+    if EnsurePlan(tab) then return end
     local graph = (tab.graph and FM.PerfShow) and true or false
     frame.search:SetShown(not graph)
     frame.searchLabel:SetShown(not graph)
@@ -1587,6 +1626,8 @@ Render = function()
     frame.stock:SetShown(tab.picks and true or false)
     frame.vendorOff:SetChecked(Settings().tableIgnoreVendor == true)
     frame.vendorOff:SetShown(tab.picks and true or false)
+    frame.lock:SetShown(tab.picks and true or false)
+    frame.lock:SetChecked(FM.PicksLocked())
     frame.invest:SetShown(tab.picks and true or false)
     frame.invest.label:SetShown(tab.picks and true or false)
     if not frame.invest:HasFocus() then frame.invest:SetText(tostring(Settings().tableInvestPct or 90)) end
@@ -1630,6 +1671,12 @@ end
 function FM.RefreshTable()
     rowsCache = nil
     if frame and frame:IsShown() then Render() end
+end
+
+-- The table is open on Picks or Learn: a pass without a plan yet plans then (trade/Calc.lua)
+function FM.PicksShown()
+    local tab = frame ~= nil and frame:IsShown() and CurrentTab()
+    return tab and (tab.picks or tab.learn) and true or false
 end
 
 local function SelectTab(id)
@@ -1753,7 +1800,7 @@ local function CreateTable()
     f.learn:SetScript("OnClick", function(self)
         Settings().tableLearn = self:GetChecked() and true or false
         view.offset = 0
-        FM.ComputeTrade(false) -- the picks plan again, with or without recipes to learn
+        FM.PlanPicks() -- the picks plan again, with or without recipes to learn
         FM.RefreshTable()
     end)
     f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
@@ -1762,7 +1809,7 @@ local function CreateTable()
     f.vendorOff:SetScript("OnClick", function(self)
         Settings().tableIgnoreVendor = self:GetChecked() and true or false
         view.offset = 0
-        FM.ComputeTrade(false) -- the picks plan again
+        FM.PlanPicks() -- the picks plan again
         FM.RefreshTable()
     end)
     f.vendorOff:SetScript("OnEnter", function(self)
@@ -1790,7 +1837,7 @@ local function CreateTable()
         if n == Settings().tableInvestPct then return end
         Settings().tableInvestPct = n
         view.offset = 0
-        FM.ComputeTrade(false) -- the picks plan again
+        FM.PlanPicks() -- the picks plan again
         FM.RefreshTable()
     end)
     invest:SetScript("OnEnter", function(self)
@@ -1820,7 +1867,7 @@ local function CreateTable()
         if n == Settings().tableInvestPicks then return end
         Settings().tableInvestPicks = n
         view.offset = 0
-        FM.ComputeTrade(false) -- the picks plan again
+        FM.PlanPicks() -- the picks plan again
         FM.RefreshTable()
     end)
     slots:SetScript("OnEnter", function(self)
@@ -1869,7 +1916,7 @@ local function CreateTable()
     f.stock:SetScript("OnClick", function(self)
         Settings().tableIgnoreStock = self:GetChecked() and true or false
         view.offset = 0
-        FM.ComputeTrade(false) -- the picks plan again
+        FM.PlanPicks() -- the picks plan again
         FM.RefreshTable()
     end)
     f.stock:SetScript("OnEnter", function(self)
@@ -1889,7 +1936,7 @@ local function CreateTable()
                 if (ProfFilter() or false) == (short or false) then return end
                 Settings().tableProf = short or nil
                 view.offset = 0
-                FM.ComputeTrade(false) -- the picks plan again: crafts and recipes of that profession only
+                FM.PlanPicks() -- the picks plan again: crafts and recipes of that profession only
                 FM.RefreshTable()
             end
             root:CreateRadio("All professions", IsSelected, SetSelected, false)
@@ -1925,14 +1972,21 @@ local function CreateTable()
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, FILTER_Y + 2)
     refresh:SetScript("OnClick", function()
         FM.sources = nil
-        FM.ComputeTrade(false)
+        FM.PlanPicks()
         FM.RefreshTable()
     end)
     f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
     refresh:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Refresh")
-        GameTooltip:AddLine("Reads your recipes and vendors again (after learning a recipe). The numbers also refresh by themselves after every deep scan.", 1, 1, 1, true)
+        GameTooltip:AddLine("Reads your recipes and vendors again (after learning a recipe) and plans Picks again from the data now.", 1, 1, 1, true)
+        if FM.PicksLocked() then
+            GameTooltip:AddLine("The other tabs refresh by themselves after every deep scan; Picks keeps its plan until you refresh it (Lock plan after refresh).", 1, 1, 1, true)
+            local since = SincePlan()
+            if since then GameTooltip:AddLine(since .. " since the plan.", 1, 0.82, 0, true) end
+        else
+            GameTooltip:AddLine("The numbers, Picks too, also refresh by themselves after every deep scan, post and read of your auctions.", 1, 1, 1, true)
+        end
         GameTooltip:Show()
     end)
     refresh:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1976,6 +2030,26 @@ local function CreateTable()
     f.summary:SetJustifyH("LEFT")
     f.summary:SetWordWrap(false)
     f.summary:Hide()
+    -- Picks: "Lock plan after refresh" on the summary's line, at the right (FRV-63)
+    f.lock = Check(f, "Lock plan after refresh", 0, "tablePicksLock")
+    f.lock.label:ClearAllPoints()
+    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -18, TOP + 24 - ROW_H / 2)
+    f.lock:ClearAllPoints()
+    f.lock:SetPoint("RIGHT", f.lock.label, "LEFT", -2, 0)
+    f.lock:SetScript("OnClick", function(self)
+        Settings().tablePicksLock = self:GetChecked() and true or false
+        -- off: Picks plans by itself again, from now on; on: the plan shown now is held
+        if not Settings().tablePicksLock then FM.PlanPicks() end
+        FM.RefreshTable()
+    end)
+    f.lock:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Lock plan after refresh")
+        GameTooltip:AddLine("On (default): Picks keeps its plan while you buy, craft and post it. Only Refresh or a change of a Picks setting makes a new plan; deep scans, posts and your auction lists leave it as it was. The other tabs keep refreshing. Off: Picks plans again by itself after every deep scan, post and read of your auctions.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.lock:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f.lock:Hide()
 
     -- rows
     f.rows = {}

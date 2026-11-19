@@ -434,3 +434,58 @@ H.test("picks: a pick must earn 1% of its share, not of the whole plan", functio
     local _, out = Run(1)
     H.eq(out.pickWhy["401"]:find("^expected profit too small") ~= nil, true, "across 1: " .. tostring(out.pickWhy["401"]))
 end)
+
+-- Rule (FRV-66): with 3+ sales of yours in the window (3 days), your pace is units sold over the time since your
+-- first post in the window (at least 12h). While units of yours are still listed it is the rate the plan uses, also
+-- when half the market's buyers is more; once you sold out the market share counts when it is more; without 3 sales
+-- the market share is the rate. Buyers here: 36 a day, half = 18; C/24h 400 leaves room for 100.
+local function OwnRecord(r, key, sold, listed)
+    -- a first post 20h ago that has ended (8h), so your pace is sold / 20h
+    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 1200), "Tester", key, B(sold), B(10000), "2", "i" }, ",")
+    if sold > 0 then
+        r.events[#r.events + 1] = table.concat({ B(NOW_MINUTES - 600), "Tester", "osold", key, B(sold), B(10000), B(1), B(NOW_MINUTES - 700) }, ",")
+    end
+    if listed > 0 then
+        -- still listed: posted an hour ago for 24h
+        r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 60), "Tester", key, B(listed), B(10000), "3", "i" }, ",")
+    end
+end
+
+H.test("picks: your pace is the rate while yours are still listed, even when half the buyers is more", function()
+    -- 12 sold in 20h = 14.4 a day; 5 listed: 14.4 - 5 leaves 9 (the market's 18 would leave 13)
+    local FM, env, r = Setup({ ["501"] = 9 })
+    OwnRecord(r, "501", 12, 5)
+    local picks = Compute(FM, env, { crafts = { Craft("501", 400) } })
+    H.eq(HasStep(picks["501"], "make 9"), true, "make 9")
+    H.eq(Reason(picks["501"], "Yours are still listed: your own pace is the rate.") ~= nil, true, "the tooltip says why")
+    local line
+    for _, l in ipairs(picks["501"].reasons) do
+        if l[1] == "l" and l[2] == "Your sales" then line = l[3] end
+    end
+    H.eq(line, "12 in 3 days, 14 a day", "your sales and your pace")
+end)
+
+H.test("picks: what you list covers a day at your pace: no pick, and the reason names your pace", function()
+    -- 12 sold in 20h = 14.4 a day, 15 listed
+    local FM, env, r = Setup({ ["502"] = 9 })
+    OwnRecord(r, "502", 12, 15)
+    local out = { crafts = { Craft("502", 400) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["502"], nil, "no pick")
+    H.eq(out.pickWhy["502"], "you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h", "the reason")
+end)
+
+H.test("picks: once you sold out, the market share counts when it is more than your pace", function()
+    local FM, env, r = Setup({ ["503"] = 9 })
+    OwnRecord(r, "503", 12, 0)
+    local picks = Compute(FM, env, { crafts = { Craft("503", 400) } })
+    H.eq(HasStep(picks["503"], "make 18"), true, "half of 36 buyers: make 18")
+    H.eq(Reason(picks["503"], "Yours are still listed: your own pace is the rate."), nil, "no pace note")
+end)
+
+H.test("picks: without 3 sales of yours the market share is the rate, listed or not", function()
+    local FM, env, r = Setup({ ["504"] = 9 })
+    OwnRecord(r, "504", 2, 5)
+    local picks = Compute(FM, env, { crafts = { Craft("504", 400) } })
+    H.eq(HasStep(picks["504"], "make 13"), true, "18 less your 5 listed: make 13")
+end)

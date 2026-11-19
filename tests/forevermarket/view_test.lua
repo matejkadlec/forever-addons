@@ -41,9 +41,10 @@ end)
 
 -- Rule: the table computes its numbers again when there are none for the latest scan, and when you posted or your
 -- auction list was read since they were computed (FM.listingsVersion counts both)
-H.test("trade: a post or a new auction list makes the table plan again, nothing else does", function()
+H.test("trade: a post or a new auction list makes the table plan again, nothing else does (plan not locked)", function()
     local FM = H.LoadAddon("addons/ForeverMarket", FILES)
     FM.InitializeSavedData()
+    FM.GetSettings().tablePicksLock = false
     FM.R().last = { t = 1000, fp = {} }
     local computes = 0
     FM.ComputeTrade = function() computes = computes + 1 end
@@ -67,6 +68,7 @@ H.test("trade: a plan stores the listings version it planned with", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
         "scan/Diff.lua", "scan/Snapshot.lua", "trade/Sources.lua", "trade/Calc.lua" })
     FM.InitializeSavedData()
+    FM.GetSettings().tablePicksLock = false
     env.clock = FM.EPOCH + 1000 * 60
     FM.R().last = { t = env.clock, fp = {} }
     FM.listingsVersion = 7
@@ -80,6 +82,80 @@ H.test("trade: a plan stores the listings version it planned with", function()
     FM.ComputeTrade = function() computes = computes + 1 end
     FM.EnsureTrade()
     H.eq(computes, 1, "the post during the plan plans again")
+end)
+
+-- Rule (FRV-63, "Lock plan after refresh", on by default): with the lock on, only a plan you ask for
+-- (FM.PlanPicks: Refresh, a change of a Picks input, the first view of Picks) replaces the Picks plan; the automatic
+-- passes (a deep scan, a feed import, a post, a new auction list, the table's tick) keep it and recompute the rest.
+-- A post or a new auction list alone computes nothing while the lock is on: only the picks read them.
+local PLAN_FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua",
+    "scan/Ledger.lua", "trade/Sources.lua", "trade/Calc.lua", "trade/Picks.lua" }
+
+local function Pass(FM, env, how)
+    if how == "plan" then FM.PlanPicks() else FM.ComputeTrade(how == "scan") end
+    env.FlushTimers()
+    H.eq(FM.trade.err, nil, "the pass ran through (" .. how .. ")")
+end
+
+H.test("trade: a locked plan is not replaced by an automatic pass, a plan you ask for replaces it", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", PLAN_FILES)
+    FM.InitializeSavedData()
+    H.eq(FM.GetSettings().tablePicksLock, true, "on by default")
+    env.clock = FM.EPOCH + 1000 * 60
+    local gold = 100000
+    env.GetMoney = function() return gold end
+    FM.R().last = { t = env.clock, fp = {} }
+    Pass(FM, env, "auto")
+    H.eq(FM.trade.picks, nil, "no plan yet: an automatic pass does not make the first one while Picks is not shown")
+    Pass(FM, env, "plan")
+    local plan = FM.trade.picks
+    H.eq(type(plan), "table", "the plan you asked for")
+    H.eq(FM.trade.pickGold, 100000, "made with your gold of that moment")
+    H.eq(FM.trade.pickAt, env.clock, "and its time")
+    -- you spend gold, a new snapshot arrives: the other tabs are computed again, the plan stays
+    gold = 50000
+    env.clock = env.clock + 3600
+    FM.R().last = { t = env.clock, fp = {} }
+    Pass(FM, env, "scan")
+    H.eq(FM.trade.t, env.clock, "the other tabs: the new snapshot")
+    H.eq(FM.trade.picks, plan, "the same plan")
+    H.eq(FM.trade.pickGold, 100000, "with the gold it was made with")
+    H.eq(FM.trade.pickAt, env.clock - 3600, "and its time")
+    Pass(FM, env, "plan")
+    H.eq(FM.trade.pickGold, 50000, "Refresh: a new plan with your gold now")
+    -- unlocked, an automatic pass plans again
+    FM.GetSettings().tablePicksLock = false
+    gold = 20000
+    Pass(FM, env, "auto")
+    H.eq(FM.trade.pickGold, 20000, "lock off: the automatic pass planned again")
+end)
+
+H.test("trade: with the plan locked, the table shown on Picks without a plan plans once", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", PLAN_FILES)
+    FM.InitializeSavedData()
+    env.clock = FM.EPOCH + 1000 * 60
+    FM.R().last = { t = env.clock, fp = {} }
+    FM.PicksShown = function() return true end
+    Pass(FM, env, "auto")
+    H.eq(type(FM.trade.picks), "table", "planned: the first view of Picks")
+    local plan = FM.trade.picks
+    Pass(FM, env, "auto")
+    H.eq(FM.trade.picks, plan, "then held")
+end)
+
+H.test("trade: with the plan locked, a post or a new auction list computes nothing, a newer scan does", function()
+    local FM = H.LoadAddon("addons/ForeverMarket", FILES)
+    FM.InitializeSavedData()
+    FM.R().last = { t = 1000, fp = {} }
+    local computes = 0
+    FM.ComputeTrade = function() computes = computes + 1 end
+    FM.trade = { t = 1000, listingsVersion = 0 }
+    FM.listingsVersion = 1
+    FM.EnsureTrade()
+    H.eq(computes, 0, "a post: the locked plan keeps its listings")
+    FM.trade = { t = 900, listingsVersion = 0 }
+    FM.EnsureTrade()
+    H.eq(computes, 1, "a newer scan: the other tabs are computed again")
 end)
 
 H.test("view: an item without auctions has no view", function()

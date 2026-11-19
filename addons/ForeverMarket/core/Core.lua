@@ -45,6 +45,7 @@ FM.DEFAULTS = {
     tableInvestPct = 90, -- picks: "Invest [X] %": the share of your gold the whole plan may use, in percent (at most 90 counts)
     tableInvestPicks = 3, -- picks: "across [Y] picks": the plan has up to this many picks
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
+    tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
     snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
     snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
@@ -201,18 +202,35 @@ function FM.R()
     return r
 end
 
--- Character names (short and Name-Realm) of the player's own characters on this realm
+-- Character names (short and Name-Realm) of the player's own characters on this realm, and the logged-in
+-- character's full name: Forever's full scan names the seller of your own auctions "First Surname" (FRV-70)
 function FM.IsOwnChar(ownerName)
-    if type(ownerName) ~= "string" or ownerName == "" then return false end
+    if FM.IsSecret(ownerName) or type(ownerName) ~= "string" or ownerName == "" then return false end
     if ownerName == "player" then return true end
     local r = FM.realm
     if not r then return false end
     local short = ownerName:match("^([^%-]+)") or ownerName
-    return r.chars[short] ~= nil
+    if r.chars[short] ~= nil then return true end
+    local full = FM.PlayerFullName()
+    return full ~= nil and (short == full or ownerName == full)
 end
 
+-- The first name alone (the key of every per-character record): the first return of UnitName on Forever
 function FM.PlayerName()
     return (UnitName and UnitName("player")) or "?"
+end
+
+-- The logged-in character's first name and surname as Blizzard joins them (Camelot's NameUtil), the way AceDB
+-- keys a character; the first name alone without a surname, nil while it cannot be read
+function FM.PlayerFullName()
+    local read = UnitNameUnmodified or UnitName
+    if not read then return nil end
+    local name, surname = read("player")
+    if FM.IsSecret(name) or FM.IsSecret(surname) or type(name) ~= "string" or name == "" then return nil end
+    if type(surname) ~= "string" or surname == "" then return name end
+    local consts = Constants and Constants.CharacterNameSeparatorConsts
+    local separator = consts and consts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+    return name .. separator .. surname
 end
 
 -- One event frame for the whole AddOn. FM.On(event, handler) adds a handler; deferRegister = true

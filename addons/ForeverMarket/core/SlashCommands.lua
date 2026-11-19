@@ -160,7 +160,7 @@ local function HandleSlash(msg)
         end
         for _, key in ipairs(keys) do FM.SetExcluded(key, command == "exclude") end
         FM.Print(command == "exclude" and "Ignored in the market table:" or "Back in the market table:", #keys .. " item(s)")
-        FM.ComputeTrade(false)
+        FM.PlanPicks() -- the picks plan again without (or with) them
     elseif command == "excluded" then
         local excluded = FM.GetSettings().excluded or {}
         FM.Print("Ignored in the market table:")

@@ -32,3 +32,9 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.tableInvestPicks, 3, "across [Y] picks: 3")
     H.eq(s.tableCircPct, 25, "share of C/24h: 25")
 end)
+
+H.test("settings: Lock plan after refresh is on for a new install and for existing settings, a saved off stays", function()
+    H.eq(Load(nil).GetSettings().tablePicksLock, true, "a new install")
+    H.eq(Load({ settings = { tableLearn = true } }).GetSettings().tablePicksLock, true, "existing settings without it")
+    H.eq(Load({ settings = { tablePicksLock = false } }).GetSettings().tablePicksLock, false, "turned off stays off")
+end)
