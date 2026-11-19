@@ -398,3 +398,39 @@ H.test("picks: X is the share of your gold the whole plan may use, at most 90%",
     H.eq(Need(90), 9000, "90% of 1g")
     H.eq(Need(100), 9000, "above 90 changes nothing: 10% stay for deposits")
 end)
+
+H.test("picks: a craft one pick's share cannot pay for says so, not that the gold is gone", function()
+    -- 1g, 90% across 3: one share is 30s. The material costs 40s a craft
+    local dear = View({ ["900"] = { ladder = { { 4000, 100000 } }, qty = 100000, own = 0 } })
+    local FM, env = Setup({ ["201"] = 200 }, nil, 10000)
+    local out = { crafts = { Craft("201", 400, 1, 50000) } }
+    local picks = Compute(FM, env, out, dear)
+    H.eq(picks["201"], nil, "no pick")
+    H.eq(out.pickWhy["201"]:find("^one pick's share %(") ~= nil, true, "the reason names the share: " .. out.pickWhy["201"])
+    -- across 1 the share is the plan's 90s: it pays for two crafts
+    FM, env = Setup({ ["201"] = 200 }, { tableInvestPicks = 1 }, 10000)
+    out = { crafts = { Craft("201", 400, 1, 50000) } }
+    picks = Compute(FM, env, out, dear)
+    H.eq(HasStep(picks["201"], "make 2"), true, "across 1: make 2")
+    -- a material at 1g a craft: not even the whole plan pays for one
+    FM, env = Setup({ ["201"] = 200 }, { tableInvestPicks = 1 }, 10000)
+    out = { crafts = { Craft("201", 400, 1, 50000) } }
+    Compute(FM, env, out, View({ ["900"] = { ladder = { { 10000, 100000 } }, qty = 100000, own = 0 } }))
+    H.eq(out.pickWhy["201"]:find("^the plan's gold %(") ~= nil, true, "the reason names the plan's gold: " .. out.pickWhy["201"])
+end)
+
+H.test("picks: a pick must earn 1% of its share, not of the whole plan", function()
+    -- 100g, 90% across 10: one share is 9g, so a pick needs 9s expected. A craft that sells at 12s with a 10s
+    -- material earns 1s 40c each (12s less the 5% cut, less 10s); 80 circulate a day: cap 20, 20 x 1s 40c = 28s,
+    -- at 63% confidence (buyers seen, little price history) about 17s: a pick. Across 1 the share is 90g and it
+    -- must earn 90s: no pick
+    local function Run(slots)
+        local FM, env = Setup({ ["401"] = 200 }, { tableInvestPicks = slots })
+        local out = { crafts = { Craft("401", 80, 1, 1200) } }
+        return Compute(FM, env, out), out
+    end
+    local picks = Run(10)
+    H.eq(HasStep(picks["401"], "make 20"), true, "across 10: a pick")
+    local _, out = Run(1)
+    H.eq(out.pickWhy["401"]:find("^expected profit too small") ~= nil, true, "across 1: " .. tostring(out.pickWhy["401"]))
+end)

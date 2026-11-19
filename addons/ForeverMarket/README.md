@@ -95,7 +95,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
   skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
   vendor" and "Ignore stock" (Picks). Right side: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`;
-  Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the dropdown (1.20; "% to invest" before). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; greyed on Farm and Profit, which have no ignored items to show). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the dropdown (1.20; "% to invest" before). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; hidden on Farm and Profit, which have no ignored items to show, the tabs keep their places). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
@@ -226,7 +226,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * No loss: profit at the usual price (median daily low of the last week) when that is under the sell
     price, minus deposits lost on relists (share from your invoices, else 12%), must stay positive. Confidence
     (demand evidence, 3 day swing of uncapped prices, falling price today, cornered market, days of stock
-    listed, estimates) scales the score; a pick needs at least max(2s, 1% of the plan's gold) expected.
+    listed, estimates) scales the score; a pick needs at least max(2s, 1% of one pick's share of the plan's gold) expected (1.20; 1% of the plan's gold before, which a
+    share of a third or a tenth of it could hardly earn).
   * Every row of Craft / Vendor / Flip says in its tooltip why it is or isn't a pick
     (`FM.trade.pickRank`, `FM.trade.pickWhy`, `FM.trade.pickExtra`). Vendor picks also take buyers estimated
     from older records (confidence 50%).

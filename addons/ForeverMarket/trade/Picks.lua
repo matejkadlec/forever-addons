@@ -49,7 +49,7 @@ local BURST_SHARE = 0.3         -- over this share of the listings gone in one i
 local BURST_KEEP = 0.15         -- ...counts as at most this share bought
 local MIN_UNIT = 10             -- profit per item at least 10c...
 local MIN_UNIT_SHARE = 0.03     -- ...and 3% of its cost
-local MIN_SCORE = 200           -- 2s expected profit, or 1% of the plan's gold when that is more
+local MIN_SCORE = 200           -- 2s expected profit, or 1% of one pick's share of the plan's gold when that is more
 local MAX_PICKS = 12
 local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
@@ -694,6 +694,15 @@ local function LearnStep(c)
     return string_format("learn at %s (%s)", ShortWhere(c.where), M(c.learnCost))
 end
 
+-- Why a candidate got no gold in its first reading: one pick's share of the plan does not pay for one unit of it
+-- (the reasons are kept from the first pass, where nothing is spent yet)
+local function NoGold()
+    if P.slots > 1 then
+        return string_format("one pick's share (%s) does not pay for it: fewer picks or a higher %% in the Picks row", M(P.perPick))
+    end
+    return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
+end
+
 -- A craft (learned, or learn = the recipe price goes into the plan, or level = info only)
 local function EvaluateCraft(c)
     local row = c.row
@@ -725,9 +734,12 @@ local function EvaluateCraft(c)
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
-    if cap <= 0 then return nil, "no gold left for it in the plan" end
+    if cap <= 0 then return nil, NoGold() end
     local plan = PlanCraft(row, cap, unitsCap)
-    if plan.runs == 0 then return nil, "no craft earns its margin with the materials on the AH now" end
+    if plan.runs == 0 then
+        if plan.stop == "gold" then return nil, NoGold() end
+        return nil, "no craft earns its margin with the materials on the AH now"
+    end
     local items = plan.items
     local costPerItem = plan.value / items
     -- you list under the cheapest: only your own units wait before these (at the 1s floor, all of them)
@@ -833,7 +845,7 @@ local function EvaluateVendor(c)
     local cap = math_min(P.perPick, P.budgetLeft)
     local n = math_floor(math_min(MAX_UNITS, vLeft, room.room, row.offer.limited or math.huge,
         math_max(1, VENDOR_LISTED_SHARE * others), cap / unit))
-    if n < 1 then return nil, "no gold left for it in the plan" end
+    if n < 1 then return nil, NoGold() end
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
     local depositLoss = DepositPerItem(row.key, row.sell) * relists
@@ -919,7 +931,7 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
-    if n < 1 then return nil, "no gold left for it in the plan" end
+    if n < 1 then return nil, NoGold() end
     local yours = SellableOf(row.key)
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
@@ -1113,7 +1125,7 @@ function FM.ComputePicks(out, ctx, done)
     local slots = tonumber(s.tableInvestPicks)
     P.slots = slots and math_max(1, math_min(MAX_PICKS, math_floor(slots))) or PICK_SLOTS
     P.perPick = P.budget / P.slots
-    P.minScore = math_max(MIN_SCORE, 0.01 * P.budget)
+    P.minScore = math_max(MIN_SCORE, 0.01 * P.budget / P.slots)
     -- "share of C/24h" (settings panel): the most of an item's daily circulation one pick may add to the AH
     local circPct = tonumber(s.tableCircPct)
     P.circShare = (circPct and math_max(1, math_min(100, circPct)) or CIRC_PCT) / 100

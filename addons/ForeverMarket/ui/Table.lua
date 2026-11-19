@@ -1481,7 +1481,7 @@ local function PickSummary()
     if not (trade and trade.picks and trade.pickGold) then return "" end
     local n = trade.pickPlan or 0
     local text = "Plan for your " .. Money(trade.pickGold) .. ":   "
-    if n == 0 then return text .. GREY .. "no pick fits your gold now|r" end
+    if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     local sep = GREY .. "  ·  |r"
     return text .. string_format("%d pick%s", n, n == 1 and "" or "s") .. sep .. "needs " .. Money(trade.pickNeed)
         .. sep .. "expected " .. P1g(trade.pickExpected)
@@ -1508,10 +1508,9 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
         frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.empty, frame.summary }) do
+        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary }) do
         w:Hide()
     end
-    frame.excluded:SetEnabled(false) -- a graph has no ignored items to show; the button keeps its place in the tab row
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
     frame.status:SetText(StatusText())
@@ -1607,7 +1606,7 @@ Render = function()
     frame.maxAbove:SetEnabled(higherOn)
     frame.maxAbove.label:SetTextColor(higherOn and 1 or 0.5, higherOn and 1 or 0.5, higherOn and 1 or 0.5)
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
-    frame.excluded:SetEnabled(not tab.farm) -- Farm lists mobs, not items: greyed there, its place in the tab row stays
+    frame.excluded:SetShown(not tab.farm) -- Farm lists mobs, not items; the tabs keep their places without it
     LayoutFilters(frame)
     frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
