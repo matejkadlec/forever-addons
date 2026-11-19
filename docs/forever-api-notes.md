@@ -125,14 +125,14 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10, not yet verified i
 
 ## Bags and bank
 
-Verified against wow-ui-source `forever` (1.60.1) for FRV-10; ForeverMarket already reads bags and the character bank this way in game, the account bank is not yet verified in game.
+Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMarket already reads bags and the character bank through `C_Container` with `BANKFRAME_OPENED`, `BANKFRAME_CLOSED` and `PLAYERBANKSLOTS_CHANGED`; the `C_Bank` functions, `BANK_TABS_CHANGED` and everything about the account bank are verified against the source only (no AddOn of this repository uses them, not yet verified in game).
 
 - Containers: `C_Container.GetContainerNumSlots(bag)` and `C_Container.GetContainerItemInfo(bag, slot)` (a table with `itemID`, `stackCount`, `isBound`, `hyperlink`, ...; nothing for an empty slot); neither is flagged secret
 - `Enum.BagIndex`: `Backpack` 0, `Bag_1`..`Bag_4` 1-4, `ReagentBag` 5, `CharacterBankTab_1`..`9` 6-14, `AccountBankTab_1`..`9` 15-23; `Keyring` is -1, and `Characterbanktab` -2 / `Accountbanktab` -3 are the bank's bag slots themselves (the bag in a slot, not its items)
 - The bank is Camelot's own frame (`Blizzard_UIPanels_Game/Camelot/BankFrame.lua`) on Mainline's bank panel (`Mainline/BankFrameTemplates.lua`): what retail calls bank tabs are bank bag slots to buy here, and each bought one is a container
   - `C_Bank.FetchPurchasedBankTabIDs(bankType)` lists the containers, `C_Bank.FetchPurchasedBankTabData(bankType)` adds their data (`ID` = the container); bank types: `Enum.BankType.Character` 0, `Guild` 1, `Account` 2
   - Events: `BANKFRAME_OPENED`, `BANKFRAME_CLOSED`, `PLAYERBANKSLOTS_CHANGED(slot)`, `BANK_TABS_CHANGED(bankType)`
-  - ForeverMarket scans the character bank slot by slot only while the bank is open and keeps the last reading per character (`R.bank`, `trade/Sources.lua`, `scan/Worth.lua`)
+  - ForeverMarket scans the character bank slot by slot (`CharacterBankTab_1`..`9` through `C_Container`) only while the bank is open and keeps the last reading per character (`R.bank`, `trade/Sources.lua`, `scan/Worth.lua`)
 - Account bank: the Camelot frame also handles `Enum.BankType.Account` (page tabs with the `UI_Warbands` icon, containers `AccountBankTab_1`.., event `PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED(slot)`) and shows its tab only when `C_Bank.CanViewBank(Enum.BankType.Account)` is true
   - Whether the live game gives characters an account bank is not yet verified in game: ask `CanViewBank` at runtime, never assume either way
 - `C_Item.GetItemCount(itemInfo, includeBank, includeUses, includeReagentBank, includeAccountBank)`: the account bank is a flag of its own (the fifth argument), every flag defaults to false
