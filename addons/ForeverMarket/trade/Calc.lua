@@ -1045,8 +1045,9 @@ function FM.ComputeTrade(record, onDone)
                 return done()
             end
             FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, function()
-                -- when, and with which snapshot and listings, this plan was made (the summary line, Refresh's tooltip)
-                out.pickAt, out.pickT, out.pickListings = now, r.last.t, out.listingsVersion
+                -- when, and with which snapshot and listings, this plan was made (the summary line, Refresh's tooltip);
+                -- the snapshot of the pass's start, not one a deep scan saved while it ran
+                out.pickAt, out.pickT, out.pickListings = now, out.t, out.listingsVersion
                 done()
             end)
         end
