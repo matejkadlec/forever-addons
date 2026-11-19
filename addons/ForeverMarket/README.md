@@ -12,7 +12,7 @@ act as an AH advisor: what sells, how fast, at which price, what to craft or fli
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
 | Your posts | every PostItem / PostCommodity | item, qty, unit price, duration, auction ID |
-| Your auctions | when the AH lists them | sold, partly sold, cancelled, gone while away (sold or expired, the mail tells) |
+| Your auctions | when the AH lists them: ForeverMarket asks once per AH visit and after your posts (1.23), Blizzard's Auctions tab asks too | sold, partly sold, cancelled, gone while away (sold or expired, the mail tells) |
 | Chat + mailbox | AH system messages, sale invoices, expired mail | real sales with buyer, price, AH cut (every mail once, also identical ones) |
 | Gold | scans, AH/mail close, logout | per character |
 
@@ -127,6 +127,24 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
   (the chat says what); after that a rebind or a cleared key stays as the player set it (`settings.keyGiven`)
 * `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
+* Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
+  its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
+  are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
+  auction list, inventory reading and last gold, so it counts nowhere any more (its posts, invoices, events,
+  purchases and Profit readings stay; the logged-in character is refused). Each character's bags are saved at
+  logout and a few minutes after bag changes (`bags[char]`), the account bank once for the realm bucket while the
+  bank is open and Blizzard lets you view it, when it opens and after every item move (`accountBank`;
+  `C_Bank.CanViewBank`, not yet verified in game; never read as the bank closes).
+  `FM.StockElsewhere(key)` is the one reader of what your other characters hold (bags, bank, mailbox, account bank,
+  with the age of each reading); `FM.Owned` stays the logged-in character, live. Nothing the table, the tooltip or
+  Picks show uses it yet (FRV-11, FRV-36, FRV-37 build on it)
+* The character key (1.23, `FM.PlayerName`): your records are keyed by the first name, as before; a second
+  character with the same first name on this realm and faction gets its full name ("First Surname") as its key,
+  in its records and in new log lines. Each key remembers its character's GUID (`charInfo[key]`), so existing keys
+  never move; a key from before 1.23 goes to the first of its characters that logs in. ForeverArtisan's data is
+  still found by the first name, and the mail a character logged under its first name before its key began counts
+  as seen under its new key (it is not logged twice; `charInfo[key].since`); what the character that keeps the
+  first name logs later stays its own
 
 ## Market table (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
@@ -256,7 +274,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Your listings (1.19, `FM.OwnListings` in scan/Ledger.lua): per character its last auction list (`owned`: active
     auctions whose time has not run out; one the client gave no time left for counts for 24h) plus what it posted
     after that list and can still be running (2h / 8h / 24h). The client hands the auction list out only when
-    Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab. Until
+    Blizzard's Auctions tab (or another AddOn) asks for it, so until 1.23 a list was as old as the last look at that
+    tab. Since 1.23 (FRV-57) ForeverMarket asks for it itself (`C_AuctionHouse.QueryOwnedAuctions`, the sorts of
+    Blizzard's Auctions tab): 1.5 s after the AH opens and 3 s after the last of a row of posts, never while its
+    deep scan waits for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s
+    until the AH closes) or Blizzard's Auctions tab is shown (it asks itself). An auction missing from the second
+    list of one visit counts as cancelled only when it could not have run out between the two lists (else `ogone`,
+    the mail tells). Until
     1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
     both was not counted. Units last seen more than 10 minutes before the latest deep scan (2 hours before a feed
     snapshot: it carries the newer time of the API's item and commodity lists, one of which can be an hour older)
@@ -512,6 +536,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
+* `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
+  seen, since }` the character behind a key (1.23; `since` = when a full-name key began); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
+  after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen` (about one per hour, the first that saw something new kept apart;
   `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
   `t|money|id:count,...` as last seen

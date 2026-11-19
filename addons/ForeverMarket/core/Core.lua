@@ -180,7 +180,7 @@ function FM.RealmKey()
 end
 
 local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
-    "worth", "bank", "mailbox" }
+    "worth", "bank", "mailbox", "bags", "charInfo" }
 
 -- Data of the current realm and faction (the AH is per realm and faction)
 function FM.R()
@@ -202,8 +202,8 @@ function FM.R()
     return r
 end
 
--- Character names (short and Name-Realm) of the player's own characters on this realm, and the logged-in
--- character's full name: Forever's full scan names the seller of your own auctions "First Surname" (FRV-70)
+-- Character names (short and Name-Realm) of the player's own characters on this realm, and their full names:
+-- Forever's full scan names the seller of your own auctions "First Surname" (FRV-70, FRV-35)
 function FM.IsOwnChar(ownerName)
     if FM.IsSecret(ownerName) or type(ownerName) ~= "string" or ownerName == "" then return false end
     if ownerName == "player" then return true end
@@ -211,13 +211,65 @@ function FM.IsOwnChar(ownerName)
     if not r then return false end
     local short = ownerName:match("^([^%-]+)") or ownerName
     if r.chars[short] ~= nil then return true end
+    for _, info in pairs(type(r.charInfo) == "table" and r.charInfo or {}) do
+        if type(info) == "table" and (info.full == short or info.full == ownerName) then return true end
+    end
     local full = FM.PlayerFullName()
     return full ~= nil and (short == full or ownerName == full)
 end
 
--- The first name alone (the key of every per-character record): the first return of UnitName on Forever
+-- The first name alone: the first return of UnitName on Forever (seen in game, docs/forever-api-notes.md)
+function FM.PlayerFirstName()
+    local name = UnitName and UnitName("player")
+    if FM.IsSecret(name) or type(name) ~= "string" or name == "" then return "?" end
+    return name
+end
+
+-- The logged-in character's GUID, nil while it cannot be read
+local function PlayerGUID()
+    local guid = UnitGUID and UnitGUID("player")
+    if FM.IsSecret(guid) or type(guid) ~= "string" or guid == "" then return nil end
+    return guid
+end
+FM.PlayerGUID = PlayerGUID
+
+-- The key of the logged-in character in every per-character record and log line (FRV-35): its first name, as
+-- before 1.23; a second character with the same first name on this realm and faction gets its full name. Every
+-- key remembers its character's GUID (R.charInfo[key].guid), so no key moves and old records keep theirs: a key
+-- without a GUID yet goes to the first of its characters that logs in. Until the GUID and the saved data can be
+-- read, the first name
+local charKey
 function FM.PlayerName()
-    return (UnitName and UnitName("player")) or "?"
+    if charKey then return charKey end
+    local first = FM.PlayerFirstName()
+    local guid = PlayerGUID()
+    local r = FM.db and FM.R()
+    if not (guid and r) then return first end
+    if type(r.charInfo) ~= "table" then r.charInfo = {} end
+    local info = r.charInfo
+    for key, e in pairs(info) do
+        if type(e) == "table" and e.guid == guid then
+            charKey = key
+            return key
+        end
+    end
+    local key = first
+    local taken = info[first]
+    if type(taken) == "table" and taken.guid and taken.guid ~= guid then
+        -- the first name belongs to another character: the full name (without a surname they stay together)
+        local full = FM.PlayerFullName()
+        if not full or full == first then
+            charKey = first
+            return first
+        end
+        key = full
+    end
+    -- a record of this key from before the GUID could be read keeps what it holds
+    if type(info[key]) == "table" then info[key].guid = guid else info[key] = { guid = guid } end
+    -- a full-name key notes when it began: what this character logged under its first name is older (Ledger mail)
+    if key ~= first and not info[key].since then info[key].since = FM.Now() end
+    charKey = key
+    return key
 end
 
 -- The logged-in character's first name and surname as Blizzard joins them (Camelot's NameUtil), the way AceDB

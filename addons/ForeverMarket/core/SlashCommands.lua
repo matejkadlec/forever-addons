@@ -28,6 +28,8 @@ local function PrintHelp()
     PrintHelpLine("watchlist", "List watched items")
     PrintHelpLine("exclude / include <item links or IDs>", "Ignore items in the market table and picks (or right-click a row > Ignore this item)")
     PrintHelpLine("excluded", "List ignored items")
+    PrintHelpLine("chars", "Your characters on this realm and faction: gold, last seen, saved bags, bank and mailbox")
+    PrintHelpLine("forget <name>", "Forget a deleted, renamed or moved character (its logs stay)")
     PrintHelpLine("advice", "Show Claude's current advice")
     PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it)")
     PrintHelpLine("tooltip <on|off>", "AH price, cost and sell prices on tooltips")
@@ -124,6 +126,42 @@ local function ItemSummary(rest)
     end
 end
 
+-- /fm chars: name in class color, gold as last recorded, last seen, the saved readings and their age
+local function ListCharacters()
+    local list = FM.Characters()
+    if #list == 0 then
+        FM.Print("No characters known on this realm and faction yet.")
+        return
+    end
+    FM.Print("Your characters on " .. tostring(FM.realmKey) .. ":")
+    for _, c in ipairs(list) do
+        local gold = c.gold and FM.FormatMoney(c.gold) or "?"
+        local seen = c.current and "logged in" or ("seen " .. FM.ReadingAge(c.seen))
+        print(string_format("  %s%s  %s%s, %s; bags %s, bank %s, mailbox %s|r", FM.CharacterLabel(c), YELLOW, gold,
+            YELLOW, seen, FM.ReadingAge(c.readings.bags), FM.ReadingAge(c.readings.bank), FM.ReadingAge(c.readings.mailbox)))
+    end
+end
+
+-- /fm forget <name>: a character that was deleted, renamed or moved away no longer counts anywhere
+local function Forget(rest)
+    local name = rest and rest:match("^%s*(.-)%s*$") or ""
+    if name == "" then
+        FM.PrintError("Failed to execute command. Wrong number of arguments for 'forget' (expected 1)")
+        return
+    end
+    local key = FM.FindCharacter(name)
+    if not key then
+        FM.PrintError(string_format("Failed to execute command. Invalid value '%s' for 'forget' (expected a character %s chars lists)", name, CMD))
+        return
+    end
+    local ok, why = FM.ForgetCharacter(key)
+    if not ok then
+        FM.PrintError(string_format("Failed to forget %s: %s.", key, why))
+        return
+    end
+    FM.Print("Forgot", key .. " (its saved bags, bank, mailbox, auctions and gold; its logs stay)")
+end
+
 local function HandleSlash(msg)
     msg = msg or ""
     local command, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
@@ -172,6 +210,10 @@ local function HandleSlash(msg)
         for key, flag in pairs(r.watch) do
             print(string_format("  %s%s|r %s(%s)|r", ORANGE, FM.GetName(key), YELLOW, labels[flag] or tostring(flag)))
         end
+    elseif command == "chars" then
+        ListCharacters()
+    elseif command == "forget" then
+        Forget(rest)
     elseif command == "advice" then
         ShowAdvice()
     elseif command == "item" then
