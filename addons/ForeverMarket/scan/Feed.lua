@@ -146,8 +146,8 @@ local function Import(data)
         FM.dataVersion = FM.dataVersion + 1
         FM.feedImporting = nil
         -- the feed is a refresh of our data like a deep scan: Auctionator's prices follow it.
-        -- A frame later, because Auctionator builds its database in its own PLAYER_LOGIN handler
-        -- and a small import still runs inside ours.
+        -- A frame later, so writing Auctionator's prices stays out of our own PLAYER_LOGIN handler, which a small
+        -- import still runs inside (Auctionator builds its database on its own ADDON_LOADED, before any PLAYER_LOGIN).
         C_Timer.After(0, function()
             local ok, err = pcall(FM.FeedAuctionatorKeys, touched)
             if not ok and geterrorhandler then geterrorhandler()(err) end

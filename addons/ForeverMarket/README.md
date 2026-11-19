@@ -29,10 +29,10 @@ say who sells. Gaps over 8 hours cannot tell sales from expiries, so the analyze
   (`ui/Tooltip.lua`, a copy of Auctionator's `CreatePaddedMoneyString`: left `Auction`, right the coin icons),
   priced from `FM.FreshUnitPrice` — the same freshest ladder of others the Cost section's "now" is walked on,
   so the two always agree. Auctionator leaves none when it is not installed, when its auction tooltips are off,
-  and when it skips the item: it bails on bound items and on anything whose item info is not cached yet
-  (its `cannotAuction` starts at `0`, which is true in Lua). Bind on pickup and quest items get no line from
-  us either (`FM.NeverSellable`, the rule the picks use): they can never go to the AH, so an AH price on them
-  is noise. Its tooltip post call is registered before ours
+  and when it skips the item: it bails on anything whose item info is not cached yet (its `cannotAuction`
+  starts at `0`, which is true in Lua) and on bound items, which we skip too: its `IsBound` set (bind type not
+  0, 2 or 3) is exactly `FM.NeverSellable`'s (bind on pickup and quest items, the rule the picks use), and those
+  can never go to the AH, so an AH price on them is noise. Auctionator's tooltip post call is registered before ours
   (`## OptionalDeps` loads it first) so its line is already there when we look; for gear its key lookup is
   asynchronous and only finishes late while the item is uncached, so we stay out of that case instead of
   risking a second line, and the next hover is right. Then `Claude list at 3s 45c (90% in 8h)`,
@@ -84,9 +84,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
-* Tabs in groups: **Picks**, **Favorites**, **Materials** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
+* Tabs in groups: **Picks**, **Favorites** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
-  tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks.
+  tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
+  **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
+  materials at the AH price, and Picks plans with what you hold ("Ignore stock" off). A table saved on it opens on
+  the default tab, its saved sort is dropped at load.
+* At most 8 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`).
 * Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
   (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
   skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
@@ -98,19 +102,29 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is
   converted; a saved sort whose column titles no longer match goes back to the tab's default).
 * Column names (1.14): **PPG** = profit per 1g invested, **PPH** = profit per hour of crafting, **Min. price** (was
-  "Min item sell"), **On AH** (was "On AH now"); every short header explains itself on hover.
-* **Craft** columns: Item, **PPH** (1.12), PPG, **Recipe cost** (1.13: what learning a recipe
-  still to learn costs, shown as "-4g 50s"; empty when known), Max mat buy, Min. price, On AH, C/8h, C/24h.
+  "Min item sell"), **On AH** (was "On AH now"); every short header explains itself on hover. The price you list
+  at is **List at** in every header and tooltip (1.18; before also "Sell now" on Favorites and "Sell at" in row
+  tooltips).
+* **Craft** columns: Item, **PPH** (1.12), PPG, Max mat buy, Min. price, On AH, C/8h, C/24h. A recipe still to learn
+  shows its name grey, a blue "learn" and what learning it costs next to it (1.18; 1.13 to 1.17 a "Recipe cost"
+  column, empty for every learned recipe); sorting by that cost is on the Learn tab.
   Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
   the Learn tab). PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
   `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: PPH. The
   craft tooltip shows the craft time and the time per 1g of materials.
-* **Learn** = every recipe still to learn, losing ones too: Profession, Min (lowest skill of its routes; white
-  when you have it, red when not), Recipe, PPG now (as in Craft) and PPG 7d (usual prices = median
-  daily low of the product and every AH material, vendor materials at the vendor; `row.p1g7`), Where to get (a
-  trainer or vendor beats a pattern on the AH, then the cheapest). Default sort: profit now, then the lowest skill.
+* **Learn** = every recipe still to learn, losing ones too (1.18 layout): **Recipe** first (icon, quality color, no
+  "learn": every row is one), **Skill** (until 1.17 "Min": the lowest skill of its routes; white when you have it,
+  red when not), **Cost** (the cheapest route, `row.learnCost`; grey = the last seen price of a pattern that is not
+  on the AH now), **Pays back** (crafts until the recipe has paid for itself at the profit per craft now,
+  `row.payback`; "never" without a profit, grey when from a last seen price), PPG now (as in Craft) and PPG 7d
+  (usual prices = median daily low of the product and every AH material, vendor materials at the vendor;
+  `row.p1g7`), Where to get (a trainer or vendor beats a pattern on the AH, then the cheapest; a pattern shows
+  "Pattern on the AH", its price is Cost), and **Profession** last, only while the dropdown says "All professions"
+  (Where to get takes its width otherwise). A green arrow marks the recipes the picks would take once you have the
+  skill (`FM.trade.pickLevels`, up to 3, the "Level for" rows of Picks until 1.17); its tooltip says why. Default
+  sort: profit now, then the lowest skill.
   "Above current skill" (default on, `tableLearnHigher`): off hides recipes above your skill now; on shows them up
   to "Max. above current skill" points above it (number box, default 10, `tableLearnMaxAbove`). Hover = the
   craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
@@ -124,9 +138,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
   unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route).
   Favorite items get a star everywhere.
-* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG; Materials
-  only when it is nothing else), sell now, on AH, circulating, and the tabs it is in; tooltip and clicks act on the
-  row of its best use. Items in no tab show the latest record.
+* **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
+  AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
+  latest record.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
   the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
   together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
@@ -134,7 +148,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the footer sentence): **Plan: fits your gold**, then **Also good, beyond your gold** (each judged on its own with
   the plan's gold, up to 20 picks together; `pick.extra`); sorting works inside each section, the default is the
   rank. Recipes worth leveling for left Picks in 1.17: they are nothing to do now (`FM.trade.pickLevels`, up to 3;
-  their rows on Learn say so in the tooltip). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
+  their rows on Learn carry a green arrow and say so in the tooltip). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
   plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
   AH listings always count); off: your stock is used first and counts as stock to sell. Your stock =
   bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are used for crafting
@@ -189,6 +203,15 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   pair), or the break-even of today's material prices when that is higher (tooltip shows both).
 * 3 day history (`r.track.h`, one line per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated
   from records): the 3 day ranges in tooltips and picks (the "Past 3 days" tab is gone since 1.10).
+* **Vendor** (until 1.10 "Vendor resell") columns (1.18): Item, PPG, Vendor price, **List at** (`row.sell`, in place
+  of Min. price, which stays in the row tooltip and in the item tooltip's "Sell at least"), On AH, C/8h, C/24h,
+  Vendor (the NPC and zone without the coordinates, "limited n" in orange first for limited stock: it decides how
+  many you can buy).
+* **Flip** columns (1.18): Item, **Profit** (the whole flip, `row.profit`, the default sort; PPG moved to the row
+  tooltip: two cheap units at a high rate no longer rank above a flip that earns ten times as much), Buy up to,
+  List at, Units, On AH, C/8h, C/24h. Once the latest snapshot is an hour old or more (`FLIP_STALE`), a line above
+  the header says "Prices are 2h 19m old: cheap listings are probably gone" (the header and the list move one row
+  down, as on Picks): Flip is the only tab where minutes matter.
 * **Flip** (until 1.10 "AH resell"): buy the cheapest units and relist them 1c under the next real price level (the wall:
   where max(3, 10% of all listed) units of others wait), never above 110% of the usual price (median daily low,
   last week, 3+ days of history). A flip needs 15% profit after the 5% cut on every unit bought (buy <= list x
@@ -200,8 +223,6 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   when 100+ units circulate in 24h (the C/24h column; 1.17, before: 200+), else (or unknown) the 24h one, since a slow item may not sell in 8h;
   the tooltip line says which and why
   (`row.depUnit`, `row.depHours`; deposits from trade/Cost.lua). Before 1.13 only Picks counted deposits.
-* **Materials** = every material of your learned recipes: what it sells for now against what one unit is worth
-  inside your best learned recipe (craft value), so you know whether to sell a material or craft with it.
 * **C/8h** and **C/24h** (1.16, until then one "Circ. 12h" column) come from the deep scan diffs (intervals up to
   8h, at least 2h covered): units that left the AH before their time ran out, bought or taken down (Forever hides
   sellers, so both look the same). One measured rate shown over both listing durations, so a row says straight away

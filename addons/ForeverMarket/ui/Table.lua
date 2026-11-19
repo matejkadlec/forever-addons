@@ -1,8 +1,8 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in groups: Picks, Favorites, Materials (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of
--- your AH result, ui/Performance.lua), Learn, Farm (green).
+-- Tabs in groups: Picks, Favorites (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH result,
+-- ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
 -- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
@@ -26,14 +26,18 @@ local FRAME_NAME = "ForeverMarketTable"
 local W, ROW_H, ROWS = 960, 22, 20
 local TOP = -148 -- first row
 local FILTER_Y = -88 -- search box, checkboxes and filter buttons
-local MAX_COLUMNS = 9
+local MAX_COLUMNS = 8 -- per tab, in W - 28 = 932 px
 local H = -TOP + ROWS * ROW_H + 44
+local FLIP_STALE = 3600 -- Flip: from this age of the latest snapshot on, a line above the rows warns
 
 local GREY = "|cFF9D9D9D"
 local GREEN = "|cFF33FF66"
 local RED = "|cFFFF5555"
 local YELLOW = "|cFFFFD100"
 local BLUE = "|cFF66CCFF"
+local ORANGE = "|cFFFF9933"
+local LEVEL_ICON = "|A:bags-greenarrow:14:14|a" -- Learn: a recipe the picks would take once you have the skill
+local LEVEL_MARK = " " .. LEVEL_ICON
 local INFO_COLOR = CreateColor and CreateColor(0.4, 0.75, 1) -- the light blue of the right-click hint
 local WHITE = "|cFFFFFFFF"
 
@@ -89,6 +93,7 @@ local MIN_TIP = "Min. price: the lowest price per unit that still pays, after th
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
 local C8_TIP = "C/8h: units that leave the AH in about 8 hours, bought or taken down (Forever hides sellers). From the measured circulation rate, so it says whether an 8h listing sells. Grey = from the 3 day window."
 local C24_TIP = "C/24h: the same over about 24 hours, so it says whether a 24h listing sells. Grey = from the 3 day window."
+local LIST_TIP = "List at: the price per unit to list at now. The row tooltip says how it was worked out."
 
 -- Units circulating over `hours`, from the measured ~12h rate (sold12): "?" without enough coverage,
 -- grey when the rate had to come from the 3 day window
@@ -161,15 +166,56 @@ end
 
 ---------------------------------------------------------------- columns
 
-local function NameCell(row)
-    local text = QualityColor(row.key) .. Name(row.key) .. "|r"
-    if row.learned == false then
-        text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r"
-    end
+-- Claude's note, favorite and ignored marks behind a name
+local function Marks(row)
+    local text = ""
     if FM.TrackedNote(row.key) then text = text .. BLUE .. " *|r" end
     if FM.IsFavorite(row.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
     if FM.IsExcluded and FM.IsExcluded(row.key) then text = text .. GREY .. " (ignored)|r" end
     return text
+end
+
+-- What learning a recipe costs (row.learnCost, the cheapest route); a recipe sold only as a pattern that is not on
+-- the AH now: its last seen price, true as the second value (shown grey, as the tooltip's LearnLines does)
+local function LearnCost(row)
+    if row.learnCost then return row.learnCost, false end
+    local route = row.route
+    if route and route.kind == "ah" then
+        local f = FM.LatestRecord(route.key)
+        local price = f and FM.Dec(f[2])
+        if type(price) == "number" then return price, true end
+    end
+    return nil, false
+end
+
+-- A learn cost for a cell: grey when it is a last seen price
+local function LearnCostText(row)
+    local cost, seen = LearnCost(row)
+    if not cost then return nil end
+    return Money(cost, seen and GREY or nil)
+end
+
+-- A recipe still to learn (Craft): grey name, a blue "learn" and what learning it costs
+local function NameCell(row)
+    local text = QualityColor(row.key) .. Name(row.key) .. "|r"
+    if row.learned == false then
+        local cost = LearnCostText(row)
+        text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r" .. (cost and (" " .. cost) or "")
+    end
+    return text .. Marks(row)
+end
+
+-- The recipes the picks would take once you have the skill (FM.trade.pickLevels, up to 3)
+local function LevelFor(key)
+    for _, p in ipairs(FM.trade and FM.trade.pickLevels or {}) do
+        if p.key == key then return p end
+    end
+    return nil
+end
+
+-- Learn: every row is a recipe to learn, so its quality color and no "learn"; a green arrow on the ones worth leveling for
+local function LearnNameCell(row)
+    return QualityColor(row.key) .. Name(row.key) .. "|r" .. (LevelFor(row.key) and LEVEL_MARK or "") .. Marks(row)
 end
 
 local function MaxMatCell(row)
@@ -209,23 +255,29 @@ local function Duration(seconds)
     return string_format("%dh %02dm", math_floor(seconds / 3600), math_floor(seconds % 3600 / 60))
 end
 
+-- "5m", "1h", "1h 25m"
+local function Age(seconds)
+    local minutes = math_floor(math_max(0, seconds) / 60)
+    if minutes < 60 then return minutes .. "m" end
+    local hours, rest = math_floor(minutes / 60), minutes % 60
+    if rest == 0 then return hours .. "h" end
+    return string_format("%dh %dm", hours, rest)
+end
+
+-- An NPC's place without its coordinates (the tooltip has them): "Drac Roughcut, Loch Modan"
+local function NoCoords(where)
+    return ((where or "?"):gsub("%s*%([%d%.]+, [%d%.]+%)$", ""))
+end
+
 local CRAFT_COLUMNS = {
-    { title = "Item", width = 230, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "Item", width = 326, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
     { title = "PPH", tip = PPH_TIP, width = 100, text = function(r)
         local v = ProfitPerHour(r)
         return v and P1g(v, r.approx or (r.avg and r.avg.est > 0)) or (GREY .. "?|r")
     end, sort = ProfitPerHour },
     { title = "PPG", tip = PPG_TIP, width = 96, text = function(r) return P1g(r.p1g, r.approx or (r.avg and r.avg.est > 0)) end,
         sort = function(r) return r.p1g end },
-    -- a recipe still to learn costs that first: a big profit may not pay now
-    { title = "Recipe cost", width = 96, tip = "What learning the recipe costs (the cheapest trainer, vendor or pattern on the AH); empty when you know it.",
-        text = function(r)
-            if r.learned ~= false then return "" end
-            return r.learnCost and P1g(-r.learnCost) or (GREY .. "?|r")
-        end, sort = function(r)
-            if r.learned ~= false then return 0 end
-            return r.learnCost and -r.learnCost or nil
-        end },
+    -- a recipe still to learn shows its cost in the name cell (NameCell); sorting by it is on the Learn tab
     { title = "Max mat buy", tip = "Max mat buy: the highest price for the main AH material that still leaves 10% profit (its icon shows which material).", width = 120, text = MaxMatCell, sort = function(r) return r.maxMat end },
     { title = "Min. price", tip = MIN_TIP, width = 96, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
     { title = "On AH", tip = ON_AH_TIP, width = 84, text = OnAH, sort = function(r) return r.qty end },
@@ -233,59 +285,37 @@ local CRAFT_COLUMNS = {
     { title = "C/24h", tip = C24_TIP, width = 55, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
 }
 
+-- Vendor: limited stock first (it decides how many you can buy, and a long place never cuts it off), then the NPC
+-- and zone without the coordinates
+local function VendorCell(r)
+    local o = r.offer
+    if not o then return GREY .. "?|r" end
+    return (o.limited and (ORANGE .. "limited " .. o.limited .. "|r  ") or "") .. GREY .. NoCoords(o.where) .. "|r"
+end
+
 local VENDOR_COLUMNS = {
-    { title = "Item", width = 250, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
-    { title = "Vendor price", width = 100, text = function(r) return Money(r.vendorUnit) end, sort = function(r) return r.vendorUnit end },
-    { title = "Min. price", tip = MIN_TIP, width = 100, text = function(r) return Money(r.minSell) end, sort = function(r) return r.minSell end },
-    { title = "On AH", tip = ON_AH_TIP, width = 80, text = OnAH, sort = function(r) return r.qty end },
-    { title = "C/8h", tip = C8_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
-    { title = "C/24h", tip = C24_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end },
-    { title = "Vendor", width = 182, align = "LEFT", text = function(r)
-        local where = r.offer and r.offer.where or "?"
-        return GREY .. where .. "|r"
-    end, sort = function(r) return r.offer and r.offer.where or "" end }
+    { title = "Item", width = 236, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
+    { title = "PPG", tip = PPG_TIP, width = 96, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    { title = "Vendor price", width = 96, text = function(r) return Money(r.vendorUnit) end, sort = function(r) return r.vendorUnit end },
+    -- Min. price stays in the row tooltip and in the item tooltip's "Sell at least"
+    { title = "List at", tip = LIST_TIP, width = 96, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
+    { title = "On AH", tip = ON_AH_TIP, width = 76, text = OnAH, sort = function(r) return r.qty end },
+    { title = "C/8h", tip = C8_TIP, width = 56, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 56, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end },
+    { title = "Vendor", width = 220, align = "LEFT", text = VendorCell, sort = function(r) return r.offer and NoCoords(r.offer.where) or "" end }
 }
 
 local FLIP_COLUMNS = {
     { title = "Item", width = 300, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
+    -- the whole flip ranks it: two cheap units at a high rate earn less than a big flip at a lower one (PPG in the tooltip)
+    { title = "Profit", tip = "Profit: the whole flip, every unit bought and listed again, after the 5% AH cut. PPG is in the row tooltip.",
+        width = 100, text = function(r) return P1g(r.profit) end, sort = function(r) return r.profit end, default = true },
     { title = "Buy up to", width = 110, text = function(r) return Money(r.top) end, sort = function(r) return r.top end },
-    { title = "List at", width = 110, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
+    { title = "List at", tip = LIST_TIP, width = 110, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "Units", width = 66, text = function(r) return Count(r.units) end, sort = function(r) return r.units end },
     { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "C/8h", tip = C8_TIP, width = 63, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
     { title = "C/24h", tip = C24_TIP, width = 63, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
-}
-
-local function MatBetter(r)
-    if not r.sellNet then return r.value > 0 and 99 or 0 end
-    if r.sellNet <= 0 then return 99 end
-    return r.value / r.sellNet
-end
-
-local MAT_COLUMNS = {
-    { title = "Item", width = 230, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "Sell now", width = 100, text = function(r)
-        local better = r.sellNet and r.sellNet >= r.value
-        return Money(r.sell, better and GREEN or nil)
-    end, sort = function(r) return r.sell end },
-    { title = "Craft value", width = 104, text = function(r)
-        local better = not r.sellNet or r.value > r.sellNet
-        return Money(r.value, better and GREEN or nil)
-    end, sort = function(r) return r.value end },
-    { title = "Best use", width = 80, text = function(r)
-        if r.value <= 0 and (not r.sellNet) then return GREY .. "-|r" end
-        if not r.sellNet or r.value > r.sellNet then return GREEN .. "Craft|r" end
-        return YELLOW .. "Sell|r"
-    end, sort = MatBetter, default = true },
-    { title = "Best craft", width = 200, align = "LEFT", text = function(r)
-        if not r.best then return GREY .. "-|r" end
-        return GREY .. (r.via and (Name(r.via) .. " > ") or "") .. Name(r.best.key) .. "|r"
-    end, sort = function(r) return r.best and Name(r.best.key) or "" end },
-    { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
-    { title = "C/8h", tip = C8_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
-    { title = "C/24h", tip = C24_TIP, width = 60, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end }
 }
 
 local function FarmLevel(r)
@@ -352,17 +382,16 @@ local PICK_COLUMNS = {
     end, sort = function(p) return p.conf end }
 }
 
--- Favorites: one row per item, its best use among the tabs (highest PPG; a material only when
--- it is nothing else), the market numbers of that row
-local USE_LABEL = { latest = GREEN .. "Craft|r", vendor = YELLOW .. "Vendor|r", flips = YELLOW .. "Flip|r", mats = BLUE .. "Material|r" }
-local USE_SHORT = { latest = "Craft", vendor = "Vendor", flips = "Flip", mats = "Materials" }
+-- Favorites: one row per item, its best use among the tabs (highest PPG), the market numbers of that row
+local USE_LABEL = { latest = GREEN .. "Craft|r", vendor = YELLOW .. "Vendor|r", flips = YELLOW .. "Flip|r", learn = BLUE .. "Learn|r" }
+local USE_SHORT = { latest = "Craft", vendor = "Vendor", flips = "Flip", learn = "Learn" }
 
 local FAV_COLUMNS = {
     { title = "Item", width = 262, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
     { title = "Best use", width = 90, text = function(r) return r.use and USE_LABEL[r.use] or (GREY .. "-|r") end,
         sort = function(r) return r.use or "" end },
     { title = "PPG", tip = PPG_TIP, width = 100, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end, default = true },
-    { title = "Sell now", width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
+    { title = "List at", tip = LIST_TIP, width = 100, text = function(r) return Money(r.sell) end, sort = function(r) return r.sell end },
     { title = "On AH", tip = ON_AH_TIP, width = 90, text = OnAH, sort = function(r) return r.qty end },
     { title = "C/8h", tip = C8_TIP, width = 62, text = function(r) return Sold(r.sold12, r.soldWide, 8) end, sort = function(r) return r.sold12 end },
     { title = "C/24h", tip = C24_TIP, width = 62, text = function(r) return Sold(r.sold12, r.soldWide, 24) end, sort = function(r) return r.sold12 end },
@@ -379,30 +408,50 @@ local function SkillCell(r)
     return (((r.skillNow or 0) >= r.minSkill) and WHITE or RED) .. r.minSkill .. "|r"
 end
 
+-- Where to get it: a place without its coordinates (the tooltip has them), or a pattern on the AH (its price is Cost)
 local function WhereCell(r)
     local route = r.route
     if not route then return GREY .. "-|r" end
-    if route.kind == "ah" then
-        local f = FM.LatestRecord(route.key)
-        local price = f and FM.Dec(f[2])
-        return GREY .. "Pattern on the AH" .. (price and (" from " .. Money(price)) or "") .. "|r"
-    end
-    -- the place without its coordinates (the tooltip has them)
-    local where = (route.where or "?"):gsub("%s*%([%d%.]+, [%d%.]+%)$", "")
-    return GREY .. where .. "|r"
+    if route.kind == "ah" then return GREY .. "Pattern on the AH|r" end
+    return GREY .. NoCoords(route.where) .. "|r"
 end
 
+-- Crafts until the recipe has paid for itself at the profit per craft now (row.payback; from the last seen price of a
+-- pattern not on the AH now)
+local function Payback(r)
+    local cost = LearnCost(r)
+    if not cost or type(r.profit) ~= "number" or r.profit <= 0 then return nil end
+    return cost / r.profit
+end
+
+local function PaybackCell(r)
+    local cost, seen = LearnCost(r)
+    if not cost then return GREY .. "?|r" end
+    if cost <= 0 then return GREY .. "-|r" end -- nothing to pay back
+    if type(r.profit) ~= "number" then return GREY .. "?|r" end
+    local payback = Payback(r)
+    if not payback then return GREY .. "never|r" end -- no profit per craft now
+    local n = math_max(1, math.ceil(payback))
+    return (seen and GREY or "") .. string_format("%s craft%s", FM.FormatCount(n), n == 1 and "" or "s") .. (seen and "|r" or "")
+end
+
+-- Profession last: it is shown only while the dropdown says "All professions" (ShownCount), so the other columns
+-- and a saved sort keep their places; Where to get takes its width then (fill)
 local LEARN_COLUMNS = {
-    { title = "Profession", width = 96, align = "LEFT", text = function(r) return r.craft.profName or r.craft.prof or "?" end,
-        sort = function(r) return r.craft.profName or r.craft.prof or "" end },
-    { title = "Min", tip = "The lowest skill any trainer, vendor or pattern asks for (white: you have it, red: not yet).", width = 56,
+    { title = "Recipe", width = 222, align = "LEFT", text = LearnNameCell, sort = function(r) return Name(r.key) end },
+    { title = "Skill", tip = "Skill: the lowest any trainer, vendor or pattern asks for (white: you have it, red: not yet).", width = 50,
         text = SkillCell, sort = function(r) return r.minSkill end, asc = true },
-    { title = "Recipe", width = 260, align = "LEFT", text = NameCell, sort = function(r) return Name(r.key) end },
-    { title = "PPG", tip = PPG_TIP .. " At the prices now.", width = 110, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
-    { title = "PPG 7d", tip = "PPG at the usual prices of the last 7 days (median daily low of the product and every AH material).", width = 110,
+    { title = "Cost", tip = "Cost: what learning the recipe costs, the cheapest trainer, vendor or pattern on the AH. Grey: a pattern not on the AH now, its last seen price.",
+        width = 86, text = function(r) return LearnCostText(r) or (GREY .. "?|r") end, sort = function(r) return (LearnCost(r)) end, asc = true },
+    { title = "Pays back", tip = "Pays back: crafts until the recipe has paid for itself, at the profit per craft now (\"never\" without a profit; grey: from a last seen price).",
+        width = 84, text = PaybackCell, sort = Payback, asc = true },
+    { title = "PPG", tip = PPG_TIP .. " At the prices now.", width = 94, text = function(r) return P1g(r.p1g) end, sort = function(r) return r.p1g end },
+    { title = "PPG 7d", tip = "PPG at the usual prices of the last 7 days (median daily low of the product and every AH material).", width = 94,
         text = function(r) return P1g(r.p1g7) end, sort = function(r) return r.p1g7 end },
-    { title = "Where to get", width = 300, align = "LEFT", text = WhereCell,
-        sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end }
+    { title = "Where to get", width = 192, align = "LEFT", text = WhereCell, fill = true,
+        sort = function(r) return r.route and (r.route.where or r.route.kind) or "" end },
+    { title = "Profession", width = 110, align = "LEFT", text = function(r) return r.craft.profName or r.craft.prof or "?" end,
+        sort = function(r) return r.craft.profName or r.craft.prof or "" end }
 }
 
 -- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
@@ -414,14 +463,13 @@ if FM.PICKS_READY then
         inlineIcon = true, defaultSort = { { 1, false } } }
 end
 TABS[#TABS + 1] = { id = "favs", label = "Favorites", columns = FAV_COLUMNS, favs = true, group = 1 }
-TABS[#TABS + 1] = { id = "mats", label = "Materials", columns = MAT_COLUMNS, data = "mats", group = 1 }
 TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, data = "crafts", crafts = true, group = 2,
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
 TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, group = 4 } -- no table: a graph
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
-    defaultSort = { { 4, true }, { 2, false } } } -- profit now, then the lowest skill
+    profColumn = true, defaultSort = { { 5, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
 local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
@@ -537,7 +585,7 @@ local function IsOutlier(row, tab, lo, hi)
     return false
 end
 
-local FAV_TABS = { "latest", "vendor", "flips", "learn", "mats" }
+local FAV_TABS = { "latest", "vendor", "flips", "learn" }
 
 local function FavoriteRows(trade)
     local out = {}
@@ -562,7 +610,7 @@ local function FavoriteRows(trade)
                 seenTab[hit.id] = true
                 fav.tabs[#fav.tabs + 1] = hit.id
             end
-            if hit.id ~= "mats" and type(row.p1g) == "number" and (not fav.p1g or row.p1g > fav.p1g) then
+            if type(row.p1g) == "number" and (not fav.p1g or row.p1g > fav.p1g) then
                 fav.use, fav.src, fav.p1g = hit.id, row, row.p1g
             end
             if hit.id ~= "flips" and not fav.sell then fav.sell = row.sell end -- a flip's sell is its relist price
@@ -592,7 +640,7 @@ local function BuildRows()
     local needle = view.filter ~= "" and string_lower(view.filter) or nil
     local prof = ProfFilter()
     local out = {}
-    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn and tab.id ~= "mats"
+    local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     view.outliers = 0
@@ -623,7 +671,7 @@ local function BuildRows()
             end
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             local minProfit = s.tableMinProfit
-            if keep and minProfit and tab.id ~= "mats" and not tab.favs and not tab.learn and not tab.picks then
+            if keep and minProfit and not tab.favs and not tab.learn and not tab.picks then
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
@@ -632,11 +680,7 @@ local function BuildRows()
                 local excluded = FM.IsExcluded(row.key)
                 if view.showExcluded then keep = excluded elseif excluded then keep = false end
             end
-            if keep and needle then
-                local name = string_lower(Name(row.key))
-                local craftName = row.best and string_lower(Name(row.best.key)) or ""
-                if not string_find(name, needle, 1, true) and not string_find(craftName, needle, 1, true) then keep = false end
-            end
+            if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
         end
         if keep then out[#out + 1] = row end
     end
@@ -695,7 +739,6 @@ end
 
 local LABEL = "|cFFB0B0B0"
 local HEAD = "|cFFFFD100"
-local ORANGE = "|cFFFF9933"
 
 local function Header(text)
     GameTooltip:AddLine(" ")
@@ -816,7 +859,7 @@ local function CraftTooltip(row, past)
         return
     end
     Header("Sell")
-    Line("Sell at", SellText(row))
+    Line("List at", SellText(row))
     if row.sellMin and row.sellMax and (row.avgN or 0) > 1 then
         Line("Last 3 days", Money(row.sellMin) .. " - " .. Money(row.sellMax) .. GREY .. string_format("  %d scans", row.avgN) .. "|r")
     end
@@ -880,7 +923,7 @@ local function VendorTooltip(row)
     if o and o.limited then Note("Limited stock: " .. o.limited .. " at a time", ORANGE) end
     if row.offers and #row.offers > 1 then Note(string_format("%d vendors sell it", #row.offers)) end
     Header("Sell")
-    Line("Sell at", SellText(row))
+    Line("List at", SellText(row))
     if row.usual then Line("Usual price", Money(row.usual) .. GREY .. "  median daily low, last week|r") end
     Line("Profit per unit", P1g(row.profit))
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even|r" .. DepNote(row))
@@ -899,30 +942,11 @@ local function FlipTooltip(row)
     Header("Sell")
     Line("List at", Money(row.sell) .. GREY .. string_format("  %s wait at %s", FM.FormatCount(row.support), Money(row.wall)) .. "|r")
     Line("Expected profit", P1g(row.profit))
+    Line("PPG", P1g(row.p1g) .. GREY .. "  profit per 1g of the buy|r")
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
     Header("Market")
     MarketLines(row)
     Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
-end
-
-local function MatTooltip(row)
-    Header("Sell it")
-    Line("Sell now", SellText(row))
-    if row.sellNet then Line("After the 5% AH cut", Money(row.sellNet)) end
-    if row.best then
-        Header("Craft it")
-        Line("Best craft", WHITE .. (row.via and (Name(row.via) .. " > ") or "") .. Name(row.best.key) .. "|r")
-        Line("Worth per unit in it", Money(row.value) .. GREY .. "  after the cut and other materials|r")
-        Line("Buy price now", Money(row.buy) .. GREY .. string_format("  batch of %d crafts", FM.TRADE.BATCH) .. "|r")
-    end
-    Header("Market")
-    MarketLines(row)
-    GameTooltip:AddLine(" ")
-    if not row.sellNet or row.value > row.sellNet then
-        Note("Worth more crafted than sold as it is.", GREEN)
-    else
-        Note("Worth more sold as it is than crafted.", YELLOW)
-    end
 end
 
 -- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note
@@ -981,7 +1005,13 @@ local function PickStatus(row)
     local reason = trade.pickWhy and trade.pickWhy[row.key]
     if not rank and not reason then return end
     Header("Picks")
-    if rank then
+    if row.craft and LevelFor(row.key) then
+        -- the green arrow on Learn, on the recipe's own row only (a Flip or Vendor row of the same item keeps its
+        -- rank): the reason without its own "one of the best ..." ending
+        local need = reason and reason:gsub(", one of the best recipes to level for$", "")
+        Note(LEVEL_ICON .. " One of the best recipes to level for: the picks would take it once you have the skill"
+            .. (need and (" (" .. need .. ")") or "") .. ".", GREEN)
+    elseif rank then
         Note(string_format("In the picks (#%d, %s)", rank, trade.pickExtra and trade.pickExtra[row.key] and "also good, beyond your gold"
             or "in the plan"), GREEN)
     else
@@ -1055,8 +1085,6 @@ local function ShowRowTooltip(button)
         VendorTooltip(src)
     elseif tab.id == "flips" then
         FlipTooltip(src)
-    elseif tab.id == "mats" then
-        MatTooltip(src)
     end
     if tab and (tab.id == "latest" or tab.id == "vendor" or tab.id == "flips" or tab.id == "learn") then PickStatus(src) end
     local have, sellable = FM.OwnedCount(row.key)
@@ -1120,8 +1148,6 @@ local function SearchAtAH(row)
         for _, key in ipairs(row.searchKeys or {}) do add(key) end
     elseif (tab.crafts or tab.learn) and row.craft then
         for _, g in ipairs(row.craft.reagents or {}) do add(g.key) end
-    elseif tab.id == "mats" and row.best then
-        add(row.best.key)
     end
     local ok, err = pcall(api.MultiSearchExact, "ForeverMarket", names)
     if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end
@@ -1269,8 +1295,37 @@ local function ColumnX(columns, index)
 end
 
 -- Picks: its summary line takes the header's place, the header and the list move down one row
+-- (Flip: its age line when the prices are old, view.stale)
 local function ListShift(tab)
-    return tab.picks and ROW_H or 0
+    return (tab.picks or (tab.id == "flips" and view.stale)) and ROW_H or 0
+end
+
+-- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes
+local function FlipStaleText(tab)
+    if tab.id ~= "flips" then return nil end
+    local r = FM.R()
+    local last = r and r.last and r.last.t
+    if not last then return nil end
+    local age = FM.Now() - last
+    if age < FLIP_STALE then return nil end
+    return ORANGE .. "Prices are " .. Age(age) .. " old: cheap listings are probably gone|r"
+end
+
+-- Columns shown: Learn hides its last one (Profession) while a profession is chosen in the dropdown
+local function ShownCount(tab)
+    local n = #tab.columns
+    if tab.profColumn and ProfFilter() then n = n - 1 end
+    return n
+end
+
+-- A column's width; a "fill" column also takes the width of a hidden column after it
+local function ShownWidth(tab, i)
+    local width = tab.columns[i].width
+    local hidden = #tab.columns - ShownCount(tab)
+    if tab.columns[i].fill and hidden > 0 then
+        for k = #tab.columns - hidden + 1, #tab.columns do width = width + tab.columns[k].width end
+    end
+    return width
 end
 
 local function VisibleRows(tab)
@@ -1282,13 +1337,15 @@ local function LayoutColumns()
     local columns = tab.columns
     local levels = SortState(tab).list
     local shift = ListShift(tab)
+    local shown = ShownCount(tab)
     local iconRoom = tab.inlineIcon and 0 or 22 -- room for the row icon left of the first column
     frame.headerLine:ClearAllPoints()
     frame.headerLine:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, TOP + 1 - shift)
     frame.headerLine:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, TOP + 1 - shift)
     for i, header in ipairs(frame.headers) do
-        local col = columns[i]
+        local col = i <= shown and columns[i] or nil
         if col then
+            local width = ShownWidth(tab, i)
             local level, order
             for k, l in ipairs(levels) do
                 if l.col == i then level, order = l, k end
@@ -1296,7 +1353,7 @@ local function LayoutColumns()
             local x = ColumnX(columns, i)
             header:ClearAllPoints()
             header:SetPoint("TOPLEFT", frame, "TOPLEFT", x, TOP + 24 - shift)
-            header:SetSize(col.width - 4, 22)
+            header:SetSize(width - 4, 22)
             header.text:ClearAllPoints()
             local align = col.align or "RIGHT"
             header.text:SetPoint(align, header, align, align == "LEFT" and 2 or -2, 0)
@@ -1322,16 +1379,17 @@ local function LayoutColumns()
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, TOP - shift - (r - 1) * ROW_H)
         for i, cell in ipairs(button.cells) do
-            local col = columns[i]
+            local col = i <= shown and columns[i] or nil
             if col then
                 local x = ColumnX(columns, i) - 14
+                local width = ShownWidth(tab, i)
                 cell:ClearAllPoints()
                 local align = col.align or "RIGHT"
-                cell:SetWidth(col.width - 6 - (i == 1 and iconRoom + 2 or 0))
+                cell:SetWidth(width - 6 - (i == 1 and iconRoom + 2 or 0))
                 if align == "LEFT" then
                     cell:SetPoint("LEFT", button, "LEFT", x + 2 + (i == 1 and iconRoom or 0), 0)
                 else
-                    cell:SetPoint("RIGHT", button, "LEFT", x + col.width - 4, 0)
+                    cell:SetPoint("RIGHT", button, "LEFT", x + width - 4, 0)
                 end
                 cell:SetJustifyH(align)
                 cell:Show()
@@ -1340,15 +1398,6 @@ local function LayoutColumns()
             end
         end
     end
-end
-
--- "5m", "1h", "1h 25m"
-local function Age(seconds)
-    local minutes = math_floor(math_max(0, seconds) / 60)
-    if minutes < 60 then return minutes .. "m" end
-    local hours, rest = math_floor(minutes / 60), minutes % 60
-    if rest == 0 then return hours .. "h" end
-    return string_format("%dh %dm", hours, rest)
 end
 
 -- Title bar, right: how old the market data is (a deep scan or a Battle.net snapshot, whichever is newer)
@@ -1370,7 +1419,7 @@ local function FooterText(total)
     local tab = CurrentTab()
     local trade = FM.trade
     local first = total > 0 and view.offset + 1 or 0
-    local last = math_min(total, view.offset + ROWS)
+    local last = math_min(total, view.offset + VisibleRows(tab))
     local text = string_format("%d-%d of %d", first, last, total)
     if tab.picks then
         -- count picks, not lines (section and step lines)
@@ -1411,9 +1460,7 @@ local function FooterText(total)
     elseif tab.id == "vendor" then
         text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
     elseif tab.id == "flips" then
-        text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut"
-    elseif tab.id == "mats" then
-        text = text .. "  ·  craft value = what one unit is worth inside your best learned recipe"
+        text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut, Profit = the whole flip"
     elseif tab.learn then
         text = text .. "  ·  every recipe you can still learn, losing ones too  ·  7 days = usual prices"
     end
@@ -1472,8 +1519,10 @@ Render = function()
     if graph then return RenderGraph(tab) end
     if FM.PerfShow then FM.PerfShow(frame, false) end
     if not rowsCache then rowsCache = BuildRows() end
+    view.stale = FlipStaleText(tab) -- before the layout: the line moves the header and the list down
     local total = #rowsCache
     local visible = VisibleRows(tab)
+    local shown = ShownCount(tab)
     view.offset = math_max(0, math_min(view.offset, math_max(0, total - visible)))
     if tab.picks then
         -- a pick's steps never open the list: show the pick above them (at the end: the next line instead)
@@ -1483,8 +1532,9 @@ Render = function()
         end
     end
     LayoutColumns()
-    frame.summary:SetShown(tab.picks and true or false)
-    if tab.picks then frame.summary:SetText(PickSummary()) end
+    -- the line above the header: the plan's summary on Picks, the age of the prices on Flip once they are old
+    frame.summary:SetShown((tab.picks or view.stale) and true or false)
+    if tab.picks then frame.summary:SetText(PickSummary()) elseif view.stale then frame.summary:SetText(view.stale) end
     -- the steps line under a pick starts where the pick's name does (after its icon)
     local stepsX = tab.picks and (ColumnX(tab.columns, 2) - 14 + 22) or 24
     for i, button in ipairs(frame.rows) do
@@ -1504,12 +1554,12 @@ Render = function()
             button.wide:Show()
             button:Show()
         elseif row then
-            for c, cell in ipairs(button.cells) do cell:SetShown(tab.columns[c] ~= nil) end
+            for c, cell in ipairs(button.cells) do cell:SetShown(c <= shown and tab.columns[c] ~= nil) end
             local icon = Icon(row.key)
             button.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             button.icon:SetShown(not tab.inlineIcon)
             for c, cell in ipairs(button.cells) do
-                local col = tab.columns[c]
+                local col = c <= shown and tab.columns[c] or nil
                 if col then
                     local ok, text = pcall(col.text, row)
                     cell:SetText(ok and text or (RED .. "err|r"))
@@ -1917,6 +1967,9 @@ local function CreateTable()
         if elapsed >= 15 then
             elapsed = 0
             f.status:SetText(StatusText())
+            -- Flip: the age line comes, goes and counts up with the latest snapshot
+            local tab = CurrentTab()
+            if tab.id == "flips" and FlipStaleText(tab) ~= view.stale then Render() end
         end
     end)
     f:SetScript("OnShow", function()
