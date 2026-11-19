@@ -174,10 +174,31 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * "% to invest" (1.14, number box left of the professions, default 90, `tableInvestPct`): the most of your gold
     one pick may use (before 1.14: 35% of the plan; the plan as a whole stays at 90%, so above 90 changes nothing). "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
     without vendor resells. Both recompute the picks.
+  * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
+    table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
+    "share of an item's C/24h per pick" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
+    everything that leaves the AH, bought or taken down, and other sellers undercut you during the day, so a
+    quarter of it is what one more seller can expect to sell in a 24h listing; before 1.19 the only limits were half
+    of the buyers (18 of 43 Barbaric Bracers a day) and 100 units. What you already list uses up the cap first:
+    room = cap - your listings, on all your characters, whatever "Ignore stock" says (that box covers bags and
+    bank). A room under one craft (the recipe's "makes") or one unit is no pick, and the row says why ("you list 10
+    already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "too little circulation: ...", "circulation not known yet"). It holds
+    for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, beyond your gold", and it
+    is an input of the plan: the gold a smaller pick leaves goes to the next ones. The buyers' limit (half of the
+    buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
+    cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from.
+  * Your listings (1.19, `FM.OwnListings` in scan/Ledger.lua): per character its last auction list (`owned`: active
+    auctions whose time has not run out) plus what it posted after that list and can still be running (2h / 8h /
+    24h), or your auctions in the latest snapshot when that is more. The client hands the auction list out only
+    when Blizzard's Auctions tab (or another AddOn) asks for it, so a list is as old as the last look at that tab:
+    until 1.19 Picks read the lists alone and missed everything posted since. What sold since the list was read is
+    not known and still counts until its time runs out. The tooltip says how the number is known ("6 in your
+    auction lists, 4 posted since; last seen 3h ago"), and in orange when no list was ever read or the latest one
+    is older than 24h (then only posts count).
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
     picks whose gold stayed reserved): "Not learned" off plans without recipes to learn, the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
-    leaves out picks that earn less per item. Each change computes the plan again, so the ranks run 1..n without
+    leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change computes the plan again, so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
   * One plan for 90% of your gold, one pick at most "% to invest" of it, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
@@ -252,7 +273,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
-  Picks the plan leaves them out instead (1.17).
+  Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h per pick (1.19,
+  default 25%, `tableCircPct`; see Picks, Room on the AH).
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
   snipe its main material). Right-click: the menu above.
 

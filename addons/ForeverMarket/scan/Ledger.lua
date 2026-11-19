@@ -213,6 +213,61 @@ function FM.BuildOwnPool()
     return pool
 end
 
+-- Hours of Blizzard's duration menu (index 1 to 3) on Forever, seen in game
+local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
+
+-- Units you have listed right now, per item, all your characters: each character's last list of its auctions
+-- (active ones that have not run out since) plus what it posted after that list and can still be running.
+-- The client hands the list out only when something asks for it (Blizzard's Auctions tab), so a list is as old
+-- as the last look at that tab and the posts since must count too. What sold since is not known: it stays
+-- counted until its time runs out.
+-- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, t = the oldest
+-- moment a counted auction was last seen (its list, or its post) } and info = { lists = characters with a
+-- list, newest = when the latest list was read }
+function FM.OwnListings()
+    local r = FM.R()
+    local now = FM.Now()
+    local byKey = {}
+    local info = { lists = 0 }
+    local function add(key, qty, field, seen)
+        local e = byKey[key]
+        if not e then
+            e = { n = 0, list = 0, posts = 0 }
+            byKey[key] = e
+        end
+        e.n = e.n + qty
+        e[field] = e[field] + qty
+        if not e.t or seen < e.t then e.t = seen end
+    end
+    local since, inList = {}, {}
+    for char, snap in pairs(r.owned) do
+        if type(snap) == "table" and snap.t then
+            since[char] = snap.t
+            info.lists = info.lists + 1
+            if not info.newest or snap.t > info.newest then info.newest = snap.t end
+            local aids = {}
+            inList[char] = aids
+            for aid, e in pairs(ParseOwned(snap.list)) do
+                aids[aid] = true
+                if e.status ~= "s" and snap.t + e.left > now then add(e.key, Dec(e.qty) or 1, "list", snap.t) end
+            end
+        end
+    end
+    for i = #r.posts, 1, -1 do
+        local f = FM.Split(r.posts[i], ",")
+        local t = FM.Unstamp(f[1])
+        if not t or now - t > 86400 then break end
+        local char, listT = f[2], since[f[2]]
+        -- stamps have minute precision: a post of the same minute as the list is told apart by its auction ID
+        local after = not listT or t >= listT - 60
+        if after and f[8] and inList[char] and inList[char][f[8]] then after = false end
+        if f[3] and after and now < t + (DURATION_HOURS[f[6]] or 24) * 3600 then
+            add(f[3], Dec(f[4]) or 1, "posts", t)
+        end
+    end
+    return byKey, info
+end
+
 local ownedPending = false
 FM.On("OWNED_AUCTIONS_UPDATED", function()
     if ownedPending then return end

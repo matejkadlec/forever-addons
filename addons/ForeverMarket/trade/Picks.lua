@@ -18,7 +18,10 @@ local _, FM = ...
 --     in time vs. bigger deposit and more buyers); the table shows the better one (pick.expected, listHours)
 --   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: "Ignore vendor",
 --     "Ignore stock", "% to invest", "Not learned", the profession (crafts and recipes only) and the settings
---     panel's minimum profit per item
+--     panel's minimum profit per item and share of C/24h
+--   * room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h (the table's
+--     C/24h, default 25%), less what you already list on all your characters (FM.OwnListings: the auction lists
+--     and the posts since). No room for one craft or one unit = no pick. "Ignore stock" does not touch it.
 --   * pick.steps: what to do, in order (learn > buy > make > list), shown under the pick
 
 local Dec = FM.Dec
@@ -31,7 +34,6 @@ local math_ceil = math.ceil
 local math_max = math.max
 local math_min = math.min
 local string_sub = string.sub
-local string_gmatch = string.gmatch
 local string_format = string.format
 local table_sort = table.sort
 local table_concat = table.concat
@@ -50,6 +52,8 @@ local MAX_PICKS = 12
 local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
 local MAX_UNITS = 100           -- per pick and day
+local CIRC_PCT = 25             -- default share of an item's C/24h one pick may add to the AH (tableCircPct)
+local LONGEST_LISTING = 86400   -- a 24h auction: an auction list older than this holds nothing still running
 local VENDOR_LISTED_SHARE = 0.2 -- vendor goods: at most 20% of what others list
 local DEPOSIT_SHARE = 0.12      -- deposit per listing as a share of the price when invoices don't tell
 local LIST_HOURS = 24
@@ -92,7 +96,7 @@ local function Clamp(x, lo, hi)
     return x
 end
 
-local GREY, ORANGE = "|cFF9D9D9D", "|cFFFF9933"
+local GREY, ORANGE, WHITE = "|cFF9D9D9D", "|cFFFF9933", "|cFFFFFFFF"
 
 ---------------------------------------------------------------- pass state
 
@@ -125,20 +129,6 @@ local function NearMin(key)
         n = n + level[2]
     end
     return n
-end
-
--- Your auctions per item, all characters (owned lists "aid:key:qty:buyout:status:left", "a" = active)
-local function OwnListed()
-    local out = {}
-    for _, owned in pairs(FM.R().owned or {}) do
-        if type(owned) == "table" and type(owned.list) == "string" then
-            for entry in string_gmatch(owned.list, "[^,]+") do
-                local f = FM.Split(entry, ":")
-                if f[5] == "a" and f[2] then out[f[2]] = (out[f[2]] or 0) + (Dec(f[3]) or 1) end
-            end
-        end
-    end
-    return out
 end
 
 -- Your sales per item in the window (events osold / opart) and when you started listing it (posts)
@@ -183,12 +173,77 @@ local function DepositShares()
     return out
 end
 
--- Your listings of an item: the owned lists or your auctions in the latest scan, whichever is more
+-- Your listings of an item, all characters: the auction lists with the posts since (FM.OwnListings) or your
+-- auctions in the latest scan, whichever is more
 local function Yours(key)
-    local n = P.ownListed[key] or 0
+    local e = P.listings[key]
+    local n = e and e.n or 0
     local p = P.view.Get(key)
     if p and (p.own or 0) > n then n = p.own end
     return n
+end
+
+-- Room for new units of an item on the AH: a share of what circulates of it in 24h (the table's C/24h =
+-- sold12 x 2; the share is the settings panel's "share of C/24h"), less what you list already. It holds whatever
+-- "Ignore stock" says: that box covers bags and bank only. need = one craft's units, or 1.
+-- Returns { circ, cap, listed, room, pct }, or nil and why the item is no pick
+local function Room(row, need)
+    if type(row.sold12) ~= "number" then return nil, "circulation not known yet (C/24h)" end
+    local circ = row.sold12 * 2
+    local pct = math_floor(P.circShare * 100 + 0.5)
+    local share = circ * P.circShare
+    local cap = math_floor(share + 0.5)
+    local craft = need > 1 and string_format(", one craft makes %d", need) or ""
+    -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
+    if share < need then
+        return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, Count(share), craft)
+    end
+    local listed = Yours(row.key)
+    if cap - listed < need then
+        -- how fresh that number is: what sold since it was last seen still counts
+        local e = P.listings[row.key]
+        local seen = (e and e.n >= listed) and string_format("last seen %s ago", FM.FormatAge(P.now - e.t)) or "in the latest snapshot"
+        return nil, string_format("you list %s already (%s): the cap is %s (%d%% of C/24h %s)%s", Count(listed), seen, Count(cap),
+            pct, Count(circ), craft)
+    end
+    return { circ = circ, cap = cap, listed = listed, room = cap - listed, pct = pct }
+end
+
+-- How "you list" is known, never a silent 0: the auction lists (as old as the last look at the AH's Auctions
+-- tab), the posts since, or the latest snapshot. Returns the note and its color.
+local function ListingNote(key, listed)
+    local e = P.listings[key]
+    local known = e and e.n or 0
+    local info = P.listInfo
+    if listed > known then
+        return string_format("Your listings: %s seen as yours in the latest snapshot (your auction lists and posts know %s).",
+            Count(listed), Count(known)), GREY
+    end
+    if known > 0 then
+        local bits = {}
+        if e.list > 0 then bits[#bits + 1] = string_format("%s in your auction lists", Count(e.list)) end
+        if e.posts > 0 then bits[#bits + 1] = string_format("%s posted since", Count(e.posts)) end
+        return string_format("Your listings: %s; last seen %s ago, what sold since still counts.", table_concat(bits, ", "),
+            FM.FormatAge(P.now - e.t)), GREY
+    end
+    if info.lists == 0 then
+        return "Your auctions were never read: open the Auctions tab at the AH once. Until then only what you posted "
+            .. "in the last 24h counts.", ORANGE
+    end
+    local age = P.now - info.newest
+    if age > LONGEST_LISTING then
+        return string_format("Your auctions were last read %s ago (the Auctions tab at the AH reads them): only what you "
+            .. "posted since counts.", FM.FormatAge(age)), ORANGE
+    end
+    return string_format("Your listings: none known (auctions last read %s ago, posts since counted).", FM.FormatAge(age)), GREY
+end
+
+-- The tooltip's account of the room: "C/24h 43, cap 11 (25%), you list 0 -> make 10", then how "you list" is known
+local function RoomLines(list, row, room, verb, n)
+    list[#list + 1] = { "h", "Room on the AH" }
+    list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%d%%), you list %s -> %s %s", Count(room.circ),
+        row.soldWide and " (3 day rate)" or "", Count(room.cap), room.pct, Count(room.listed), verb, Count(n)), WHITE }
+    list[#list + 1] = { "n", ListingNote(row.key, room.listed) }
 end
 
 local function DepositPerItem(key, price)
@@ -612,13 +667,15 @@ local function EvaluateCraft(c)
     local V, vSource, d = SellRate(row.key)
     if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     local others = row.qty - (row.own or 0)
+    local room, noRoom = Room(row, makes)
+    if not room then return nil, noRoom end
     local yours = Yours(row.key) + SellableOf(row.key)
     local vLeft = V - yours
     if vLeft < makes then return nil, "you already list or hold what buyers take in a day" end
     local buyers = d.perDay or V
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
-    local unitsCap = math_min(MAX_UNITS, vLeft)
+    local unitsCap = math_min(MAX_UNITS, vLeft, room.room)
     local vendorOnly = true
     for _, part in ipairs(row.parts) do
         if part.src ~= "vendor" then vendorOnly = false end
@@ -714,6 +771,7 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
     if yours > 0 then list[#list + 1] = { "l", "Yours listed or held", Count(yours) } end
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
+    RoomLines(list, row, room, "make", items)
     list[#list + 1] = { "h", "Confidence" }
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
@@ -730,6 +788,8 @@ local function EvaluateVendor(c)
     local V, vSource, d = SellRate(row.key)
     if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     local others = row.qty - (row.own or 0)
+    local room, noRoom = Room(row, 1)
+    if not room then return nil, noRoom end
     local yours = Yours(row.key) + SellableOf(row.key)
     local vLeft = V - yours
     if vLeft < 1 then return nil, "you already list or hold what buyers take in a day" end
@@ -737,7 +797,7 @@ local function EvaluateVendor(c)
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
     local unit = row.vendorUnit
     local cap = math_min(P.perPick, P.budgetLeft)
-    local n = math_floor(math_min(MAX_UNITS, vLeft, row.offer.limited or math.huge,
+    local n = math_floor(math_min(MAX_UNITS, vLeft, room.room, row.offer.limited or math.huge,
         math_max(1, VENDOR_LISTED_SHARE * others), cap / unit))
     if n < 1 then return nil, "no gold left for it in the plan" end
     local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
@@ -787,6 +847,7 @@ local function EvaluateVendor(c)
     list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) }
     list[#list + 1] = { "l", "Listed by others", Count(others) }
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
+    RoomLines(list, row, room, "buy", n)
     list[#list + 1] = { "h", "Confidence" }
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
@@ -802,6 +863,8 @@ local function EvaluateFlip(c)
     -- the usual price must still hold today: no falling price, no flood of new listings
     if d.todayMedian and d.todayMedian < 0.8 * row.usual then return nil, "price falling today" end
     if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
+    local room, noRoom = Room(row, 1)
+    if not room then return nil, noRoom end
     local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
     local skip = P.used[row.key] or 0
@@ -814,7 +877,7 @@ local function EvaluateFlip(c)
         else
             q = q - skip
             skip = 0
-            local take = math_min(q, row.units - n, math_floor((cap - cost) / level[1]))
+            local take = math_min(q, row.units - n, room.room - n, math_floor((cap - cost) / level[1]))
             if take <= 0 then break end
             n = n + take
             cost = cost + take * level[1]
@@ -862,6 +925,7 @@ local function EvaluateFlip(c)
         { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) },
         { "n", "Cheap listings go fast: the AH search shows if they are still there.", ORANGE },
     }
+    RoomLines(pick.reasons, row, room, "buy", n)
     return pick
 end
 
@@ -996,8 +1060,9 @@ function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
     local gold = GetMoney and GetMoney() or 0
     local s = FM.GetSettings()
+    local listings, listInfo = FM.OwnListings()
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
-        demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, ownListed = OwnListed(),
+        demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo,
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
         ignoreStock = s.tableIgnoreStock ~= false, ignoreVendor = s.tableIgnoreVendor == true,
         -- the table's filters are inputs of the plan (the table changes call FM.ComputeTrade again)
@@ -1010,6 +1075,9 @@ function FM.ComputePicks(out, ctx, done)
     share = share and math_max(1, math_min(100, share)) / 100 or PICK_SHARE
     P.perPick = math_max(math_min(P.budget, gold * share), 0)
     P.minScore = math_max(MIN_SCORE, 0.01 * P.budget)
+    -- "share of C/24h" (settings panel): the most of an item's daily circulation one pick may add to the AH
+    local circPct = tonumber(s.tableCircPct)
+    P.circShare = (circPct and math_max(1, math_min(100, circPct)) or CIRC_PCT) / 100
     out.pickGold = gold
 
     local why = {}
