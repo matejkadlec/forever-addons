@@ -130,8 +130,8 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
 * AH title bar buttons, right to left (ui/AHButton.lua): "FM: snipe", "FM: scan" (1.30, FRV-84, back where it was
   until 1.7: a click starts the same deep scan as the automatic one, `FM.StartDeepScan(true)`; disabled while a
   scan waits, reads or saves, while Auctionator runs its own full scan and until the server's 15 minutes are over,
-  and its tooltip says why and when the last deep scan was, from `FM.DeepScanRefusal`, which `/fm scan` prints
-  too), "FM: table"
+  and its tooltip says why, from `FM.DeepScanRefusal`, which `/fm scan` prints too; it also shows the age of the
+  latest snapshot and what made it: a deep scan, Auctionator's full scan or the Battle.net feed), "FM: table"
 * Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
   its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,

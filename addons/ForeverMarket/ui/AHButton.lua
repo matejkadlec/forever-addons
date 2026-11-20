@@ -29,15 +29,20 @@ local function ShowTooltip(self)
     GameTooltip:Show()
 end
 
--- What a deep scan is, when the last one was, and why the button is disabled now
+-- Where the latest snapshot (r.last) came from: a feed import writes it too, so it is not always a deep scan
+local SNAPSHOT_SOURCE = { fm = "deep scan", aucr = "Auctionator's full scan", api = "Battle.net feed" }
+
+-- What a deep scan is, how old the latest snapshot is and what made it, and why the button is disabled now
 local function ShowScanTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market deep scan")
     GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the market table, the item tooltips and Claude (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
     local r = FM.R()
-    local last = r and r.last and r.last.t
+    local last = r and r.last
+    local source = last and SNAPSHOT_SOURCE[last.source]
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Last deep scan: " .. (last and (FM.FormatAge(FM.Now() - last) .. " ago") or "never"), 0.6, 0.8, 1)
+    GameTooltip:AddLine("Latest snapshot: " .. (last and last.t and (FM.FormatAge(FM.Now() - last.t) .. " ago"
+        .. (source and (" (" .. source .. ")") or "")) or "none yet"), 0.6, 0.8, 1)
     local refusal = FM.DeepScanRefusal()
     if refusal then GameTooltip:AddLine(refusal, 1, 0.5, 0.2, true) end
     GameTooltip:Show()
