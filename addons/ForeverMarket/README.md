@@ -525,8 +525,8 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
   (`scans`) says which scans there were and the per-scan records still cover them: a deep scan or an Auctionator
   scan writes every item listed, a Battle.net feed snapshot (`api`) only an item that changed or every 4 hours
   (`FEED_RECORD_HOURS`), so a feed snapshot without a record of the item saw what its feed record before says (the
-  same price within 5 hours, or still not listed); after the record of an in-game scan it tells nothing (the import
-  drops the feed's first record after one, `scan/Feed.lua`). The daily rollups know only the scans that had
+  same price within 5 hours, or still not listed); after an in-game scan, with or without a record of the item, it
+  tells nothing (the import drops the feed's first record after one, `scan/Feed.lua`). The daily rollups know only the scans that had
   the item, so there a day without it is carried as a whole. A carried dot (no scan in it had the
   item) is a grey ring at the newest price before. Once a scan after the last price of others had none, the window
   says "Not listed by others since <when>" above the chart.

@@ -376,3 +376,23 @@ H.test("price graph: a scan without the item carries the newer of the last sight
     H.eq(last.car, 1, "the 8:00 scan without it")
     Near(last.value, (5 + 6) * G / 2, "carried at the rollup's 5g, not the older search's 3g")
 end)
+
+H.test("price graph: on the last rollup day a per-scan record is newer than the rollup's average", function()
+    local FM, _, r, item = Load()
+    -- UTC day D: records up to 9:00 UTC folded at 5g on average, the first per-scan record at 9:30 UTC says 7g; a
+    -- deep scan at 13:00 UTC has no record of the item, it is back at 14:00 UTC at 7g
+    local D = math.floor((T(2026, 11, 18) - EPOCH) / 86400)
+    local function Utc(h, m) return EPOCH + D * 86400 + h * 3600 + (m or 0) * 60 end
+    item.r = table.concat({ "D" .. B(D), "2", "2", B(5 * G), B(10 * G), "2", "0", "0", "0", "0" }, ",")
+    item.d = table.concat({ Deep(Utc(9, 30), { min = 7 * G }), Deep(Utc(14), { min = 7 * G }) }, ";")
+    Scans(r, { Stamp("r", Utc(9, 30)), Stamp("r", Utc(13)), Stamp("r", Utc(14)) })
+    local s = FM.PriceSeries(KEY, "day")
+    local p
+    for _, per in ipairs(s.periods) do
+        if per.car > 0 then p = per end
+    end
+    H.eq(p ~= nil, true, "a day with the carried scan")
+    H.eq(p.car, 1, "the 13:00 scan")
+    -- the carried scan took 7g: the day holds 2 rollup scans (10g), 2 records (14g) and 1 carried scan
+    Near(p.value, (10 + 14 + 7) * G / 5, "carried at the 9:30 record's 7g, not the rollup's 5g")
+end)

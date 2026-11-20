@@ -101,9 +101,12 @@ local function Collect(r, item, key)
                 local avg = sumOth / nOth
                 d.n, d.sum = d.n + nOth, d.sum + sumOth
                 d.low = Min(d.low, minOth)
-                if not d.lastT or noon >= d.lastT then d.lastT, d.lastP = noon, avg end
+                -- its records are older than every per-scan record (they fold oldest first): as the newest price of
+                -- the day and as the price before a scan it counts from the day's start, so a per-scan record wins
+                local start = FM.EPOCH + day * 86400
+                if not d.lastT or start >= d.lastT then d.lastT, d.lastP = start, avg end
                 c.first = c.first or noon
-                rollLast = { t = noon, p = avg }
+                rollLast = { t = start, p = avg }
                 c.last = math_max(c.last or noon, noon)
             end
             d.qty, d.qn = d.qty + (Dec(f[6]) or 0), d.qn + (Dec(f[2]) or 0)
@@ -212,9 +215,12 @@ local function Collect(r, item, key)
         for _, s in ipairs(scans) do
             if s.t >= known and s.t < lastObs.t then
                 while k < #obs and obs[k + 1].t <= s.t do k = k + 1 end
-                -- the newest price before: the last sighting, or the last daily rollup when that is newer
+                -- the newest price before: the last sighting, or the last daily rollup when there is none or only an
+                -- older search (every per-scan record is newer than the rollups)
                 local prev = k > 0 and obs[k] or nil
-                if rollLast and rollLast.t < s.t and (not prev or prev.t < rollLast.t) then prev = rollLast end
+                if rollLast and rollLast.t < s.t and (not prev or (prev.search and prev.t < rollLast.t)) then
+                    prev = rollLast
+                end
                 prev = prev and prev.p
                 local st = state[s.stamp]
                 if prev and st ~= true and st ~= "?" then
