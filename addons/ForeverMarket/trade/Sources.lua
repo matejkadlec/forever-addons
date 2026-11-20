@@ -87,8 +87,9 @@ local function Place(entry)
     return (entry.name or "?") .. ", " .. where
 end
 
--- The character level a recipe item asks for (FRV-91): GetItemInfo's itemMinLevel, 0 for none; nil while the
--- client does not have the item (it is requested then, the next pass knows it)
+-- The level needed to learn a recipe (FRV-91; the maintainer, 2026-11-20: "the level that's needed to learn the
+-- recipe") is the recipe item's own required level: GetItemInfo's itemMinLevel, 0 for none; nil while the client
+-- does not have the item (it is requested then, the next pass knows it)
 local levelCache = {}
 local function ItemLevelReq(id)
     id = tonumber(id)
@@ -106,17 +107,34 @@ local function ItemLevelReq(id)
     return levelCache[id]
 end
 
--- "Requires Level 45" in an item's tooltip text (the client's own ITEM_MIN_LEVEL wording when it has one)
+-- "Requires Level 45" (the client's own ITEM_MIN_LEVEL wording when it has one)
 local LEVEL_PATTERN = (type(ITEM_MIN_LEVEL) == "string" and ITEM_MIN_LEVEL:find("%d", 1, true))
     and ITEM_MIN_LEVEL:gsub("%%d", "(%%d+)") or "Requires Level (%d+)"
-local function LevelInText(text)
-    return type(text) == "string" and tonumber(string_match(text, LEVEL_PATTERN)) or nil
+
+-- The recipe item's own required level from its tooltip lines. The tooltip also shows the item the recipe makes,
+-- with that item's own "Requires Level" (Pattern: Green Whelp Bracers shows the bracers' level 33, the pattern itself
+-- needs none): never that one. The recipe's own lines come after its "Use: Teaches you how to ..." line. Returns the
+-- level found there, 0 for none, nil when the lines have no such line
+local function RecipeOwnLevel(lines)
+    local own = false
+    for _, text in ipairs(lines) do
+        if type(text) == "string" and not FM.IsSecret(text) then
+            if own then
+                local level = tonumber(string_match(text, LEVEL_PATTERN))
+                if level then return level end
+            elseif string_find(text, "^Use: Teaches") then
+                own = true
+            end
+        end
+    end
+    return own and 0 or nil
 end
 
 -- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern), at any
 -- skill of your professions (BuildSources tells "learnable now" from "at a higher skill"). Each way to learn
--- carries the character level it needs (level, 0 = none, nil = not known yet): a trainer's from ForeverArtisan's
--- levelReq (GetTrainerServiceLevelReq), a vendor pattern's from its levelReq or its "Requires Level" line
+-- carries the level needed to learn it (level, 0 = none, nil = not known yet): a trainer's from ForeverArtisan's
+-- levelReq (GetTrainerServiceLevelReq), a vendor pattern's from its own levelReq (its item info at the merchant),
+-- its item info now, else its own tooltip lines
 local function ReadContacts(profSkill)
     local vendors, routes = {}, {}
     local db = _G.ForeverArtisanContactsDB
@@ -173,7 +191,7 @@ local function ReadContacts(profSkill)
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
                                         limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
                                         npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y,
-                                        level = tonumber(it.levelReq) or LevelInText(text) or ItemLevelReq(id) }
+                                        level = tonumber(it.levelReq) or ItemLevelReq(id) or RecipeOwnLevel(List(it.tooltip)) }
                                 end
                             end
                         end
@@ -222,8 +240,8 @@ local function PatternReq(key, profName)
     return nil
 end
 
--- The character level a pattern on the AH asks for: its item info, else its tooltip's "Requires Level" line
--- (no such line once the tooltip is there = none); nil while the client has neither
+-- The level needed to learn a pattern on the AH: its own item info, else its own tooltip lines (never the made
+-- item's); nil while the client has neither
 local function PatternLevel(key)
     local level = ItemLevelReq(key)
     if level then return level end
@@ -231,15 +249,10 @@ local function PatternLevel(key)
     local id = tonumber(key)
     if not (api and id) then return nil end
     local ok, data = pcall(api, id)
-    if not (ok and type(data) == "table" and type(data.lines) == "table" and data.lines[1]) then return nil end
-    for _, line in ipairs(data.lines) do
-        local text = type(line) == "table" and line.leftText
-        if type(text) == "string" and not FM.IsSecret(text) then
-            local found = LevelInText(text)
-            if found then return found end
-        end
-    end
-    return 0
+    if not (ok and type(data) == "table" and type(data.lines) == "table") then return nil end
+    local lines = {}
+    for i, line in ipairs(data.lines) do lines[i] = type(line) == "table" and line.leftText or "" end
+    return RecipeOwnLevel(lines)
 end
 
 -- Auctionator's cache of vendor prices it saw at merchants (reagents only, no place)

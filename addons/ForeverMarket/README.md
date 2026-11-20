@@ -219,7 +219,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
     left of it when the screen ends there). Every change applies at once: the table shows it, Picks plans again
     (also while the plan is locked). Switching tabs shows the new tab's set (a tab without filters hides it until you
-    are back), closing the table closes it and opening the table again opens only the table, Esc closes it. The
+    are back), closing the table closes it and opening the table again opens only the table, Esc closes it (with the
+    table and every other ForeverMarket window, as Esc always does: they are all in `UISpecialFrames`). The
     buttons open it, a click again closes it. A child option is greyed out and disabled while its parent is
     unchecked. The global dialog marks an option some tabs lack ("(Picks only)", "(Picks, Craft)"); there it does
     not apply.
@@ -238,10 +239,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     * **Exclude stock for crafting** [ ] (Picks, FRV-90): checked, the plan buys every material as if your bags and
       bank were empty (tools you own still count); unchecked, your materials are used first (Picks below)
   * In Learn the level and skill options are at the top level. Number boxes are as wide as their digits.
-  * A recipe's character level (FRV-91): the level a way to learn it asks for, per route (`route.level` in
-    trade/Sources.lua): a trainer's from ForeverArtisan_Contacts' `levelReq` (`GetTrainerServiceLevelReq`), a vendor
-    pattern's from its `levelReq`, else its "Requires Level" line, else its item info, a pattern on the AH from its
-    item info (`itemMinLevel`), else its tooltip ([forever-api-notes](../../docs/forever-api-notes.md)). A recipe
+  * A recipe's character level (FRV-91): the level needed to learn it, per way to learn it (`route.level` in
+    trade/Sources.lua): a trainer's from ForeverArtisan_Contacts' `levelReq` (`GetTrainerServiceLevelReq`), a
+    pattern's (a vendor's or on the AH) its own required level: its `levelReq` saved at the merchant, else its item
+    info (`itemMinLevel`), else its own tooltip lines after "Use: Teaches you how to ...". Never the level of the item
+    the recipe makes, which its tooltip shows too (Pattern: Green Whelp Bracers shows the bracers' "Requires Level 33";
+    [forever-api-notes](../../docs/forever-api-notes.md)). A recipe
     passes a tab's filters when one way to learn it fits both the skill limit and the level limit (`FM.RecipeFits`);
     an unknown level counts as none; learned recipes are never affected. Your level: `UnitLevel("player")`.
   * Saved values (1.29): "Not learned", "Ignore vendor", "Above current skill" and "Max. above current skill" carried
