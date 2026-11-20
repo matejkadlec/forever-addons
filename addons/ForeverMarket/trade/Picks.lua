@@ -423,12 +423,13 @@ end
 -- A trial records what a plan would take: used[key] = units of others' auctions, stock[key] = your units,
 -- made[key] = spare intermediates, madeAt[key] = their unit cost, fromMade[key] = of stock[key] the spare ones,
 -- vendor[key], top[key] = highest AH price paid, crafted[key] = units of an intermediate the plan makes; for one it
--- buys: craftAt[key] = the lowest unit cost crafting them would have had, craftNo[key] = the material that ran out
--- for crafting them. Trials chain to a parent.
+-- buys, why (buyWhy[key], the newest bought run, the dearest: both ladders only climb): { at = what crafting its
+-- units would have cost each, vs = what buying them cost each } or { missing = the material that ran out for
+-- crafting them }. Trials chain to a parent.
 
 local function NewTrial(parent)
     return { parent = parent, used = {}, stock = {}, made = {}, madeAt = {}, fromMade = {}, vendor = {}, top = {},
-        crafted = {}, craftAt = {}, craftNo = {} }
+        crafted = {}, buyWhy = {} }
 end
 
 local function Sum(trial, field, key)
@@ -447,10 +448,8 @@ local function Merge(dst, src)
     for key, u in pairs(src.top) do
         if not dst.top[key] or u > dst.top[key] then dst.top[key] = u end
     end
-    for key, u in pairs(src.craftAt) do
-        if not dst.craftAt[key] or u < dst.craftAt[key] then dst.craftAt[key] = u end
-    end
-    for key, missing in pairs(src.craftNo) do dst.craftNo[key] = missing end
+    -- src is always the newer trial: its reason and its runs' unit cost replace the older ones
+    for key, why in pairs(src.buyWhy) do dst.buyWhy[key] = why end
     for key, u in pairs(src.madeAt) do dst.madeAt[key] = u end
 end
 
@@ -556,13 +555,8 @@ local function Take(key, n, part, trial, depth)
             elseif cost then
                 bought.parent = nil
                 Merge(trial, bought)
-                -- why the plan buys: what crafting these units would have cost, or what ran out for it
-                if runValue then
-                    local unit = runValue / makes
-                    if not trial.craftAt[key] or unit < trial.craftAt[key] then trial.craftAt[key] = unit end
-                else
-                    trial.craftNo[key] = missing
-                end
+                -- why the plan buys: what crafting these units would have cost against buying them, or what ran out
+                trial.buyWhy[key] = runValue and { at = runValue / makes, vs = cost / units } or { missing = missing }
                 value, capital = value + cost, capital + cost
             else
                 return nil
@@ -700,13 +694,12 @@ end
 -- ran out for it, or why the table could not craft it at all; nil for a material without a recipe
 local function BuyReason(part, trial)
     local key = part.key
-    local craftAt = trial.craftAt[key]
-    if craftAt then
+    local why = trial.buyWhy[key]
+    if why and why.at then
         -- cheaper by less than the 3% crafting has to beat buying by (FM.CraftBeatsBuying)
-        local paid = trial.top[key] or FM.VendorUnit(key, false)
-        return "crafting costs " .. M(craftAt) .. " each" .. ((paid and craftAt < paid) and ", under 3% less" or "")
+        return "crafting costs " .. M(why.at) .. " each" .. (why.at < why.vs and ", under 3% less" or "")
     end
-    if trial.craftNo[key] then return "no " .. Name(trial.craftNo[key]) .. " left to craft it" end
+    if why and why.missing then return "no " .. Name(why.missing) .. " left to craft it" end
     local no = part.noCraft
     if no == "recipe not learned" then return no end
     if type(no) == "table" and no.missing then return "no price for " .. Name(no.missing) end

@@ -683,3 +683,22 @@ H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to 
     H.eq(pick.unitProfit, 8500, "profit per item: 85s")
     H.eq(pick.invest, 15000, "the gold of the 5 runs: 1g 50s")
 end)
+
+H.test("picks: bought, then crafted, then bought again: the line gives the reason of the dear units", function()
+    local FM, env = Setup({ ["707"] = 12 })
+    FM_Money = FM.FormatMoney
+    SaltAtVendor(FM)
+    -- 10 Cured Hides at 13s, then 17s; Hides 20 at 13s 42c, then 25s: crafting costs 14s 77c, then 26s 35c
+    local craft = Craft("707", 80) -- C/24h 80: room for 20, 40 Cured Hides
+    craft.parts = { { key = "960", n = 2, unit = 1300, src = "ah",
+        craftAlt = { unit = 1477, src = "craft", makes = 1, parts = {
+            { key = "961", n = 1, unit = 1342, src = "ah" }, { key = "912", n = 3, unit = 45, src = "vendor" } } } } }
+    local view = View({ ["960"] = { ladder = { { 1300, 10 }, { 1700, 100 } }, qty = 110, own = 0 },
+        ["961"] = { ladder = { { 1342, 20 }, { 2500, 1000 } }, qty = 1020, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["707"]
+    H.eq(HasStep(pick, "make 20"), true, "make 20")
+    H.same(pick.buys, { { key = "960", ah = 20, top = 1700 }, { key = "961", ah = 20, top = 1342 } },
+        "the 10 cheap ones and the last 10 bought, 20 crafted from the cheap Hides")
+    H.eq(MaterialLine(pick, "960"), "AH 20 up to " .. Money(1700) .. " (crafting costs " .. Money(2635) .. " each), craft 20",
+        "the reason of the units at 17s: crafting them would cost 26s 35c")
+end)
