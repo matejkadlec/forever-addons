@@ -321,7 +321,7 @@ local DURATION_HOURS = { ["1"] = 2, ["2"] = 8, ["3"] = 24 }
 -- can check them against that snapshot. An auction without a buyout is never `old`: the scans leave those out.
 -- Returns byKey[key] = { n = units, list = units from the lists, posts = units posted since, old = units last
 -- seen before cutT, units = { [unit price] = units } of the old ones (nil without any), value = what all n are listed
--- at (their unit prices; an auction without a buyout adds its posted price, or nothing from a list), t = the oldest
+-- at (their unit prices; an auction without a buyout at its posted bid, nothing when no post tells), t = the oldest
 -- moment a counted auction was last seen (its list, or its post) } and info = { lists = characters with a list,
 -- newest = when the latest list was read }
 function FM.OwnListings(cutT)
@@ -355,7 +355,8 @@ function FM.OwnListings(cutT)
         local t = FM.Unstamp(f[1])
         if not t or now - t > LONGEST_LISTING then break end
         posts[#posts + 1] = { t = t, f = f }
-        if f[7] == "b" and f[8] then bidOnly[f[2] .. ":" .. f[8]] = true end
+        -- with its bid: the value of the auction list's entry, which has no buyout (FRV-89)
+        if f[7] == "b" and f[8] then bidOnly[f[2] .. ":" .. f[8]] = Dec(f[5]) or true end
         -- how the item was posted last: a commodity's list entry holds its unit price, an item's its total
         if f[3] and commodity[f[3]] == nil and (f[7] == "c" or f[7] == "i") then commodity[f[3]] = f[7] == "c" end
     end
@@ -379,7 +380,13 @@ function FM.OwnListings(cutT)
                     -- unit in one auction is a commodity's)
                     local isCommodity = commodity[e.key]
                     if isCommodity == nil then isCommodity = qty > 1 end
-                    add(e.key, qty, "list", snap.t, prices, isCommodity and buyout or perUnit)
+                    local value = isCommodity and buyout or perUnit
+                    if buyout <= 0 then
+                        -- a bid only auction: what its post bid
+                        local bid = bidOnly[char .. ":" .. aid]
+                        value = type(bid) == "number" and bid or 0
+                    end
+                    add(e.key, qty, "list", snap.t, prices, value)
                 end
             end
         end

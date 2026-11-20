@@ -143,3 +143,14 @@ H.test("listings: the value of an item's list entry is its buyout over its units
     H.eq(byKey["700"].value, 5000, "the item: 50s for both")
     H.eq(byKey["701"].value, 3 * 5000, "the commodity: 50s each")
 end)
+
+H.test("listings: a bid only auction in the list is valued at its posted bid, without a post at nothing", function()
+    local FM, r, now = Load()
+    local bidEntry = table.concat({ B(91), "600", B(2), B(0), "a", B(60000) }, ":") -- no buyout
+    r.posts[1] = Post(300, "Tester", "600", 2, 3, 91, "b")                       -- its post: a bid of 5s
+    r.owned.Tester = { t = now - 4 * 3600, list = bidEntry }
+    H.eq(FM.OwnListings()["600"].value, 2 * 500, "2 at the posted bid")
+    FM, r, now = Load()
+    r.owned.Tester = { t = now - 4 * 3600, list = bidEntry }
+    H.eq(FM.OwnListings()["600"].value, 0, "no post tells its bid")
+end)

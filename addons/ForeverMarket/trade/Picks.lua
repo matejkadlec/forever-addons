@@ -1363,9 +1363,10 @@ local function ListedOut(key)
     local n = Yours(key)
     if n <= 0 then return nil end
     local e = P.listings[key]
-    -- the value of the units still counted: the average of what you listed them at
+    -- the value of the units still counted: the average of what you listed them at; the lowest threshold (1c) holds
+    -- for any listing, also one whose price is not known (a bid only auction no post tells about)
     local value = (e and e.value and e.n > 0) and e.value * n / e.n or 0
-    if n < F.listedCount or value < F.listedValue then return nil end
+    if n < F.listedCount or (F.listedValue > 1 and value < F.listedValue) then return nil end
     return string_format("you list %s already, worth %s (Exclude already listed items)", Count(n), M(value))
 end
 

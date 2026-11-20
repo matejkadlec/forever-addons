@@ -234,8 +234,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     * **Exclude already listed items** [ ] (Picks): an item is no pick once your listings of it (all characters, as
       the room on the AH counts them) reach both **Listed items count threshold** [1] units and **Listed items value
       threshold** [0g 0s 1c] at your listing prices (`FM.OwnListings`'s `value`: a post at its unit price, an
-      auction list entry at its buyout, per unit for an item, as the unit price for a commodity); 0 or empty
-      becomes 1, 0g 0s 0c becomes 1c. With the defaults any listing excludes the item; the reason names it
+      auction list entry at its buyout, per unit for an item, as the unit price for a commodity, a bid only one at
+      its posted bid); 0 or empty becomes 1, 0g 0s 0c becomes 1c. With the defaults any listing excludes the item
+      (1c holds for every listing, also one whose price is not known); the reason names it
     * **Exclude stock for crafting** [ ] (Picks, FRV-90): checked, the plan buys every material as if your bags and
       bank were empty (tools you own still count); unchecked, your materials are used first (Picks below)
   * In Learn the level and skill options are at the top level. Number boxes are as wide as their digits.

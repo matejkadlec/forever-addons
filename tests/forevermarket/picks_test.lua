@@ -983,3 +983,20 @@ H.test("recipes: one way to learn it must fit both limits; without a known way i
     H.eq(FM.RecipeFits({ learnAll = { { req = 0 } } }, 0, 1), true, "an unknown level counts as none")
     H.eq(FM.RecipeFits({ learnAll = {} }, 0, 1), true, "no known way")
 end)
+
+H.test("picks: Exclude already listed items with the defaults also excludes a listing whose price is not known", function()
+    -- a bid only auction in your auction list, no post of it: its value is not known
+    local function Setup137(valueMin)
+        local FM, env, r = Setup({ ["137"] = 9 })
+        r.owned.Tester = { t = env.clock - 3600, list = table.concat({ B(1), "137", B(1), B(0), "a", B(80000) }, ":") }
+        local set = FM.FilterSet("picks")
+        set.noListed, set.listedValue = true, valueMin
+        return FM, env
+    end
+    local FM, env = Setup137(1)
+    local out = { crafts = { Craft("137", 400) } }
+    H.eq(Compute(FM, env, out)["137"], nil, "1c: any listing excludes it")
+    H.eq(out.pickWhy["137"], "you list 1 already, worth " .. FM.FormatMoney(0) .. " (Exclude already listed items)", "the reason")
+    FM, env = Setup137(2)
+    H.eq(Compute(FM, env, { crafts = { Craft("137", 400) } })["137"] ~= nil, true, "2c: a listing worth nothing known stays a pick")
+end)
