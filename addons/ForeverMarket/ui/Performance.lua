@@ -2,7 +2,8 @@ local _, FM = ...
 
 -- The Profit tab of the market table: your AH result as a line from 0 with one dot per day, week or month
 -- (trade/Performance.lua). Hover a dot for that period: the AH result so far, the change, what sold, what you
--- bought and the real losses. Daily / Weekly / Monthly sit in the filter row.
+-- bought and the real losses. Daily / Weekly / Monthly sit in the filter row, and right of them "This character" /
+-- "All characters" once more than one of your characters has AH logs (1.24, FRV-37).
 
 local type = type
 local ipairs = ipairs
@@ -168,6 +169,17 @@ local function SetMode(id)
     if FM.RefreshTable then FM.RefreshTable() end
 end
 
+-- "char" = the logged-in character alone, "all" = all your characters together
+local SCOPES = {
+    { id = "char", label = "This character", tip = "The AH result of the character you are logged in with, alone." },
+    { id = "all", label = "All characters", tip = "The AH result of all your characters of this realm and faction together: an item one of them buys and another one sells counts as that sale against that purchase." },
+}
+
+local function SetScope(id)
+    FM.GetSettings().perfScope = id
+    if FM.RefreshTable then FM.RefreshTable() end
+end
+
 local function CreatePanel(parent, geo)
     local p = CreateFrame("Frame", nil, parent)
     p:SetPoint("TOPLEFT", parent, "TOPLEFT", geo.x, geo.y)
@@ -185,6 +197,26 @@ local function CreatePanel(parent, geo)
         b:SetPoint("TOPLEFT", parent, "TOPLEFT", 22 + (i - 1) * 88, geo.filterY)
         b:SetScript("OnClick", function() SetMode(id) end)
         p.modes[id] = b
+    end
+    -- This character / All characters right of them (shown with more than one character with AH logs)
+    p.scopes = {}
+    local scopeX = 22 + #FM.PERF_MODE_ORDER * 88 + 20
+    for i, scope in ipairs(SCOPES) do
+        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
+        b:SetSize(118, 22)
+        b:SetText(scope.label)
+        b:SetPoint("TOPLEFT", parent, "TOPLEFT", scopeX + (i - 1) * 122, geo.filterY)
+        b:SetScript("OnClick", function() SetScope(scope.id) end)
+        -- the scope shown is the disabled button: its tooltip shows too
+        b:SetMotionScriptsWhileDisabled(true)
+        b:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(scope.label, 1, 1, 1)
+            GameTooltip:AddLine(scope.tip, 1, 0.82, 0, true)
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        p.scopes[scope.id] = b
     end
 
     -- header: the AH result over the dots shown, what you hold from the AH, your gold
@@ -283,7 +315,13 @@ local function Render()
     local mode = FM.GetSettings().perfMode
     if not (FM.PERF_MODES[mode]) then mode = "day" end
     for id, b in pairs(p.modes) do b:SetEnabled(id ~= mode) end
-    series = FM.PerfSeries(mode)
+    -- one character or all of them: a choice only with more than one character with AH logs
+    local scope, choice = FM.PerfScope()
+    for id, b in pairs(p.scopes) do
+        b:SetShown(choice)
+        b:SetEnabled(id ~= scope)
+    end
+    series = FM.PerfSeries(mode, nil, scope)
     for _, pool in ipairs({ p.grid, p.labels, p.lines, p.dots }) do Reset(pool) end
     p.dotX = {}
     if p.hover then FM.PerfHover(nil) end
@@ -296,8 +334,11 @@ local function Render()
     p.value:SetTextColor(c[1], c[2], c[3])
     p.change:SetText(GREY .. "over the " .. #periods .. " " .. (mode == "day" and "day" or mode) .. (#periods == 1 and "" or "s")
         .. " shown|r")
-    p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%sitems bought there (usual price) and your auctions' deposits|r",
-        series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY))
+    p.title:SetText(series.all and "AH result, all characters" or "AH result")
+    p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%s%s|r",
+        series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY,
+        series.all and "items your characters bought there (usual price) and their auctions' deposits"
+            or "items bought there (usual price) and your auctions' deposits"))
     p.empty:Hide()
 
     -- y scale over the line, 0 included (it starts there)
@@ -366,6 +407,7 @@ function FM.PerfFooter()
     local mode = series and series.mode or "day"
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
+    if series and series.all then parts[#parts + 1] = "all your characters together" end
     parts[#parts + 1] = "AH only: sales after the cut, less overpaying, selling under cost and lost deposits; buying and posting move gold into items"
     parts[#parts + 1] = "% of what you had spent on the AH by the dot plus the result before"
     if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end

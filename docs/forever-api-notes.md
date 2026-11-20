@@ -140,6 +140,17 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMar
   - `PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED(slot)` is about the bags in the account bank's slots (Camelot's `BankItemButtonBagMixin` refreshes `Enum.BagIndex.Accountbanktab` on it), not about the items in them
 - `C_Item.GetItemCount(itemInfo, includeBank, includeUses, includeReagentBank, includeAccountBank)`: the account bank is a flag of its own (the fifth argument), every flag defaults to false
 
+## Mail
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-37. In game ForeverMarket already reads the inbox (`GetInboxNumItems`, `GetInboxHeaderInfo`, `GetInboxInvoiceInfo`, `GetInboxItem` on `MAIL_INBOX_UPDATE`); everything about sending is verified against the source only (not yet verified in game).
+
+- The mail frame is Mainline's `Blizzard_MailFrame` on the global mail functions (they are not in `Blizzard_APIDocumentationGenerated/`, Blizzard's Lua uses them): `SendMail(recipient, subject, body, replyMailID)`, `GetSendMailItem(slot)` -> `itemName, itemID, itemTexture, stackCount, quality`, `HasSendMailItem(slot)`, slots 1 to `ATTACHMENTS_MAX_SEND` (12)
+- `GetInboxNumItems()` returns the mails the inbox shows and the mails it holds in all (`numItems, totalItems`): the inbox can hold more than it shows
+- Events (`MailInfoDocumentation.lua`): `MAIL_SEND_SUCCESS` after the server took a mail (the frame resets its send slots on it), `MAIL_FAILED(itemID)`, `MAIL_SEND_INFO_UPDATE` when the send slots change, `MAIL_INBOX_UPDATE`, `MAIL_SHOW`, `MAIL_CLOSED`
+- A mail with money goes through the secure transfer confirmation (`C_SecureTransfer.SendMail` after `SendMail`), so `MAIL_SEND_SUCCESS` can come long after the `SendMail` call
+- ForeverMarket (1.24, FRV-37) hooks `SendMail` with `hooksecurefunc`, reads the send slots right after the call and logs them on `MAIL_SEND_SUCCESS` for a mail to another character of the player
+  - Assumed, not yet verified in game: the send slots still hold the items right after `SendMail` returns (the frame keeps them until `MAIL_SEND_SUCCESS`, and on `MAIL_FAILED` only re-enables its Send button), and the recipient is typed as the first name or the full name
+
 ## Professions
 
 Verified against wow-ui-source `forever` (1.60.1) for FRV-10 and FRV-65, not yet verified in game. ForeverMarket takes the recipe list of its market table from the SavedVariables of the third-party AddOn ForeverArtisan; since 1.21 its craft log (`trade/Crafts.lua`) hooks `C_TradeSkillUI.CraftRecipe` and reads `C_TradeSkillUI.GetRecipeSchematic` (below).

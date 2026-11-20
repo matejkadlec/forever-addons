@@ -6,15 +6,22 @@ local _, FM = ...
 -- overpaying, selling under cost, the AH cut and lost deposits make the AH result fall. Loot, quests, vendors,
 -- trainers and the like don't count: an item you didn't buy on the AH counts when it sells there.
 --
--- R.worth[char]   = { "t,gold,held,hseen", ... }  t = FM.Stamp minutes, about one line per hour (its last reading;
---   the first reading that saw something new stays as its own line);
+-- R.worth[char]   = { "t,gold,held,hseen,all,saw", ... }  t = FM.Stamp minutes, about one line per hour (its last
+--   reading; the first reading that saw something new stays as its own line);
 --   held = the units of each item bought on the AH (purchases of a year and won auctions, less your sales of it)
 --   that you still hold (bags, bank, mailbox, purchases still in the mail, your auctions) at the usual AH price,
 --   plus the deposits of your running auctions and the money of sold ones still on its way by mail;
 --   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen): held counts in a change only between readings
---   that saw the same, so the first look at the bank is no gain (readings without "h" are from 1.15.0-1.15.1)
+--   that saw the same, so the first look at the bank is no gain (readings without "h" are from 1.15.0-1.15.1);
+--   all, saw (1.24, FRV-37; older lines have neither) = the same of all your characters of this realm and faction
+--   together, as known at that moment: the units bought on the AH by any of them, less the sales of any of them,
+--   still held by any of them (this character live; the others from their saved bags, bank and mailbox, mail on
+--   its way between them, the account bank), plus the auctions of all of them; saw = a short hash of which
+--   readings that counted (per character "h" bags, "b" bank, "m" mailbox, and the account bank): all counts in a
+--   change only between readings that saw the same, so the first look at another character's bank is no gain
 -- R.bank[char]    = "t|id:all:free,..."     your bank as last seen
 -- R.mailbox[char] = "t|money|id:count,..."  your mailbox as last seen
+-- R.sent[char]    = { "t|id:count,...", ... }  mail from your other characters on its way to char (scan/Characters.lua)
 
 local Enc, Dec = FM.Enc, FM.Dec
 local type = type
@@ -26,6 +33,7 @@ local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
 local string_sub = string.sub
+local string_find = string.find
 local table_concat = table.concat
 local table_sort = table.sort
 
@@ -37,6 +45,8 @@ local AH_CUT = 0.05
 local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 } -- posts store the duration index
 local POSTS_BACK = 3 * 86400 -- posts older than this have ended and come back long ago
 local MAIL_LATE = 2 * 3600 -- a sale's mail may go out this long after a list showed the sale
+local SENT_KEEP = 30 * 86400 -- mail lives 30 days: one of your characters' mails older than this is gone
+local OTHERS_KEEP = 300 -- seconds the reading of your other characters is kept (their auctions run out with time)
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
@@ -158,7 +168,8 @@ FM.NameKeys = NameKeys
 
 -- From when your AH logs are complete: a log at its cap has dropped its oldest lines and covers only from its first
 -- line on (an invoice: from when it was read), purchases are kept a year. Nothing older counts in the Profit tab
--- or as bought, so a dropped sale can't make its purchase look held again.
+-- or as bought, so a dropped sale can't make its purchase look held again. Without a character: of all your
+-- characters together (every character's readings).
 function FM.CoveredFrom(r, char, now)
     local from = (now or FM.Now()) - (FM.BUYS_KEEP_DAYS or 365) * 86400
     local function Check(list, max, stampOf)
@@ -174,7 +185,11 @@ function FM.CoveredFrom(r, char, now)
     end)
     Check(r.posts, FM.LIMITS.postsMax, First)
     Check(r.buys, FM.BUYS_MAX or 10000, function(line) return tonumber(line:match("^(%d+),")) end)
-    Check(type(r.worth) == "table" and r.worth[char], WORTH_MAX, First)
+    if char then
+        Check(type(r.worth) == "table" and r.worth[char], WORTH_MAX, First)
+    else
+        for _, list in pairs(type(r.worth) == "table" and r.worth or {}) do Check(list, WORTH_MAX, First) end
+    end
     return from
 end
 
@@ -182,14 +197,15 @@ end
 --   running: their units (add) and their deposit (it comes back with a sale)
 --   sold, its mail not read: the money after the cut and the deposit, on their way by mail
 --   ended or cancelled after the last look into the mailbox: their units, on their way back by mail
--- Without any mailbox reading, "the last look" is login (opening it would have made one).
+-- Without any mailbox reading, "the last look" is login (opening it would have made one); look = the last look of
+-- a character that is not logged in (FRV-37).
 -- What the lists saw change (osold, also still shown sold, opart, ocancel, ogone) is matched to the mails you read
 -- of the item: a matched mail is that change's; an unmatched one is still on its way while its mail can't have
 -- been in the mailbox at the last look (a sale's mail goes out up to MAIL_LATE after the list saw it). Other
 -- sales, expiries and cancels read from your mail since the list take their units off the running ones, oldest
 -- first. Returns the deposits and money counted.
-local function Auctions(r, char, now, mailT, add)
-    local lookT = mailT or FM.loginAt or now
+local function Auctions(r, char, now, mailT, add, look)
+    local lookT = look or mailT or FM.loginAt or now
     local owned = type(r.owned) == "table" and r.owned[char]
     local listT = type(owned) == "table" and owned.t or nil
     local running, inList = {}, {}
@@ -237,9 +253,11 @@ local function Auctions(r, char, now, mailT, add)
             list[#list + 1] = { t = t, qty = qty, sale = sale, used = 0 }
         end
     end
+    -- the logs hold every character's lines: only the ones that name this one are taken apart
+    local named = "," .. char .. ","
     for _, line in ipairs(r.invoices or {}) do
-        local f = FM.Split(line, ",")
-        if f[2] == char and f[3] == "seller" and f[4] then Mail(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]), true) end
+        local f = string_find(line, named, 1, true) and FM.Split(line, ",")
+        if f and f[2] == char and f[3] == "seller" and f[4] then Mail(f[4], Dec(f[6]) or 1, FM.Unstamp(f[1]), true) end
     end
     -- what the lists saw change since shortly before the last mailbox look or the list; a change's mail went out
     -- after the list before it (prev, 1.15.14 on; before: up to MAIL_LATE earlier) and by the list that saw it, a
@@ -247,7 +265,7 @@ local function Auctions(r, char, now, mailT, add)
     local changes, cancelled = {}, {}
     local oldest = math_min(lookT, listT or now) - MAIL_LATE -- a sale stays on its way until MAIL_LATE after the list
     for _, line in ipairs(r.events or {}) do
-        local f = FM.Split(line, ",")
+        local f = string_find(line, named, 1, true) and FM.Split(line, ",") or {}
         local kind, t = f[3], FM.Unstamp(f[1])
         if f[2] == char and f[4] and t then
             if kind == "mexpired" or kind == "mcancelled" then
@@ -344,59 +362,152 @@ end
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
 -- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:
 -- those were farmed or looted), since the logs are complete. Purchases logged before 1.15.5 have no character and
--- count for every one.
+-- count for every one. Returns two maps: of char alone, and of all your characters together (FRV-37: bought by
+-- any of them, less the sales of any of them, so an item one bought and another sold is no longer held).
 local function NetBought(r, char)
-    local moves = {} -- key -> { { t, units }, ... }
-    local from = FM.CoveredFrom(r, char)
-    local function Move(key, t, units)
-        if t < from then return end -- before the logs are complete: its sale or purchase may be gone
-        moves[key] = moves[key] or {}
-        moves[key][#moves[key] + 1] = { t, units }
+    local own, all = {}, {} -- key -> { { t, units }, ... }
+    local fromOwn, fromAll = FM.CoveredFrom(r, char), FM.CoveredFrom(r)
+    local function Move(key, t, units, mine)
+        -- before the logs are complete: its sale or purchase may be gone
+        if mine and t >= fromOwn then
+            own[key] = own[key] or {}
+            own[key][#own[key] + 1] = { t, units }
+        end
+        if t >= fromAll then
+            all[key] = all[key] or {}
+            all[key][#all[key] + 1] = { t, units }
+        end
     end
     for _, line in ipairs(r.buys or {}) do
         local t, key, qty, who = line:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
-        if key and (who == "" or who == char) then Move(key, tonumber(t), tonumber(qty)) end
+        if key then Move(key, tonumber(t), tonumber(qty), who == "" or who == char) end
     end
     local nameKeys = NameKeys(r)
     for _, line in ipairs(r.invoices or {}) do
         local f = FM.Split(line, ",")
-        local key = f[2] == char and f[4] and nameKeys[f[4]]
+        local key = f[2] and f[4] and nameKeys[f[4]]
         local t = key and FM.Unstamp(f[1])
         if t then
             local qty = Dec(f[6]) or 1
             if f[3] == "seller" then
-                Move(key, t, -qty)
+                Move(key, t, -qty, f[2] == char)
             elseif f[3] == "buyer" then
                 -- a commodity's won mail is in the purchase log already
                 local id = FM.ItemIDFromKey(key)
                 local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
-                if IsNumber(stack) and stack == 1 then Move(key, t, qty) end
+                if IsNumber(stack) and stack == 1 then Move(key, t, qty, f[2] == char) end
             end
         end
     end
-    local net = {}
-    for key, list in pairs(moves) do
-        table_sort(list, function(a, b) return a[1] < b[1] end)
-        local n = 0
-        for _, m in ipairs(list) do n = math_max(0, n + m[2]) end
-        net[key] = n
+    local function Net(moves)
+        local net = {}
+        for key, list in pairs(moves) do
+            table_sort(list, function(a, b) return a[1] < b[1] end)
+            local n = 0
+            for _, m in ipairs(list) do n = math_max(0, n + m[2]) end
+            net[key] = n
+        end
+        return net
     end
-    return net
+    return Net(own), Net(all)
 end
 
--- AH purchases after the last mailbox reading (or since login without one): still in the mail
-local function InTransit(r, char, mailT, add)
-    local since = mailT or FM.loginAt or FM.Now()
+-- AH purchases of a character after since (its last mailbox reading, or its login without one): still in the mail.
+-- named: only the purchases logged with its name (a character that is not logged in: one without a name, from
+-- before 1.15.5, would wait in the mail of every one of them)
+local function InTransit(r, char, since, add, named)
     for i = #(r.buys or {}), 1, -1 do
         local t, key, qty, who = r.buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
         t, qty = tonumber(t), tonumber(qty)
         if not t or t <= since then break end
-        if who == "" or who == char then add(key, qty) end
+        if who == char or (who == "" and not named) then add(key, qty) end
     end
 end
 
+-- The units of a saved reading "t|id:all:free,..." (bags, bank, account bank): the free ones where it keeps them.
+-- Returns whether there is a reading
+local function AddReading(text, add)
+    if type(text) ~= "string" then return false end
+    EachEntry(text:match("|(.*)$"), function(id, all, free) add(tostring(id), free or all) end)
+    return true
+end
+
+-- The units of a saved mailbox "t|money|id:count,...". Returns when it was read and whether there is a reading
+local function AddMailbox(text, add)
+    if type(text) ~= "string" then return nil, false end
+    local stamp, _, list = text:match("^(%w*)|(%w*)|(.*)$")
+    EachEntry(list, function(id, count) add(tostring(id), count) end)
+    return FM.Unstamp(stamp), true
+end
+
+-- The items your other characters mailed to char and its mailbox has not shown yet (R.sent, FRV-37): a line stays
+-- until char reads its whole mailbox (SaveMailbox), or the mail has expired
+local function AddSent(r, char, now, add)
+    local list = type(r.sent) == "table" and r.sent[char]
+    for _, line in ipairs(type(list) == "table" and list or {}) do
+        local stamp, items = line:match("^(%w+)|(.*)$")
+        local t = FM.Unstamp(stamp)
+        if t and now - t < SENT_KEEP then
+            EachEntry(items, function(id, count) add(tostring(id), count) end)
+        end
+    end
+end
+
+-- What your other characters of this realm and faction hold, from their saved records (FRV-37): the units in
+-- their bags, bank and mailbox, their purchases and your mail still on the way to them and their auctions; the
+-- deposits and sold money of those auctions; and which readings each one has ("h" bags, "b" bank, "m" mailbox).
+-- Their records only change while they are logged in (mail you send them aside: FM.WorthOthersChanged) and their
+-- auctions run out with time, so one reading is kept for a few minutes.
+local others
+local function Others(r, me, now)
+    local c = others
+    if c and c.r == r and c.me == me and c.version == FM.dataVersion and now >= c.at and now - c.at < OTHERS_KEEP then
+        return c
+    end
+    local units, flags, money = {}, {}, 0
+    local function add(key, n) units[key] = (units[key] or 0) + n end
+    local chars = {}
+    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned" }) do
+        for key in pairs(type(r[field]) == "table" and r[field] or {}) do
+            if key ~= me then chars[key] = true end
+        end
+    end
+    for char in pairs(chars) do
+        local seen = ""
+        if AddReading(type(r.bags) == "table" and r.bags[char], add) then seen = seen .. "h" end
+        if AddReading(type(r.bank) == "table" and r.bank[char], add) then seen = seen .. "b" end
+        local mailT, read = AddMailbox(type(r.mailbox) == "table" and r.mailbox[char], add)
+        if read then seen = seen .. "m" end
+        flags[char] = seen
+        -- without a mailbox reading nothing tells what still waits in its mail
+        if mailT then InTransit(r, char, mailT, add, true) end
+        AddSent(r, char, now, add)
+        -- its last look into the mailbox, else when it was last seen (its mail came after that)
+        local info = type(r.charInfo) == "table" and r.charInfo[char]
+        local look = mailT or (type(info) == "table" and type(info.seen) == "number" and info.seen) or now
+        money = money + Auctions(r, char, now, mailT, add, look)
+    end
+    others = { r = r, me = me, version = FM.dataVersion, at = now, units = units, flags = flags, money = money }
+    return others
+end
+
+-- The saved records of another character changed in this session (mail sent to it): read them again
+function FM.WorthOthersChanged()
+    others = nil
+end
+
+-- A short hash of what a reading of all characters saw: every character's readings and the account bank
+local function SawAll(me, seen, flags, account)
+    local parts = { me .. "=" .. seen }
+    for char, s in pairs(flags) do parts[#parts + 1] = char .. "=" .. s end
+    table_sort(parts)
+    if account then parts[#parts + 1] = "+a" end
+    return FM.Hash(table_concat(parts, ";"))
+end
+
 -- Your gold, what you hold from the AH (see the top) and what that saw ("h" + "b" bank, "m" mailbox) right
--- now; nil while the gold can't be read
+-- now, then the same of all your characters together and the hash of what that saw (FRV-37); nil while the gold
+-- can't be read
 function FM.WorthNow()
     local gold = GetMoney and GetMoney()
     if not IsNumber(gold) then return nil end
@@ -416,25 +527,34 @@ function FM.WorthNow()
     if scanned then
         addIndex(index)
         seen = seen .. "b"
-    elseif type(bank) == "string" then
-        EachEntry(bank:match("|(.*)$"), function(id, all, free) add(tostring(id), free or all) end)
+    elseif AddReading(bank, add) then
         seen = seen .. "b"
     end
-    local mail = type(r.mailbox) == "table" and r.mailbox[char]
-    local mailT
-    if type(mail) == "string" then
-        local stamp, _, list = mail:match("^(%w*)|(%w*)|(.*)$")
-        mailT = FM.Unstamp(stamp)
-        EachEntry(list, function(id, count) add(tostring(id), count) end)
-        seen = seen .. "m"
-    end
-    InTransit(r, char, mailT, add)
-    local held = Auctions(r, char, now, mailT, add)
-    for key, n in pairs(NetBought(r, char)) do
+    local mailT, read = AddMailbox(type(r.mailbox) == "table" and r.mailbox[char], add)
+    if read then seen = seen .. "m" end
+    InTransit(r, char, mailT or FM.loginAt or now, add)
+    local money = Auctions(r, char, now, mailT, add)
+    local own, joint = NetBought(r, char)
+    local held = money
+    for key, n in pairs(own) do
         local have = math_min(n, units[key] or 0)
         if have > 0 then held = held + ValueOfKey(key, have) end
     end
-    return gold, math_floor(held + 0.5), seen
+    -- all your characters together: this one live, the others as saved, mail between them that the receiver's
+    -- mailbox reading hasn't seen yet, and the account bank
+    local rest = Others(r, char, now)
+    local allUnits = {}
+    local function addAll(key, n) allUnits[key] = (allUnits[key] or 0) + n end
+    for key, n in pairs(units) do addAll(key, n) end
+    for key, n in pairs(rest.units) do addAll(key, n) end
+    AddSent(r, char, now, addAll)
+    local account = AddReading(r.accountBank, addAll)
+    local all = money + rest.money
+    for key, n in pairs(joint) do
+        local have = math_min(n, allUnits[key] or 0)
+        if have > 0 then all = all + ValueOfKey(key, have) end
+    end
+    return gold, math_floor(held + 0.5), seen, math_floor(all + 0.5), SawAll(char, seen, rest.flags, account)
 end
 
 ---------------------------------------------------------------- bank and mailbox
@@ -468,18 +588,29 @@ local function SaveMailbox()
     for id, count in pairs(counts) do parts[#parts + 1] = Enc(id) .. ":" .. Enc(count) end
     local r = FM.R()
     if type(r.mailbox) ~= "table" then r.mailbox = {} end
-    r.mailbox[FM.PlayerName()] = FM.Stamp() .. "|" .. Enc(money) .. "|" .. table_concat(parts, ",")
+    local char = FM.PlayerName()
+    r.mailbox[char] = FM.Stamp() .. "|" .. Enc(money) .. "|" .. table_concat(parts, ",")
+    -- mail from your other characters is in this reading now (or taken out of it), so it is no longer on its way;
+    -- an inbox that holds more mail than it shows may not show it yet and keeps it counted
+    local shown, total = GetInboxNumItems()
+    if type(r.sent) == "table" and not (IsNumber(shown) and IsNumber(total) and total > shown) then r.sent[char] = nil end
 end
 
 ---------------------------------------------------------------- readings
 
 local lastAt = 0
 
+-- What a reading line saw: this character's "hbm" and the hash of all of them together ("" before 1.24)
+local function Saw(line)
+    local f = FM.Split(line, ",")
+    return (f[4] or "") .. "," .. (f[6] or "")
+end
+
 -- One reading of your worth; force = even within 10 minutes of the last one
 function FM.RecordWorth(force)
     local now = FM.Now()
     if not force and now - lastAt < MIN_GAP then return end
-    local gold, held, seen = FM.WorthNow()
+    local gold, held, seen, all, saw = FM.WorthNow()
     if not gold then return end
     -- right after login GetMoney() can still answer 0
     if gold == 0 and FM.loginAt and now - FM.loginAt < 30 then return end
@@ -489,14 +620,15 @@ function FM.RecordWorth(force)
     local char = FM.PlayerName()
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
-    local line = FM.Stamp(now) .. "," .. Enc(gold) .. "," .. Enc(held) .. "," .. seen
-    -- one line per hour: a later reading of the same hour replaces it when it and the one before it saw the same;
-    -- the first reading that saw something new (e.g. the first look at the mailbox) is kept as the anchor of the
-    -- steps after it
+    local line = table_concat({ FM.Stamp(now), Enc(gold), Enc(held), seen, Enc(all), saw }, ",")
+    -- one line per hour: a later reading of the same hour replaces it when it and the one before it saw the same
+    -- (this character and all of them together); the first reading that saw something new (e.g. the first look at
+    -- the mailbox, or at another character's bank) is kept as the anchor of the steps after it
     local last, prev = list[#list], list[#list - 1]
     local lastT = last and FM.Unstamp(last:match("^(%w+),"))
-    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and last:match(",([^,]*)$") == seen
-        and (not prev or prev:match(",([^,]*)$") == seen) then
+    local what = Saw(line)
+    if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and Saw(last) == what
+        and (not prev or Saw(prev) == what) then
         list[#list] = line
     else
         FM.CapList(list, WORTH_MAX)

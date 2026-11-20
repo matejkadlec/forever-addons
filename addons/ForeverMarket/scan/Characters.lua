@@ -6,6 +6,8 @@ local _, FM = ...
 --   * R.bags[key] = "t|id:all:free,..." the bags at logout and after bag changes (at most every few minutes)
 --   * R.bank[key], R.mailbox[key] (scan/Worth.lua), R.owned[key] (scan/Ledger.lua), R.goldLast[key]
 --   * R.accountBank = "t|id:all:free,..." the account bank, once per realm bucket, while Blizzard lets you view it
+--   * R.sent[key] = { "t|id:count,...", ... } the items of the mails your other characters sent to the key's
+--     character, until it reads its mailbox (1.24, FRV-37)
 -- FM.Owned (trade/Sources.lua) stays the logged-in character, live; the reader never counts it.
 
 local Enc, Dec = FM.Enc, FM.Dec
@@ -16,9 +18,11 @@ local tostring = tostring
 local math_max = math.max
 local table_sort = table.sort
 local table_concat = table.concat
+local table_remove = table.remove
 local string_lower = string.lower
 
 local BAGS_GAP = 180 -- seconds: bag changes are saved at most this often (and always at logout)
+local SENT_MAX = 200 -- mails on their way kept per character (reading its mailbox drops them)
 
 -- "t|id:all:free,..." of an index [itemID] = { all, free }
 local function Encode(index)
@@ -165,6 +169,67 @@ end)
 FM.On("PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED", SaveAccountBankSoon)
 FM.On("BANK_TABS_CHANGED", SaveAccountBankSoon)
 
+---------------------------------------------------------------- mail to your other characters
+
+-- The items of a mail you send to another character of yours stay yours: the Profit tab's "All characters" counts
+-- them as on their way until that character reads its mailbox (scan/Worth.lua), so mailing what you bought on the
+-- AH to an alt is no loss (FRV-37). SendMail's recipient is matched by key or full name; the attachments are read
+-- right after the call (they stay in the send slots until the server answers) and logged once MAIL_SEND_SUCCESS
+-- confirms that mail. Verified against the source only (docs/forever-api-notes.md, Mail): every call is guarded
+local pendingMail -- { to = key, items = "id:count,..." } of the mail the server has not confirmed yet
+
+-- "id:count,..." of the items in the send slots, nil without any
+local function SendItems()
+    if not GetSendMailItem then return nil end
+    local counts = {}
+    for i = 1, ATTACHMENTS_MAX_SEND or 12 do
+        local _, id, _, count = GetSendMailItem(i)
+        if type(id) == "number" and not FM.IsSecret(id) and type(count) == "number" and not FM.IsSecret(count) and count > 0 then
+            counts[id] = (counts[id] or 0) + count
+        end
+    end
+    local parts = {}
+    for id, count in pairs(counts) do parts[#parts + 1] = Enc(id) .. ":" .. Enc(count) end
+    if #parts == 0 then return nil end
+    table_sort(parts)
+    return table_concat(parts, ",")
+end
+
+local function OnSendMail(recipient)
+    pendingMail = nil
+    if FM.IsSecret(recipient) or type(recipient) ~= "string" then return end
+    -- "Name", "First Surname" or either with "-Realm"
+    local name = recipient:match("^%s*(.-)%s*$")
+    local to = FM.FindCharacter(name) or FM.FindCharacter(name:match("^(.-)%-[^%-]*$"))
+    if not to or to == FM.PlayerName() then return end
+    local items = SendItems()
+    if items then pendingMail = { to = to, items = items } end
+end
+
+FM.On("MAIL_SEND_SUCCESS", function()
+    local mail = pendingMail
+    pendingMail = nil
+    if not mail then return end
+    local r = FM.R()
+    if type(r.sent) ~= "table" then r.sent = {} end
+    if type(r.sent[mail.to]) ~= "table" then r.sent[mail.to] = {} end
+    local list = r.sent[mail.to]
+    list[#list + 1] = FM.Stamp() .. "|" .. mail.items
+    while #list > SENT_MAX do table_remove(list, 1) end
+    -- what that character holds changed: the next Profit reading reads it again
+    if FM.WorthOthersChanged then FM.WorthOthersChanged() end
+end)
+FM.On("MAIL_FAILED", function() pendingMail = nil end)
+
+FM.On("PLAYER_LOGIN", function()
+    if FM.sendMailHooked or type(SendMail) ~= "function" then return end
+    FM.sendMailHooked = true
+    hooksecurefunc("SendMail", function(recipient)
+        local ok, err = pcall(OnSendMail, recipient)
+        if not ok and geterrorhandler then geterrorhandler()(err) end
+    end)
+end)
+
 ---------------------------------------------------------------- readers
 
 local PLACES = {
@@ -248,12 +313,13 @@ function FM.FindCharacter(name)
     return nil
 end
 
--- Forgets a character that was deleted, renamed or moved away: its records and readings, not its logs (posts,
--- invoices, events, purchases, Profit readings). Returns false and why for the logged-in character
+-- Forgets a character that was deleted, renamed or moved away: its records and readings (the mail on its way to
+-- it too), not its logs (posts, invoices, events, purchases, Profit readings). Returns false and why for the
+-- logged-in character
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "inv", "goldLast" }) do
+    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "inv", "goldLast", "sent" }) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end
     -- its auction list counted as your listings
