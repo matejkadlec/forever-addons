@@ -258,3 +258,33 @@ H.test("sniper: a purchase the game blocks from the catcher turns it off, the bi
     FM.SnipeStart()
     H.eq(catcher:IsShown(), false, "it stays off until /reload")
 end)
+
+-- FRV-82: in click-confirm mode a wheel step on the catcher confirms the waiting quote; when the game blocks that
+-- confirm, the server got nothing: its gold and units are not counted, the quote waits for the next wheel step, and
+-- that step (the binding now) confirms it once
+H.test("sniper: a click confirm the game blocks from the catcher counts nothing, the binding confirms it once", function()
+    local FM, env, ah = Load()
+    local catcher = env.ForeverMarketSnipeWheelCatcher
+    FM.GetSettings().snipeConfirmClick = true
+    FM.SnipeSet(tostring(LEATHER), 100, 20)
+    Offer(env, ah, LEATHER, 90, 5)
+    catcher.scripts.OnMouseWheel(catcher, -1)
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 90, 450)
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).buying, true, "the quote waits for a wheel step")
+    local confirm = ah.ConfirmCommoditiesPurchase
+    ah.ConfirmCommoditiesPurchase = function()
+        env.FireEvent("ADDON_ACTION_BLOCKED", "ForeverMarket", "C_AuctionHouse.ConfirmCommoditiesPurchase")
+    end
+    catcher.scripts.OnMouseWheel(catcher, -1)
+    H.eq(catcher:IsShown(), false, "the catcher is off")
+    H.eq(FM.SnipeBudgetInfo().total, 0, "no gold counted")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).got, 0, "no units counted")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).buying, true, "the quote still waits")
+    H.eq(FM.SnipeIsActive(), true, "sniping goes on")
+    ah.ConfirmCommoditiesPurchase = confirm
+    FM.SnipeBuyClick() -- the binding's click on the hidden button
+    H.same(ah.confirmed, { { LEATHER, 5 } }, "the binding confirms it")
+    H.eq(FM.SnipeBudgetInfo().total, 450, "its gold counted once")
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).got, 5, "its units counted once")
+end)
