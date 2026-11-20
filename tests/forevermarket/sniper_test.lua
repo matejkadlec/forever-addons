@@ -127,6 +127,22 @@ H.test("sniper: a new number starts the count again, a new price keeps it", func
     H.eq(FM.SnipeSaved(key).n, nil, "false removes the number")
 end)
 
+H.test("sniper: the same number from the market table again keeps the count, another one starts it again", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeFromTable(key, 275, 144)
+    Offer(env, ah, LEATHER, 250, 100)
+    Buy(FM, env, ah, 250)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    env.printed = {}
+    FM.SnipeFromTable(key, 275, 144) -- the same pick clicked again
+    H.eq(FM.SnipeSaved(key).got, 100, "what is bought stays")
+    H.eq(env.printed[1]:find("100 / 144 bought", 1, true) ~= nil, true, "the chat line says so")
+    FM.SnipeFromTable(key, 275, 60) -- a new plan with another number
+    H.eq(FM.SnipeSaved(key).got, 0, "another number starts the count again")
+    H.eq(FM.SnipeSaved(key).n, 60, "with that number")
+end)
+
 H.test("sniper: without a number a hit takes what the one budget allows, whatever an item's old % says", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)

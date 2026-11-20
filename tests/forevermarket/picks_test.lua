@@ -489,3 +489,17 @@ H.test("picks: without 3 sales of yours the market share is the rate, listed or 
     local picks = Compute(FM, env, { crafts = { Craft("504", 400) } })
     H.eq(HasStep(picks["504"], "make 13"), true, "18 less your 5 listed: make 13")
 end)
+
+-- FRV-44: what Shift-click and the row menu send to the sniper. Rule: every AH purchase of the plan with its planned
+-- units and its highest AH price, the units the steps line names; a material bought at a vendor never goes to it
+H.test("picks: the sniper gets the plan's AH purchases with their units, never its vendor purchases", function()
+    local FM, env = Setup({ ["600"] = 9 })
+    FM.VendorUnit = function(key) if key == "901" then return 300, { where = "Drac Roughcut, Elwynn" } end end
+    local craft = Craft("600", 43)
+    craft.parts[2] = { key = "901", n = 1, unit = 300, src = "vendor" } -- cheaper at the vendor than on the AH
+    local picks = Compute(FM, env, { crafts = { craft } })
+    local pick = picks["600"]
+    H.eq(HasStep(pick, "make 11"), true, "make 11, as the room allows")
+    H.same(pick.buys, { { key = "900", ah = 11, top = 1000 } }, "only the AH material, 11 up to 10s")
+    H.eq(pick.mainKey, "900", "the window opens on it")
+end)
