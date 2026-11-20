@@ -65,6 +65,7 @@ function Stubs.NewEnvironment()
         function frame:IsShown() return self.shown == true end
         function frame:CreateFontString() return env.CreateFrame() end
         function frame:GetUnboundedStringWidth() return 0 end
+        function frame:GetStringWidth() return 0 end
         function frame:GetStringHeight() return 0 end
         frames[#frames + 1] = frame
         return frame

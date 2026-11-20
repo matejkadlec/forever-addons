@@ -233,6 +233,8 @@ end
 
 local function Create()
     local w = CreateFrame("Frame", NAME, UIParent, "TooltipBackdropTemplate")
+    -- a new frame is shown: hidden before its OnHide exists, which would take this for you closing it
+    w:Hide()
     dialog = w
     -- above the market table (HIGH), like its sticky windows and the price graph
     w:SetFrameStrata("DIALOG")
@@ -263,7 +265,6 @@ local function Create()
     w.rows = {}
     for i, opt in ipairs(OPTIONS) do w.rows[i] = CreateRow(w, opt) end
     tinsert(UISpecialFrames, NAME)
-    w:Hide()
     return w
 end
 
