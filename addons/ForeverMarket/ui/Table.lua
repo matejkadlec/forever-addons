@@ -5,9 +5,11 @@ local _, FM = ...
 -- ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search its shopping list at the AH through Auctionator
--- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift-click = link it in chat (or snipe at the AH: a pick all its AH purchases), right-click
--- = menu: Favorize, Ignore, Snipe (where Shift-click snipes, also away from the AH), Track <NPC> (TomTom arrow to
--- its vendor or teacher, only where there is one), Show price graph (ui/PriceGraph.lua). Column headers sort.
+-- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift+click =
+-- link it in chat (or snipe at the AH: a pick all its AH purchases), Alt+click = the tooltip as a sticky window
+-- (ui/StickyTooltip.lua), right-click = menu: Favorize, Ignore, Snipe (where Shift+click snipes, also away from the
+-- AH), Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one), Show price graph
+-- (ui/PriceGraph.lua). Column headers sort. The hints at the bottom of a row tooltip say so, one per line.
 
 local type = type
 local ipairs = ipairs
@@ -637,24 +639,26 @@ local function FavoriteRows(trade)
     return out
 end
 
-local function BuildRows()
-    local tab = CurrentTab()
+-- The rows of a tab (the current one when nil) as the table shows them. lookup: the rows a sticky window looks its
+-- row up in (FRV-80): the tab's filters, not the name search, unsorted, picks without their sections
+local function BuildRows(tab, lookup)
+    tab = tab or CurrentTab()
     local trade = FM.trade
     local source = tab.farm and (FM.farm and FM.farm.rows or {})
         or (tab.favs and FavoriteRows(trade) or (trade and trade[tab.data] or {}))
     local s = Settings()
-    local needle = view.filter ~= "" and string_lower(view.filter) or nil
+    local needle = (not lookup and view.filter ~= "") and string_lower(view.filter) or nil
     local prof = ProfFilter()
     local out = {}
     local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
-    view.outliers = 0
+    if not lookup then view.outliers = 0 end
     for _, row in ipairs(source) do
         local keep = true
         if hideOutliers and IsOutlier(row, tab, lo, hi) then
             keep = false
-            view.outliers = view.outliers + 1
+            if not lookup then view.outliers = view.outliers + 1 end
         end
         if tab.farm then
             if needle and not string_find(string_lower((row.mobName or "") .. " " .. (row.zone or "")), needle, 1, true) then keep = false end
@@ -690,6 +694,7 @@ local function BuildRows()
         end
         if keep then out[#out + 1] = row end
     end
+    if lookup then return out end
     -- sort by every level in turn; empty values last, the name breaks ties
     local levels = SortState(tab).list
     local values = {}
@@ -745,22 +750,26 @@ end
 
 local LABEL = "|cFFB0B0B0"
 local HEAD = "|cFFFFD100"
+local HINT_R, HINT_G, HINT_B = 0.4, 0.75, 1 -- the light blue of the click hints
+
+-- Where the builders below write: GameTooltip on hover, a recorder for a sticky window (FRV-80, RowLines)
+local TT = GameTooltip
 
 local function Header(text)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(HEAD .. text .. "|r")
+    TT:AddLine(" ")
+    TT:AddLine(HEAD .. text .. "|r")
 end
 
 local function Line(label, value)
-    GameTooltip:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, false)
+    TT:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, false)
 end
 
 local function Note(text, color)
-    GameTooltip:AddLine((color or GREY) .. text .. "|r", 1, 1, 1, true)
+    TT:AddLine((color or GREY) .. text .. "|r", 1, 1, 1, true)
 end
 
 local function Item(indent, key, n, value, note)
-    GameTooltip:AddLine(string_format("%s%s%s%dx %s|r  %s%s", indent, IconText(key), WHITE, n, Name(key), value or "",
+    TT:AddLine(string_format("%s%s%s%dx %s|r  %s%s", indent, IconText(key), WHITE, n, Name(key), value or "",
         note and (" " .. GREY .. note .. "|r") or ""), 1, 1, 1, false)
 end
 
@@ -972,8 +981,7 @@ local function PickTooltip(pick)
 end
 
 local function FarmTooltip(r)
-    GameTooltip:ClearLines()
-    GameTooltip:AddLine(r.mobName or "?", 1, 0.82, 0)
+    TT:AddLine(r.mobName or "?", 1, 0.82, 0)
     Note(string_format("Level %s, %s%s", FarmLevel(r), r.zone or "?",
         r.x and string_format(" (%.1f, %.1f)", r.x, r.y) or ""), LABEL)
     Header("Per hour")
@@ -990,7 +998,7 @@ local function FarmTooltip(r)
         Header("Drops (value after the 5% cut)")
         for i, p in ipairs(r.parts) do
             if i > 10 then break end
-            GameTooltip:AddLine(string_format("  %s%s|r  %s%.1f%%|r  %s  %s", IconText(p.key), WHITE .. Name(p.key), GREY, p.rate * 100,
+            TT:AddLine(string_format("  %s%s|r  %s%.1f%%|r  %s  %s", IconText(p.key), WHITE .. Name(p.key), GREY, p.rate * 100,
                 Money(p.value), GREY .. "= " .. Money(p.per) .. " per kill|r"), 1, 1, 1, false)
         end
     end
@@ -998,9 +1006,8 @@ local function FarmTooltip(r)
         Header("Your kills")
         Line("Killed", tostring(r.kills))
     end
-    GameTooltip:AddLine(" ")
+    TT:AddLine(" ")
     Note("Drop rates: Questie (Wowhead data), replaced by your own after 20 kills. Prices: the last deep scan.")
-    GameTooltip:AddLine("Click: TomTom arrow to the spawns   Shift-click: link the best drop", 0.4, 0.75, 1)
 end
 
 -- Why a row is (not) in the Picks tab
@@ -1025,9 +1032,10 @@ local function PickStatus(row)
     end
 end
 
--- The tab a row's numbers come from and that row: a favorite stands for its best use
-local function RowSource(row)
-    local tab = CurrentTab()
+-- The tab a row's numbers come from and that row: a favorite stands for its best use (tab: the row's tab, the
+-- current one when nil)
+local function RowSource(row, tab)
+    tab = tab or CurrentTab()
     if tab.favs then
         if row.src and row.use then return TAB_BY_ID[row.use], row.src end
         return nil, row
@@ -1079,30 +1087,30 @@ local function SnipeRow(targets, row)
     end
 end
 
-local function ShowRowTooltip(button)
-    local row = button.row
-    if not row then return end
-    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(IconText(row.key) .. QualityColor(row.key) .. Name(row.key) .. "|r")
-    if CurrentTab().farm then
+-- A row's tooltip lines, the same for the hover tooltip and a sticky window (FRV-80): written into tip (GameTooltip
+-- or a recorder); tab = the tab the row is from
+local function RowTooltipLines(tip, tab, row)
+    TT = tip
+    if tab.farm then
         FarmTooltip(row)
-        GameTooltip:Show()
+        TT = GameTooltip
         return
     end
-    local tab, src = RowSource(row)
-    if CurrentTab().favs then
+    TT:AddLine(IconText(row.key) .. QualityColor(row.key) .. Name(row.key) .. "|r")
+    local use, src = RowSource(row, tab)
+    if tab.favs then
         Note(row.use and ("Best use: " .. USE_SHORT[row.use] .. GREY .. "  (highest PPG of its tabs)|r") or
             "In no tab right now (no profitable craft, vendor resell or flip).", LABEL)
     end
-    if not tab then
+    if not use then
         Header("Market")
         Line("Cheapest now", Money(row.sell))
         Line("On AH", OnAH(row))
-    elseif tab.id == "picks" then
+    elseif use.id == "picks" then
         PickTooltip(src)
-    elseif tab.id == "latest" then
+    elseif use.id == "latest" then
         CraftTooltip(src, false)
-    elseif tab.id == "learn" then
+    elseif use.id == "learn" then
         CraftTooltip(src, false)
         Header("Last 7 days")
         if src.p1g7 then
@@ -1112,43 +1120,83 @@ local function ShowRowTooltip(button)
         else
             Note("Not enough price history yet (3 days of the product and every AH material).")
         end
-    elseif tab.id == "vendor" then
+    elseif use.id == "vendor" then
         VendorTooltip(src)
-    elseif tab.id == "flips" then
+    elseif use.id == "flips" then
         FlipTooltip(src)
     end
-    if tab and (tab.id == "latest" or tab.id == "vendor" or tab.id == "flips" or tab.id == "learn") then PickStatus(src) end
+    if use and (use.id == "latest" or use.id == "vendor" or use.id == "flips" or use.id == "learn") then PickStatus(src) end
     local have, sellable = FM.OwnedCount(row.key)
-    if have and have > 0 and not CurrentTab().picks then
-        GameTooltip:AddLine(" ")
+    if have and have > 0 and not tab.picks then
+        TT:AddLine(" ")
         Line("You have", FM.FormatCount(have) .. GREY .. "  bags and bank" ..
             ((sellable or have) < have and string_format(", %s soulbound", FM.FormatCount(have - sellable)) or "") .. "|r")
     end
     local note = FM.TrackedNote(row.key)
     if note then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(BLUE .. "Claude:|r " .. note, 1, 1, 1, true)
+        TT:AddLine(" ")
+        TT:AddLine(BLUE .. "Claude:|r " .. note, 1, 1, 1, true)
     end
+    TT = GameTooltip
+end
+
+-- The click hints at the bottom of the hover tooltip, one per line (FRV-81); a sticky window shows none
+local function RowHints(tab, row)
     GameTooltip:AddLine(" ")
-    local targets = SnipeTargets(row)
-    if targets and FM.ahOpen then
-        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: snipe " .. SnipeLabel(targets), 0.4, 0.75, 1, true)
+    if tab.farm then
+        GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
+        return
+    end
+    GameTooltip:AddLine("Click: create shopping list", HINT_R, HINT_G, HINT_B)
+    -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
+    local targets = FM.ahOpen and SnipeTargets(row)
+    if targets then
+        GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets), HINT_R, HINT_G, HINT_B, true)
     else
-        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
+        GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B)
     end
-    -- the menu as it will open: Snipe where there is something to snipe, Track only where there is an NPC to go to
-    local place, why
-    if FM.TrackTarget then place, why = FM.TrackTarget(row.key) end
-    local menu = (FM.IsFavorite(row.key) and "Unfavorize" or "Favorize") .. ", " .. (FM.IsExcluded(row.key) and "Stop ignoring" or "Ignore")
-        .. (targets and ", Snipe" or "")
-    if place then
-        local tomtom = _G.TomTom
-        menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) .. (why == "learn" and " (learn)" or "")
-            .. ((tomtom and tomtom.AddWaypoint) and "" or " (needs TomTom)")
-    end
-    if FM.ShowPriceGraph then menu = menu .. ", Show price graph" end
-    GameTooltip:AddLine("Right-click: " .. menu, 0.4, 0.75, 1, true)
+    GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
+    GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B)
+end
+
+local function ShowRowTooltip(button)
+    local row = button.row
+    if not row then return end
+    local tab = CurrentTab()
+    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    RowTooltipLines(GameTooltip, tab, row)
+    RowHints(tab, row)
     GameTooltip:Show()
+end
+
+---------------------------------------------------------------- sticky row tooltips (FRV-80, ui/StickyTooltip.lua)
+
+-- Records the lines the builders add, for a sticky window's own font strings (nil color: GameTooltip's default)
+local Recorder = {}
+Recorder.__index = Recorder
+
+function Recorder:AddLine(text, r, g, b, wrap)
+    self.lines[#self.lines + 1] = { text = text or "", r = r or 1, g = g or 0.82, b = b or 0, wrap = wrap and true or false }
+end
+
+function Recorder:ClearLines()
+    self.lines = {}
+end
+
+local function RowLines(tab, row)
+    local rec = setmetatable({ lines = {} }, Recorder)
+    local ok, err = pcall(RowTooltipLines, rec, tab, row)
+    TT = GameTooltip
+    if not ok then rec:AddLine(RED .. "Error: " .. tostring(err) .. "|r", 1, 1, 1, true) end
+    return rec.lines
+end
+
+-- One sticky window per item (a mob on Farm)
+local function RowId(tab, row)
+    if tab.farm then return "farm:" .. tostring(row.npc or row.mobName) end
+    return row.key
 end
 
 ---------------------------------------------------------------- actions
@@ -1241,6 +1289,15 @@ end
 local function OnRowClick(button, mouseButton)
     local row = button.row
     if not row then return end
+    -- Alt+click: the row's tooltip as a window of its own (FRV-80), on every tab
+    if mouseButton ~= "RightButton" and IsAltKeyDown and IsAltKeyDown() then
+        local tab = CurrentTab()
+        if FM.StickyOpen then
+            GameTooltip:Hide()
+            FM.StickyOpen(RowId(tab, row), tab.id, tab.label, RowLines(tab, row))
+        end
+        return
+    end
     if CurrentTab().farm then
         if IsShiftKeyDown and IsShiftKeyDown() then
             local link = ItemLink(row.key)
@@ -1718,6 +1775,26 @@ function FM.RefreshTable()
     if frame and frame:IsShown() then Render() end
     -- new data or a new Min. price: the price graph follows (it draws again only when something changed)
     if FM.PriceGraphRefresh then FM.PriceGraphRefresh() end
+    -- and the sticky row tooltips, as "Lock plan after refresh" says (ui/StickyTooltip.lua)
+    if FM.StickyRefresh then FM.StickyRefresh() end
+end
+
+-- The refresh button of the table and of every sticky window: recipes and vendors read again, a new Picks plan
+function FM.TableRefresh()
+    FM.sources = nil
+    FM.PlanPicks()
+    FM.RefreshTable()
+end
+
+-- A sticky window's lines from the data now: its row looked up again in its tab (nil: the row is gone, no longer a
+-- pick or filtered out)
+function FM.StickyContent(tabId, id)
+    local tab = TAB_BY_ID[tabId]
+    if not tab then return nil end
+    for _, row in ipairs(BuildRows(tab, true)) do
+        if RowId(tab, row) == id then return RowLines(tab, row) end
+    end
+    return nil
 end
 
 -- The table is open on Picks or Learn: a pass without a plan yet plans then (trade/Calc.lua)
@@ -2017,11 +2094,7 @@ local function CreateTable()
     local refresh = CreateFrame("Button", nil, f, "RefreshButtonTemplate")
     refresh:SetSize(26, 26)
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, FILTER_Y + 2)
-    refresh:SetScript("OnClick", function()
-        FM.sources = nil
-        FM.PlanPicks()
-        FM.RefreshTable()
-    end)
+    refresh:SetScript("OnClick", FM.TableRefresh)
     f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
     refresh:HookScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2059,7 +2132,7 @@ local function CreateTable()
                 GameTooltip:AddLine(" ")
             end
             GameTooltip:AddLine("Click: sort by this column")
-            GameTooltip:AddLine("Shift-click: sort by it next (after the columns already sorted); again to flip it", 1, 1, 1, true)
+            GameTooltip:AddLine("Shift+click: sort by it next (after the columns already sorted); again to flip it", 1, 1, 1, true)
             GameTooltip:Show()
         end)
         header:SetScript("OnLeave", function() GameTooltip:Hide() end)

@@ -424,9 +424,29 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   learn the recipe is the AH; a pick exactly the AH purchases of its plan (`pick.shopping`: the pattern it buys on
   the AH, `pick.buys`, a tool it buys there); Flip, vendor resells and items without a craft the item itself. With
   nothing to buy on the AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level
-  materials. Shift-click: link (at the AH:
+  materials. Shift+click: link to chat (at the AH:
   snipe what it buys there, a pick every AH purchase of its plan; see Sniper). Right-click: the menu above, with
-  Snipe on every row Shift-click snipes from (also away from the AH).
+  Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the row's tooltip as a sticky
+  window (below).
+* The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: create shopping
+  list", "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ..."),
+  "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
+  (Auctionator)   Shift-click: link" and "Right-click: " with the menu's entries). Farm: "Click: TomTom arrow to the
+  spawns", "Shift+click: link the best drop to chat", the Alt+click line; the column headers say "Shift+click" too.
+* Sticky row tooltips (1.28, FRV-80, ui/StickyTooltip.lua): Alt+click a row on any tab and its tooltip becomes a
+  window of its own with the same lines (the builders of the hover tooltip write into either, `RowTooltipLines`
+  in ui/Table.lua), without the click hints; opaque (Blizzard's `TooltipBackdropTemplate`), "as of HH:MM" at the
+  top left, refresh and X at the top right. One window per item (a mob on Farm): Alt+click on an item that has one
+  brings it to the front; as many windows as you like. They are movable; a new one opens where the last one was
+  left (`tableStickyPos`, its top left corner; right of the screen's middle the first time), moved down and right
+  while another open window sits there. Long content scrolls (Blizzard's `ScrollFrameTemplate`, from 520 px).
+  Closing the market table leaves them, Esc closes them all at once (`UISpecialFrames`, which closes the table
+  too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Lock plan
+  after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
+  Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
+  them. A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
+  tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search) keeps its last
+  content with an orange note at the top. Clicking a window does nothing but raise it.
 
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
