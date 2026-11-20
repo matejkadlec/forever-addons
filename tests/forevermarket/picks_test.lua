@@ -679,4 +679,7 @@ H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to 
     H.same(pick.buys, { { key = "951", ah = 5, top = 3000 } }, "5 runs crafted, none bought at 14s")
     H.eq(MaterialLine(pick, "950"), "craft 15", "the spare units of its own crafts are not yours")
     H.eq(MaterialLine(pick, "951"), "    AH 5 up to " .. Money(3000), "the material of its 5 runs")
+    -- each product craft uses one unit at 10s: 95s after the cut - 10s; the spare units are not counted twice
+    H.eq(pick.unitProfit, 8500, "profit per item: 85s")
+    H.eq(pick.invest, 15000, "the gold of the 5 runs: 1g 50s")
 end)
