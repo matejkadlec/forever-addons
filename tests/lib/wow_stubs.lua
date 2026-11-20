@@ -12,9 +12,14 @@ function Stubs.NewEnvironment()
     local env = {}
     env._G = env
 
-    -- Clock: time() is what the test sets, not the machine clock
+    -- Clock: time() is what the test sets, not the machine clock; time(table) and date() are Lua's own, as in the
+    -- client (the Profit tab's days, weeks and months)
     env.clock = 0
-    env.time = function() return env.clock end
+    env.time = function(t)
+        if t then return os.time(t) end
+        return env.clock
+    end
+    env.date = os.date
 
     -- Chat output is collected so tests can read it
     env.printed = {}

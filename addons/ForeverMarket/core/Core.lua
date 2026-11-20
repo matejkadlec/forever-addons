@@ -49,7 +49,8 @@ FM.DEFAULTS = {
     snipeUniversal = true, -- sniper: one gold threshold for all items together (off: each item its own %)
     snipeUniversalPct = 50, -- sniper: % of the day's gold baseline all sniped items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
-    perfMode = "day" -- Profit tab: one dot per day, week or month
+    perfMode = "day", -- Profit tab: one dot per day, week or month
+    perfScope = "all" -- Profit tab: all your characters together ("char": this one) when several have AH logs
 }
 
 FM.LIMITS = {
@@ -180,7 +181,7 @@ function FM.RealmKey()
 end
 
 local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
-    "worth", "bank", "mailbox", "bags", "charInfo" }
+    "worth", "bank", "mailbox", "bags", "charInfo", "sent" }
 
 -- Data of the current realm and faction (the AH is per realm and faction)
 function FM.R()

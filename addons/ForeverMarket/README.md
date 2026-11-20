@@ -137,7 +137,15 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   `C_Bank.CanViewBank`, not yet verified in game; never read as the bank closes).
   `FM.StockElsewhere(key)` is the one reader of what your other characters hold (bags, bank, mailbox, account bank,
   with the age of each reading); `FM.Owned` stays the logged-in character, live. Nothing the table, the tooltip or
-  Picks show uses it yet (FRV-11, FRV-36, FRV-37 build on it)
+  Picks show uses it yet (FRV-11, FRV-36 build on it); the Profit tab's "All characters" (1.24, FRV-37) reads the
+  same saved records for its readings (scan/Worth.lua)
+* Mail between your characters (1.24, FRV-37, scan/Characters.lua): the items of a mail you send to another
+  character of yours are logged (`sent[receiver]`) once the server confirms the mail, and count as on their way
+  to it until its mailbox shows all its mail (an inbox with more mail than it shows keeps them counted; a mail
+  older than 30 days is gone). The receiver is matched by its key or full name, any case, with or without the
+  realm. `SendMail` is hooked with `hooksecurefunc`, the attachments are read with `GetSendMailItem` right after
+  the call (not yet verified in game: if the client clears them earlier, nothing is logged and the items count
+  again when the receiver sees them in its mailbox)
 * The character key (1.23, `FM.PlayerName`): your records are keyed by the first name, as before; a second
   character with the same first name on this realm and faction gets its full name ("First Surname") as its key,
   in its records and in new log lines. Each key remembers its character's GUID (`charInfo[key]`), so existing keys
@@ -402,9 +410,33 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 
 ## Profit tab (1.15, named Performance until 1.15.11: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
 
-This character's **AH result** as a line from 0 with one dot per day, week or month (**Daily** / **Weekly** /
+Your **AH result** as a line from 0 with one dot per day, week or month (**Daily** / **Weekly** /
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
+
+* **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
+  once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
+  **All characters** is the default. With one such character there is no switch and the tab shows that character
+  alone, as before 1.24. Everything below describes one character; all characters together:
+  * The AH's money is the money of all of them, and the lists (Sold, Bought, Real losses) hold all of them; a sale
+    is "under cost" against the latest purchases of any of them.
+  * What you hold from the AH is one number for all of them: the units of each item bought there by any character
+    and not sold there by any character since, that any of them still holds: the logged-in one live (as for one
+    character), the others from their saved bags, bank and mailbox (their purchases after their last look into the
+    mailbox wait in the mail), the mail on its way between them (above), the account bank, and the auctions of all
+    of them with their deposits and sold money on its way. So an item one character buys and mails to another is no
+    loss at the mailing, and its sale there counts against its purchase. For one character alone the same mail is
+    still a loss for the sender and the sale all profit for the seller: that is what **This character** shows.
+  * Every reading holds both numbers (`worth[char]`: `held` for the character, `all` for all of them as known at
+    that moment, `saw` = a short hash of which readings counted: each character's bags, bank and mailbox, and the
+    account bank). The joint line is the `all` of every character's readings in time order; a step counts only
+    between readings that saw the same, so the first look at another character's bank, a character's first saved
+    bags or a forgotten character are no gain and no loss; such a reading stays as its own line.
+  * Readings from before 1.24 have no joint number: for that time each character's own steps are added up (the
+    sum of the characters' tabs), and the step onto the first joint reading counts nothing. A character without
+    any reading by then counts its purchases from the first joint reading on.
+  * The header shows what all of them hold and their gold (this character's right now, the others' as last
+    recorded).
 
 * AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit back
   (from the sale mails, counted when you read the mail: until then the readings still hold the auction or its sold
@@ -451,7 +483,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   deposits, as if you had started with it, plus the AH result before it; later purchases don't change an older dot's
   %), then the top 3 of **Sold** (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and
   **Real losses** (one list, largest first); hold **Shift** for all of their items. Expired auctions show only as
-  their lost deposit. Real losses:
+  their lost deposit. Every won auction is a purchase (until 1.24 the second of two won auctions of the same item
+  within 12 hours was taken for the first one's purchase and left out of the AH's money and of Bought). Real losses:
   * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
     before it cost
   * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
@@ -539,9 +572,12 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
   seen, since }` the character behind a key (1.23; `since` = when a full-name key began); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
-* `worth[char]` readings `t,gold,held,seen` (about one per hour, the first that saw something new kept apart;
-  `seen` = `h` + `b` bank and / or `m` mailbox), `bank[char]` `t|id:all:free,...` and `mailbox[char]`
-  `t|money|id:count,...` as last seen
+* `worth[char]` readings `t,gold,held,seen,all,saw` (about one per hour, the first that saw something new kept
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox; `all`, `saw` from 1.24 on, older lines end after `seen`:
+  what all your characters held together and a hash of which readings that counted), `bank[char]`
+  `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
+* `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
+  mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
