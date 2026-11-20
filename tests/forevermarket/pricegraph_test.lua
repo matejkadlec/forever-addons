@@ -347,3 +347,32 @@ H.test("price graph: a feed record at the price of your running post cannot tell
     H.eq(f[11], "1", "one price of others: the deep scan's")
     H.eq(f[13], B(10800), "1g 08s")
 end)
+
+H.test("price graph: a feed snapshot after an in-game scan without the item cannot tell either", function()
+    local FM, _, r, item = Load()
+    local function At(h, m) return T(2026, 11, 18, h, m) end
+    -- the feed saw the item at 10:00; the deep scan at 11:30 had no record of it (gone), and the import dropped the
+    -- feed's 12:00 record of it going away; nothing more until it is back at 16:00
+    item.d = table.concat({ Deep(At(10), { min = 5 * G }), Deep(At(16), { min = 6 * G }) }, ";")
+    Scans(r, { Stamp("r", At(10)), Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(16)) }, "api")
+    Scans(r, { Stamp("r", At(11, 30)) })
+    local p = FM.PriceSeries(KEY, "day").periods[1]
+    H.eq(p.n, 3, "10:00, the unchanged 11:00 snapshot and 16:00")
+    H.eq(p.car, 1, "the deep scan at 11:30 carried 5g")
+    Near(p.value, (5 + 5 + 5 + 6) * G / 4, "12:00 and 13:00 tell nothing")
+end)
+
+H.test("price graph: a scan without the item carries the newer of the last sighting and the last daily rollup", function()
+    local FM, _, r, item = Load()
+    local day16 = math.floor((T(2026, 11, 16) - EPOCH) / 86400)
+    item.r = table.concat({ "D" .. B(day16), "1", "1", B(5 * G), B(5 * G), "1", "0", "0", "0", "0" }, ",")
+    item.s = Search(T(2026, 11, 12), 3 * G) -- an older search at 3g
+    local scan8, rec10 = T(2026, 11, 18, 8), T(2026, 11, 18, 10)
+    item.d = Deep(rec10, { min = 6 * G })
+    Scans(r, { Stamp("r", scan8), Stamp("r", rec10) })
+    local days = FM.PriceSeries(KEY, "day").periods
+    local last = days[#days]
+    H.eq(last.from, T(2026, 11, 18, 0), "the 18th")
+    H.eq(last.car, 1, "the 8:00 scan without it")
+    Near(last.value, (5 + 6) * G / 2, "carried at the rollup's 5g, not the older search's 3g")
+end)

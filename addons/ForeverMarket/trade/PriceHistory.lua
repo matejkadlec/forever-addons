@@ -135,18 +135,20 @@ local function Collect(r, item, key)
     end
     local firstDetail = recs[1] and recs[1].t
     -- a feed snapshot without a record of the item saw what the item's newest record before it says when that is a
-    -- feed record too: the same price (within FEED_RECORD_SPAN), or still not listed; else it cannot tell
+    -- feed record too, with no in-game scan since: the same price (within FEED_RECORD_SPAN), or still not listed;
+    -- else it cannot tell (after an in-game scan the import drops the feed's next record)
     local scans = Scans(r)
     local feed = {}
     for _, s in ipairs(scans) do
         if s.feed then feed[s.stamp] = true end
     end
-    local seen, k = {}, 0
+    local seen, k, gameT = {}, 0, nil
     for _, s in ipairs(scans) do
         while k < #recs and recs[k + 1].t <= s.t do k = k + 1 end
+        if not s.feed then gameT = s.t end
         if s.feed and state[s.stamp] == nil then
             local before = recs[k]
-            if before and not feed[before.stamp] then
+            if before and (not feed[before.stamp] or (gameT and gameT > before.t)) then
                 state[s.stamp] = "?"
             elseif before and before.st == true and s.t - before.t <= FEED_RECORD_SPAN then
                 state[s.stamp] = true
@@ -210,7 +212,10 @@ local function Collect(r, item, key)
         for _, s in ipairs(scans) do
             if s.t >= known and s.t < lastObs.t then
                 while k < #obs and obs[k + 1].t <= s.t do k = k + 1 end
-                local prev = (k > 0 and obs[k].p) or (rollLast and rollLast.t < s.t and rollLast.p) or nil
+                -- the newest price before: the last sighting, or the last daily rollup when that is newer
+                local prev = k > 0 and obs[k] or nil
+                if rollLast and rollLast.t < s.t and (not prev or prev.t < rollLast.t) then prev = rollLast end
+                prev = prev and prev.p
                 local st = state[s.stamp]
                 if prev and st ~= true and st ~= "?" then
                     local d = DayOf(days, s.t)
