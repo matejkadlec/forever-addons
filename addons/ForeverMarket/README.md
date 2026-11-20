@@ -209,7 +209,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
-  `/fm exclude|include|excluded`), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
+  `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
+  every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
@@ -403,7 +404,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h one pick may plan (1.19,
   default 25%, `tableCircPct`; see Picks, Room on the AH).
 * Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
-  snipe its main material). Right-click: the menu above.
+  snipe what it buys there, a pick every AH purchase of its plan; see Sniper). Right-click: the menu above, with
+  Snipe on every row Shift-click snipes from (also away from the AH).
 
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
@@ -502,10 +504,14 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
 
-* Window (DIALOG strata, opaque: always above the market table, which is HIGH): the sniped items on the left (`Name · price`, click = load into the form, X = stop sniping it, its
-  price and % stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max price
-  per unit in g / s / c, the item's own gold %, today's budget, and the universal gold threshold (bottom left,
-  default on at 50%). The `?` explains the rules. Both parts move together.
+* Window (DIALOG strata, opaque: always above the market table, which is HIGH): the sniped items on the left
+  (`Name · price`, with a number also `37 / 144` and `done`; click = load into the form, X = stop sniping it, its
+  price and number stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max
+  price per unit in g / s / c and "Buy at most [ ] units" (1.25, FRV-43, empty = no limit), and at the bottom
+  today's budget in one line (1.25, FRV-42): "Budget today [50] %", a bar with what is spent of it ("1g 2s 0c
+  of 6g 17s 0c", yellow from 75%, red once spent; before sniping first started today "starts when sniping starts
+  at the AH") and Reset. Hovering the line explains where the budget comes from, what it keeps and when it starts
+  again. The `?` explains the rules. Both parts move together.
 * Runs only while the window is open at the AH: the sniped items are searched round robin with
   `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
   AH throttle; pauses in combat, while a deep scan runs, on Blizzard's commodity Sell page and on the Buy page of
@@ -515,31 +521,50 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   bought with the wheel like any other: the page itself never takes a quote, only its buy window does. Setting
   or changing a snipe looks at the results the client already holds for the item, so its offers become a hit
   without waiting for a search. Units of other sellers at or under the price that fit
-  the budget become a hit (sound). Your own units are subtracted (`numOwnerItems`), like Blizzard's buy page
-  does; units of your other characters count as offers (the server sells them like any other).
+  the budget and the item's units still to buy become a hit (sound). Your own units are subtracted
+  (`numOwnerItems`), like Blizzard's buy page does; units of your other characters count as offers (the server
+  sells them like any other).
 * While sniping, the mouse wheel (up and down) is an override binding that clicks a hidden button, a hardware
   event: one step = `StartCommoditiesPurchase(itemID, qty)` for the newest hit (at most 8 s old; shrunk to the
-  gold left when another item was bought since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed only when
-  its total is not above what the search showed for those units and not under what the hit's cheapest units
-  cost (else it is another purchase's quote), its unit price not above your price, and it fits the budget and
-  your gold; else it is cancelled. One purchase at a time, a hit is used once.
+  budget and the units left when another purchase came since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed
+  only when its total is not above what the search showed for those units and not under what the hit's cheapest
+  units cost (else it is another purchase's quote), its unit price not above your price, its units not more than
+  the item still has to buy, and it fits the budget and your gold; else it is cancelled. One purchase at a time, a
+  hit is used once.
 * The server's quotes and answers carry no item, so nothing new starts while an older one could still arrive:
   after a purchase cancelled before its quote came (until that quote comes, at most 30 s), after a confirm
   without answer in 15 s (60 s), and while Blizzard's buy window is open (answers while it is open are
-  Blizzard's). A confirm without answer stays counted; the next answer within 5 minutes is matched to it
-  (answers come in order), and a late failure still keeps its gold counted. "Reset budget" waits for it.
+  Blizzard's). A confirm without answer stays counted (gold and units); the next answer within 5 minutes is
+  matched to it (answers come in order), and a late failure still keeps them counted. Reset waits for it.
+* Whether the documented `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` fire on Forever,
+  which would name the bought item, is being tested (1.25, FRV-54): every purchase event at the AH, of any window,
+  goes into `events` as `ahev` (see Data format), and those two also print a chat line ("FRV-54 test: ...").
+  Nothing uses them yet.
 * If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
   forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
   confirms in a row without answer stop sniping with one message until the window or the AH is opened again.
-* Budget per character `r.snipe.budget[name]`: `base` = gold when the window first opened after the daily
-  reset (or "Reset budget"), `total` / `spent[key]` = gold spent since. Universal on: all items share
+* Budget per character `r.snipe.budget[name]`, one for all items together: `base` = gold when the window first
+  opened after the daily reset (or Reset), `total` / `spent[key]` = gold spent since. All items share
   `snipeUniversalPct`% of `base`, and sniping never takes your gold under `base` minus that (the floor, which
-  also catches gold spent elsewhere or anything the bookkeeping missed). Off: each item has its own %
-  (`saved.pct`), so 3 items at 50% may spend 150% together, never more than you have. Gold is counted when a
-  purchase is confirmed and only given back on `COMMODITY_PURCHASE_FAILED`.
-* Market table: with the AH open, Shift-click a row to snipe its main material at the table's price (Picks:
-  the plan's "up to" price of the main AH material, Craft: the max material price, Flip: the buy up to price,
-  Favorites: as in the tab of its best use). The item keeps its saved %.
+  also catches gold spent elsewhere or anything the bookkeeping missed). Gold is counted when a purchase is
+  confirmed and only given back on `COMMODITY_PURCHASE_FAILED`. Until 1.25 the universal threshold could be
+  switched off for a % per item (`snipeUniversal`, `saved.pct`): that mode is gone (FRV-42), both are left unused
+  in the saved data, and items saved with their own % snipe under the one budget.
+* Buy at most N units (1.25, FRV-43): `saved.n` = N, `saved.got` = units bought since N was set, `saved.paid` =
+  what they cost. A hit takes no more than N - got, so the last purchase stops at exactly N; at N the item is done
+  (grey row, "144 / 144 done", not searched, never bought) and stays in the list until you remove it or give it a
+  new number. Units are counted with the gold: at the confirm, given back on `COMMODITY_PURCHASE_FAILED`, kept when
+  no answer comes. A new number (typed into the box, or from the market table) starts the count again; a new
+  price alone (an untouched box) keeps it; the daily reset doesn't touch it. The budget applies on top: whichever
+  is reached first stops the item.
+* Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
+  away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
+  buys at the AH at the table's prices. Picks: every AH purchase of the plan (`pick.buys`), each at its "up to"
+  price with its units as its number, one chat line for all of them ("Sniping 3 items for <pick>: 144 Heavy
+  Leather up to 2s 75c, ..."), items sold per auction skipped and named there, vendor purchases left out, the
+  window opens on the main one; Craft and Learn: the main material at the max material price (the item keeps its
+  number); Flip: its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip
+  names what it snipes ("Shift-click: snipe its 3 AH purchases").
 * Only commodities: unstackable items (sold per auction) are refused.
 * While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
 
@@ -563,7 +588,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
-  `mexpired|mcancelled,item`, `blocked,function`
+  `mexpired|mcancelled,item`, `blocked,function`, AH purchase events while FRV-54 tests them (1.25)
+  `ahev,event,arguments,ms` (arguments space separated, ms = `GetTime()` in milliseconds: the order within a minute)
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
@@ -583,8 +609,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
   craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
   and 5000 lines at most
-* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, pct }` (kept after removal),
-  `budget[character] = { base, since, reset, total, spent[key] }`
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid }` (kept after removal;
+  `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; a `pct` from
+  before 1.25 is left unused), `budget[character] = { base, since, reset, total, spent[key] }`
 
 ## Claude's side
 

@@ -695,6 +695,16 @@ local function Purchases(trial)
     return list
 end
 
+-- What the sniper gets from a pick (FRV-44, Shift-click and the row menu of the market table): its AH purchases,
+-- { key, ah = units, top = highest AH price }, the biggest spend first; purchases at a vendor stay out
+local function AHBuys(trial)
+    local list = {}
+    for _, e in ipairs(Purchases(trial)) do
+        if e.ah > 0 and e.top then list[#list + 1] = { key = e.key, ah = e.ah, top = e.top } end
+    end
+    return list
+end
+
 -- One purchase as a step: "buy 144 Heavy Leather up to 2s 75c", "buy 20 Salt at Drac Roughcut (5c each)"
 local function BuyText(e)
     local text = string_format("buy %s %s", Count(e.ah + e.vendor), Name(e.key))
@@ -806,11 +816,13 @@ local function EvaluateCraft(c)
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
     steps[#steps + 1] = string_format("make %s", Count(items))
     pick.steps = steps
-    -- Shift-click in the table (AH open) snipes the main AH material at the plan's highest price
+    -- Shift-click and the row menu snipe every AH purchase of the plan with its units (pick.buys); the sniper
+    -- window opens on the main one
     local mainKey = MainPurchase(plan.trial)
     if mainKey and c.kind ~= "level" then
         pick.mainKey = mainKey
         pick.mainTop = plan.trial.top[mainKey]
+        pick.buys = AHBuys(plan.trial)
     end
 
     local list = {}
@@ -984,8 +996,9 @@ local function EvaluateFlip(c)
     local sourceConf = conf / timeFactor
     pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
-    pick.mainKey = row.key -- Shift-click (AH open) snipes it at the plan's highest price
+    pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
     pick.mainTop = trial.top[row.key]
+    pick.buys = AHBuys(trial)
     pick.reasons = {
         { "h", "Plan" },
         { "l", "Buy", string_format("%s up to %s", Count(n), M(trial.top[row.key])) },
