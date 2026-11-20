@@ -421,12 +421,14 @@ end
 
 ---------------------------------------------------------------- material supply (shared by all picks)
 -- A trial records what a plan would take: used[key] = units of others' auctions, stock[key] = your units,
--- made[key] = spare intermediates, vendor[key], top[key] = highest AH price paid, crafted[key] = units of an
--- intermediate the plan makes; for one it buys: craftAt[key] = the lowest unit cost crafting them would have had,
--- craftNo[key] = the material that ran out for crafting them. Trials chain to a parent.
+-- made[key] = spare intermediates, fromMade[key] = of stock[key] the spare ones, vendor[key], top[key] = highest AH
+-- price paid, crafted[key] = units of an intermediate the plan makes; for one it buys: craftAt[key] = the lowest unit
+-- cost crafting them would have had, craftNo[key] = the material that ran out for crafting them. Trials chain to a
+-- parent.
 
 local function NewTrial(parent)
-    return { parent = parent, used = {}, stock = {}, made = {}, vendor = {}, top = {}, crafted = {}, craftAt = {}, craftNo = {} }
+    return { parent = parent, used = {}, stock = {}, made = {}, fromMade = {}, vendor = {}, top = {}, crafted = {},
+        craftAt = {}, craftNo = {} }
 end
 
 local function Sum(trial, field, key)
@@ -439,7 +441,7 @@ local function Sum(trial, field, key)
 end
 
 local function Merge(dst, src)
-    for _, field in ipairs({ "used", "stock", "made", "vendor", "crafted" }) do
+    for _, field in ipairs({ "used", "stock", "made", "fromMade", "vendor", "crafted" }) do
         for key, n in pairs(src[field]) do dst[field][key] = (dst[field][key] or 0) + n end
     end
     for key, u in pairs(src.top) do
@@ -497,10 +499,14 @@ end
 -- cheaper of vendor and the AH ladder unit by unit. Returns value, capital or nil.
 local function Take(key, n, part, trial, depth)
     local value, capital = 0, 0
+    local spare = Sum(trial, "made", key) - Sum(trial, "fromMade", key)
     local have = (P.stockLeft[key] or StockOf(key)) - Sum(trial, "stock", key) + Sum(trial, "made", key)
     if have > 0 then
         local take = math_min(have, n)
         trial.stock[key] = (trial.stock[key] or 0) + take
+        -- the spare units of the plan's own crafts first: the material line counts only the rest as yours
+        local fromMade = math_min(take, math_max(0, spare))
+        if fromMade > 0 then trial.fromMade[key] = (trial.fromMade[key] or 0) + fromMade end
         value = value + take * StockValue(key, part.unit)
         n = n - take
     end
@@ -510,7 +516,8 @@ local function Take(key, n, part, trial, depth)
         local makes = craft.makes or 1
         while n > 0 do
             local units = math_min(n, makes)
-            -- one run crafted, against buying the units it gives (a last run's spare units stay as made)
+            -- one run crafted, against buying the units still needed, per unit: a run's spare units stay as made for
+            -- the next crafts (a recipe that makes 3, a product that needs 1)
             local run = NewTrial(trial)
             local runValue, runCapital = 0, 0
             local missing
@@ -524,7 +531,7 @@ local function Take(key, n, part, trial, depth)
             end
             local bought = NewTrial(trial)
             local cost = Buy(key, units, bought)
-            if runValue and (not cost or FM.CraftBeatsBuying(runValue, cost)) then
+            if runValue and (not cost or FM.CraftBeatsBuying(runValue / makes, cost / units)) then
                 run.parent = nil
                 Merge(trial, run)
                 trial.crafted[key] = (trial.crafted[key] or 0) + makes
@@ -535,7 +542,7 @@ local function Take(key, n, part, trial, depth)
                 Merge(trial, bought)
                 -- why the plan buys: what crafting these units would have cost, or what ran out for it
                 if runValue then
-                    local unit = runValue / units
+                    local unit = runValue / makes
                     if not trial.craftAt[key] or unit < trial.craftAt[key] then trial.craftAt[key] = unit end
                 else
                     trial.craftNo[key] = missing
@@ -694,7 +701,7 @@ end
 -- one it could craft, and under a crafted one the materials of its crafts
 local function MaterialLines(row, trial, reasons)
     local function describe(key, bits)
-        local fromStock = trial.stock[key] or 0
+        local fromStock = (trial.stock[key] or 0) - (trial.fromMade[key] or 0)
         local used = trial.used[key] or 0
         local vendor = trial.vendor[key] or 0
         if fromStock > 0 then bits[#bits + 1] = "your " .. Count(fromStock) end

@@ -665,3 +665,18 @@ H.test("picks: a craft under 3% cheaper than the AH is no reason to craft, and t
     H.eq(MaterialLine(pick, "940"), "AH 30 up to " .. Money(1500) .. " (crafting costs " .. Money(1477) .. " each, under 3% less)",
         "the line says why")
 end)
+
+H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to the next crafts", function()
+    local FM, env = Setup({ ["706"] = 9 })
+    FM_Money = FM.FormatMoney
+    -- one run of 30s makes 3 (10s each), the AH sells it at 14s; the product needs 1 per craft
+    local craft = IntermediateCraft("706", { key = "950", n = 1, unit = 1000, src = "craft", makes = 3, parts = {
+        { key = "951", n = 1, unit = 3000, src = "ah" } } })
+    local view = View({ ["950"] = { ladder = { { 1400, 100 } }, qty = 100, own = 0 },
+        ["951"] = { ladder = { { 3000, 1000 } }, qty = 1000, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["706"]
+    H.eq(HasStep(pick, "make 15"), true, "make 15")
+    H.same(pick.buys, { { key = "951", ah = 5, top = 3000 } }, "5 runs crafted, none bought at 14s")
+    H.eq(MaterialLine(pick, "950"), "craft 15", "the spare units of its own crafts are not yours")
+    H.eq(MaterialLine(pick, "951"), "    AH 5 up to " .. Money(3000), "the material of its 5 runs")
+end)

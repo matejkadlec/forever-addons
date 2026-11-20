@@ -333,7 +333,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
   * A material you can craft yourself (Cured Heavy Hide from Heavy Hide + Salt) is bought or crafted craft run by
     craft run, whichever is cheaper for those units (1.27, FRV-78): one run crafted, its materials from what is
-    left of their ladders, against buying the units it gives next on the AH or at the vendor; crafting has to beat
+    left of their ladders, against buying the units still needed next on the AH or at the vendor, per unit (a
+    recipe that makes 3 for a product that needs 1: the spare units go to the next crafts); crafting has to beat
     buying by 3%, the table's rule (`FM.CraftBeatsBuying`, trade/Calc.lua). Before 1.27 the plan kept the route
     the table chose for a batch of 5 crafts, so a bigger pick bought the cheap units and then the dear ones up the
     ladder (Barbaric Bracers: 30 Cured Heavy Hide up to 17s 66c next to a craft price of 14s 77c), or crafted every
