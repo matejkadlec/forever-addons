@@ -49,12 +49,14 @@ FM.DEFAULTS = {
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold at the day's first sniping that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
     perfMode = "day", -- Profit tab: one dot per day, week or month
-    perfScope = "all" -- Profit tab: all your characters together ("char": this one) when several have AH logs
+    perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
+    priceMode = "day" -- price graph: one dot per day, week or month
 }
 
 FM.LIMITS = {
     detailHours = 72, -- full per-scan records are kept this long, then folded into daily rollups
-    rollupDays = 60,
+    rollupDays = 60, -- daily rollups, then folded into monthly ones (365 days of daily ones: about 75 MB, FRV-76)
+    monthlyDays = 365, -- monthly rollups of the price graph's Monthly view
     searchDays = 14,
     searchRecords = 40, -- per item
     diffMaxGapHours = 48, -- scans further apart than this are not diffed
