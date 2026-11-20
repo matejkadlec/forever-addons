@@ -1224,11 +1224,13 @@ end
 
 -- The generated API documentation lists COMMODITY_PURCHASED(itemID, quantity) and ITEM_PURCHASED(itemID), but
 -- Blizzard's Lua never registers them, so whether Forever sends them is not known. Until the maintainer's test
--- answers it, every purchase event at the AH (any window's) goes into R.events as
--- "t,char,ahev,<event>,<arguments>,<ms>" (ms = GetTime() in milliseconds, the order within one minute), and the
--- two events also print a chat line. Unknown events are not registered (FM.On), so this costs nothing without them.
+-- answers it, every purchase event at the AH (any window's) goes into its own list R.ahev as
+-- "t,char,<event>,<arguments>,<ms>" (ms = GetTime() in milliseconds, the order within one minute; the newest
+-- PROBE_MAX to PROBE_MAX + 100 lines, FM.CapList trims in batches; so it never pushes anything out of R.events), and the two events also print a chat line.
+-- Unknown events are not registered (FM.On), so this costs nothing without them.
 local PROBE_EVENTS = { "COMMODITY_PRICE_UPDATED", "COMMODITY_PRICE_UNAVAILABLE", "COMMODITY_PURCHASE_SUCCEEDED",
     "COMMODITY_PURCHASE_FAILED", "COMMODITY_PURCHASED", "ITEM_PURCHASED", "AUCTION_HOUSE_PURCHASE_COMPLETED" }
+local PROBE_MAX = 300
 local probeLast -- { event, t } of the purchase event logged before
 
 local function ProbeValue(value)
@@ -1242,8 +1244,12 @@ for _, event in ipairs(PROBE_EVENTS) do
         local args = {}
         for i = 1, select("#", ...) do args[i] = ProbeValue((select(i, ...))) end
         local now = GetTime()
-        FM.Log("events", table_concat({ FM.Stamp(), FM.PlayerName() or "?", "ahev", event, table_concat(args, " "),
-            tostring(math_floor(now * 1000)) }, ","), FM.LIMITS.eventsMax)
+        local r = FM.R()
+        if r then
+            if type(r.ahev) ~= "table" then r.ahev = {} end
+            FM.Log("ahev", table_concat({ FM.Stamp(), FM.PlayerName() or "?", event, table_concat(args, " "),
+                tostring(math_floor(now * 1000)) }, ","), PROBE_MAX)
+        end
         if event == "COMMODITY_PURCHASED" or event == "ITEM_PURCHASED" then
             local itemID, quantity = ...
             local item = IsNumber(itemID) and (Name(tostring(itemID)) .. " (" .. itemID .. ")") or ProbeValue(itemID)

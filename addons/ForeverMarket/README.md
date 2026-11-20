@@ -538,7 +538,7 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   matched to it (answers come in order), and a late failure still keeps them counted. Reset waits for it.
 * Whether the documented `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` fire on Forever,
   which would name the bought item, is being tested (1.25, FRV-54): every purchase event at the AH, of any window,
-  goes into `events` as `ahev` (see Data format), and those two also print a chat line ("FRV-54 test: ...").
+  goes into its own list `ahev` (see Data format), and those two also print a chat line ("FRV-54 test: ...").
   Nothing uses them yet.
 * If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
   forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
@@ -589,8 +589,10 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
-  `mexpired|mcancelled,item`, `blocked,function`, AH purchase events while FRV-54 tests them (1.25)
-  `ahev,event,arguments,ms` (arguments space separated, ms = `GetTime()` in milliseconds: the order within a minute)
+  `mexpired|mcancelled,item`, `blocked,function`
+* `ahev` `t,char,event,arguments,ms` the AH purchase events while FRV-54 tests them (1.25; arguments space
+  separated, ms = `GetTime()` in milliseconds: the order within a minute), the newest 300 to 400 lines, a list of its own
+  so it never pushes lines out of `events`
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)

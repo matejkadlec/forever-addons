@@ -196,3 +196,22 @@ H.test("sniper: a pick sends every AH purchase with its units, an item sold per 
     H.eq(env.printed[1]:find("Sniping 2 items for Hat", 1, true) ~= nil, true, "it counts them")
     H.eq(env.printed[1]:find("sold per auction", 1, true) ~= nil, true, "and names the skipped one")
 end)
+
+-- FRV-54: the purchase events under test go into a list of their own (the newest 300 to 400: FM.CapList trims in
+-- batches of 100), never into R.events,
+-- whose mail lines (mexpired) the Profit tab needs and cannot get back
+H.test("sniper: the FRV-54 probe logs into its own capped list, never into events", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100, 5)
+    Offer(env, ah, LEATHER, 90, 5)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASED", LEATHER, 5)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    local r = FM.R()
+    H.eq(#r.events, 0, "nothing in events")
+    H.eq(#r.ahev, 3, "the quote, the named event and the answer")
+    H.eq(r.ahev[2]:find(",COMMODITY_PURCHASED,2318 5,", 1, true) ~= nil, true, "the event with its item and units")
+    for _ = 1, 400 do env.FireEvent("COMMODITY_PRICE_UNAVAILABLE") end
+    H.eq(#r.ahev >= 300 and #r.ahev <= 400, true, "300 to 400 lines (" .. #r.ahev .. ")")
+    H.eq(r.ahev[#r.ahev]:find(",COMMODITY_PRICE_UNAVAILABLE,", 1, true) ~= nil, true, "the newest last")
+end)
