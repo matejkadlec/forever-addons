@@ -11,22 +11,26 @@ local _, FM = ...
 --     of the gold that is left (left / picks still open), so what one does not use goes to the later ones; each buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
 --     dearer), crafting stops where a craft no longer earns its margin
---   * your position first: units you already list or hold count against the buyers, your own materials
---     are used first (valued at what they would sell for), nothing is bought that you are selling
+--   * your position first: units you already list count against the buyers; units of the pick's item you hold are
+--     the pick's own (1.29, FRV-89: it makes or buys only the rest and lists them all; when they cover it, the pick
+--     stays as "Stock": list them); your own materials are used first unless "Exclude stock for crafting" (FRV-90;
+--     valued at what they would sell for), nothing is bought that you are selling
 --   * no loss: at the lowest sell price of the last 3 days, minus deposits lost on relists, still a profit
---   * recipes to learn need a known price and a known skill requirement; the price is part of the plan
+--   * recipes to learn need a known price and a known skill requirement; the price is part of the plan. One you
+--     cannot learn yet (its skill or its character level above yours, within the caps of "Over skill level" and
+--     "Over character level", FRV-91) is "Level for" information, never a step of the plan
 --   * after the plan: further good picks, each judged on its own with one pick's share of the plan's gold ("out
 --     of scope"), so each can take the place of a plan pick
 --   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
 --     its profit, the deposit of the rest is lost when the auction expires (smaller deposit and fewer buyers
 --     in time vs. bigger deposit and more buyers); the table shows the better one (pick.expected, listHours)
---   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: "Ignore vendor",
---     "Ignore stock", "Invest [X] % across [Y] picks", "Not learned", the profession (crafts and recipes only) and the settings
---     panel's minimum profit per item and share of C/24h
+--   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: the Picks filters
+--     (FM.TableFilters("picks"): its own or the global ones, FRV-89), "Invest [X] % across [Y] picks", the profession
+--     (crafts and recipes only) and the settings panel's minimum profit per item and share of C/24h
 --   * room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h (the table's
 --     C/24h, default 25%), less what you already list on all your characters (FM.OwnListings: the auction lists
---     and the posts since). No room for one craft or one unit = no pick. "Ignore stock" does not touch it.
---   * pick.steps: what to do, in order (learn > buy > make > list), shown under the pick
+--     and the posts since). No room for one craft or one unit = no pick. Your bags and bank do not touch it.
+--   * pick.steps: what to do, in order (learn > use > buy > make > list), shown under the pick
 
 local Dec = FM.Dec
 local type = type
@@ -220,8 +224,8 @@ local function ListingSeen(key, listed)
 end
 
 -- Room for new units of an item on the AH: a share of what circulates of it in 24h (the table's C/24h =
--- sold12 x 2; the share is the settings panel's "share of C/24h"), less what you list already. It holds whatever
--- "Ignore stock" says: that box covers bags and bank only. need = one craft's units, or 1.
+-- sold12 x 2; the share is the settings panel's "share of C/24h"), less what you list already. Units you hold take
+-- their room as the pick's own (they are listed with it). need = one craft's units, or 1.
 -- Returns { circ, cap, listed, room, pct }, or nil and why the item is no pick
 local function Room(row, need)
     if type(row.sold12) ~= "number" then return nil, "circulation not known yet (C/24h)" end
@@ -378,13 +382,13 @@ local function PerDay(n)
     return Count(n)
 end
 
--- Why nothing is left to add: what you list or hold already covers a day of the rate
+-- Why nothing is left to add: what you list already covers a day of the rate (what you hold is the pick's own)
 local function Covered(d, yours, V)
     if d.paceListed then
         return string_format("you list %s and sell %s a day yourself (%s sold in 3 days): they cover %s", Count(yours),
             PerDay(V), Count(d.own.units), FM.FormatAge(yours / math_max(V, 0.01) * 86400))
     end
-    return "you already list or hold what buyers take in a day"
+    return "you already list what buyers take in a day"
 end
 
 -- The tooltip's account of your own sales: how many, your pace, and whether it is the plan's rate
@@ -396,27 +400,67 @@ local function OwnSalesLines(list, d)
     end
 end
 
--- "Ignore stock" (default on): the plans treat your bags and bank as empty (tools you own still count)
-local function StockOf(key)
-    if P.ignoreStock then return 0 end
-    local s = P.stock[key]
-    if s == nil then
-        s = ItemCount(key)
-        P.stock[key] = s
+-- What you own of an item, once per pass: { all (bags and bank), sellable (not soulbound), sellable in bags, all in bags }
+local function OwnedOf(key)
+    local o = P.owned[key]
+    if not o then
+        local all, sellable, bagSellable, bagAll = FM.Owned(key)
+        o = { all or 0, sellable or 0, bagSellable, bagAll }
+        P.owned[key] = o
     end
-    return s
+    return o
 end
 
--- Units of yours that will go to the AH before new ones sell (soulbound ones never do)
+-- Your materials: bags and bank, used first; "Exclude stock for crafting" (FRV-90, default off) plans as if both were
+-- empty (tools you own still count)
+local function StockOf(key)
+    if P.noStock then return 0 end
+    return OwnedOf(key)[1]
+end
+
+-- Units of an item you hold that can go to the AH (soulbound ones never do): they always count (1.29, FRV-89)
 local function SellableOf(key)
-    if P.ignoreStock then return 0 end
-    local s = P.sellable[key]
-    if s == nil then
-        local _, n = FM.Owned(key)
-        s = n
-        P.sellable[key] = s
+    return OwnedOf(key)[2]
+end
+
+-- Of those, the ones still yours to list: what earlier picks of the plan use of your stock as material is not
+local function HeldOf(key)
+    local held = SellableOf(key)
+    if held <= 0 then return 0 end
+    local left = P.stockLeft[key]
+    if left and not P.noStock then held = held - math_max(0, StockOf(key) - left) end
+    return math_max(0, held)
+end
+
+-- Where n of your units are: "your bags", "your bank" or "your bags and bank" (inBags: how many the bags hold)
+local function StockWhere(n, inBags)
+    if type(inBags) ~= "number" then return "your bags and bank" end
+    if inBags >= n then return "your bags" end
+    if inBags <= 0 then return "your bank" end
+    return "your bags and bank"
+end
+
+-- Your materials the plan uses, the most first: { key, n } (not the spare units of its own crafts)
+local function FromStock(trial)
+    local list = {}
+    for key, n in pairs(trial.stock) do
+        local own = n - (trial.fromMade[key] or 0)
+        if own > 0 then list[#list + 1] = { key = key, n = own } end
     end
-    return s
+    table_sort(list, function(a, b)
+        if a.n ~= b.n then return a.n > b.n end
+        return a.key < b.key
+    end)
+    return list
+end
+
+-- The use step: "use 9 Heavy Leather from your bags (+1 more)" (the tooltip's material lines name each)
+local function UseStep(trial)
+    local list = FromStock(trial)
+    local first = list[1]
+    if not first then return nil end
+    return string_format("use %s %s from %s", Count(first.n), Name(first.key), StockWhere(first.n, OwnedOf(first.key)[4]))
+        .. (#list > 1 and string_format(" (+%d more)", #list - 1) or "")
 end
 
 ---------------------------------------------------------------- material supply (shared by all picks)
@@ -706,14 +750,14 @@ local function BuyReason(part, trial)
     return nil
 end
 
--- A pick's material lines: what the plan does with each ("your 4, AH 10 up to 14s 50c, craft 20"), why it buys
--- one it could craft, and under a crafted one the materials of its crafts
+-- A pick's material lines: what the plan does with each ("4 from your bags, AH 10 up to 14s 50c, craft 20"), why it
+-- buys one it could craft, and under a crafted one the materials of its crafts
 local function MaterialLines(row, trial, reasons)
     local function describe(key, bits)
         local fromStock = (trial.stock[key] or 0) - (trial.fromMade[key] or 0)
         local used = trial.used[key] or 0
         local vendor = trial.vendor[key] or 0
-        if fromStock > 0 then bits[#bits + 1] = "your " .. Count(fromStock) end
+        if fromStock > 0 then bits[#bits + 1] = Count(fromStock) .. " from " .. StockWhere(fromStock, OwnedOf(key)[4]) end
         if used > 0 then bits[#bits + 1] = string_format("AH %s up to %s", Count(used), M(trial.top[key])) end
         if vendor > 0 then bits[#bits + 1] = string_format("vendor %s at %s", Count(vendor), M(FM.VendorUnit(key, false))) end
         return used + vendor > 0
@@ -873,7 +917,50 @@ local function NoGold()
     return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
 end
 
--- A craft (learned, or learn = the recipe price goes into the plan, or level = info only)
+-- What you hold covers the pick (1.29, FRV-89): nothing to make or buy, list what you hold ("Stock", its Type).
+-- Its profit per unit is the sale against unitCost, what one more unit would cost the pick now; conf and notes are
+-- the candidate's own
+local function StockPick(c, row, held, listed, V, d, room, unitCost, conf, notes)
+    local sellNet = row.sell * (1 - AH_CUT)
+    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
+    local hours = (queue + held) / math_max(V / 24, 0.01)
+    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
+    local depositLoss = DepositPerItem(row.key, row.sell) * relists
+    local unitProfit = sellNet - unitCost - depositLoss
+    if unitProfit < MIN_UNIT then return nil, "under 10c profit per item after deposits" end
+    local expected = unitProfit * held
+    local score = expected * conf
+    if score < P.minScore then
+        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
+    end
+    local pick = { key = row.key, kind = "stock", score = score, conf = conf, listAt = row.sell, invest = 0,
+        unitProfit = unitProfit, held = held, listUnits = held, cand = c, trial = NewTrial(), steps = {}, shopping = {} }
+    local e8, e24 = ListingOutcome(row.key, held, queue, V / 24, sellNet - unitCost, row.sell)
+    pick.exp8, pick.exp24 = e8 * conf, e24 * conf
+    local list = {
+        { "h", "Plan for the next 24h" },
+        { "l", "You hold", string_format("%s in %s", Count(held), StockWhere(held, OwnedOf(row.key)[3])) },
+        { "n", "What you hold covers the pick: nothing to make or buy, list them.", GREY },
+        { "l", "Expected profit", M(expected) },
+        { "l", "Profit per item", M(unitProfit) .. GREY .. "  against " .. M(unitCost) .. " for one more now|r" },
+        { "h", "Sell" },
+        { "l", "List at", M(row.sell) },
+        { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) },
+    }
+    OwnSalesLines(list, d)
+    list[#list + 1] = { "l", "Listed by others", Count(row.qty - (row.own or 0)) }
+    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
+    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
+    RoomLines(list, row, room, "list", held)
+    list[#list + 1] = { "h", "Confidence" }
+    list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
+    for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
+    pick.reasons = list
+    return pick
+end
+
+-- A craft (learned, or learn = the recipe price goes into the plan, or level = info only). Units of it you hold
+-- are the pick's own: it makes only the rest of what the buyers and the room allow, and lists them all
 local function EvaluateCraft(c)
     local row = c.row
     local makes = row.craft.makes or 1
@@ -882,9 +969,9 @@ local function EvaluateCraft(c)
     local others = row.qty - (row.own or 0)
     local room, noRoom = Room(row, makes)
     if not room then return nil, noRoom end
-    local yours = Yours(row.key) + SellableOf(row.key)
-    local vLeft = V - yours
-    if vLeft < makes then return nil, Covered(d, yours, V) end
+    local listed = Yours(row.key)
+    local vLeft = V - listed
+    if vLeft < makes then return nil, Covered(d, listed, V) end
     local buyers = d.perDay or V
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
@@ -894,6 +981,8 @@ local function EvaluateCraft(c)
         if part.src ~= "vendor" then vendorOnly = false end
     end
     if vendorOnly then unitsCap = math_min(unitsCap, math_max(makes, VENDOR_LISTED_SHARE * others)) end
+    -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
+    local held = c.kind ~= "level" and math_min(HeldOf(row.key), math_floor(unitsCap)) or 0
     local reasons = {}
     local cap = math_min(P.perPick, P.budgetLeft)
     local learnCost = 0
@@ -904,16 +993,29 @@ local function EvaluateCraft(c)
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
-    if cap <= 0 then return nil, NoGold() end
-    local plan = PlanCraft(row, cap, unitsCap)
-    if plan.runs == 0 then
-        if plan.stop == "gold" then return nil, NoGold() end
-        return nil, "no craft earns its margin with the materials on the AH now"
+    -- a Stock pick when what you hold covers it, or nothing more can be made
+    local function OnlyHeld(why)
+        if held <= 0 then return nil, why or Covered(d, listed, V) end
+        local notes = {}
+        local conf = Confidence(row, d, vSource, saturation, notes)
+        return StockPick(c, row, held, listed, V, d, room, row.cost / makes, conf, notes)
     end
-    local items = plan.items
-    local costPerItem = plan.value / items
-    -- you list under the cheapest: only your own units wait before these (at the 1s floor, all of them)
-    local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + items) / math_max(V / 24, 0.01)
+    if unitsCap - held < makes then return OnlyHeld() end
+    if cap <= 0 then return OnlyHeld(NoGold()) end
+    local plan = PlanCraft(row, cap, unitsCap - held)
+    if plan.runs == 0 then
+        if plan.stop == "gold" then return OnlyHeld(NoGold()) end
+        return OnlyHeld("no craft earns its margin with the materials on the AH now")
+    end
+    local made = plan.items
+    local items = made + held
+    local costPerItem = plan.value / made
+    local sellNet = row.sell * (1 - AH_CUT)
+    -- what you hold at what one more costs now, the made ones at what they cost the plan (the same per unit)
+    local profit = plan.profit + held * (sellNet - costPerItem)
+    -- you list under the cheapest: only your own listings wait before these (at the 1s floor, all of them)
+    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
+    local hours = (queue + items) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
     local depositLoss = DepositPerItem(row.key, row.sell) * relists
     -- worst case: selling at the usual low (median daily low, last week) when that is under the price now;
@@ -921,31 +1023,32 @@ local function EvaluateCraft(c)
     local pessSell = math_min(row.sell, row.usual or row.sellMin or row.sell)
     local pessProfit = pessSell * (1 - AH_CUT) - costPerItem - depositLoss
     if pessProfit <= 0 then return nil, "could lose money at its usual low price" end
-    local expected = plan.profit - depositLoss * items
+    local expected = profit - depositLoss * items
     local unitProfit = expected / items
     if unitProfit < MIN_UNIT then return nil, "under 10c profit per item after deposits" end
     local notes = {}
     local conf = Confidence(row, d, vSource, saturation, notes) * toolConf
     local score = expected * conf
     if c.kind == "learn" then
-        if learnCost / unitProfit > LEARN_DAYS * items then return nil, "the recipe would not pay back within 3 days of sales" end -- pays back within 3 days of sales
+        -- the recipe pays only through what you make: back within 3 days of their sales
+        if learnCost / unitProfit > LEARN_DAYS * made then return nil, "the recipe would not pay back within 3 days of sales" end
         score = (LEARN_DAYS * expected * conf - learnCost) / LEARN_DAYS
     end
     if score < P.minScore then return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5)) end
 
     local pick = { key = row.key, kind = c.kind, score = score, conf = conf, listAt = row.sell,
         invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = unitProfit, prof = row.craft.prof,
-        learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools }
-    -- one 8h / 24h listing of the crafts, at your confidence; a recipe to learn pays its price over 3 days
-    local e8, e24 = ListingOutcome(row.key, items, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
-        plan.profit / items, row.sell)
+        learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools, held = held, listUnits = items }
+    -- one 8h / 24h listing of the crafts and what you hold, at your confidence; a recipe to learn pays its price over 3 days
+    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, profit / items, row.sell)
     local learnShare = c.kind == "learn" and learnCost / LEARN_DAYS or 0
     pick.exp8, pick.exp24 = e8 * conf - learnShare, e24 * conf - learnShare
-    -- what to do, in order (Evaluate adds the listing): learn > buy > make
+    -- what to do, in order (Evaluate adds the listing): learn > use > buy > make
     local steps = {}
     if c.kind == "learn" then steps[#steps + 1] = LearnStep(c) end
+    if c.kind ~= "level" then steps[#steps + 1] = UseStep(plan.trial) end
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
-    steps[#steps + 1] = string_format("make %s", Count(items))
+    steps[#steps + 1] = string_format("make %s", Count(made))
     pick.steps = steps
     -- Shift-click and the row menu snipe every AH purchase of the plan with its units (pick.buys); the sniper
     -- window opens on the main one
@@ -964,10 +1067,16 @@ local function EvaluateCraft(c)
         list[#list + 1] = { "l", "Where", c.where }
         list[#list + 1] = { "l", "Price", M(c.learnCost) }
         list[#list + 1] = { "l", "Skill", string_format("%d (you have %d)", c.req, c.skill) }
+        if (c.level or 0) > 0 then
+            list[#list + 1] = { "l", "Level", P.level and string_format("%d (you are %d)", c.level, P.level) or tostring(c.level) }
+        end
         list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / unitProfit)) }
     end
     list[#list + 1] = { "h", c.kind == "level" and "Once learned, a day could look like" or "Plan for the next 24h" }
-    list[#list + 1] = { "l", "Make", Count(items) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    if held > 0 then
+        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held), StockWhere(held, OwnedOf(row.key)[3])) }
+    end
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
     list[#list + 1] = { "l", "Profit per item", M(unitProfit) }
@@ -987,9 +1096,9 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay or V), d.source == "estimated" and " (estimated)" or "") }
     OwnSalesLines(list, d)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
-    if yours > 0 then list[#list + 1] = { "l", "Yours listed or held", Count(yours) } end
+    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
-    RoomLines(list, row, room, "make", items)
+    RoomLines(list, row, room, "make", made)
     list[#list + 1] = { "h", "Confidence" }
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
@@ -1008,34 +1117,8 @@ local function EvaluateCraft(c)
     return pick
 end
 
-local function EvaluateVendor(c)
-    local row = c.row
-    local V, vSource, d = SellRate(row.key)
-    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
-    local others = row.qty - (row.own or 0)
-    local room, noRoom = Room(row, 1)
-    if not room then return nil, noRoom end
-    local yours = Yours(row.key) + SellableOf(row.key)
-    local vLeft = V - yours
-    if vLeft < 1 then return nil, Covered(d, yours, V) end
-    local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
-    if saturation > 7 then return nil, "over 7 days of stock listed by others" end
-    local unit = row.vendorUnit
-    local cap = math_min(P.perPick, P.budgetLeft)
-    local n = math_floor(math_min(MAX_UNITS, vLeft, room.room, row.offer.limited or math.huge,
-        math_max(1, VENDOR_LISTED_SHARE * others), cap / unit))
-    if n < 1 then return nil, NoGold() end
-    local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
-    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists
-    local pessSell = row.sell
-    if row.usual then pessSell = math_min(pessSell, row.usual) end
-    local pessProfit = pessSell * (1 - AH_CUT) - unit - depositLoss
-    if pessProfit <= 0 then return nil, "could lose money at its usual price" end
-    local unitProfit = row.sell * (1 - AH_CUT) - unit - depositLoss
-    if unitProfit < MIN_UNIT or unitProfit < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item after deposits" end
-    local expected = unitProfit * n
-    local notes = {}
+-- The confidence of a vendor resell: where its buyers come from, a falling price today, days of stock listed
+local function VendorConfidence(row, d, vSource, saturation, notes)
     local conf = vSource == "your sales" and 1 or (vSource == "bought" and 0.8 or 0.5)
     if vSource == "estimated" then notes[#notes + 1] = "buyers estimated from older records" end
     if row.usual and d.todayMedian and d.todayMedian < 0.8 * row.usual then
@@ -1046,25 +1129,68 @@ local function EvaluateVendor(c)
         conf = conf * 0.5
         notes[#notes + 1] = string_format("%.0f days of stock listed", saturation)
     end
+    return conf
+end
+
+local function EvaluateVendor(c)
+    local row = c.row
+    local V, vSource, d = SellRate(row.key)
+    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
+    local others = row.qty - (row.own or 0)
+    local room, noRoom = Room(row, 1)
+    if not room then return nil, noRoom end
+    local listed = Yours(row.key)
+    local vLeft = V - listed
+    if vLeft < 1 then return nil, Covered(d, listed, V) end
+    local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
+    if saturation > 7 then return nil, "over 7 days of stock listed by others" end
+    local unit = row.vendorUnit
+    local cap = math_min(P.perPick, P.budgetLeft)
+    -- the units the pick sells: what you hold first, the vendor's for the rest
+    local units = math_floor(math_min(MAX_UNITS, vLeft, room.room, math_max(1, VENDOR_LISTED_SHARE * others)))
+    local held = math_min(HeldOf(row.key), units)
+    local n = math_floor(math_min(units - held, row.offer.limited or math.huge, cap / unit))
+    if n < 1 then
+        if held <= 0 then return nil, NoGold() end
+        local notes = {}
+        local conf = VendorConfidence(row, d, vSource, saturation, notes)
+        return StockPick(c, row, held, listed, V, d, room, unit, conf, notes)
+    end
+    local items = n + held
+    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
+    local hours = (queue + items) / math_max(V / 24, 0.01)
+    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
+    local depositLoss = DepositPerItem(row.key, row.sell) * relists
+    local pessSell = row.sell
+    if row.usual then pessSell = math_min(pessSell, row.usual) end
+    local pessProfit = pessSell * (1 - AH_CUT) - unit - depositLoss
+    if pessProfit <= 0 then return nil, "could lose money at its usual price" end
+    local unitProfit = row.sell * (1 - AH_CUT) - unit - depositLoss
+    if unitProfit < MIN_UNIT or unitProfit < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item after deposits" end
+    local expected = unitProfit * items
+    local notes = {}
+    local conf = VendorConfidence(row, d, vSource, saturation, notes)
     local score = expected * conf
     if score < P.minScore then
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
     local where = row.offer.where
     local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
-        unitProfit = unitProfit, cand = c, trial = NewTrial() }
-    local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
-        row.sell * (1 - AH_CUT) - unit, row.sell)
+        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items }
+    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unit, row.sell)
     pick.exp8, pick.exp24 = e8 * conf, e24 * conf
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
     local list = {
         { "h", "Plan for the next 24h" },
         { "l", "Buy", string_format("%s at %s each", Count(n), M(unit)) },
         { "l", "Where", where or "?" },
-        { "l", "Gold needed", M(pick.invest) },
-        { "l", "Expected profit", M(expected) },
-        { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" },
     }
+    if held > 0 then
+        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held), StockWhere(held, OwnedOf(row.key)[3])) }
+    end
+    list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
+    list[#list + 1] = { "l", "Expected profit", M(expected) }
+    list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" }
     if row.offer.limited then list[#list + 1] = { "n", "Limited stock: " .. row.offer.limited .. " at a time.", ORANGE } end
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(row.sell) }
@@ -1072,6 +1198,7 @@ local function EvaluateVendor(c)
     list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) }
     OwnSalesLines(list, d)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
+    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
     list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
     RoomLines(list, row, room, "buy", n)
     list[#list + 1] = { "h", "Confidence" }
@@ -1091,6 +1218,8 @@ local function EvaluateFlip(c)
     if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
     local room, noRoom = Room(row, 1)
     if not room then return nil, noRoom end
+    -- what you hold first: the flip buys only the rest of the room
+    local held = math_min(HeldOf(row.key), math_floor(room.room))
     local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
     local skip = P.used[row.key] or 0
@@ -1103,7 +1232,7 @@ local function EvaluateFlip(c)
         else
             q = q - skip
             skip = 0
-            local take = math_min(q, row.units - n, room.room - n, math_floor((cap - cost) / level[1]))
+            local take = math_min(q, row.units - n, room.room - held - n, math_floor((cap - cost) / level[1]))
             if take <= 0 then break end
             n = n + take
             cost = cost + take * level[1]
@@ -1111,26 +1240,34 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
-    if n < 1 then return nil, NoGold() end
-    local yours = SellableOf(row.key)
-    local hours = ((row.atFloor and NearMin(row.key) or 0) + yours + n) / math_max(V / 24, 0.01)
+    if n < 1 then
+        if held <= 0 then return nil, NoGold() end
+        -- what you hold at the cheapest price on the AH now, which a flip would pay for one more
+        local ladder = Ladder(row.key)
+        local conf = vSource == "your sales" and 1 or (vSource == "bought" and 0.9 or 0.6)
+        return StockPick(c, row, held, 0, V, d, room, ladder[1] and ladder[1][1] or row.top, conf, {})
+    end
+    local items = n + held
+    local queue = row.atFloor and NearMin(row.key) or 0
+    local hours = (queue + items) / math_max(V / 24, 0.01)
     local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists * n
-    local expected = n * row.sell * (1 - AH_CUT) - cost - depositLoss
+    local depositLoss = DepositPerItem(row.key, row.sell) * relists * items
+    -- what you hold at what the flip pays per unit now
+    local unitCost = cost / n
+    local expected = items * (row.sell * (1 - AH_CUT) - unitCost) - depositLoss
     if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then
         return nil, "no profit left after the cut and deposits"
     end
-    local timeFactor = n <= V and 1 or (n <= 3 * V and 0.6 or 0.3)
+    local timeFactor = items <= V and 1 or (items <= 3 * V and 0.6 or 0.3)
     local conf = (vSource == "your sales" and 1 or (vSource == "bought" and 0.9 or 0.6)) * timeFactor
     local score = expected * conf
     if score < P.minScore then
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
-        unitProfit = expected / n, cand = c, trial = trial }
+        unitProfit = expected / items, cand = c, trial = trial, held = held, listUnits = items }
     -- the listing already counts only what buyers take in time: the source confidence, not the time factor
-    local e8, e24 = ListingOutcome(row.key, n, (row.atFloor and NearMin(row.key) or 0) + yours, V / 24,
-        (n * row.sell * (1 - AH_CUT) - cost) / n, row.sell)
+    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unitCost, row.sell)
     local sourceConf = conf / timeFactor
     pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
@@ -1140,27 +1277,55 @@ local function EvaluateFlip(c)
     pick.reasons = {
         { "h", "Plan" },
         { "l", "Buy", string_format("%s up to %s", Count(n), M(trial.top[row.key])) },
+    }
+    if held > 0 then
+        pick.reasons[#pick.reasons + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held),
+            StockWhere(held, OwnedOf(row.key)[3])) }
+    end
+    for _, line in ipairs({
         { "l", "Gold needed", M(cost) },
         { "l", "List at", M(row.sell) .. GREY .. string_format("  %s others wait at %s", Count(row.support), M(row.wall)) .. "|r" },
         { "l", "Expected profit", M(expected) },
         { "h", "Market" },
         { "l", "Usual price", M(row.usual) .. GREY .. "  median daily low, last week|r" },
-        { "l", "Profit per item", M(expected / n) },
+        { "l", "Profit per item", M(expected / items) },
         { "l", "Today", d.todayMedian and M(d.todayMedian) or "?" },
         { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) },
         { "l", "Time to sell", string_format("%s h", Count(hours)) },
         { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) },
         { "n", "Cheap listings go fast: the AH search shows if they are still there.", ORANGE },
-    }
+    }) do pick.reasons[#pick.reasons + 1] = line end
     RoomLines(pick.reasons, row, room, "buy", n)
     return pick
 end
 
 ---------------------------------------------------------------- the pass
 
--- The cheapest way to learn a recipe with a known price and a known skill requirement
+-- Why a way to learn a recipe is beyond the Picks filters' limits: "needs level 45, you are 43 (Over character
+-- level is off)", "needs skill 300, you have 280 (Over skill level cap is 10)"
+local function LimitReason(e, skill)
+    local F = P.filters
+    local maxSkill, maxLevel = FM.RecipeLimits(F, skill, P.level)
+    local bits = {}
+    if e.req > maxSkill then
+        bits[#bits + 1] = string_format("needs skill %d, you have %d (%s)", e.req, skill,
+            F.overSkill and string_format("Over skill level cap is %d", F.overSkillCap) or "Over skill level is off")
+    end
+    if e.level > maxLevel then
+        bits[#bits + 1] = string_format("needs level %d, you are %d (%s)", e.level, P.level or 0,
+            F.overLevel and string_format("Over character level cap is %d", F.overLevelCap) or "Over character level is off")
+    end
+    return table_concat(bits, "; ")
+end
+
+-- The cheapest way to learn a recipe with a known price and a known skill requirement: one you can learn now
+-- ("learn": your skill and your character level reach it), else one within the Picks filters' "Over skill level" and
+-- "Over character level" caps ("level": information only, FRV-89, FRV-91; an unknown level counts as none).
+-- Returns it, or nil and why none fits
 local function Learnable(row, profSkill)
-    local best
+    local skill = profSkill[row.craft.prof] or 0
+    local maxSkill, maxLevel = FM.RecipeLimits(P.filters, skill, P.level)
+    local now, later, blocked
     for _, route in ipairs(row.craft.learn or EMPTY) do
         local price = route.price
         if route.kind == "ah" then
@@ -1168,17 +1333,41 @@ local function Learnable(row, profSkill)
             price = ladder[1] and ladder[1][1]
         end
         if price and route.req and not route.est then
-            if not best or price < best.price then
-                best = { price = price, req = route.req, ah = route.kind == "ah", pattern = route.kind == "ah" and route.key or nil,
-                    where = route.kind == "ah" and "pattern on the AH" or (route.where or "?") }
+            local e = { price = price, req = route.req, level = route.level or 0, ah = route.kind == "ah",
+                pattern = route.kind == "ah" and route.key or nil,
+                where = route.kind == "ah" and "pattern on the AH" or (route.where or "?") }
+            if e.req <= skill and (not P.level or e.level <= P.level) then
+                if not now or price < now.price then now = e end
+            elseif e.req <= maxSkill and e.level <= maxLevel then
+                if not later or price < later.price then later = e end
+            elseif not blocked or e.req + e.level < blocked.req + blocked.level then
+                blocked = e -- the nearest one names the limit
             end
         end
     end
-    if not best then return nil end
-    local skill = profSkill[row.craft.prof] or 0
+    local best = now or later
+    if not best then
+        if blocked then return nil, LimitReason(blocked, skill) end
+        return nil, "recipe price or skill requirement not known yet"
+    end
     best.skill = skill
-    best.kind = best.req <= skill and "learn" or "level"
+    best.kind = now and "learn" or "level"
     return best
+end
+
+-- "Exclude already listed items" (FRV-89): your listings of the item (all your characters, as the room on the AH
+-- counts them, Yours) reach both thresholds, units and their value at your listing prices. Returns why, or nil
+local function ListedOut(key)
+    local F = P.filters
+    if not F.noListed then return nil end
+    local n = Yours(key)
+    if n <= 0 then return nil end
+    local e = P.listings[key]
+    -- the value of the units still counted: the average of what you listed them at; the lowest threshold (1c) holds
+    -- for any listing, also one whose price is not known (a bid only auction no post tells about)
+    local value = (e and e.value and e.n > 0) and e.value * n / e.n or 0
+    if n < F.listedCount or (F.listedValue > 1 and value < F.listedValue) then return nil end
+    return string_format("you list %s already, worth %s (Exclude already listed items)", Count(n), M(value))
 end
 
 local function Candidates(out, why)
@@ -1186,8 +1375,11 @@ local function Candidates(out, why)
     local profSkill = {}
     for _, p in ipairs(P.sources.profs or EMPTY) do profSkill[p.short] = p.skill or 0 end
     for _, row in ipairs(out.crafts or EMPTY) do
+        local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif listedWhy then
+            why[row.key] = listedWhy
         elseif not row.sell then
             why[row.key] = "no price to sell at"
         elseif row.missing or not row.cost or not row.parts then
@@ -1199,23 +1391,26 @@ local function Candidates(out, why)
             why[row.key] = "another profession is chosen in the table"
         elseif row.learned then
             list[#list + 1] = { kind = "craft", row = row }
-        elseif not P.learnOn then
-            why[row.key] = "recipes to learn are off (Not learned)"
+        elseif not P.filters.learn then
+            why[row.key] = "recipes to learn are off (Include not learned recipes)"
         else
-            local l = Learnable(row, profSkill)
+            local l, notWhy = Learnable(row, profSkill)
             if l then
-                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, where = l.where, ah = l.ah,
-                    pattern = l.pattern }
+                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, level = l.level,
+                    where = l.where, ah = l.ah, pattern = l.pattern }
             else
-                why[row.key] = "recipe price or skill requirement not known yet"
+                why[row.key] = notWhy
             end
         end
     end
     for _, row in ipairs(out.vendor or EMPTY) do
+        local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
-        elseif P.ignoreVendor then
-            why[row.key] = "vendor resells are off (Ignore vendor)"
+        elseif P.filters.noVendor then
+            why[row.key] = "vendor resells are off (Exclude vendor flips)"
+        elseif listedWhy then
+            why[row.key] = listedWhy
         elseif not row.sell or row.sell > 10 * row.vendorUnit then
             why[row.key] = "AH price over 10x the vendor price looks like an outlier"
         else
@@ -1223,8 +1418,11 @@ local function Candidates(out, why)
         end
     end
     for _, row in ipairs(out.flips or EMPTY) do
+        local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif listedWhy then
+            why[row.key] = listedWhy
         elseif FM.HasVariants(row.key) or FM.SuffixUnknown(row.key) then
             why[row.key] = "has \"of the ...\" variants the scan can't tell apart"
         else
@@ -1261,7 +1459,16 @@ local function Evaluate(c)
     end
     pick.steps = pick.steps or {}
     if pick.listAt then
-        pick.steps[#pick.steps + 1] = string_format("list at %s for %dh", M(pick.listAt), pick.listHours or 24)
+        local held = pick.held or 0
+        if pick.kind == "stock" then
+            pick.steps[#pick.steps + 1] = string_format("list your %s at %s for %dh", Count(held), M(pick.listAt), pick.listHours or 24)
+        elseif held > 0 then
+            -- what you hold goes with the new units: "list 12 at 1g for 24h (5 you hold)"
+            pick.steps[#pick.steps + 1] = string_format("list %s at %s for %dh (%s you hold)", Count(pick.listUnits or held),
+                M(pick.listAt), pick.listHours or 24, Count(held))
+        else
+            pick.steps[#pick.steps + 1] = string_format("list at %s for %dh", M(pick.listAt), pick.listHours or 24)
+        end
     end
     -- the tooltip keeps both lengths
     if pick.reasons and pick.exp8 and pick.exp24 then
@@ -1278,6 +1485,10 @@ local function Commit(pick)
     for key, n in pairs(trial.used) do P.used[key] = (P.used[key] or 0) + n end
     for key, n in pairs(trial.stock) do P.stockLeft[key] = (P.stockLeft[key] or StockOf(key)) - n end
     for key, n in pairs(trial.made) do P.stockLeft[key] = (P.stockLeft[key] or StockOf(key)) + n end
+    -- what you hold of its item goes to the AH with it: no later pick uses it as material
+    if (pick.held or 0) > 0 and not P.noStock then
+        P.stockLeft[pick.key] = math_max(0, (P.stockLeft[pick.key] or StockOf(pick.key)) - pick.held)
+    end
     P.budgetLeft = P.budgetLeft - pick.invest
     if (pick.toolCost or 0) > 0 then
         for _, name in ipairs(pick.tools or EMPTY) do P.toolsBought[name] = true end
@@ -1291,12 +1502,12 @@ function FM.ComputePicks(out, ctx, done)
     -- your auctions seen before the latest snapshot are checked against it (Yours)
     local lag = ctx.view.source == "api" and FEED_LAG or SNAPSHOT_LAG
     local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - lag or nil)
+    -- the Picks filters (its own or the global ones) are inputs of the plan: a change plans again (FM.PlanPicks)
+    local filters = FM.TableFilters("picks")
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
-        demand = {}, stock = {}, sellable = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo, yours = {},
+        demand = {}, owned = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo, yours = {},
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
-        ignoreStock = s.tableIgnoreStock ~= false, ignoreVendor = s.tableIgnoreVendor == true,
-        -- the table's filters are inputs of the plan (the table changes call FM.ComputeTrade again)
-        learnOn = s.tableLearn and true or false, prof = s.tableProf,
+        filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit or nil }
     -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (at most 90%, the rest
     -- pays deposits), Y = the picks it has at most; Step gives each pick its share of what is left
@@ -1384,8 +1595,14 @@ function FM.ComputePicks(out, ctx, done)
         for _, c in ipairs(candidates) do
             if c.valid and not why[c.row.key] and not shown[c.row.key] then
                 if c.kind == "level" then
-                    why[c.row.key] = string_format("needs skill %d (you have %d)%s", c.req, c.skill,
-                        levelTop[c.row.key] and ", one of the best recipes to level for" or "")
+                    -- what it needs that you do not have yet: the skill, your character level, or both
+                    local needs = {}
+                    if c.req > c.skill then needs[#needs + 1] = string_format("skill %d (you have %d)", c.req, c.skill) end
+                    if P.level and (c.level or 0) > P.level then
+                        needs[#needs + 1] = string_format("level %d (you are %d)", c.level, P.level)
+                    end
+                    why[c.row.key] = "needs " .. table_concat(needs, " and ")
+                        .. (levelTop[c.row.key] and ", one of the best recipes to level for" or "")
                 else
                     why[c.row.key] = "a good candidate, but others earn more"
                 end

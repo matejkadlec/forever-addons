@@ -87,8 +87,54 @@ local function Place(entry)
     return (entry.name or "?") .. ", " .. where
 end
 
+-- The level needed to learn a recipe (FRV-91; the maintainer, 2026-11-20: "the level that's needed to learn the
+-- recipe") is the recipe item's own required level: GetItemInfo's itemMinLevel, 0 for none; nil while the client
+-- does not have the item (it is requested then, the next pass knows it)
+local levelCache = {}
+local function ItemLevelReq(id)
+    id = tonumber(id)
+    if not id then return nil end
+    local cached = levelCache[id]
+    if cached then return cached end
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    if not getInfo then return nil end
+    local ok, name, _, _, _, minLevel = pcall(getInfo, id)
+    if not ok or not name or FM.IsSecret(minLevel) or type(minLevel) ~= "number" then
+        if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+        return nil
+    end
+    levelCache[id] = minLevel > 1 and minLevel or 0
+    return levelCache[id]
+end
+
+-- "Requires Level 45" (the client's own ITEM_MIN_LEVEL wording when it has one)
+local LEVEL_PATTERN = (type(ITEM_MIN_LEVEL) == "string" and ITEM_MIN_LEVEL:find("%d", 1, true))
+    and ITEM_MIN_LEVEL:gsub("%%d", "(%%d+)") or "Requires Level (%d+)"
+
+-- The recipe item's own required level from its tooltip lines. The tooltip also shows the item the recipe makes,
+-- with that item's own "Requires Level" (Pattern: Green Whelp Bracers shows the bracers' level 33, the pattern itself
+-- needs none): never that one. The recipe's own lines come after its "Use: Teaches you how to ..." line. Returns the
+-- level found there, 0 for none, nil when the lines have no such line
+local function RecipeOwnLevel(lines)
+    local own = false
+    for _, text in ipairs(lines) do
+        if type(text) == "string" and not FM.IsSecret(text) then
+            if own then
+                local level = tonumber(string_match(text, LEVEL_PATTERN))
+                if level then return level end
+            elseif string_find(text, "^Use: Teaches") then
+                own = true
+            end
+        end
+    end
+    return own and 0 or nil
+end
+
 -- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern), at any
--- skill of your professions (BuildSources tells "learnable now" from "at a higher skill")
+-- skill of your professions (BuildSources tells "learnable now" from "at a higher skill"). Each way to learn
+-- carries the level needed to learn it (level, 0 = none, nil = not known yet): a trainer's from ForeverArtisan's
+-- levelReq (GetTrainerServiceLevelReq), a vendor pattern's from its own levelReq (its item info at the merchant),
+-- its item info now, else its own tooltip lines
 local function ReadContacts(profSkill)
     local vendors, routes = {}, {}
     local db = _G.ForeverArtisanContactsDB
@@ -104,7 +150,8 @@ local function ReadContacts(profSkill)
                         local list = routes[skill.name] or {}
                         routes[skill.name] = list
                         list[#list + 1] = { kind = "trainer", req = req, price = skill.priceCopper or 0, where = Place(entry),
-                            npc = entry.name or entry.n, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
+                            npc = entry.name or entry.n, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y,
+                            level = tonumber(skill.levelReq) or 0 }
                     end
                 end
             end
@@ -143,7 +190,8 @@ local function ReadContacts(profSkill)
                                     routes[recipe] = list
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
                                         limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
-                                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
+                                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y,
+                                        level = tonumber(it.levelReq) or ItemLevelReq(id) or RecipeOwnLevel(List(it.tooltip)) }
                                 end
                             end
                         end
@@ -190,6 +238,21 @@ local function PatternReq(key, profName)
     end
     if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
     return nil
+end
+
+-- The level needed to learn a pattern on the AH: its own item info, else its own tooltip lines (never the made
+-- item's); nil while the client has neither
+local function PatternLevel(key)
+    local level = ItemLevelReq(key)
+    if level then return level end
+    local api = C_TooltipInfo and C_TooltipInfo.GetItemByID
+    local id = tonumber(key)
+    if not (api and id) then return nil end
+    local ok, data = pcall(api, id)
+    if not (ok and type(data) == "table" and type(data.lines) == "table") then return nil end
+    local lines = {}
+    for i, line in ipairs(data.lines) do lines[i] = type(line) == "table" and line.leftText or "" end
+    return RecipeOwnLevel(lines)
 end
 
 -- Auctionator's cache of vendor prices it saw at merchants (reagents only, no place)
@@ -242,7 +305,8 @@ function FM.BuildSources()
                             req, est = r.grayAt - 25, true
                         end
                         if req then
-                            learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est }
+                            learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est,
+                                level = PatternLevel(patternKey) }
                         end
                     end
                     for _, route in ipairs(learnAll) do
@@ -618,15 +682,16 @@ function FM.NeverSellable(key)
     return (id and NeverSellable(id)) or false
 end
 
--- Units you own: usable (bags + bank, not what you wear), sellable (of those, not soulbound), sellable in bags
+-- Units you own: usable (bags + bank, not what you wear), sellable (of those, not soulbound), sellable in bags, all in
+-- bags (Picks says where its materials come from, FRV-90)
 function FM.Owned(key)
     local id = FM.ItemIDFromKey(key)
-    if not id then return 0, 0, 0 end
+    if not id then return 0, 0, 0, 0 end
     if not HasContainerAPI() then
         local total = GetCount(id, true)
         local bags = GetCount(id, false)
-        if NeverSellable(id) then return total, 0, 0 end
-        return total, total, bags
+        if NeverSellable(id) then return total, 0, 0, bags end
+        return total, total, bags, bags
     end
     local b = BagIndex()[id]
     local bagAll, bagFree = b and b.all or 0, b and b.free or 0
@@ -638,5 +703,5 @@ function FM.Owned(key)
     else
         bankFree = NeverSellable(id) and 0 or bankAll
     end
-    return bagAll + bankAll, bagFree + bankFree, bagFree
+    return bagAll + bankAll, bagFree + bankFree, bagFree, bagAll
 end

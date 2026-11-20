@@ -70,9 +70,9 @@ local function View(ladders, t, source)
     end }
 end
 
-local function Compute(FM, env, out, view)
+local function Compute(FM, env, out, view, sources)
     local done = false
-    FM.ComputePicks(out, { view = view or View(), sources = { profs = {} }, now = env.clock, nowMinutes = NOW_MINUTES },
+    FM.ComputePicks(out, { view = view or View(), sources = sources or { profs = {} }, now = env.clock, nowMinutes = NOW_MINUTES },
         function() done = true end)
     env.FlushTimers()
     H.eq(done, true, "the pass finished")
@@ -117,13 +117,14 @@ H.test("picks: the share is a setting", function()
 end)
 
 H.test("picks: your listings use up the cap, with no room left the item is no pick and says why", function()
-    for _, ignoreStock in ipairs({ true, false }) do
+    for _, noStock in ipairs({ true, false }) do
         -- 28 circulate a day: cap 7; 10 are listed in your auction list (56 buyers a day would leave 18 to make)
-        local FM, env, r = Setup({ ["101"] = 14 }, { tableIgnoreStock = ignoreStock })
+        local FM, env, r = Setup({ ["101"] = 14 })
+        FM.FilterSet("picks").noStock = noStock
         r.owned.Tester = { t = env.clock - 3600, list = table.concat({ B(1), "101", B(10), B(10000), "a", B(80000) }, ":") }
         local out = { crafts = { Craft("101", 28) } }
         local picks = Compute(FM, env, out)
-        H.eq(picks["101"], nil, "no pick (Ignore stock " .. tostring(ignoreStock) .. ")")
+        H.eq(picks["101"], nil, "no pick (Exclude stock for crafting " .. tostring(noStock) .. ")")
         H.eq(out.pickWhy["101"], "you list 10 already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "the reason")
     end
 end)
@@ -641,7 +642,7 @@ H.test("shopping list: a flip, a vendor resell or an item without a craft is the
 end)
 
 H.test("shopping list: a pick learning its recipe from the AH pattern has the pattern, then its purchases", function()
-    local FM, env = Setup({ ["720"] = 9 }, { tableLearn = true })
+    local FM, env = Setup({ ["720"] = 9 })
     local row = Craft("720", 60)
     row.learned = false
     row.craft.learn = { { kind = "ah", key = "721", req = 0 } } -- the pattern on the AH for 1g
@@ -701,4 +702,301 @@ H.test("picks: bought, then crafted, then bought again: the line gives the reaso
         "the 10 cheap ones and the last 10 bought, 20 crafted from the cheap Hides")
     H.eq(MaterialLine(pick, "960"), "AH 20 up to " .. Money(1700) .. " (crafting costs " .. Money(2635) .. " each), craft 20",
         "the reason of the units at 17s: crafting them would cost 26s 35c")
+end)
+
+-- FRV-90: "Exclude stock for crafting" unchecked (the default), the plan uses the materials you hold first and buys
+-- only the rest; its steps and tooltip say what comes from your bags or bank; the buy step, Invest and the shopping
+-- list count only what is bought. Checked, every material is bought.
+-- The market of these tests: a craft that needs 10 Heavy Leather (990, 1s on the AH) and sells at 1g; 36 buyers a
+-- day (half = 18), C/24h 48: room for 12 crafts, 120 Heavy Leather.
+local function LeatherCraft(key)
+    local craft = Craft(key, 48)
+    craft.parts = { { key = "990", n = 10, unit = 100, src = "ah" } }
+    return craft
+end
+
+local function Leather()
+    return View({ ["990"] = { ladder = { { 100, 100000 } }, qty = 100000, own = 0 } })
+end
+
+-- What you own: all, sellable, sellable in bags, all in bags (FM.Owned) by key
+local function Own(FM, byKey)
+    FM.Owned = function(key)
+        local o = byKey[key]
+        if not o then return 0, 0, 0, 0 end
+        return o[1], o[2], o[3], o[4]
+    end
+end
+
+local function StepStarting(pick, prefix)
+    for _, step in ipairs(pick.steps) do
+        if step:sub(1, #prefix) == prefix then return step end
+    end
+    return nil
+end
+
+H.test("picks: 120 Heavy Leather needed, 9 in your bags: the plan buys 111 and says it uses your 9", function()
+    local FM, env, r = Setup({ ["130"] = 9 })
+    FM_Money = FM.FormatMoney
+    r.names["990"] = "Heavy Leather"
+    Own(FM, { ["990"] = { 9, 9, 9, 9 } })
+    local pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
+    H.eq(HasStep(pick, "make 12"), true, "make 12: 120 Heavy Leather")
+    H.eq(HasStep(pick, "use 9 Heavy Leather from your bags"), true, "the use step")
+    H.eq(HasStep(pick, "buy 111 Heavy Leather up to " .. Money(100)), true, "the buy step: 111")
+    H.same(pick.buys, { { key = "990", ah = 111, top = 100 } }, "the sniper gets 111")
+    H.eq(pick.invest, 111 * 100, "Invest: the 111 bought")
+    H.same(FM.ShoppingList("pick", pick), { "990" }, "the shopping list")
+    H.eq(MaterialLine(pick, "990"), "9 from your bags, AH 111 up to " .. Money(100), "the tooltip's material line")
+    -- the steps in order: use before buy, make, list
+    H.eq(pick.steps[1], "use 9 Heavy Leather from your bags", "use first")
+end)
+
+H.test("picks: your materials in the bank, or in both, are named so", function()
+    local FM, env, r = Setup({ ["130"] = 9 })
+    r.names["990"] = "Heavy Leather"
+    Own(FM, { ["990"] = { 9, 9, 0, 0 } })
+    local pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
+    H.eq(HasStep(pick, "use 9 Heavy Leather from your bank"), true, "all in the bank")
+    FM, env, r = Setup({ ["130"] = 9 })
+    r.names["990"] = "Heavy Leather"
+    Own(FM, { ["990"] = { 9, 9, 4, 4 } })
+    pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
+    H.eq(HasStep(pick, "use 9 Heavy Leather from your bags and bank"), true, "4 in the bags, 5 in the bank")
+end)
+
+H.test("picks: Exclude stock for crafting buys every material and has no use step", function()
+    local FM, env, r = Setup({ ["130"] = 9 })
+    FM_Money = FM.FormatMoney
+    r.names["990"] = "Heavy Leather"
+    Own(FM, { ["990"] = { 9, 9, 9, 9 } })
+    FM.FilterSet("picks").noStock = true
+    local pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
+    H.same(pick.buys, { { key = "990", ah = 120, top = 100 } }, "all 120 bought")
+    H.eq(pick.invest, 120 * 100, "Invest: 120")
+    H.eq(StepStarting(pick, "use "), nil, "no use step")
+    H.eq(MaterialLine(pick, "990"), "AH 120 up to " .. Money(100), "nothing of yours in the line")
+end)
+
+H.test("picks: an intermediate you hold is used before it is crafted or bought", function()
+    local FM, env, r = Setup({ ["131"] = 9 })
+    FM_Money = FM.FormatMoney
+    r.names["950"] = "Cured Heavy Hide"
+    Own(FM, { ["950"] = { 4, 4, 4, 4 } })
+    -- crafting one costs 9s, the AH sells it at 14s: crafted; room for 15 crafts
+    local craft = IntermediateCraft("131", { key = "950", n = 1, unit = 900, src = "craft", makes = 1, parts = {
+        { key = "951", n = 1, unit = 900, src = "ah" } } })
+    local view = View({ ["950"] = { ladder = { { 1400, 100 } }, qty = 100, own = 0 },
+        ["951"] = { ladder = { { 900, 1000 } }, qty = 1000, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["131"]
+    H.eq(HasStep(pick, "make 15"), true, "make 15")
+    H.eq(MaterialLine(pick, "950"), "4 from your bags, craft 11", "your 4, then 11 crafted")
+    H.same(pick.buys, { { key = "951", ah = 11, top = 900 } }, "the materials of 11 crafts only")
+    H.eq(HasStep(pick, "use 4 Cured Heavy Hide from your bags"), true, "the use step")
+end)
+
+-- FRV-89: units of the pick's own item you hold are the pick's: it makes that many fewer and lists them with the
+-- new ones; when they cover it, the pick stays ("Stock": list them). 18 buyers a day, C/24h 400: room for 100.
+H.test("picks: making one unit of a pick lowers how many it plans, the pick stays", function()
+    local FM, env = Setup({ ["132"] = 9 })
+    local pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
+    H.eq(HasStep(pick, "make 18"), true, "nothing held: make 18")
+    FM, env = Setup({ ["132"] = 9 })
+    Own(FM, { ["132"] = { 1, 1, 1, 1 } })
+    pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
+    H.eq(pick and pick.kind, "craft", "still a craft pick")
+    H.eq(HasStep(pick, "make 17"), true, "one held: make 17")
+    H.eq(StepStarting(pick, "list 18 at ") ~= nil, true, "it lists all 18")
+    H.eq(StepStarting(pick, "list 18 at "):sub(-13), " (1 you hold)", "and says one is yours")
+end)
+
+H.test("picks: what you hold covers the pick: it stays as Stock, nothing to make or buy", function()
+    local FM, env = Setup({ ["132"] = 9 })
+    Own(FM, { ["132"] = { 30, 30, 30, 30 } })
+    local out = { crafts = { Craft("132", 400) } }
+    local pick = Compute(FM, env, out)["132"]
+    H.eq(pick and pick.kind, "stock", "a Stock pick")
+    H.eq(pick.invest, 0, "no gold needed")
+    H.eq(#pick.steps, 1, "one step")
+    H.eq(pick.steps[1]:sub(1, 16), "list your 18 at ", "list 18 of your 30: what the buyers take")
+    H.same(FM.ShoppingList("pick", pick), {}, "nothing to buy")
+end)
+
+H.test("picks: soulbound units you hold are no stock to sell", function()
+    local FM, env = Setup({ ["132"] = 9 })
+    Own(FM, { ["132"] = { 5, 0, 0, 5 } }) -- 5 in your bags, none sellable
+    local pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
+    H.eq(HasStep(pick, "make 18"), true, "make 18")
+end)
+
+-- FRV-89: "Exclude already listed items": an item is no pick once your listings reach both thresholds, units and
+-- their value at your listing prices; with the defaults (1 unit, 1c) any listing excludes it
+local function ListThree(r)
+    -- 3 posted an hour ago at 1g each, for 24h
+    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 60), "Tester", "133", B(3), B(10000), "3", "c" }, ",")
+end
+
+H.test("picks: Exclude already listed items with the defaults: an item you list is no pick and says why", function()
+    local FM, env, r = Setup({ ["133"] = 9 })
+    ListThree(r)
+    FM.FilterSet("picks").noListed = true
+    local out = { crafts = { Craft("133", 400) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["133"], nil, "no pick")
+    H.eq(out.pickWhy["133"], "you list 3 already, worth " .. FM.FormatMoney(30000) .. " (Exclude already listed items)", "the reason")
+end)
+
+H.test("picks: Exclude already listed items with a count threshold of 5: 3 listed can still be a pick", function()
+    local FM, env, r = Setup({ ["133"] = 9 })
+    ListThree(r)
+    local set = FM.FilterSet("picks")
+    set.noListed, set.listedCount = true, 5
+    local picks = Compute(FM, env, { crafts = { Craft("133", 400) } })
+    H.eq(HasStep(picks["133"], "make 15"), true, "18 less your 3 listed: make 15")
+end)
+
+H.test("picks: Exclude already listed items: the value threshold counts too", function()
+    local FM, env, r = Setup({ ["133"] = 9 })
+    ListThree(r)
+    local set = FM.FilterSet("picks")
+    set.noListed, set.listedValue = true, 30001
+    H.eq(Compute(FM, env, { crafts = { Craft("133", 400) } })["133"] ~= nil, true, "3g listed, 3g 0s 1c needed: still a pick")
+    FM, env, r = Setup({ ["133"] = 9 })
+    ListThree(r)
+    set = FM.FilterSet("picks")
+    set.noListed, set.listedValue = true, 30000
+    H.eq(Compute(FM, env, { crafts = { Craft("133", 400) } })["133"], nil, "3g needed: excluded")
+end)
+
+-- FRV-91: a recipe above your character level is no candidate unless "Over character level" allows it; then it is
+-- "Level for" information (never a step of the plan): it cannot be learned yet. Learned recipes never are affected.
+local function LevelRecipe(key, level, req)
+    local row = Craft(key, 60)
+    row.learned = false
+    row.craft.learn = { { kind = "trainer", req = req or 0, price = 100, level = level, where = "Bob, Town" } }
+    return row
+end
+
+local function HasLevel(out, key)
+    for _, p in ipairs(out.pickLevels or {}) do
+        if p.key == key then return true end
+    end
+    return false
+end
+
+H.test("picks: at level 43 a recipe that needs level 45 is no pick, the reason names the option", function()
+    local FM, env = Setup({ ["134"] = 9, ["135"] = 9 })
+    env.UnitLevel = function() return 43 end
+    local out = { crafts = { LevelRecipe("134", 45), Craft("135", 60) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["134"], nil, "no pick")
+    H.eq(HasLevel(out, "134"), false, "no Level for row")
+    H.eq(out.pickWhy["134"], "needs level 45, you are 43 (Over character level is off)", "the reason")
+    H.eq(picks["135"] ~= nil, true, "a learned recipe is never held back by the level")
+end)
+
+H.test("picks: Over character level with a cap of 2: the level 45 recipe is Level for information", function()
+    local FM, env = Setup({ ["134"] = 9 })
+    env.UnitLevel = function() return 43 end
+    local set = FM.FilterSet("picks")
+    set.overLevel, set.overLevelCap = true, 2
+    local out = { crafts = { LevelRecipe("134", 45) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["134"], nil, "not in the plan: it cannot be learned yet")
+    H.eq(HasLevel(out, "134"), true, "a Level for row")
+    H.eq(out.pickWhy["134"], "needs level 45 (you are 43), one of the best recipes to level for", "the reason")
+    -- a cap of 1 is not enough
+    FM, env = Setup({ ["134"] = 9 })
+    env.UnitLevel = function() return 43 end
+    set = FM.FilterSet("picks")
+    set.overLevel, set.overLevelCap = true, 1
+    out = { crafts = { LevelRecipe("134", 45) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy["134"], "needs level 45, you are 43 (Over character level cap is 1)", "over the cap")
+end)
+
+H.test("picks: a recipe your level allows is a pick that learns it", function()
+    local FM, env = Setup({ ["134"] = 9 })
+    env.UnitLevel = function() return 45 end
+    local pick = Compute(FM, env, { crafts = { LevelRecipe("134", 45) } })["134"]
+    H.eq(pick and pick.kind, "learn", "learn and make")
+end)
+
+-- FRV-89: "Over skill level" on Picks: a recipe above your skill is Level for information up to the cap only
+H.test("picks: a recipe above your skill is Level for within Over skill level's cap, else no candidate", function()
+    local profs = { profs = { { short = "lw", skill = 280 } } }
+    local FM, env = Setup({ ["136"] = 9 })
+    local out = { crafts = { LevelRecipe("136", 0, 290) } }
+    Compute(FM, env, out, nil, profs)
+    H.eq(HasLevel(out, "136"), true, "10 above with the default cap 10: Level for")
+    H.eq(out.pickWhy["136"], "needs skill 290 (you have 280), one of the best recipes to level for", "the reason")
+    FM, env = Setup({ ["136"] = 9 })
+    FM.FilterSet("picks").overSkillCap = 5
+    out = { crafts = { LevelRecipe("136", 0, 290) } }
+    Compute(FM, env, out, nil, profs)
+    H.eq(out.pickWhy["136"], "needs skill 290, you have 280 (Over skill level cap is 5)", "over the cap")
+    FM, env = Setup({ ["136"] = 9 })
+    FM.FilterSet("picks").overSkill = false
+    out = { crafts = { LevelRecipe("136", 0, 290) } }
+    Compute(FM, env, out, nil, profs)
+    H.eq(out.pickWhy["136"], "needs skill 290, you have 280 (Over skill level is off)", "off")
+end)
+
+H.test("picks: Include not learned recipes off leaves recipes to learn out", function()
+    local FM, env = Setup({ ["134"] = 9 })
+    FM.FilterSet("picks").learn = false
+    local out = { crafts = { LevelRecipe("134", 0) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy["134"], "recipes to learn are off (Include not learned recipes)", "the reason")
+end)
+
+H.test("picks: the global filters count when Picks uses them, never another tab's", function()
+    local FM, env = Setup({ ["134"] = 9 })
+    FM.FilterSet("latest").learn = false -- Craft's own: not Picks'
+    local out = { crafts = { LevelRecipe("134", 0) } }
+    H.eq(Compute(FM, env, out)["134"] ~= nil, true, "Craft's filters leave Picks as it is")
+    FM, env = Setup({ ["134"] = 9 })
+    FM.FilterSet("global").learn = false
+    FM.GetSettings().tableUseGlobal.picks = true
+    out = { crafts = { LevelRecipe("134", 0) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy["134"], "recipes to learn are off (Include not learned recipes)", "the global set while Picks uses it")
+end)
+
+-- The limits of a tab's filters for recipes still to learn (Craft and Learn, trade/Calc.lua): one way to learn it must
+-- fit both the skill and the character level
+H.test("recipes: one way to learn it must fit both limits; without a known way it passes", function()
+    local FM = Setup({})
+    local F = FM.FilterSet("latest")
+    local skill, level = FM.RecipeLimits(F, 280, 43)
+    H.eq(skill, 290, "the skill limit: 10 above by default")
+    H.eq(level, 43, "the level limit: yours by default")
+    F.overLevel, F.overLevelCap = true, 5
+    H.eq(select(2, FM.RecipeLimits(F, 280, 43)), 48, "Over character level 5: 48")
+    F.overSkill = false
+    H.eq(FM.RecipeLimits(F, 280, 43), 280, "Over skill level off: your skill")
+    H.eq(select(2, FM.RecipeLimits(F, 280, nil)), math.huge, "your level unknown: no level limit")
+    local craft = { learnAll = { { req = 290, level = 45 }, { req = 300, level = 0 } } }
+    H.eq(FM.RecipeFits(craft, 290, 43), false, "the first needs level 45, the second skill 300")
+    H.eq(FM.RecipeFits(craft, 290, 45), true, "level 45 allowed")
+    H.eq(FM.RecipeFits(craft, 300, 43), true, "skill 300 allowed")
+    H.eq(FM.RecipeFits({ learnAll = { { req = 0 } } }, 0, 1), true, "an unknown level counts as none")
+    H.eq(FM.RecipeFits({ learnAll = {} }, 0, 1), true, "no known way")
+end)
+
+H.test("picks: Exclude already listed items with the defaults also excludes a listing whose price is not known", function()
+    -- a bid only auction in your auction list, no post of it: its value is not known
+    local function Setup137(valueMin)
+        local FM, env, r = Setup({ ["137"] = 9 })
+        r.owned.Tester = { t = env.clock - 3600, list = table.concat({ B(1), "137", B(1), B(0), "a", B(80000) }, ":") }
+        local set = FM.FilterSet("picks")
+        set.noListed, set.listedValue = true, valueMin
+        return FM, env
+    end
+    local FM, env = Setup137(1)
+    local out = { crafts = { Craft("137", 400) } }
+    H.eq(Compute(FM, env, out)["137"], nil, "1c: any listing excludes it")
+    H.eq(out.pickWhy["137"], "you list 1 already, worth " .. FM.FormatMoney(0) .. " (Exclude already listed items)", "the reason")
+    FM, env = Setup137(2)
+    H.eq(Compute(FM, env, { crafts = { Craft("137", 400) } })["137"] ~= nil, true, "2c: a listing worth nothing known stays a pick")
 end)

@@ -2,6 +2,9 @@
 -- Rule: each character's last list of its auctions (active entries whose time has not run out) plus what that
 -- character posted after the list and can still be running (2h / 8h / 24h for duration 1 / 2 / 3).
 -- Units last seen before the caller's cut (its latest snapshot) are also summed in `old`.
+-- `value` (FRV-89) = what the counted units are listed at: a post's units at its unit price, a list entry's units
+-- at its buyout when it is a commodity's unit price (the item was last posted as a commodity, or the entry holds more
+-- than one unit while no post tells), else at its buyout over its units (an item's buyout is the auction's total).
 
 local H = require("harness")
 local F = require("fixtures")
@@ -38,8 +41,9 @@ H.test("listings: active auctions of the last list count, sold and run out ones 
         Entry(4, "200", 20, "a", 80000)
     }, ",") }
     local byKey, info = FM.OwnListings()
-    H.same(byKey, { ["100"] = { n = 4, list = 4, posts = 0, old = 0, t = now - 3600 },
-        ["200"] = { n = 20, list = 20, posts = 0, old = 0, t = now - 3600 } }, "listings")
+    -- no posts: more than one unit in an entry is a commodity's, its buyout 50s the unit price
+    H.same(byKey, { ["100"] = { n = 4, list = 4, posts = 0, old = 0, value = 4 * 5000, t = now - 3600 },
+        ["200"] = { n = 20, list = 20, posts = 0, old = 0, value = 20 * 5000, t = now - 3600 } }, "listings")
     H.same(info, { lists = 1, newest = now - 3600 }, "info")
 end)
 
@@ -52,8 +56,9 @@ H.test("listings: posts after the list count while they can still run, posts bef
     r.posts[4] = Post(60, "Tester", "300", 200, 2)     -- after the list, 8h
     r.posts[5] = Post(30, "Tester", "500", 3, 1)       -- a fresh 2h auction
     local byKey = FM.OwnListings()
-    H.same(byKey["100"], { n = 14, list = 4, posts = 10, old = 0, t = now - 120 * 60 }, "list and post together")
-    H.same(byKey["300"], { n = 200, list = 0, posts = 200, old = 0, t = now - 60 * 60 }, "a post only")
+    H.same(byKey["100"], { n = 14, list = 4, posts = 10, old = 0, value = 4 * 5000 + 10 * 500, t = now - 120 * 60 },
+        "list and post together")
+    H.same(byKey["300"], { n = 200, list = 0, posts = 200, old = 0, value = 200 * 500, t = now - 60 * 60 }, "a post only")
     H.eq(byKey["400"].n, 7, "a 2h auction in its last minute")
     H.eq(byKey["500"].n, 3, "a fresh 2h auction")
 end)
@@ -90,7 +95,8 @@ H.test("listings: all your characters count, each against its own list", functio
     r.posts[2] = Post(240, "Banker", "100", 200, 3) -- after Banker's list (5h old): counted
     r.posts[3] = Post(100, "Crafter", "100", 1, 3)  -- a character without a list: its posts count
     local byKey, info = FM.OwnListings()
-    H.same(byKey["100"], { n = 211, list = 10, posts = 201, old = 0, t = now - 5 * 3600 }, "three characters")
+    H.same(byKey["100"], { n = 211, list = 10, posts = 201, old = 0, value = 10 * 5000 + 201 * 500, t = now - 5 * 3600 },
+        "three characters")
     H.same(info, { lists = 2, newest = now - 600 }, "info")
 end)
 
@@ -104,8 +110,8 @@ H.test("listings: units last seen before the cut are summed in old, a post witho
     -- with the units per unit price they can show at in a scan: the list's 4 units with its buyout as the unit
     -- price (a commodity) or as the total of the 4 (an item), 5000 or 1250, and the post's 10 units at 500
     H.same(byKey["100"], { n = 17, list = 4, posts = 13, old = 14, units = { [5000] = 4, [1250] = 4, [500] = 10 },
-        t = now - 5 * 3600 }, "the list and the 4h old post are old")
-    H.same(byKey["600"], { n = 2, list = 0, posts = 2, old = 0, t = now - 200 * 60 }, "bid only")
+        value = 4 * 5000 + 13 * 500, t = now - 5 * 3600 }, "the list and the 4h old post are old")
+    H.same(byKey["600"], { n = 2, list = 0, posts = 2, old = 0, value = 2 * 500, t = now - 200 * 60 }, "bid only")
 end)
 
 H.test("listings: a bid only auction stays out of old once the auction list holds it", function()
@@ -114,8 +120,9 @@ H.test("listings: a bid only auction stays out of old once the auction list hold
     r.posts[2] = Post(290, "Tester", "601", 1, 3, 92)       -- with a buyout, auction 92
     r.owned.Tester = { t = now - 4 * 3600, list = Entry(91, "600", 2, "a", 60000) .. "," .. Entry(92, "601", 1, "a", 60000) }
     local byKey = FM.OwnListings(now - 3600)
-    H.same(byKey["600"], { n = 2, list = 2, posts = 0, old = 0, t = now - 4 * 3600 }, "the bid only auction, from the list")
-    H.same(byKey["601"], { n = 1, list = 1, posts = 0, old = 1, units = { [5000] = 1 }, t = now - 4 * 3600 },
+    H.same(byKey["600"], { n = 2, list = 2, posts = 0, old = 0, value = 2 * 5000, t = now - 4 * 3600 },
+        "the bid only auction, from the list")
+    H.same(byKey["601"], { n = 1, list = 1, posts = 0, old = 1, units = { [5000] = 1 }, value = 5000, t = now - 4 * 3600 },
         "the buyout auction is old")
 end)
 
@@ -125,4 +132,25 @@ H.test("listings: an active auction the client gave no time left for counts for 
     r.owned.Banker = { t = now - 25 * 3600, list = Entry(2, "100", 6, "a", 0) }
     local byKey = FM.OwnListings()
     H.eq(byKey["100"].n, 4, "the 23h old list counts, the 25h old one does not")
+end)
+
+H.test("listings: the value of an item's list entry is its buyout over its units, a commodity's its unit price", function()
+    local FM, r, now = Load()
+    r.posts[1] = Post(600, "Tester", "700", 2, 3, 5, "i")   -- 2 of an item in one auction, posted 10h ago
+    r.posts[2] = Post(600, "Tester", "701", 3, 3, 6, "c")   -- 3 of a commodity
+    r.owned.Tester = { t = now - 300 * 60, list = Entry(5, "700", 2, "a", 80000) .. "," .. Entry(6, "701", 3, "a", 80000) }
+    local byKey = FM.OwnListings()
+    H.eq(byKey["700"].value, 5000, "the item: 50s for both")
+    H.eq(byKey["701"].value, 3 * 5000, "the commodity: 50s each")
+end)
+
+H.test("listings: a bid only auction in the list is valued at its posted bid, without a post at nothing", function()
+    local FM, r, now = Load()
+    local bidEntry = table.concat({ B(91), "600", B(2), B(0), "a", B(60000) }, ":") -- no buyout
+    r.posts[1] = Post(300, "Tester", "600", 2, 3, 91, "b")                       -- its post: a bid of 5s
+    r.owned.Tester = { t = now - 4 * 3600, list = bidEntry }
+    H.eq(FM.OwnListings()["600"].value, 2 * 500, "2 at the posted bid")
+    FM, r, now = Load()
+    r.owned.Tester = { t = now - 4 * 3600, list = bidEntry }
+    H.eq(FM.OwnListings()["600"].value, 0, "no post tells its bid")
 end)
