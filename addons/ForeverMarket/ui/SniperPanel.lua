@@ -247,19 +247,25 @@ local function SubmitSnipe()
         Message("Enter a price per unit (silver and copper 0-99).", RED)
         return
     end
-    -- a typed number is a new one (its count starts again), an untouched box keeps the item's number and count
+    -- a typed number is a new one (its count starts again), an untouched box keeps the item's number and count.
+    -- When the item submitted is not the one loaded into the form (another name typed over it), what the box shows
+    -- applies to it: its count stays only when that is the number it already has
     local units = nil
-    if unitsEdited then
+    local loaded = key == selected
+    if unitsEdited or not loaded then
         local typed = frame.units:GetText() or ""
-        if typed == "" then
-            units = false
-        else
-            units = tonumber(typed)
-            if not units or units < 1 then
+        local shown = nil
+        if typed ~= "" then
+            shown = tonumber(typed)
+            if not shown or shown < 1 then
                 Message("Buy at most: a number of units, 1 or more (empty = no limit).", RED)
                 return
             end
+            shown = math_floor(shown)
         end
+        local saved = FM.SnipeSaved(key)
+        local current = saved and tonumber(saved.n)
+        if unitsEdited or shown ~= current then units = shown or false end
     end
     local wasSniped = FM.IsSniped(key)
     if FM.SnipeSet(key, price, units) then
