@@ -510,16 +510,20 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
 * **The price** is the cheapest unit price of others in each scan, what "List at" starts from: a deep record's
   othersMin once yours were among them, else its minimum (`FM.OthersMin`); a record with only your auctions says
   "not listed by others", an Auctionator browse record with yours among them cannot tell and is left out. Your AH
-  searches add others' cheapest at their moment (the 11th field of a search record from 1.26 on, searches before
-  add nothing; searches less than 15 minutes apart count once, the newest).
+  searches add others' cheapest at their moment (the 11th field of a search record from 1.26 on, written only from
+  a full result, a commodity row with more units than yours counting as others'; searches before add nothing;
+  searches less than 15 minutes apart count once, the newest).
 * **Daily / Weekly / Monthly** (like the Profit tab, Daily by default, `priceMode`): a daily dot is the average of
   that day's cheapest prices, a weekly (Monday on) or monthly dot the average of its days. Daily and Weekly come
   from the per-scan records (72 hours) and the daily rollups (60 days), Monthly also from the monthly rollups (a
   year: before 60 days a month is the average of its days that had the item).
 * **Carried:** the line runs from the first scan that had the item to the last one that had it. A scan without the
   item between them counts with the price before (scan1 5g, scan2 missing -> 5g, scan3 6g), where the scan log
-  (`scans`) says which scans there were and the per-scan records still cover them; the daily rollups know only the
-  scans that had the item, so there a day without it is carried as a whole. A carried dot (no scan in it had the
+  (`scans`) says which scans there were and the per-scan records still cover them: a deep scan or an Auctionator
+  scan writes every item listed, a Battle.net feed snapshot (`api`) only an item that changed or every 4 hours
+  (`FEED_RECORD_HOURS`), so a feed snapshot without a record of the item saw what its record before says (the same
+  price within 5 hours, or still not listed; else it tells nothing). The daily rollups know only the scans that had
+  the item, so there a day without it is carried as a whole. A carried dot (no scan in it had the
   item) is a grey ring at the newest price before. Once a scan after the last price of others had none, the window
   says "Not listed by others since <when>" above the chart.
 * **Hover a dot:** the period, the average price, the lowest price, the scans with the item (and your searches),

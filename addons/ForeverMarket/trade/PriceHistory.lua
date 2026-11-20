@@ -10,9 +10,12 @@ local _, FM = ...
 --
 -- From the first scan that had the item to the last one that had it, a scan or day without it carries the price
 -- before forward (scan1 5g, scan2 missing -> 5g, scan3 6g); such a day is "carried". Scan by scan where the scans
--- are known: the scan log (R.scans) lists every scan, and an item without a record in one was not listed. The
--- daily rollups know only the scans that had the item, so before the per-scan records a day without the item is
--- carried as a whole, and before 60 days a month is the average of the days that had it.
+-- are known: the scan log (R.scans) lists every scan; a deep scan or an Auctionator scan writes every item listed in
+-- it, so an item without a record in one was not listed. A Battle.net feed snapshot ("api") writes a listed item
+-- only when it changed or every FEED_RECORD_HOURS (4), so one without a record of the item saw what the item's
+-- record before says (the same price, or still not listed). The daily rollups know only the scans that had the
+-- item, so before the per-scan records a day without the item is carried as a whole, and before 60 days a month is
+-- the average of the days that had it.
 
 local Dec = FM.Dec
 local type = type
@@ -26,6 +29,9 @@ local string_sub = string.sub
 local table_sort = table.sort
 
 local SEARCH_BURST = 15 * 60 -- a search this close to the next one of the item counts as that one
+-- the feed writes a listed item at least every 4 hours (FEED_RECORD_HOURS of services/forever-market-feed); a
+-- feed snapshot further than this from the item's record before cannot tell (an import that missed records)
+local FEED_RECORD_SPAN = 5 * 3600
 
 local function Min(a, b)
     if not a then return b end
@@ -39,15 +45,17 @@ local function MonthStart(index)
     return FM.PerfStart("month", time({ year = year, month = month, day = 15, hour = 12 }))
 end
 
--- Every scan of the realm bucket, oldest first: { t = epoch seconds, stamp = "r..." / "b..." }
+-- Every scan of the realm bucket, oldest first: { t = epoch seconds, stamp = "r..." / "b...", feed = a Battle.net
+-- feed snapshot (source "api") }
 local function Scans(r)
     local list, seen = {}, {}
     for _, line in ipairs(type(r.scans) == "table" and r.scans or {}) do
-        local stamp = type(line) == "string" and line:match("^([rb][^,]*)")
+        local stamp, source
+        if type(line) == "string" then stamp, source = line:match("^([rb][^,]*),?([^,]*)") end
         local t = stamp and FM.Unstamp(string_sub(stamp, 2))
         if t and not seen[stamp] then
             seen[stamp] = true
-            list[#list + 1] = { t = t, stamp = stamp }
+            list[#list + 1] = { t = t, stamp = stamp, feed = source == "api" }
         end
     end
     table_sort(list, function(a, b) return a.t < b.t end)
@@ -112,23 +120,41 @@ local function Collect(r, item)
     end
 
     -- per-scan records: true = a price of others, false = none listed, "?" = cannot tell (yours among them)
-    local obs, state, firstDetail = {}, {}, nil
+    local obs, state, recs = {}, {}, {}
     for _, f in ipairs(FM.DetailRecords(item)) do
         local t = FM.Unstamp(string_sub(f[1] or "", 2))
         if t then
-            firstDetail = firstDetail or t
             local p, listed = FM.OthersMin(f)
-            local d = DayOf(days, t)
-            d.qty, d.qn = d.qty + (Dec(f[3]) or 0), d.qn + 1
-            if p then
-                state[f[1]] = true
-                obs[#obs + 1] = { t = t, p = p }
-            elseif listed == false then
-                state[f[1]] = false
+            local st = "?"
+            if p then st = true elseif listed == false then st = false end
+            state[f[1]] = st
+            recs[#recs + 1] = { t = t, p = p, st = st, qty = Dec(f[3]) or 0 }
+        end
+    end
+    local firstDetail = recs[1] and recs[1].t
+    -- a feed snapshot without a record of the item saw what the item's newest record before it says: the same price
+    -- (within FEED_RECORD_SPAN), or still not listed; else it cannot tell
+    local scans = Scans(r)
+    local seen, k = {}, 0
+    for _, s in ipairs(scans) do
+        while k < #recs and recs[k + 1].t <= s.t do k = k + 1 end
+        if s.feed and state[s.stamp] == nil then
+            local before = recs[k]
+            if before and before.st == true and s.t - before.t <= FEED_RECORD_SPAN then
+                state[s.stamp] = true
+                seen[#seen + 1] = { t = s.t, p = before.p, qty = before.qty }
+            elseif before and before.st == false then
+                state[s.stamp] = false
             else
-                state[f[1]] = "?"
+                state[s.stamp] = "?"
             end
         end
+    end
+    for _, e in ipairs(recs) do seen[#seen + 1] = e end
+    for _, e in ipairs(seen) do
+        local d = DayOf(days, e.t)
+        d.qty, d.qn = d.qty + e.qty, d.qn + 1
+        if e.p then obs[#obs + 1] = { t = e.t, p = e.p } end
     end
     -- AH searches with others' cheapest (1.26 on): each adds a price at its moment, a burst counts once
     local searches = {}
@@ -165,7 +191,6 @@ local function Collect(r, item)
     -- scans without the item between two that had it carry the price before. Known scan by scan only where every
     -- scan that had the item still has its record: from the item's first per-scan record, and on the days after
     -- its last daily rollup (records fold into rollups oldest first)
-    local scans = Scans(r)
     local known = firstDetail
     if lastRollDay then
         local after = FM.EPOCH + (lastRollDay + 1) * 86400
@@ -173,7 +198,7 @@ local function Collect(r, item)
     end
     local lastObs = obs[#obs]
     if known and lastObs then
-        local k = 0
+        k = 0
         for _, s in ipairs(scans) do
             if s.t >= known and s.t < lastObs.t then
                 while k < #obs and obs[k + 1].t <= s.t do k = k + 1 end

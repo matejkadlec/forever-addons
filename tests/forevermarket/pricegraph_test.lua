@@ -9,8 +9,12 @@
 --   * a daily dot = the average of that day's cheapest prices; a scan without the item between two that had it
 --     counts with the price before; a day without any is carried (hollow) at the newest price before; a weekly or
 --     monthly dot = the average of its days; the line ends at the last scan that had the item
+--   * a Battle.net feed snapshot ("api" in the scan log) writes a listed item only when it changed or every 4 hours:
+--     one without a record of the item saw what the item's record before says (the same price within 5 hours, or
+--     still not listed), else it cannot tell
 --   * your AH searches add others' cheapest at their moment; searches less than 15 minutes apart count once (the
---     newest); a search record without that field (before 1.26) adds nothing
+--     newest); a search record without that field (before 1.26) adds nothing; a search writes others' cheapest only
+--     from a full result, and a commodity row with more units than yours counts as others' too
 --   * the break-even is the market table's Min. price of a craft you know, else what you paid per unit
 
 local H = require("harness")
@@ -52,9 +56,9 @@ local function Load(now)
     return FM, env, r, r.items[KEY]
 end
 
--- The scan log: one line per scan stamp
-local function Scans(r, stamps)
-    for _, s in ipairs(stamps) do r.scans[#r.scans + 1] = s .. ",fm,1,1,0,0,0,Tester" end
+-- The scan log: one line per scan stamp (source: "fm" a deep scan, "api" a Battle.net feed snapshot)
+local function Scans(r, stamps, source)
+    for _, s in ipairs(stamps) do r.scans[#r.scans + 1] = s .. "," .. (source or "fm") .. ",1,1,0,0,0,Tester" end
 end
 
 local function Near(actual, expected, what)
@@ -230,4 +234,74 @@ H.test("price graph: the break-even is a known craft's Min. price, else what you
     H.eq(label, "Paid", "its label")
     FM.BoughtUnit = function() return nil end
     H.eq(FM.PriceBreakEven(KEY), nil, "no break-even, no line")
+end)
+
+H.test("price graph: a feed snapshot without a record of the item saw the same price as its record before", function()
+    local FM, _, r, item = Load()
+    local function At(h) return T(2026, 11, 18, h) end
+    -- a deep scan at 10:00, feed snapshots every hour: the feed writes the item again only at 13:00 (it changed)
+    item.d = table.concat({ Deep(At(10), { min = 5 * G, qty = 2 }), Deep(At(13), { min = 6 * G, qty = 2 }) }, ";")
+    Scans(r, { Stamp("r", At(10)) })
+    Scans(r, { Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(14)), Stamp("r", At(15)) }, "api")
+    local s = FM.PriceSeries(KEY, "day")
+    local p = s.periods[1]
+    Near(p.value, (5 + 5 + 5 + 6 + 6 + 6) * G / 6, "11:00 and 12:00 saw 5g, 14:00 and 15:00 saw 6g")
+    H.eq(p.n, 6, "six scans had it")
+    H.eq(p.car, 0, "none carried")
+    H.eq(s.notListed, nil, "still listed in the newest feed snapshot")
+    H.eq(s.last, At(15), "last seen in it")
+end)
+
+H.test("price graph: a feed snapshot after the item's empty record is still without it, far from a price it cannot tell", function()
+    local FM, _, r, item = Load()
+    local function At(h) return T(2026, 11, 18, h) end
+    -- gone at 11:00 (the feed's empty record), back at 14:00
+    item.d = table.concat({ Deep(At(10), { min = 5 * G }), Stamp("r", At(11)) .. ",,0,0", Deep(At(14), { min = 7 * G }) }, ";")
+    Scans(r, { Stamp("r", At(10)) })
+    Scans(r, { Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(14)) }, "api")
+    local p = FM.PriceSeries(KEY, "day").periods[1]
+    H.eq(p.car, 3, "11:00 to 13:00 carried 5g")
+    Near(p.value, (5 + 5 + 5 + 5 + 7) * G / 5, "the day's average")
+
+    local FM2, _, r2, item2 = Load()
+    -- a feed snapshot 6 hours after the item's only record: the feed would have written it again by then
+    item2.d = Deep(At(8), { min = 5 * G })
+    Scans(r2, { Stamp("r", At(8)) })
+    Scans(r2, { Stamp("r", At(14)) }, "api")
+    local s2 = FM2.PriceSeries(KEY, "day")
+    H.eq(s2.periods[1].n, 1, "the late snapshot is no sighting")
+    H.eq(s2.notListed, nil, "and no proof it is gone")
+end)
+
+H.test("searches: others' cheapest counts others' units next to yours, and only a full result writes it", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Diff.lua", "scan/Search.lua" })
+    env.clock = T(2026, 11, 20)
+    FM.InitializeSavedData()
+    FM.dataVersion = 0 -- scan/Snapshot.lua's
+    FM.FeedAuctionatorItem = function() end
+    local rows, full = {}, true
+    env.C_AuctionHouse = {
+        GetNumCommoditySearchResults = function() return #rows end,
+        GetCommoditySearchResultInfo = function(_, i) return rows[i] end,
+        HasFullCommoditySearchResults = function() return full end,
+    }
+    local function Row(unit, qty, mine, id)
+        return { unitPrice = unit, quantity = qty, numOwnerItems = mine, owners = mine > 0 and { "player" } or {},
+            auctionID = id, timeLeftSeconds = 3600 }
+    end
+    local function Searched()
+        env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2592)
+        env.FlushTimers()
+        local list = FM.Split(FM.R().items["2592"].s, ";")
+        return FM.Split(list[#list], ",")
+    end
+    rows = { Row(100, 5, 3, 1), Row(110, 4, 0, 2) }
+    local f = Searched()
+    H.eq(#f, 11, "eleven fields")
+    H.eq(f[11], B(100), "2 of the 5 units at 100c are someone else's")
+    rows = { Row(100, 3, 3, 3), Row(110, 4, 0, 4) }
+    H.eq(Searched()[11], B(110), "all 3 at 100c are yours: others start at 110c")
+    full, rows = false, { Row(90, 1, 0, 5) }
+    H.eq(Searched()[11], "", "a partial result writes none")
 end)
