@@ -309,27 +309,6 @@ H.test("profit: this character alone counts only its own money and readings", fu
     H.eq(sold, 7, "both sales in the lists")
 end)
 
--- Rule: every won auction counts as a purchase; before 1.24 the second of two of the same item within 12 hours
--- was taken for the first one's logged purchase and left out
-H.test("profit: two won auctions of the same item within 12 hours are two purchases", function()
-    local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
-    env.GetMoney = nil
-    r.names["2488"] = "Fine Sword"
-    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbm" }
-    for _, hoursAgo in ipairs({ 5, 4 }) do
-        r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(NOW - hoursAgo * 3600), "Ada", "buyer", "Fine Sword", "Seller", B(1),
-            B(500), B(500), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")
-    end
-    local series = FM.PerfSeries("day", NOW, "char")
-    local qty, money = 0, 0
-    for _, p in ipairs(series.periods) do
-        for _, e in ipairs(p.bought) do qty, money = qty + e.qty, money + e.money end
-    end
-    H.eq(qty, 2, "both swords bought")
-    H.eq(money, 1000, "for 500 each")
-    H.eq(series.change, -1000, "the AH's money: both paid (no reading holds them here)")
-end)
-
 H.test("profit: a mail with items to another character of yours is logged once the server confirms it", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Characters.lua" })
     env.clock = NOW

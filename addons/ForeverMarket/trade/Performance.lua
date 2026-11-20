@@ -357,11 +357,9 @@ local function Build(r, char, mode, now)
                 inv.won = true
                 if inv.t >= ReadStart(inv.who) then flows[#flows + 1] = { inv.t, -inv.money } end
                 if key then
-                    -- also the cost of a later sale of the item; never the logged purchase of another won mail
-                    -- (before 1.24 the second of two won auctions of the same item within 12 hours was taken
-                    -- for the first one's purchase and left out)
+                    -- also the cost of a later sale of the item
                     buysByKey[key] = buysByKey[key] or {}
-                    table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money, who = inv.who, mailed = true })
+                    table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money, who = inv.who })
                 end
             end
         end

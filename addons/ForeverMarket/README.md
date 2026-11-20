@@ -483,8 +483,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   deposits, as if you had started with it, plus the AH result before it; later purchases don't change an older dot's
   %), then the top 3 of **Sold** (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and
   **Real losses** (one list, largest first); hold **Shift** for all of their items. Expired auctions show only as
-  their lost deposit. Every won auction is a purchase (until 1.24 the second of two won auctions of the same item
-  within 12 hours was taken for the first one's purchase and left out of the AH's money and of Bought). Real losses:
+  their lost deposit. Real losses:
   * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
     before it cost
   * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
