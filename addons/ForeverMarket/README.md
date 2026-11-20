@@ -215,8 +215,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
-  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route).
-  Favorite items get a star everywhere.
+  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). Last,
+  **Show price graph** (1.26, FRV-76) on every row of an item (all tabs but Farm and Profit): see Price graph.
+  The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
   latest record.
@@ -500,6 +501,42 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   and what happened in them are cached until a log changes; gold or bag changes redraw at most every 2 seconds.
   1.15.0-1.15.1 kept an hourly money log (`R.money`, removed at login) and readings of all items (left out).
 
+## Price graph (1.26, FRV-76: trade/PriceHistory.lua, ui/PriceGraph.lua, ui/Chart.lua)
+
+Right-click an item row of the market table > **Show price graph**: the item's price over time in its own window
+(movable, closes with its X or Escape, above the market table, which stays usable; another item replaces the one
+shown; the item's icon and name in the title, the position is saved in `priceGraphPos`).
+
+* **The price** is the cheapest unit price of others in each scan, what "List at" starts from: a deep record's
+  othersMin once yours were among them, else its minimum (`FM.OthersMin`); a record with only your auctions says
+  "not listed by others", an Auctionator browse record with yours among them cannot tell and is left out. Your AH
+  searches add others' cheapest at their moment (the 11th field of a search record from 1.26 on, searches before
+  add nothing; searches less than 15 minutes apart count once, the newest).
+* **Daily / Weekly / Monthly** (like the Profit tab, Daily by default, `priceMode`): a daily dot is the average of
+  that day's cheapest prices, a weekly (Monday on) or monthly dot the average of its days. Daily and Weekly come
+  from the per-scan records (72 hours) and the daily rollups (60 days), Monthly also from the monthly rollups (a
+  year: before 60 days a month is the average of its days that had the item).
+* **Carried:** the line runs from the first scan that had the item to the last one that had it. A scan without the
+  item between them counts with the price before (scan1 5g, scan2 missing -> 5g, scan3 6g), where the scan log
+  (`scans`) says which scans there were and the per-scan records still cover them; the daily rollups know only the
+  scans that had the item, so there a day without it is carried as a whole. A carried dot (no scan in it had the
+  item) is a grey ring at the newest price before. Once a scan after the last price of others had none, the window
+  says "Not listed by others since <when>" above the chart.
+* **Hover a dot:** the period, the average price, the lowest price, the scans with the item (and your searches),
+  the scans without it that carried the price before, the units listed on average (yours included) and the change
+  against the dot before, also in %; a carried dot says "Not listed, previous price carried".
+* **Break-even:** a dashed orange line with its value at the market table's Min. price of a craft you know, else
+  at what you paid per unit for your latest purchases of it (`FM.BoughtUnit`), else at the Min. price of a craft
+  you could learn; no break-even, no line (`FM.PriceBreakEven`).
+* Header: the latest dot's price and the change over the dots shown, when the item was seen first and last, and the
+  break-even. The chart is the Profit tab's (`ui/Chart.lua`, shared since 1.26), the dots green when the price rose
+  against the dot before, red when it fell.
+* Data range (measured on the maintainer's saved variables, 11/20/2026: about 6,850 items listed per day, a daily
+  rollup line about 31 bytes): 365 days of daily rollups would be about 75 MB (the whole file is 23 MB today), so the
+  daily rollups stay 60 days (`FM.LIMITS.rollupDays`, about 12.7 MB once full) and older days fold into monthly
+  rollups kept a year (`FM.LIMITS.monthlyDays`, `items[key].m`, about 2 MB once full). Others' prices apart from
+  yours in a daily rollup add bytes only on days with your auctions (18 items in the 72 hours measured).
+
 ## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
 
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
@@ -583,8 +620,15 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   soldLow`. soldLow (since 1.4) = sold units priced at or below the cheapest previous auction that is still
   listed (buyers take the cheapest first, so the rest were most likely cancelled); empty in older records.
   `r<t>,=,<gap>` = market unchanged since the previous full deep record.
-* `items[key].r` daily rollups `D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap` (older than 72h)
-* `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new`
+* `items[key].r` daily rollups `D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap[,nOth,minOth,sumOth]`
+  (older than 72h, kept 60 days); nOth, minOth, sumOth (1.26) = others' cheapest per record (your auctions left out),
+  written only on a day where yours made them differ from nMin, minMin, sumMin; without them those count
+* `items[key].m` monthly rollups `M<month>,days,sumDay,low,scans,n,sumQty` (1.26): the daily rollups older than 60
+  days of one month (month = months since January 2026, UTC): days with a price of others, the sum of those days'
+  average price of others, their lowest, the records with a price of others, all records and their units; kept while
+  the month's last day is within a year
+* `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new,othersMin` (the diff's
+  fields empty without a diff; othersMin = the cheapest unit price of others, 1.26 on)
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list

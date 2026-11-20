@@ -6,6 +6,7 @@ local _, FM = ...
 --   d = detail records of recent scans, ";" separated, oldest first
 --       "r<t>,..." deep (replicate) scan record, "b<t>,..." browse (Auctionator incremental) record
 --   r = daily rollups of records older than LIMITS.detailHours, ";" separated
+--   m = monthly rollups of daily rollups older than LIMITS.rollupDays (the price graph's Monthly view), ";" separated
 --   s = targeted search records (commodity / item search results), ";" separated
 --   a = auctions of the last targeted search, used to diff the next one
 -- }
@@ -53,8 +54,48 @@ local function RecordMinutes(record)
 end
 FM.RecordMinutes = RecordMinutes
 
+-- The cheapest unit price of others in one detail record (expanded fields), the price "List at" starts from:
+-- price, true; or nil, false when that scan had no auction of others (none at all, or only yours); or nil, nil when
+-- the record cannot tell (an Auctionator browse record with yours among them: its minimum may be yours)
+function FM.OthersMin(f)
+    local p
+    if string_sub(f[1] or "", 1, 1) == "b" then
+        if f[4] == "1" then return nil, nil end
+        p = Dec(f[2])
+    else
+        -- deep records: othersMin (21) once yours were among them; with none of yours (20 empty) the minimum (2)
+        p = Dec(f[21])
+        if not p then
+            if f[20] and f[20] ~= "" then return nil, false end
+            p = Dec(f[2])
+        end
+    end
+    if p and p > 0 then return p, true end
+    return nil, false
+end
+
+-- Others' cheapest prices of a daily rollup line (split): count, lowest, sum. Fields 11-13 are written only when
+-- they differ from nMin / minMin / sumMin (a day with auctions of yours, 1.26 on); without them those count
+-- (rollups from before 1.26 never had yours apart)
+function FM.RollupOthers(f)
+    if f[11] and f[11] ~= "" then return Dec(f[11]) or 0, Dec(f[12]), Dec(f[13]) or 0 end
+    return Dec(f[3]) or 0, Dec(f[4]), Dec(f[5]) or 0
+end
+
+-- The part of a ";" list before its last entry (with the separator) and that last entry, or "", nil
+local function SplitLast(list)
+    local lastStart = 1
+    local pos = string_find(list, ";", 1, true)
+    while pos do
+        lastStart = pos + 1
+        pos = string_find(list, ";", lastStart, true)
+    end
+    if list == "" then return "", nil end
+    return string_sub(list, 1, lastStart - 1), string_sub(list, lastStart)
+end
+
 -- Fold one detail record into the item's daily rollup string
--- rollup: "D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap"
+-- rollup: "D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap[,nOth,minOth,sumOth]"
 local function AddToRollup(item, record)
     local f = FM.Split(record, ",")
     local minutes = Dec(string_sub(f[1], 2))
@@ -62,6 +103,7 @@ local function AddToRollup(item, record)
     local isDeep = string_sub(f[1], 1, 1) == "r"
     local day = math_floor(minutes / 1440)
     local minPrice = Dec(f[2])
+    local othersPrice = FM.OthersMin(f)
     local qty = Dec(f[3]) or 0
     local sold, soldVal, amb, gap = 0, 0, 0, 0
     if isDeep then
@@ -72,15 +114,10 @@ local function AddToRollup(item, record)
     end
 
     local rollups = item.r or ""
-    local lastStart = 1
-    local pos = string_find(rollups, ";", 1, true)
-    while pos do
-        lastStart = pos + 1
-        pos = string_find(rollups, ";", lastStart, true)
-    end
-    local last = rollups ~= "" and string_sub(rollups, lastStart) or nil
+    local before, last = SplitLast(rollups)
 
     local n, nMin, minMin, sumMin, sumQty, rSold, rSoldVal, rAmb, rGap = 0, 0, nil, 0, 0, 0, 0, 0, 0
+    local nOth, minOth, sumOth = 0, nil, 0
     local merge = false
     if last then
         local lf = FM.Split(last, ",")
@@ -89,6 +126,7 @@ local function AddToRollup(item, record)
             n, nMin, minMin = Dec(lf[2]) or 0, Dec(lf[3]) or 0, Dec(lf[4])
             sumMin, sumQty = Dec(lf[5]) or 0, Dec(lf[6]) or 0
             rSold, rSoldVal, rAmb, rGap = Dec(lf[7]) or 0, Dec(lf[8]) or 0, Dec(lf[9]) or 0, Dec(lf[10]) or 0
+            nOth, minOth, sumOth = FM.RollupOthers(lf)
         end
     end
 
@@ -98,13 +136,23 @@ local function AddToRollup(item, record)
         sumMin = sumMin + minPrice
         minMin = minMin and math_min(minMin, minPrice) or minPrice
     end
+    if othersPrice then
+        nOth = nOth + 1
+        sumOth = sumOth + othersPrice
+        minOth = minOth and math_min(minOth, othersPrice) or othersPrice
+    end
     sumQty = sumQty + qty
     rSold, rSoldVal, rAmb, rGap = rSold + sold, rSoldVal + soldVal, rAmb + amb, rGap + gap
 
-    local out = table_concat({ "D" .. Enc(day), Enc(n), Enc(nMin), Enc(minMin), Enc(sumMin), Enc(sumQty),
-        Enc(rSold), Enc(rSoldVal), Enc(rAmb), Enc(rGap) }, ",")
+    local fields = { "D" .. Enc(day), Enc(n), Enc(nMin), Enc(minMin), Enc(sumMin), Enc(sumQty),
+        Enc(rSold), Enc(rSoldVal), Enc(rAmb), Enc(rGap) }
+    -- others' prices apart only when yours made a difference that day
+    if nOth ~= nMin or sumOth ~= sumMin or minOth ~= minMin then
+        fields[11], fields[12], fields[13] = Enc(nOth), Enc(minOth), Enc(sumOth)
+    end
+    local out = table_concat(fields, ",")
     if merge then
-        item.r = (lastStart > 1 and string_sub(rollups, 1, lastStart - 1) or "") .. out
+        item.r = before .. out
     elseif rollups ~= "" then
         item.r = rollups .. ";" .. out
     else
@@ -112,19 +160,105 @@ local function AddToRollup(item, record)
     end
 end
 
--- Drop rollups older than LIMITS.rollupDays
-local function PruneRollups(item, nowMinutes)
-    local rollups = item.r
-    if not rollups or rollups == "" then return end
-    local cutoffDay = math_floor(nowMinutes / 1440) - FM.LIMITS.rollupDays
-    while rollups ~= "" do
-        local comma = string_find(rollups, ",", 1, true)
-        local day = Dec(string_sub(rollups, 2, (comma or 0) - 1))
-        if not day or day >= cutoffDay then break end
-        local pos = string_find(rollups, ";", 1, true)
-        rollups = pos and string_sub(rollups, pos + 1) or ""
+-- Civil (UTC) year and month of a day number (days since FM.EPOCH), from the days since 1970 (Howard Hinnant's
+-- civil_from_days); no date() call, so it does not depend on the client's time zone
+local EPOCH_DAYS = math_floor(FM.EPOCH / 86400)
+local function CivilOfDay(day)
+    local z = EPOCH_DAYS + day + 719468
+    local era = math_floor(z / 146097)
+    local doe = z - era * 146097
+    local yoe = math_floor((doe - math_floor(doe / 1460) + math_floor(doe / 36524) - math_floor(doe / 146096)) / 365)
+    local doy = doe - (365 * yoe + math_floor(yoe / 4) - math_floor(yoe / 100))
+    local mp = math_floor((5 * doy + 2) / 153)
+    local month = mp < 10 and mp + 3 or mp - 9
+    local year = yoe + era * 400 + (month <= 2 and 1 or 0)
+    return year, month
+end
+local EPOCH_YEAR, EPOCH_MONTH = CivilOfDay(0)
+
+-- Months since FM.EPOCH's month (UTC) of a day number, and back: the year and month of such a month number
+function FM.MonthOfDay(day)
+    local year, month = CivilOfDay(day)
+    return (year - EPOCH_YEAR) * 12 + (month - EPOCH_MONTH)
+end
+
+function FM.MonthYear(index)
+    local m = EPOCH_MONTH - 1 + index
+    return EPOCH_YEAR + math_floor(m / 12), m % 12 + 1
+end
+
+-- Fold a daily rollup that leaves the daily list into the item's monthly rollups (item.m, for the price graph's
+-- Monthly view): "M<month>,days,sumDay,low,scans,n,sumQty" = the days with a price of others, the sum of those
+-- days' average price, the lowest such price, the scans that had one, all records and their units listed
+local function AddToMonth(item, rollup)
+    local f = FM.Split(rollup, ",")
+    local day = Dec(string_sub(f[1], 2))
+    if not day then return end
+    local month = FM.MonthOfDay(day)
+    local nOth, minOth, sumOth = FM.RollupOthers(f)
+
+    local months = item.m or ""
+    local before, last = SplitLast(months)
+    local days, sumDay, low, scans, n, sumQty = 0, 0, nil, 0, 0, 0
+    local merge = false
+    if last then
+        local lf = FM.Split(last, ",")
+        if Dec(string_sub(lf[1], 2)) == month then
+            merge = true
+            days, sumDay, low = Dec(lf[2]) or 0, Dec(lf[3]) or 0, Dec(lf[4])
+            scans, n, sumQty = Dec(lf[5]) or 0, Dec(lf[6]) or 0, Dec(lf[7]) or 0
+        end
     end
-    item.r = rollups ~= "" and rollups or nil
+
+    if nOth > 0 and sumOth > 0 then
+        days = days + 1
+        sumDay = sumDay + sumOth / nOth
+        scans = scans + nOth
+        if minOth then low = low and math_min(low, minOth) or minOth end
+    end
+    n = n + (Dec(f[2]) or 0)
+    sumQty = sumQty + (Dec(f[6]) or 0)
+
+    local out = table_concat({ "M" .. Enc(month), Enc(days), Enc(sumDay), Enc(low), Enc(scans), Enc(n), Enc(sumQty) }, ",")
+    if merge then
+        item.m = before .. out
+    elseif months ~= "" then
+        item.m = months .. ";" .. out
+    else
+        item.m = out
+    end
+end
+
+-- Drop rollups older than LIMITS.rollupDays into the monthly rollups; drop monthly rollups whose month ended more
+-- than LIMITS.monthlyDays ago
+local function PruneRollups(item, nowMinutes)
+    local today = math_floor(nowMinutes / 1440)
+    local rollups = item.r
+    if rollups and rollups ~= "" then
+        local cutoffDay = today - FM.LIMITS.rollupDays
+        while rollups ~= "" do
+            local comma = string_find(rollups, ",", 1, true)
+            local day = Dec(string_sub(rollups, 2, (comma or 0) - 1))
+            if not day or day >= cutoffDay then break end
+            local pos = string_find(rollups, ";", 1, true)
+            AddToMonth(item, pos and string_sub(rollups, 1, pos - 1) or rollups)
+            rollups = pos and string_sub(rollups, pos + 1) or ""
+        end
+        item.r = rollups ~= "" and rollups or nil
+    end
+    local months = item.m
+    if months and months ~= "" then
+        -- a month is kept while its last day is within LIMITS.monthlyDays: from the month of that cutoff on
+        local cutoffMonth = FM.MonthOfDay(today - FM.LIMITS.monthlyDays)
+        while months ~= "" do
+            local comma = string_find(months, ",", 1, true)
+            local month = Dec(string_sub(months, 2, (comma or 0) - 1))
+            if not month or month >= cutoffMonth then break end
+            local pos = string_find(months, ";", 1, true)
+            months = pos and string_sub(months, pos + 1) or ""
+        end
+        item.m = months ~= "" and months or nil
+    end
 end
 
 -- Move detail records older than LIMITS.detailHours into rollups

@@ -7,7 +7,7 @@ local _, FM = ...
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
 -- through Auctionator, Shift-click = link it in chat (or snipe at the AH: a pick all its AH purchases), right-click
 -- = menu: Favorize, Ignore, Snipe (where Shift-click snipes, also away from the AH), Track <NPC> (TomTom arrow to
--- its vendor or teacher, only where there is one). Column headers sort.
+-- its vendor or teacher, only where there is one), Show price graph (ui/PriceGraph.lua). Column headers sort.
 
 local type = type
 local ipairs = ipairs
@@ -156,6 +156,11 @@ end
 
 local function Name(key)
     return FM.GetName(key)
+end
+
+-- The item's icon and its name in its quality color (the price graph's title)
+function FM.ItemTitle(key)
+    return IconText(key) .. QualityColor(key) .. Name(key) .. "|r"
 end
 
 -- Units in your bags and bank (not what you wear), and how many of them can go to the AH
@@ -1141,7 +1146,8 @@ local function ShowRowTooltip(button)
         menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) .. (why == "learn" and " (learn)" or "")
             .. ((tomtom and tomtom.AddWaypoint) and "" or " (needs TomTom)")
     end
-    GameTooltip:AddLine("Right-click: " .. menu, 0.4, 0.75, 1)
+    if FM.ShowPriceGraph then menu = menu .. ", Show price graph" end
+    GameTooltip:AddLine("Right-click: " .. menu, 0.4, 0.75, 1, true)
     GameTooltip:Show()
 end
 
@@ -1180,7 +1186,7 @@ end
 
 -- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
 -- in the sniper); Track only where there is an NPC to go to (a vendor that sells it, a trainer or vendor that
--- teaches it), disabled without TomTom
+-- teaches it), disabled without TomTom; last, Show price graph (its own window, FRV-76)
 local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
@@ -1220,6 +1226,9 @@ local function ShowRowMenu(button, row)
         elseif FM.RecipeOnAH and FM.RecipeOnAH(key) then
             -- a pattern on the AH has no NPC to walk to: say where the recipe comes from instead
             root:CreateTitle("Recipe on AH", INFO_COLOR)
+        end
+        if FM.ShowPriceGraph then
+            root:CreateButton("Show price graph", function() FM.ShowPriceGraph(key) end)
         end
     end)
 end
@@ -1702,6 +1711,8 @@ end
 function FM.RefreshTable()
     rowsCache = nil
     if frame and frame:IsShown() then Render() end
+    -- new data or a new Min. price: the price graph follows (it draws again only when something changed)
+    if FM.PriceGraphRefresh then FM.PriceGraphRefresh() end
 end
 
 -- The table is open on Picks or Learn: a pass without a plan yet plans then (trade/Calc.lua)

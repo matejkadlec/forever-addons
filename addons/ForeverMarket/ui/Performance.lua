@@ -3,12 +3,11 @@ local _, FM = ...
 -- The Profit tab of the market table: your AH result as a line from 0 with one dot per day, week or month
 -- (trade/Performance.lua). Hover a dot for that period: the AH result so far, the change, what sold, what you
 -- bought and the real losses. Daily / Weekly / Monthly sit in the filter row, and right of them "This character" /
--- "All characters" once more than one of your characters has AH logs (1.24, FRV-37).
+-- "All characters" once more than one of your characters has AH logs (1.24, FRV-37). The drawing is the shared
+-- chart of ui/Chart.lua (FRV-76), the price graph's too.
 
 local type = type
 local ipairs = ipairs
-local math_floor = math.floor
-local math_max = math.max
 local math_min = math.min
 local math_abs = math.abs
 local math_ceil = math.ceil
@@ -22,8 +21,6 @@ local GREY_RGB = { 0.62, 0.62, 0.62 }
 local HEADER_H = 52 -- the AH result and what you hold above the chart
 local AXIS_H = 18 -- date labels under the chart
 local PAD_LEFT, PAD_RIGHT = 84, 18
-local INSET = 14 -- first and last dot from the plot's edges
-local DOT, DOT_HOVER = 8, 13
 local TOP = 3 -- rows per list in a tooltip (all of them with Shift)
 local LABEL_RGB = { 1, 0.82, 0 }
 
@@ -32,20 +29,7 @@ local series -- the series on screen
 
 ---------------------------------------------------------------- formatting
 
--- 12345 -> "1g 23s 45c" without zero parts ("2g 30s"), colored coin letters (plain: in the text's own color)
-local function Coins(copper, parts, plain)
-    copper = math_floor(math_abs(copper or 0) + 0.5)
-    local g, s, c = math_floor(copper / 10000), math_floor((copper % 10000) / 100), copper % 100
-    local out = {}
-    local gl, sl, cl = "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r"
-    if plain then gl, sl, cl = "g", "s", "c" end
-    if g > 0 then out[#out + 1] = FM.FormatCount(g) .. gl end
-    if s > 0 and #out < (parts or 3) then out[#out + 1] = s .. sl end
-    if c > 0 and #out < (parts or 3) then out[#out + 1] = c .. cl end
-    if #out == 0 then return "0" .. cl end
-    return table.concat(out, " ")
-end
-FM.PerfCoins = Coins
+local Coins = FM.ChartCoins
 
 local function Signed(copper, plain)
     if copper >= 0.5 then return "+" .. Coins(copper, nil, plain) end
@@ -64,31 +48,13 @@ local function ChangeColor(change)
     return change >= 0 and GREEN_RGB or RED_RGB
 end
 
--- "11/18/2026", "Week of 11/16/2026", "November 2026"
-local function PeriodTitle(p, mode)
-    if mode == "week" then return "Week of " .. date("%m/%d/%Y", p.from) end
-    if mode == "month" then return date("%B %Y", p.from) end
-    return date("%m/%d/%Y", p.from)
-end
-
-local function AxisLabel(p, mode)
-    if mode == "month" then return date("%b %Y", p.from) end
-    return date("%m/%d", p.from)
-end
+local PeriodTitle, AxisLabel = FM.ChartPeriodTitle, FM.ChartAxisLabel
 
 ---------------------------------------------------------------- tooltip
 
--- The graph's own tooltip (GameTooltipTemplate) with the AH result so far in small grey text in its top right
--- corner; the shared GameTooltip is left alone
-local tooltip, totalText
+-- The graph's own tooltip with the AH result so far in small grey text in its top right corner
 local function Tooltip()
-    if not tooltip then
-        tooltip = CreateFrame("GameTooltip", "ForeverMarketPerfTooltip", UIParent, "GameTooltipTemplate")
-        totalText = tooltip:CreateFontString(nil, "ARTWORK", "GameTooltipTextSmall")
-        totalText:SetPoint("TOPRIGHT", tooltip, "TOPRIGHT", -8, -7)
-        totalText:SetTextColor(GREY_RGB[1], GREY_RGB[2], GREY_RGB[3])
-    end
-    return tooltip
+    return FM.ChartTooltip("ForeverMarketPerfTooltip")
 end
 
 -- A list under a header: the top 3, all of them while Shift is held
@@ -126,8 +92,8 @@ local function ShowPeriod(owner, p, mode)
     tip:SetOwner(owner, "ANCHOR_CURSOR")
     tip:AddLine(PeriodTitle(p, mode), 1, 1, 1)
     -- "+80g 93s 55c since 11/15/2026" in the corner, with room for it next to the date
-    totalText:SetText(Signed(p.value, true) .. " since " .. date("%m/%d/%Y", series.since or p.from))
-    tip:SetMinimumWidth(math_ceil(tip.TextLeft1:GetStringWidth() + totalText:GetStringWidth() + 40))
+    tip.corner:SetText(Signed(p.value, true) .. " since " .. date("%m/%d/%Y", series.since or p.from))
+    tip:SetMinimumWidth(math_ceil(tip.TextLeft1:GetStringWidth() + tip.corner:GetStringWidth() + 40))
     local c = ChangeColor(p.change)
     tip:AddLine(Signed(p.change) .. Percent(p.pct), c[1], c[2], c[3])
     List("Sold", p.sold, Item)
@@ -142,27 +108,6 @@ local function ShowPeriod(owner, p, mode)
 end
 
 ---------------------------------------------------------------- drawing
-
-local function Pool(create)
-    return { used = 0, create = create }
-end
-
-local function Take(pool)
-    pool.used = pool.used + 1
-    local o = pool[pool.used]
-    if not o then
-        o = pool.create()
-        pool[pool.used] = o
-    end
-    o:Show()
-    return o
-end
-
-local function Reset(pool) pool.used = 0 end
-
-local function HideRest(pool)
-    for i = pool.used + 1, #pool do pool[i]:Hide() end
-end
 
 local function SetMode(id)
     FM.GetSettings().perfMode = id
@@ -185,19 +130,9 @@ local function CreatePanel(parent, geo)
     p:SetPoint("TOPLEFT", parent, "TOPLEFT", geo.x, geo.y)
     p:SetSize(geo.w, geo.h)
     p.w, p.h = geo.w, geo.h
-    p.plotLeft, p.plotRight = PAD_LEFT, geo.w - PAD_RIGHT
-    p.plotBottom, p.plotTop = AXIS_H + 8, geo.h - HEADER_H - 10
 
     -- Daily / Weekly / Monthly in the table's filter row
-    p.modes = {}
-    for i, id in ipairs(FM.PERF_MODE_ORDER) do
-        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-        b:SetSize(84, 22)
-        b:SetText(FM.PERF_MODES[id].label)
-        b:SetPoint("TOPLEFT", parent, "TOPLEFT", 22 + (i - 1) * 88, geo.filterY)
-        b:SetScript("OnClick", function() SetMode(id) end)
-        p.modes[id] = b
-    end
+    p.modes = FM.ChartModeButtons(p, parent, 22, geo.filterY, SetMode)
     -- This character / All characters right of them (shown with more than one character with AH logs)
     p.scopes = {}
     local scopeX = 22 + #FM.PERF_MODE_ORDER * 88 + 20
@@ -234,87 +169,27 @@ local function CreatePanel(parent, geo)
     p.empty = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     p.empty:SetPoint("CENTER", p, "CENTER", 0, 0)
 
-    p.grid = Pool(function()
-        local t = p:CreateTexture(nil, "BACKGROUND")
-        t:SetColorTexture(1, 1, 1, 0.07)
-        t:SetHeight(1)
-        return t
-    end)
-    p.labels = Pool(function()
-        local fs = p:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        return fs
-    end)
-    p.lines = Pool(function()
-        local l = p:CreateLine(nil, "ARTWORK")
-        l:SetThickness(2)
-        return l
-    end)
-    p.dots = Pool(function()
-        local t = p:CreateTexture(nil, "OVERLAY")
-        t:SetTexture("Interface\\Buttons\\WHITE8X8")
-        local mask = p:CreateMaskTexture()
-        mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        mask:SetAllPoints(t)
-        t:AddMaskTexture(mask)
-        return t
-    end)
-
-    -- hover: the dot nearest to the cursor
-    p.hit = CreateFrame("Frame", nil, p)
-    p.hit:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", p.plotLeft, p.plotBottom - 6)
-    p.hit:SetSize(p.plotRight - p.plotLeft, p.plotTop - p.plotBottom + 12)
-    p.hit:EnableMouse(true)
-    p.hit:SetScript("OnEnter", function(self)
-        self:SetScript("OnUpdate", function(hit)
-            local x = GetCursorPosition() / hit:GetEffectiveScale() - (hit:GetLeft() or 0) + p.plotLeft
-            local best, dist
-            for i, dot in ipairs(p.dotX or {}) do
-                local d = math_abs(dot - x)
-                if not dist or d < dist then best, dist = i, d end
-            end
-            local shift = IsShiftKeyDown and IsShiftKeyDown() or false
-            if best ~= p.hover or shift ~= p.shift then
-                p.shift = shift
-                FM.PerfHover(best)
-            end
-        end)
-    end)
-    p.hit:SetScript("OnLeave", function(self)
-        self:SetScript("OnUpdate", nil)
-        FM.PerfHover(nil)
-    end)
+    -- the chart under the header, the same size as the panel
+    p.chart = FM.CreateChart(p, { w = geo.w, h = geo.h, left = PAD_LEFT, right = PAD_RIGHT, top = HEADER_H + 10,
+        bottom = AXIS_H + 8, axisY = AXIS_H }, function(i, owner) FM.PerfHover(i, owner) end)
     return p
 end
 
--- Show the tooltip of dot i (nil = none)
-function FM.PerfHover(i)
-    if not panel then return end
-    if panel.hover and panel.dots[panel.hover] then
-        panel.dots[panel.hover]:SetSize(DOT, DOT)
-    end
-    panel.hover = i
+-- Show the tooltip of dot i (nil = none), the chart's dot under the cursor
+function FM.PerfHover(i, owner)
     local p = i and series and series.periods[i]
     if not p then
         Tooltip():Hide()
         return
     end
-    if panel.dots[i] then panel.dots[i]:SetSize(DOT_HOVER, DOT_HOVER) end
-    ShowPeriod(panel.hit, p, series.mode)
-end
-
-local function Label(text, x, y, anchor)
-    local fs = Take(panel.labels)
-    fs:ClearAllPoints()
-    fs:SetPoint(anchor, panel, "BOTTOMLEFT", x, y)
-    fs:SetText(text)
-    return fs
+    ShowPeriod(owner, p, series.mode)
 end
 
 local function Render()
     local p = panel
     local mode = FM.GetSettings().perfMode
     if not (FM.PERF_MODES[mode]) then mode = "day" end
-    for id, b in pairs(p.modes) do b:SetEnabled(id ~= mode) end
+    FM.ChartShowMode(p.modes, mode)
     -- one character or all of them: a choice only with more than one character with AH logs
     local scope, choice = FM.PerfScope()
     for id, b in pairs(p.scopes) do
@@ -322,10 +197,6 @@ local function Render()
         b:SetEnabled(id ~= scope)
     end
     series = FM.PerfSeries(mode, nil, scope)
-    for _, pool in ipairs({ p.grid, p.labels, p.lines, p.dots }) do Reset(pool) end
-    p.dotX = {}
-    if p.hover then FM.PerfHover(nil) end
-
     local periods = series.periods
 
     -- header: the AH result over the dots shown, what you hold from the AH and your gold
@@ -341,51 +212,20 @@ local function Render()
             or "items bought there (usual price) and your auctions' deposits"))
     p.empty:Hide()
 
-    -- y scale over the line, 0 included (it starts there)
-    local lo, hi = 0, 0
-    for _, per in ipairs(periods) do
-        lo, hi = math_min(lo, per.value), math_max(hi, per.value)
-    end
-    local span = math_max(hi - lo, 100)
-    -- room above and below the line, but none under 0 when nothing goes there (the line starts at 0)
-    if lo < 0 then lo = lo - span * 0.12 end
-    hi = hi + span * 0.12
-    local function Y(v) return p.plotBottom + (v - lo) / (hi - lo) * (p.plotTop - p.plotBottom) end
-    for k = 0, 3 do
-        local v = lo + (hi - lo) * k / 3
-        local y = Y(v)
-        local g = Take(p.grid)
-        g:ClearAllPoints()
-        g:SetPoint("BOTTOMLEFT", p, "BOTTOMLEFT", p.plotLeft, y)
-        g:SetPoint("BOTTOMRIGHT", p, "BOTTOMLEFT", p.plotRight, y)
-        Label(math_abs(v) < 0.5 and "0" or (v < 0 and "-" or "") .. Coins(v, 2), p.plotLeft - 8, y, "RIGHT")
-    end
-
-    -- dots, the line through them (green when the range went up, red when down) and date labels
-    local n = #periods
-    local width = p.plotRight - p.plotLeft - 2 * INSET
-    local function X(i) return n == 1 and (p.plotLeft + p.plotRight) / 2 or p.plotLeft + INSET + (i - 1) * width / (n - 1) end
-    local trend = ChangeColor(series.change)
-    local prevX, prevY = p.plotLeft, Y(0) -- the line starts at 0 at the first dot's start
-    local step = math_max(1, math.ceil(n / 7))
-    for i, per in ipairs(periods) do
-        local x = X(i)
-        p.dotX[i] = x
-        if (n - i) % step == 0 then Label(AxisLabel(per, mode), x, AXIS_H, "TOP") end
-        local y = Y(per.value)
-        local l = Take(p.lines)
-        l:SetColorTexture(trend[1], trend[2], trend[3], 0.9)
-        l:SetStartPoint("BOTTOMLEFT", p, prevX, prevY)
-        l:SetEndPoint("BOTTOMLEFT", p, x, y)
-        local dot = Take(p.dots)
-        local dc = ChangeColor(per.change)
-        dot:SetVertexColor(dc[1], dc[2], dc[3], 1)
-        dot:SetSize(DOT, DOT)
-        dot:ClearAllPoints()
-        dot:SetPoint("CENTER", p, "BOTTOMLEFT", x, y)
-        prevX, prevY = x, y
-    end
-    for _, pool in ipairs({ p.grid, p.labels, p.lines, p.dots }) do HideRest(pool) end
+    -- the line from 0 at the plot's left edge (green when the range went up, red when down), dots colored by their
+    -- change, 0 always in the scale
+    local values = {}
+    for i, per in ipairs(periods) do values[i] = per.value end
+    p.chart:Draw({
+        values = values,
+        axis = function(i) return AxisLabel(periods[i], mode) end,
+        dotColor = function(i) return ChangeColor(periods[i].change) end,
+        lineColor = ChangeColor(series.change),
+        startValue = 0,
+        withZero = true,
+        minSpan = 100,
+        yText = function(v) return math_abs(v) < 0.5 and "0" or (v < 0 and "-" or "") .. Coins(v, 2) end,
+    })
 end
 
 -- Show or hide the tab's panel (geo: where it sits in the table frame); renders when shown
@@ -393,7 +233,7 @@ function FM.PerfShow(parent, show, geo)
     if not show then
         if panel then
             panel:Hide()
-            if panel.hover then FM.PerfHover(nil) end
+            if panel.chart.hover then panel.chart:Hover(nil) end
         end
         return
     end
