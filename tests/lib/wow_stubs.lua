@@ -4,9 +4,13 @@
 
 local Stubs = {}
 
--- Any method of a stub frame is a no-op (RegisterEvent, SetScript, Show, ...)
+-- Any method of a stub frame is a no-op (RegisterEvent, SetScript, ...: the names WoW's methods have, starting
+-- with a capital); a field the AddOn never set is nil, as on a real frame
 local function NoOp() end
-local frameMeta = { __index = function() return NoOp end }
+local frameMeta = { __index = function(_, key)
+    if type(key) == "string" and key:match("^%u") then return NoOp end
+    return nil
+end }
 
 function Stubs.NewEnvironment()
     local env = {}
@@ -45,15 +49,30 @@ function Stubs.NewEnvironment()
 
     -- Frames keep their OnEvent script and events; FireEvent delivers an event to the frames registered for it
     -- (every other frame method is a no-op)
+    -- Show / Hide / IsShown keep a shown state (Hide runs OnHide); a font string is a stub frame that measures 0
     local frames = {}
     env.CreateFrame = function()
         local frame = setmetatable({ scripts = {}, events = {} }, frameMeta)
         function frame:SetScript(name, fn) self.scripts[name] = fn end
         function frame:RegisterEvent(event) self.events[event] = true end
         function frame:UnregisterEvent(event) self.events[event] = nil end
+        function frame:Show() self.shown = true end
+        function frame:Hide()
+            local was = self.shown
+            self.shown = false
+            if was and self.scripts.OnHide then self.scripts.OnHide(self) end
+        end
+        function frame:IsShown() return self.shown == true end
+        function frame:CreateFontString() return env.CreateFrame() end
+        function frame:GetUnboundedStringWidth() return 0 end
+        function frame:GetStringHeight() return 0 end
         frames[#frames + 1] = frame
         return frame
     end
+    env.UIParent = env.CreateFrame()
+    env.UISpecialFrames = {}
+    env.tinsert = table.insert
+    env.InCombatLockdown = function() return false end
     function env.FireEvent(event, ...)
         for _, frame in ipairs(frames) do
             local onEvent = frame.events[event] and frame.scripts.OnEvent
