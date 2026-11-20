@@ -379,15 +379,16 @@ function FM.SnipeRemove(key)
     Refresh()
 end
 
--- One snipe from the market table: true, or false and why ("price", "auction"). The number the item already has
--- (the same pick clicked again) keeps what is bought of it; only another number starts the count again
+-- One snipe from the market table: true, or false and why ("price", "auction"). The number a sniped item already
+-- has (the same pick clicked again) keeps what is bought of it; another number, or an item removed from the list
+-- and added again, starts the count again
 local function AddFromTable(key, price, units)
     price = tonumber(price)
     if type(key) ~= "string" or not price or price < 1 then return false, "price" end
     if Kind(key) == "item" then return false, "auction" end
     units = tonumber(units)
     local _, n = Left(key)
-    if units and n and math_min(MAX_UNITS, math_floor(units)) == n then units = nil end
+    if units and n and FM.IsSniped(key) and math_min(MAX_UNITS, math_floor(units)) == n then units = nil end
     if not FM.SnipeSet(key, price, units) then return false, "price" end
     return true
 end

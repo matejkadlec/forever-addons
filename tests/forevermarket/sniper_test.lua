@@ -143,6 +143,21 @@ H.test("sniper: the same number from the market table again keeps the count, ano
     H.eq(FM.SnipeSaved(key).n, 60, "with that number")
 end)
 
+H.test("sniper: a done item removed from the list starts again when the table adds it with the same number", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeFromTable(key, 275, 20)
+    Offer(env, ah, LEATHER, 250, 20)
+    Buy(FM, env, ah, 250)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.eq((select(2, Hit(FM, LEATHER))).done, true, "done")
+    FM.SnipeRemove(key) -- the X: its price and number stay saved
+    FM.SnipeFromTable(key, 275, 20) -- a later plan asks for 20 again
+    H.eq(FM.SnipeSaved(key).got, 0, "the count starts again")
+    Offer(env, ah, LEATHER, 250, 50)
+    H.eq(Hit(FM, LEATHER), 20, "and it buys 20 again")
+end)
+
 H.test("sniper: without a number a hit takes what the one budget allows, whatever an item's old % says", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)

@@ -555,8 +555,8 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   (grey row, "144 / 144 done", not searched, never bought) and stays in the list until you remove it or give it a
   new number. Units are counted with the gold: at the confirm, given back on `COMMODITY_PURCHASE_FAILED`, kept when
   no answer comes. A new number (typed into the box, or another one from the market table) starts the count again;
-  a new price alone (an untouched box) keeps it, and so does the same number from the table again (the same pick
-  clicked twice); the daily reset doesn't touch it. The budget applies on top: whichever
+  a new price alone (an untouched box) keeps it, and so does the same number from the table again while the item is
+  in the list (the same pick clicked twice; removed and added again, it starts from 0); the daily reset doesn't touch it. The budget applies on top: whichever
   is reached first stops the item.
 * Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
