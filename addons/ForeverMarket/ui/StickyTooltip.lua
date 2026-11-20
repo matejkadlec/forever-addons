@@ -35,20 +35,22 @@ local function Settings()
     return FM.GetSettings()
 end
 
--- What a window's content was made from: the pass (FM.trade) and its plan (pickAt), or the farm data
+-- What a window's content was made from: the pass (FM.trade) and its plan (pickAt), the farm rows (FM.farm is
+-- one table, each farm pass gives it new rows)
 local function Mark(w)
     local trade = FM.trade
     w.trade = trade
     w.pickAt = trade and trade.pickAt
-    w.farmData = FM.farm
+    w.farmRows = FM.farm and FM.farm.rows
 end
 
--- Due for new content: with the plan locked only after a new plan, else after every new pass
+-- Due for new content: with the plan locked only after a new plan, else after every new pass (a Farm window also
+-- after a new farm pass)
 local function Due(w)
     local trade = FM.trade
     if not trade or trade.busy or trade.empty or trade.err then return false end
     if FM.PicksLocked() then return trade.pickAt ~= w.pickAt end
-    if w.farm then return FM.farm ~= w.farmData end
+    if w.farm and (FM.farm and FM.farm.rows) ~= w.farmRows then return true end
     return trade ~= w.trade
 end
 
@@ -160,8 +162,9 @@ local function CreateWindow()
         self:StopMovingOrSizing()
         SavePosition(self)
     end)
+    -- closed, not just out of sight with the whole UI (Alt+Z: its OnHide comes while it is still shown)
     w:SetScript("OnHide", function(self)
-        if self.id and byId[self.id] == self then byId[self.id] = nil end
+        if self.id and byId[self.id] == self and not self:IsShown() then byId[self.id] = nil end
     end)
     local close = CreateFrame("Button", nil, w, "UIPanelCloseButtonNoScripts")
     close:SetPoint("TOPRIGHT", w, "TOPRIGHT", -3, -3)

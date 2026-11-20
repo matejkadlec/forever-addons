@@ -86,3 +86,24 @@ H.test("sticky: one window per item, several items at once, a closed window is r
     H.eq(c, a, "the closed window is reused")
     H.eq(c.lines[1].text, "c", "with the new content")
 end)
+
+H.test("sticky: a Farm window follows the farm passes and the refresh with the plan not locked", function()
+    local FM, env, state = Setup(false)
+    FM.farm = { rows = {} }
+    local w = FM.StickyOpen("farm:42", "farm", "Farm", Lines("v1"))
+    FM.StickyRefresh()
+    H.eq(w.lines[1].text, "v1", "nothing new: unchanged")
+    FM.farm.rows = {} -- a farm pass: the same table, new rows
+    FM.StickyRefresh()
+    H.eq(w.lines[1].text, "v2", "a farm pass: updated")
+    state.content = Lines("v3")
+    Pass(FM, env, true) -- Refresh
+    H.eq(w.lines[1].text, "v3", "the refresh button: updated")
+end)
+
+H.test("sticky: a window out of sight with the whole UI (Alt+Z) is still the item's", function()
+    local FM = Setup(true)
+    local a = FM.StickyOpen("100", "latest", "Craft", Lines("a"))
+    a.scripts.OnHide(a) -- the UI hidden: OnHide while the window is still shown
+    H.eq(FM.StickyOpen("100", "latest", "Craft", Lines("again")), a, "no second window for the item")
+end)

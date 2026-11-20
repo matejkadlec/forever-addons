@@ -444,8 +444,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Lock plan
   after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
   Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
-  them. A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
-  tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search) keeps its last
+  them (a Farm window also every farm pass). A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
+  tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search or the "Ignored" view) keeps its last
   content with an orange note at the top. Clicking a window does nothing but raise it.
 
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"

@@ -640,7 +640,7 @@ local function FavoriteRows(trade)
 end
 
 -- The rows of a tab (the current one when nil) as the table shows them. lookup: the rows a sticky window looks its
--- row up in (FRV-80): the tab's filters, not the name search, unsorted, picks without their sections
+-- row up in (FRV-80): the tab's filters, not the name search or the "Ignored" view, unsorted, picks without sections
 local function BuildRows(tab, lookup)
     tab = tab or CurrentTab()
     local trade = FM.trade
@@ -685,10 +685,11 @@ local function BuildRows(tab, lookup)
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
-            -- ignored items: hidden, or the only ones shown in the "Ignored" view
+            -- ignored items: hidden, or the only ones shown in the "Ignored" view (a view, like the name search: a
+            -- sticky window's lookup leaves them out whatever the table shows)
             if keep then
                 local excluded = FM.IsExcluded(row.key)
-                if view.showExcluded then keep = excluded elseif excluded then keep = false end
+                if view.showExcluded and not lookup then keep = excluded elseif excluded then keep = false end
             end
             if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
         end
