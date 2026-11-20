@@ -509,7 +509,10 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
 
 * **The price** is the cheapest unit price of others in each scan, what "List at" starts from: a deep record's
   othersMin once yours were among them, else its minimum (`FM.OthersMin`); a record with only your auctions says
-  "not listed by others", an Auctionator browse record with yours among them cannot tell and is left out. Your AH
+  "not listed by others", an Auctionator browse record with yours among them cannot tell and is left out. A
+  Battle.net feed record names no seller (the API has none): when its minimum is the price of one of your posts of
+  the item running at that moment (1c either way, `posts`), it cannot tell either, in the graph and in the daily
+  rollups; so while you list at the cheapest price, only your in-game scans and searches show others' price. Your AH
   searches add others' cheapest at their moment (the 11th field of a search record from 1.26 on, written only from
   a full result, a commodity row with more units than yours counting as others'; searches before add nothing;
   searches less than 15 minutes apart count once, the newest).
@@ -521,8 +524,9 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
   item between them counts with the price before (scan1 5g, scan2 missing -> 5g, scan3 6g), where the scan log
   (`scans`) says which scans there were and the per-scan records still cover them: a deep scan or an Auctionator
   scan writes every item listed, a Battle.net feed snapshot (`api`) only an item that changed or every 4 hours
-  (`FEED_RECORD_HOURS`), so a feed snapshot without a record of the item saw what its record before says (the same
-  price within 5 hours, or still not listed; else it tells nothing). The daily rollups know only the scans that had
+  (`FEED_RECORD_HOURS`), so a feed snapshot without a record of the item saw what its feed record before says (the
+  same price within 5 hours, or still not listed); after the record of an in-game scan it tells nothing (the import
+  drops the feed's first record after one, `scan/Feed.lua`). The daily rollups know only the scans that had
   the item, so there a day without it is carried as a whole. A carried dot (no scan in it had the
   item) is a grey ring at the newest price before. Once a scan after the last price of others had none, the window
   says "Not listed by others since <when>" above the chart.

@@ -10,8 +10,10 @@
 --     counts with the price before; a day without any is carried (hollow) at the newest price before; a weekly or
 --     monthly dot = the average of its days; the line ends at the last scan that had the item
 --   * a Battle.net feed snapshot ("api" in the scan log) writes a listed item only when it changed or every 4 hours:
---     one without a record of the item saw what the item's record before says (the same price within 5 hours, or
---     still not listed), else it cannot tell
+--     one without a record of the item saw what the item's feed record before says (the same price within 5 hours,
+--     or still not listed); after an in-game scan's record, or else, it cannot tell
+--   * a feed record names no seller: at the price of one of your posts running at that moment it cannot tell, in
+--     the graph and in the daily rollups
 --   * your AH searches add others' cheapest at their moment; searches less than 15 minutes apart count once (the
 --     newest); a search record without that field (before 1.26) adds nothing; a search writes others' cheapest only
 --     from a full result, and a commodity row with more units than yours counts as others' too
@@ -239,10 +241,10 @@ end)
 H.test("price graph: a feed snapshot without a record of the item saw the same price as its record before", function()
     local FM, _, r, item = Load()
     local function At(h) return T(2026, 11, 18, h) end
-    -- a deep scan at 10:00, feed snapshots every hour: the feed writes the item again only at 13:00 (it changed)
+    -- feed snapshots every hour: the feed writes the item at 10:00 and again only at 13:00 (it changed)
     item.d = table.concat({ Deep(At(10), { min = 5 * G, qty = 2 }), Deep(At(13), { min = 6 * G, qty = 2 }) }, ";")
-    Scans(r, { Stamp("r", At(10)) })
-    Scans(r, { Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(14)), Stamp("r", At(15)) }, "api")
+    Scans(r, { Stamp("r", At(10)), Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(14)),
+        Stamp("r", At(15)) }, "api")
     local s = FM.PriceSeries(KEY, "day")
     local p = s.periods[1]
     Near(p.value, (5 + 5 + 5 + 6 + 6 + 6) * G / 6, "11:00 and 12:00 saw 5g, 14:00 and 15:00 saw 6g")
@@ -264,10 +266,9 @@ H.test("price graph: a feed snapshot after the item's empty record is still with
     Near(p.value, (5 + 5 + 5 + 5 + 7) * G / 5, "the day's average")
 
     local FM2, _, r2, item2 = Load()
-    -- a feed snapshot 6 hours after the item's only record: the feed would have written it again by then
+    -- a feed snapshot 6 hours after the item's only feed record: the feed would have written it again by then
     item2.d = Deep(At(8), { min = 5 * G })
-    Scans(r2, { Stamp("r", At(8)) })
-    Scans(r2, { Stamp("r", At(14)) }, "api")
+    Scans(r2, { Stamp("r", At(8)), Stamp("r", At(14)) }, "api")
     local s2 = FM2.PriceSeries(KEY, "day")
     H.eq(s2.periods[1].n, 1, "the late snapshot is no sighting")
     H.eq(s2.notListed, nil, "and no proof it is gone")
@@ -304,4 +305,45 @@ H.test("searches: others' cheapest counts others' units next to yours, and only 
     H.eq(Searched()[11], B(110), "all 3 at 100c are yours: others start at 110c")
     full, rows = false, { Row(90, 1, 0, 5) }
     H.eq(Searched()[11], "", "a partial result writes none")
+end)
+
+H.test("price graph: a feed snapshot after an in-game scan's record cannot tell", function()
+    local FM, _, r, item = Load()
+    local function At(h) return T(2026, 11, 18, h) end
+    -- a deep scan at 10:00; the import dropped the feed's 11:00 record (covered by that scan), nothing until 14:00
+    item.d = table.concat({ Deep(At(10), { min = 5 * G }), Deep(At(14), { min = 4 * G }) }, ";")
+    Scans(r, { Stamp("r", At(10)) })
+    Scans(r, { Stamp("r", At(11)), Stamp("r", At(12)), Stamp("r", At(13)), Stamp("r", At(14)) }, "api")
+    local p = FM.PriceSeries(KEY, "day").periods[1]
+    H.eq(p.n, 2, "only the two records are sightings")
+    H.eq(p.car, 0, "11:00 to 13:00 carry nothing")
+    Near(p.value, 4.5 * G, "their average")
+end)
+
+H.test("price graph: a feed record at the price of your running post cannot tell, in the graph and the rollups", function()
+    local now = T(2026, 11, 20)
+    local FM, _, r, item = Load(now)
+    local function At(d, h) return T(2026, 11, d, h) end
+    -- you posted the hat at 94s for 24 hours on the 18th at 9:00; others list at 1g 08s
+    r.posts[1] = table.concat({ B(Minutes(At(18, 9))), "Tester", KEY, "1", B(9400), "3", "item" }, ",")
+    item.d = table.concat({
+        Deep(At(18, 10), { min = 9400, qty = 3 }), -- feed: the minimum is yours
+        Deep(At(18, 11), { min = 9400, qty = 3, own = 1, yourMin = 9400, othersMin = 10800 }), -- deep scan: yours apart
+        Deep(At(19, 12), { min = 9400, qty = 3 }), -- feed, after your post ran out: someone else's at 94s
+    }, ";")
+    Scans(r, { Stamp("r", At(18, 10)), Stamp("r", At(19, 12)) }, "api")
+    Scans(r, { Stamp("r", At(18, 11)) })
+    local days = FM.PriceSeries(KEY, "day").periods
+    H.eq(days[1].n, 1, "the 18th: the deep scan only")
+    H.eq(days[1].value, 10800, "others' 1g 08s")
+    H.eq(days[2].value, 9400, "the 19th: 94s, your post had ended")
+
+    -- the same records leave the 72 hours: the daily rollup keeps others' prices apart
+    local later = At(18, 11) + 73 * 3600 -- both records of the 18th are older than 72 hours then
+    FM.PruneDetail(item, Minutes(later), KEY)
+    local line = FM.Split(item.r, ";")[1]
+    local f = FM.Split(line, ",")
+    H.eq(f[3], "2", "both records had a minimum")
+    H.eq(f[11], "1", "one price of others: the deep scan's")
+    H.eq(f[13], B(10800), "1g 08s")
 end)

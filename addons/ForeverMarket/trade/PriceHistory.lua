@@ -13,9 +13,11 @@ local _, FM = ...
 -- are known: the scan log (R.scans) lists every scan; a deep scan or an Auctionator scan writes every item listed in
 -- it, so an item without a record in one was not listed. A Battle.net feed snapshot ("api") writes a listed item
 -- only when it changed or every FEED_RECORD_HOURS (4), so one without a record of the item saw what the item's
--- record before says (the same price, or still not listed). The daily rollups know only the scans that had the
--- item, so before the per-scan records a day without the item is carried as a whole, and before 60 days a month is
--- the average of the days that had it.
+-- feed record before says (the same price, or still not listed); after an in-game scan it cannot tell (the import
+-- drops the feed's first record after one, scan/Feed.lua). A feed record knows no seller: at the price of one of
+-- your posts running then, it cannot tell either (FM.OthersMin). The daily rollups know only the scans that had
+-- the item, so before the per-scan records a day without the item is carried as a whole, and before 60 days a
+-- month is the average of the days that had it.
 
 local Dec = FM.Dec
 local type = type
@@ -81,7 +83,7 @@ local function Observe(d, t, p)
 end
 
 -- Everything the item's records say, per local day: { days, months, first, last, notListed }
-local function Collect(r, item)
+local function Collect(r, item, key)
     local c = { days = {}, months = {} }
     local days = c.days
 
@@ -124,23 +126,29 @@ local function Collect(r, item)
     for _, f in ipairs(FM.DetailRecords(item)) do
         local t = FM.Unstamp(string_sub(f[1] or "", 2))
         if t then
-            local p, listed = FM.OthersMin(f)
+            local p, listed = FM.OthersMin(f, key)
             local st = "?"
             if p then st = true elseif listed == false then st = false end
             state[f[1]] = st
-            recs[#recs + 1] = { t = t, p = p, st = st, qty = Dec(f[3]) or 0 }
+            recs[#recs + 1] = { t = t, p = p, st = st, qty = Dec(f[3]) or 0, stamp = f[1] }
         end
     end
     local firstDetail = recs[1] and recs[1].t
-    -- a feed snapshot without a record of the item saw what the item's newest record before it says: the same price
-    -- (within FEED_RECORD_SPAN), or still not listed; else it cannot tell
+    -- a feed snapshot without a record of the item saw what the item's newest record before it says when that is a
+    -- feed record too: the same price (within FEED_RECORD_SPAN), or still not listed; else it cannot tell
     local scans = Scans(r)
+    local feed = {}
+    for _, s in ipairs(scans) do
+        if s.feed then feed[s.stamp] = true end
+    end
     local seen, k = {}, 0
     for _, s in ipairs(scans) do
         while k < #recs and recs[k + 1].t <= s.t do k = k + 1 end
         if s.feed and state[s.stamp] == nil then
             local before = recs[k]
-            if before and before.st == true and s.t - before.t <= FEED_RECORD_SPAN then
+            if before and not feed[before.stamp] then
+                state[s.stamp] = "?"
+            elseif before and before.st == true and s.t - before.t <= FEED_RECORD_SPAN then
                 state[s.stamp] = true
                 seen[#seen + 1] = { t = s.t, p = before.p, qty = before.qty }
             elseif before and before.st == false then
@@ -244,7 +252,7 @@ function FM.PriceSeries(key, modeId)
     local r = FM.R()
     local item = r and r.items and r.items[key]
     if not item then return series end
-    local c = Collect(r, item)
+    local c = Collect(r, item, key)
     series.first, series.last, series.lastPrecision, series.notListed = c.first, c.last, c.lastPrecision, c.notListed
 
     -- the days from the first to the last that had a price of others; one without it carries the newest price before

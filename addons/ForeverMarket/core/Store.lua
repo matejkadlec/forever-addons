@@ -15,6 +15,9 @@ local _, FM = ...
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
 local math_min = math.min
+local math_abs = math.abs
+local ipairs = ipairs
+local tonumber = tonumber
 local string_find = string.find
 local string_sub = string.sub
 local table_concat = table.concat
@@ -54,10 +57,67 @@ local function RecordMinutes(record)
 end
 FM.RecordMinutes = RecordMinutes
 
--- The cheapest unit price of others in one detail record (expanded fields), the price "List at" starts from:
--- price, true; or nil, false when that scan had no auction of others (none at all, or only yours); or nil, nil when
--- the record cannot tell (an Auctionator browse record with yours among them: its minimum may be yours)
-function FM.OthersMin(f)
+-- The scans of the Battle.net feed (source "api" in the scan log), by record stamp; built again when the log changes
+local feedStamps, feedSig = {}, nil
+function FM.FeedStamp(stamp)
+    local scans = FM.R().scans
+    local sig = #scans .. ":" .. tostring(scans[#scans])
+    if feedSig ~= sig or feedStamps.list ~= scans then
+        feedStamps, feedSig = { list = scans }, sig
+        for _, line in ipairs(scans) do
+            local st, source
+            if type(line) == "string" then st, source = line:match("^([rb][^,]*),([^,]*)") end
+            if source == "api" then feedStamps[st] = true end
+        end
+    end
+    return feedStamps[stamp] == true
+end
+
+-- Your posts by item while they ran (minutes since FM.EPOCH, POST_HOURS by their duration) and their unit price;
+-- built again when the post log changes
+local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 }
+local postIndex, postSig = {}, nil
+local function PostsOf(key)
+    local posts = FM.R().posts
+    local sig = #posts .. ":" .. tostring(posts[#posts])
+    if postSig ~= sig or postIndex.list ~= posts then
+        postIndex, postSig = { list = posts }, sig
+        for _, line in ipairs(posts) do
+            local stamp, k, unit, duration
+            if type(line) == "string" then
+                stamp, k, unit, duration = line:match("^([^,]*),[^,]*,([^,]*),[^,]*,([^,]*),([^,]*)")
+            end
+            local minutes, u, hours = Dec(stamp), Dec(unit), POST_HOURS[tonumber(duration)]
+            if k and minutes and u and hours then
+                local list = postIndex[k] or {}
+                postIndex[k] = list
+                list[#list + 1] = { from = minutes, to = minutes + hours * 60, unit = u }
+            end
+        end
+    end
+    return postIndex[key]
+end
+
+-- A feed record knows no seller (the API names none, its fields 8, 20, 21 stay empty): its minimum may be yours when
+-- one of your posts of the item ran at that moment at that price (1c either way)
+local function MaybeYours(key, stamp, price)
+    local list = PostsOf(key)
+    if not list then return false end
+    local minutes = Dec(string_sub(stamp, 2))
+    if not minutes then return false end
+    for _, post in ipairs(list) do
+        if post.from <= minutes and minutes < post.to and math_abs(post.unit - price) <= 1 then
+            return FM.FeedStamp(stamp)
+        end
+    end
+    return false
+end
+
+-- The cheapest unit price of others in one detail record (expanded fields) of item key, the price "List at" starts
+-- from: price, true; or nil, false when that scan had no auction of others (none at all, or only yours); or nil, nil
+-- when the record cannot tell (an Auctionator browse record with yours among them, a feed record at the price of
+-- one of your running posts: their minimum may be yours). Without key the feed check is left out
+function FM.OthersMin(f, key)
     local p
     if string_sub(f[1] or "", 1, 1) == "b" then
         if f[4] == "1" then return nil, nil end
@@ -68,6 +128,7 @@ function FM.OthersMin(f)
         if not p then
             if f[20] and f[20] ~= "" then return nil, false end
             p = Dec(f[2])
+            if p and key and MaybeYours(key, f[1], p) then return nil, nil end
         end
     end
     if p and p > 0 then return p, true end
@@ -96,14 +157,14 @@ end
 
 -- Fold one detail record into the item's daily rollup string
 -- rollup: "D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap[,nOth,minOth,sumOth]"
-local function AddToRollup(item, record)
+local function AddToRollup(item, record, key)
     local f = FM.Split(record, ",")
     local minutes = Dec(string_sub(f[1], 2))
     if not minutes then return end
     local isDeep = string_sub(f[1], 1, 1) == "r"
     local day = math_floor(minutes / 1440)
     local minPrice = Dec(f[2])
-    local othersPrice = FM.OthersMin(f)
+    local othersPrice = FM.OthersMin(f, key)
     local qty = Dec(f[3]) or 0
     local sold, soldVal, amb, gap = 0, 0, 0, 0
     if isDeep then
@@ -261,8 +322,8 @@ local function PruneRollups(item, nowMinutes)
     end
 end
 
--- Move detail records older than LIMITS.detailHours into rollups
-function FM.PruneDetail(item, nowMinutes)
+-- Move detail records older than LIMITS.detailHours into rollups (key: the item's, for others' prices)
+function FM.PruneDetail(item, nowMinutes, key)
     local detail = item.d
     if not detail or detail == "" then return end
     local cutoff = nowMinutes - FM.LIMITS.detailHours * 60
@@ -280,7 +341,7 @@ function FM.PruneDetail(item, nowMinutes)
             record = table_concat(f, ",")
         end
         if string_sub(record, 1, 1) == "r" and f[2] ~= "=" then lastFull = f end
-        AddToRollup(item, record)
+        AddToRollup(item, record, key)
         detail = pos and string_sub(detail, pos + 1) or ""
     end
     -- "=" records refer to the previous full deep record: materialize those that lost it
@@ -348,7 +409,7 @@ function FM.AppendDetail(key, record, nowMinutes)
     else
         item.d = record
     end
-    FM.PruneDetail(item, nowMinutes)
+    FM.PruneDetail(item, nowMinutes, key)
 end
 
 -- Targeted search records: keep the newest LIMITS.searchRecords within LIMITS.searchDays
