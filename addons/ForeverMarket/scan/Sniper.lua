@@ -1,14 +1,14 @@
 local addonName, FM = ...
 
--- Sniper (/fm snipe, the "FM: snipe" button at the Auction House, Shift-click in the market table).
+-- Sniper (/fm snipe, the "FM: snipe" button at the Auction House, Shift-click or the row menu in the market table).
 --
 -- While the snipe window is open at the AH, the sniped commodities are searched one after another
 -- (C_AuctionHouse.SendSearchQuery, at most ~90 per minute and paced by the AH's own throttle). Units of other
--- sellers at or under an item's price that fit the gold budget become a "hit". Every mouse wheel step (an
--- override binding that clicks a hidden button, so it is a hardware event) buys the newest hit:
+-- sellers at or under an item's price that fit the budget (and its "buy at most") become a "hit". Every mouse wheel
+-- step (an override binding that clicks a hidden button, so it is a hardware event) buys the newest hit:
 --   1. StartCommoditiesPurchase(itemID, qty)   HasRestrictions: only from that click, never in combat
 --   2. COMMODITY_PRICE_UPDATED brings the server's quote. It is confirmed only when its total is not above
---      what the search showed for those units, its unit price is not above your price, and it fits the gold
+--      what the search showed for those units, its unit price is not above your price, and it fits the
 --      budget and your gold; everything else is cancelled
 --   3. COMMODITY_PURCHASE_SUCCEEDED / COMMODITY_PURCHASE_FAILED end it
 -- Only one purchase is in flight at a time and a hit is used once; the next search finds what is left.
@@ -19,18 +19,22 @@ local addonName, FM = ...
 -- after a purchase that got no quote, after a confirm that got no answer, and while Blizzard's buy window is open
 -- (whose answers are never taken for ours). A quote under what the hit's cheapest units cost is not ours either.
 --
--- Gold budget, per character (R.snipe.budget[name]):
---   base   your gold when the window first opened after the daily reset (or after "Reset budget")
+-- Budget, per character (R.snipe.budget[name]), one for all items together (FRV-42; until 1.25 an item could
+-- have its own % of base instead, that mode is gone):
+--   base   your gold when the window first opened after the daily reset (or after Reset)
 --   total  gold the sniper spent since then; spent[key] per item
---   universal on   all items together may spend snipeUniversalPct % of base, then sniping stops; it also
---                  never takes your gold under base minus that (the floor), whatever the bookkeeping says
---   universal off  each item may spend its own % of base (3 items at 50% = up to 150%, never above your gold)
--- A purchase's total is counted the moment it is confirmed and only given back when the server reports
--- that it failed; when no answer comes at all, it stays counted (better too careful than too much spent).
+--   all items together may spend snipeUniversalPct % of base, then sniping stops; it also never takes your gold
+--   under base minus that (the floor), whatever the bookkeeping says
+-- Buy at most N units of an item (FRV-43, optional): saved[key].n = N, saved[key].got = units bought since N was
+-- set (paid = what they cost). A hit never takes more than N - got; an item at N is done: not searched, never
+-- bought. A new number starts the count again, a new price keeps it, the daily reset doesn't touch it.
+-- A purchase's total and units are counted the moment it is confirmed and only given back when the server
+-- reports that it failed; when no answer comes at all, they stay counted (better too careful than too much spent).
 --
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
---   saved  = { [key] = { p = copper, pct = 1..100 } }  last price and % of an item, kept after removal
+--   saved  = { [key] = { p = copper, n, got, paid } }  price and "buy at most" of an item, kept after removal
+--                                                      (the pct of an item from before 1.25 is left unused)
 --   budget = { [character] = { base, since, reset, total, spent = { [key] = copper } } }
 -- }
 
@@ -42,12 +46,15 @@ local tonumber = tonumber
 local math_floor = math.floor
 local math_min = math.min
 local math_max = math.max
+local select = select
 local string_find = string.find
 local string_format = string.format
+local table_concat = table.concat
 local table_remove = table.remove
 local table_sort = table.sort
 
 local DEFAULT_PCT = 50
+local MAX_UNITS = 99999        -- the largest "buy at most" (the window's box takes 5 digits)
 local TICK = 0.1               -- seconds between two looks at the search queue
 local SEARCH_GAP = 0.65        -- at least this long between two searches (the AH allows 100 per minute)
 local PAGE_SEARCH_GAP = 2      -- on Blizzard's Buy page of a sniped item: its list jumps to the top on every search
@@ -82,6 +89,7 @@ local S = {
     quoteHold = 0,   -- GetTime() until which a late quote of a cancelled purchase may still arrive
     calling = nil,   -- "start" / "confirm" while that purchase call runs (blocked calls report during it)
     lastSave = {},   -- [key] = GetTime() of the last market log record while sniping
+    numberSet = {},  -- [key] = how often its "buy at most" was set this session (a purchase counted for an older one is not taken back)
     bindWanted = nil -- binding change waiting for the end of combat
 }
 FM.snipeState = S
@@ -171,6 +179,16 @@ local function Limit(key)
     return math_floor(p)
 end
 
+-- "Buy at most" of a sniped item: units still to buy and the number (both nil when it has no number)
+local function Left(key)
+    local saved = FM.SnipeSaved(key)
+    local n = saved and tonumber(saved.n)
+    if not n or n ~= n or n < 1 then return nil, nil end
+    n = math_floor(n)
+    local got = tonumber(saved.got) or 0
+    return math_max(0, n - got), n
+end
+
 ---------------------------------------------------------------- gold
 
 local function Money()
@@ -215,39 +233,29 @@ local function Budget(create)
     return b
 end
 
--- Gold an item may still spend today by the bookkeeping: remaining, cap, used, pct, universal
-local function Allowance(b, key)
-    local settings = FM.GetSettings()
-    if settings.snipeUniversal ~= false then
-        local pct = ClampPct(settings.snipeUniversalPct)
-        local cap = math_floor(b.base * pct / 100)
-        return math_max(0, cap - b.total), cap, b.total, pct, true
-    end
-    local saved = FM.SnipeSaved(key)
-    local pct = ClampPct(saved and saved.pct)
+-- Gold all items may still spend today by the bookkeeping: remaining, cap, pct (one budget for all, FRV-42)
+local function Allowance(b)
+    local pct = ClampPct(FM.GetSettings().snipeUniversalPct)
     local cap = math_floor(b.base * pct / 100)
-    local used = tonumber(b.spent[key]) or 0
-    return math_max(0, cap - used), cap, used, pct, false
+    return math_max(0, cap - b.total), cap, pct
 end
 
--- Gold a purchase of this item may cost right now: the bookkeeping, your gold, and in universal mode the
--- floor (base minus the cap) that sniping never takes your gold under
-local function Room(b, key)
+-- Gold a purchase may cost right now: the bookkeeping, your gold, and the floor (base minus the cap) that
+-- sniping never takes your gold under
+local function Room(b)
     local money = Money()
     if not money then return 0 end
-    local remaining, cap, _, _, universal = Allowance(b, key)
-    local room = math_min(remaining, money)
-    if universal then room = math_min(room, money - (b.base - cap)) end
-    return math_max(0, room)
+    local remaining, cap = Allowance(b)
+    return math_max(0, math_min(remaining, money, money - (b.base - cap)))
 end
 
 -- Budget numbers for the window (nil before the window first opened today)
-function FM.SnipeBudgetInfo(key)
+function FM.SnipeBudgetInfo()
     local b = Budget(false)
     if not b then return nil end
-    local remaining, cap, used, pct, universal = Allowance(b, key)
-    return { base = b.base, since = b.since, total = b.total, remaining = remaining, cap = cap, used = used,
-        pct = pct, universal = universal, floor = universal and (b.base - cap) or nil, room = Room(b, key) }
+    local remaining, cap, pct = Allowance(b)
+    return { base = b.base, since = b.since, total = b.total, remaining = remaining, cap = cap, pct = pct,
+        floor = b.base - cap, room = Room(b), spent = b.spent }
 end
 
 function FM.SnipeResetBudget()
@@ -260,7 +268,11 @@ function FM.SnipeResetBudget()
     s.budget[FM.PlayerName()] = nil
     wipe(S.hits)
     local b = Budget(true)
-    if b then FM.Print("New gold baseline for sniping:", FM.FormatMoney(b.base)) end
+    if b then
+        local _, cap, pct = Allowance(b)
+        FM.Print(string_format("Sniper budget reset: today it may spend %d%% of %s,", pct, FM.FormatMoney(b.base)),
+            FM.FormatMoney(cap))
+    end
     Refresh()
 end
 
@@ -274,6 +286,27 @@ local function Release(b, key, amount)
     b.total = math_max(0, (tonumber(b.total) or 0) - amount)
     local left = (tonumber(b.spent[key]) or 0) - amount
     b.spent[key] = left > 0 and left or nil
+end
+
+-- A confirmed purchase of an item with a number counts its units as bought (and their gold as paid)
+local function CountUnits(buy)
+    local saved = FM.SnipeSaved(buy.key)
+    if not (saved and Left(buy.key)) then return end
+    saved.got = (tonumber(saved.got) or 0) + buy.qty
+    saved.paid = (tonumber(saved.paid) or 0) + (buy.reserved or 0)
+    buy.counted = S.numberSet[buy.key] or 0 -- the number it was counted for
+end
+
+-- The server says it failed: its units are not bought (unless the item got a new number since)
+local function UncountUnits(buy)
+    if buy.counted == nil then return end
+    local counted = buy.counted
+    buy.counted = nil
+    if counted ~= (S.numberSet[buy.key] or 0) then return end
+    local saved = FM.SnipeSaved(buy.key)
+    if not saved then return end
+    saved.got = math_max(0, (tonumber(saved.got) or 0) - buy.qty)
+    saved.paid = math_max(0, (tonumber(saved.paid) or 0) - (buy.reserved or 0))
 end
 
 ---------------------------------------------------------------- list
@@ -307,8 +340,9 @@ local function EvaluateHeld(key)
     if ok and IsNumber(n) and n > 0 then Evaluate(itemID) end
 end
 
--- Add or update a snipe; pct nil keeps the item's saved % (new items start with the universal %)
-function FM.SnipeSet(key, price, pct)
+-- Add or update a snipe. units: nil keeps the item's "buy at most" and its count (a new price only), false or 0
+-- removes it (no limit but the budget), a number N sets "buy at most N" and starts its count again
+function FM.SnipeSet(key, price, units)
     price = tonumber(price)
     if type(key) ~= "string" or not FM.ItemIDFromKey(key) or not price or price ~= price or price < 1 then return false end
     local s = Data()
@@ -316,7 +350,15 @@ function FM.SnipeSet(key, price, pct)
     local saved = s.saved[key]
     if type(saved) ~= "table" then saved = {} end
     saved.p = math_floor(price)
-    saved.pct = ClampPct(pct or saved.pct or FM.GetSettings().snipeUniversalPct)
+    if units ~= nil then
+        units = tonumber(units)
+        if units and units == units and units >= 1 then
+            saved.n, saved.got, saved.paid = math_min(MAX_UNITS, math_floor(units)), 0, 0
+        else
+            saved.n, saved.got, saved.paid = nil, nil, nil
+        end
+        S.numberSet[key] = (S.numberSet[key] or 0) + 1
+    end
     s.saved[key] = saved
     if not IndexOf(s.list, key) then s.list[#s.list + 1] = key end
     S.hits[key] = nil -- an old hit was sized for the old price
@@ -337,22 +379,81 @@ function FM.SnipeRemove(key)
     Refresh()
 end
 
--- Shift-click in the market table: snipe this item at the table's price, keeping its gold %
-function FM.SnipeFromTable(key, price)
+-- One snipe from the market table: true, or false and why ("price", "auction"). The number a sniped item already
+-- has (the same pick clicked again) keeps what is bought of it; another number, or an item removed from the list
+-- and added again, starts the count again
+local function AddFromTable(key, price, units)
     price = tonumber(price)
-    if not key or not price or price < 1 then
-        FM.PrintError("Failed to snipe: the table has no buy price for it.")
-        return false
-    end
-    if Kind(key) == "item" then
-        FM.PrintError("Failed to snipe " .. Name(key) .. ": only stackable items (commodities) can be sniped.")
-        return false
-    end
-    local saved = FM.SnipeSaved(key)
-    if not FM.SnipeSet(key, price, saved and saved.pct) then return false end
-    FM.Print("Sniping " .. Name(key) .. " at up to", FM.FormatMoney(math_floor(price)))
-    if FM.ShowSnipe then FM.ShowSnipe(key) end
+    if type(key) ~= "string" or not price or price < 1 then return false, "price" end
+    if Kind(key) == "item" then return false, "auction" end
+    units = tonumber(units)
+    local _, n = Left(key)
+    if units and n and FM.IsSniped(key) and math_min(MAX_UNITS, math_floor(units)) == n then units = nil end
+    if not FM.SnipeSet(key, price, units) then return false, "price" end
+    return true
+end
+
+-- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat
+local function Describe(key)
+    local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
+    local left, n = Left(key)
+    if not n then return text end
+    if left == n then return FM.FormatCount(n) .. " " .. text end
+    return text .. string_format(" (%s / %s bought%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and ", done" or "")
+end
+
+-- The window opens with the item loaded when the AH is open; away from it the snipes wait for the window there
+local function OpenAt(key)
+    if FM.ahOpen and FM.ShowSnipe then FM.ShowSnipe(key) end
     EvaluateHeld(key) -- the window may have started sniping only now, after SnipeSet
+end
+
+-- The market table (Shift-click, the row menu): snipe this item at the table's price. units = the plan's number
+-- ("buy at most", a new number starts its count again), nil keeps the item's number as it is
+function FM.SnipeFromTable(key, price, units)
+    local ok, why = AddFromTable(key, price, units)
+    if not ok then
+        if why == "auction" then
+            FM.PrintError("Failed to snipe " .. Name(key) .. ": only stackable items (commodities) can be sniped.")
+        else
+            FM.PrintError("Failed to snipe: the table has no buy price for it.")
+        end
+        return false
+    end
+    FM.Print("Sniping " .. Describe(key))
+    OpenAt(key)
+    return true
+end
+
+-- A pick of the market table (FRV-44): snipe every AH purchase of its plan, each at its "up to" price with its units.
+-- buys = { { key, price, units }, ... }, the biggest spend first; one chat line names them all, the window opens
+-- with mainKey loaded (the AH open)
+function FM.SnipeFromPlan(name, buys, mainKey)
+    if type(buys) ~= "table" or #buys <= 1 then
+        local b = type(buys) == "table" and buys[1]
+        return b and FM.SnipeFromTable(b.key, b.price, b.units) or false
+    end
+    local added, skipped, first = {}, {}, nil
+    for _, b in ipairs(buys) do
+        local ok, why = AddFromTable(b.key, b.price, b.units)
+        if ok then
+            added[#added + 1] = Describe(b.key)
+            first = first or b.key
+        elseif why == "auction" then
+            skipped[#skipped + 1] = Name(b.key)
+        end
+    end
+    local sold = #skipped > 0 and ("sold per auction, can't be sniped: " .. table_concat(skipped, ", ")) or nil
+    if not first then
+        FM.PrintError("Failed to snipe for " .. tostring(name) .. ": " .. (sold or "the plan buys nothing at the AH") .. ".")
+        return false
+    end
+    FM.Print(string_format("Sniping %d item%s for %s: %s", #added, #added == 1 and "" or "s", tostring(name),
+        table_concat(added, ", ")) .. (sold and ("; " .. sold) or ""))
+    OpenAt(FM.IsSniped(mainKey) and mainKey or first)
+    for _, b in ipairs(buys) do
+        if b.key ~= mainKey and FM.IsSniped(b.key) then EvaluateHeld(b.key) end
+    end
     return true
 end
 
@@ -429,7 +530,9 @@ end
 
 local function Searchable(key, b)
     if Kind(key) == "item" or not Limit(key) then return false end
-    return Room(b, key) > 0
+    local left = Left(key)
+    if left and left <= 0 then return false end -- done: its number is bought
+    return Room(b) > 0
 end
 
 local function NextKey(b)
@@ -506,11 +609,13 @@ local function SafeTick()
     if not ok and geterrorhandler then geterrorhandler()(err) end
 end
 
--- Take units from rows (cheapest first, each { unit, qty }) for at most room copper: qty, total, top, taken
-local function TakeUnits(rows, room)
+-- Take units from rows (cheapest first, each { unit, qty }) for at most room copper and at most maxQty units
+-- (nil = no unit limit): qty, total, top, taken
+local function TakeUnits(rows, room, maxQty)
     local qty, total, top, taken = 0, 0, 0, {}
     for _, row in ipairs(rows) do
         local take = math_min(row[2], math_floor((room - total) / row[1]))
+        if maxQty then take = math_min(take, maxQty - qty) end
         if take <= 0 then break end
         qty = qty + take
         total = total + take * row[1]
@@ -520,7 +625,8 @@ local function TakeUnits(rows, room)
     return qty, total, top, taken
 end
 
--- Units of others at or under the price, cheapest first, as many as the gold left allows: the hit
+-- Units of others at or under the price, cheapest first, as many as the budget and the item's units still to
+-- buy allow: the hit
 Evaluate = function(itemID)
     local key = tostring(itemID)
     if not FM.IsSniped(key) then return end
@@ -554,9 +660,10 @@ Evaluate = function(itemID)
         atPrice[#atPrice + 1] = row
     end
     local b = Budget(true)
-    local room = b and Room(b, key) or 0
-    local qty, total, top, taken = TakeUnits(atPrice, room)
-    seen.short = seen.units > 0 and qty == 0 -- offers at your price, but not enough gold limit left
+    local room = b and Room(b) or 0
+    local left = Left(key)
+    local qty, total, top, taken = TakeUnits(atPrice, room, left)
+    seen.short = seen.units > 0 and qty == 0 and not (left and left <= 0) -- offers at your price, but not enough budget left
     local hit
     -- no hit for an item that is being bought right now, its units are on their way
     if qty > 0 and not (S.buy and S.buy.key == key) then
@@ -618,7 +725,8 @@ local function NewestHit()
 end
 
 -- Every check before gold leaves: a real quote, not above what the search showed for these units, unit price
--- and average not above your price, the same budget as when the hit was found, inside it and inside your gold
+-- and average not above your price, not more units than the item still has to buy, the same budget as when the
+-- hit was found, inside it and inside your gold
 local function QuoteOK(buy, total, unit)
     if not IsNumber(total) or total <= 0 or not IsNumber(unit) or unit <= 0 then
         return false, "no valid price from the server"
@@ -630,8 +738,10 @@ local function QuoteOK(buy, total, unit)
     if BlizzardBuying() then return false, "Blizzard's buy window is open" end
     local limit = Limit(buy.key)
     if not limit or unit > limit or total > limit * buy.qty then return false, "above your price" end
-    if Budget(false) ~= buy.budget then return false, "the gold budget was reset" end
-    if total > Room(buy.budget, buy.key) then return false, "over today's gold limit" end
+    local left = Left(buy.key)
+    if left and buy.qty > left then return false, "more units than it still has to buy" end
+    if Budget(false) ~= buy.budget then return false, "the budget was reset" end
+    if total > Room(buy.budget) then return false, "over today's budget" end
     return true
 end
 
@@ -683,6 +793,7 @@ local function Confirm(fromClick)
     end
     Reserve(buy.budget, buy.key, buy.quote)
     buy.reserved = buy.quote
+    CountUnits(buy)
     buy.stage = "confirm"
     buy.clicked = fromClick
     buy.t = GetTime()
@@ -690,6 +801,7 @@ local function Confirm(fromClick)
     local attempt = buy.attempt
     local called, err = Call("confirm", C_AuctionHouse.ConfirmCommoditiesPurchase, buy.itemID, buy.qty)
     if not called then
+        UncountUnits(buy)
         Release(buy.budget, buy.key, buy.reserved)
         buy.stage = "quote"
         CancelBuy()
@@ -705,8 +817,9 @@ local function Confirm(fromClick)
             current.orphanedAt = GetTime()
             S.orphans[#S.orphans + 1] = current
             S.unanswered = S.unanswered + 1
-            FM.PrintError(string_format("Failed to get the server's answer for %dx %s. Its %s stay counted in today's gold limit.",
-                current.qty, Name(current.key), FM.FormatMoney(current.reserved or 0)))
+            FM.PrintError(string_format("Failed to get the server's answer for %dx %s. Its %s stay counted in today's budget%s.",
+                current.qty, Name(current.key), FM.FormatMoney(current.reserved or 0),
+                current.counted ~= nil and ", its units as bought" or ""))
             if S.unanswered >= MAX_UNANSWERED then
                 Halt("the server did not answer " .. S.unanswered .. " purchases in a row")
             end
@@ -746,10 +859,11 @@ function FM.SnipeBuyClick()
     if not hit then return end
     local b = Budget(true)
     if not b then return end
-    local room = Room(b, hit.key)
-    if hit.total > room then
-        -- found while more gold was left (another item was bought since): buy what still fits
-        local qty, total, top, taken = TakeUnits(hit.rows or {}, room)
+    local room = Room(b)
+    local left = Left(hit.key)
+    if hit.total > room or (left and hit.qty > left) then
+        -- found while more budget or units were left (another purchase came since): buy what still fits
+        local qty, total, top, taken = TakeUnits(hit.rows or {}, room, left)
         if qty <= 0 then
             S.hits[hit.key] = nil
             Refresh()
@@ -838,9 +952,11 @@ FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     S.hits[buy.key] = nil -- found before the purchase, the next search sizes it again
     S.lastSent = 0 -- look again right away
     PlaySoundKit("LOOT_WINDOW_COIN_SOUND")
-    local info = FM.SnipeBudgetInfo(buy.key)
+    local info = FM.SnipeBudgetInfo()
+    local left, n = Left(buy.key)
     FM.Print(string_format("Bought %dx %s for", buy.qty, Name(buy.key)), FM.FormatMoney(buy.reserved or 0)
-        .. (info and (" (today " .. FM.FormatMoney(info.used) .. " / " .. FM.FormatMoney(info.cap) .. ")") or ""))
+        .. (n and string_format(" (%s / %s%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and " done" or "") or "")
+        .. (info and (" (budget today " .. FM.FormatMoney(info.total) .. " of " .. FM.FormatMoney(info.cap) .. ")") or ""))
     Refresh()
 end)
 
@@ -851,7 +967,8 @@ FM.On("COMMODITY_PURCHASE_FAILED", function()
         -- late answer of a confirm that timed out: it can't be told apart from another purchase's answer, so
         -- its gold stays counted (too careful rather than too much spent)
         S.unanswered = 0
-        FM.Print("Snipe of " .. Name(orphan.key) .. " failed late:", "its gold stays counted until the daily reset")
+        FM.Print("Snipe of " .. Name(orphan.key) .. " failed late:", "its gold stays counted until the daily reset"
+            .. (orphan.counted ~= nil and ", its units as bought" or ""))
         Refresh()
         return
     end
@@ -864,7 +981,8 @@ FM.On("COMMODITY_PURCHASE_FAILED", function()
     S.buy = nil
     S.unanswered = 0
     S.hits[buy.key] = nil
-    Release(buy.budget, buy.key, buy.reserved) -- the server says no gold left: give it back
+    UncountUnits(buy) -- the server says nothing was bought: give its units and its gold back
+    Release(buy.budget, buy.key, buy.reserved)
     S.lastSent = 0
     FM.Print("Snipe of " .. Name(buy.key) .. " failed:", "someone was faster (gold not spent)")
     Refresh()
@@ -886,6 +1004,7 @@ local function OnBlocked(forbidden, blockedAddon, functionName)
     if not which then return end
     local buy = S.buy
     if which == "confirm" and buy and buy.stage == "confirm" and not forbidden and not buy.clicked then
+        UncountUnits(buy)
         Release(buy.budget, buy.key, buy.reserved)
         buy.reserved = nil
         FM.GetSettings().snipeConfirmClick = true
@@ -894,7 +1013,10 @@ local function OnBlocked(forbidden, blockedAddon, functionName)
         return
     end
     if buy then
-        if buy.stage == "confirm" then Release(buy.budget, buy.key, buy.reserved) end
+        if buy.stage == "confirm" then
+            UncountUnits(buy)
+            Release(buy.budget, buy.key, buy.reserved)
+        end
         S.buy = nil
     end
     Halt("the game " .. (forbidden and "forbids" or "blocked") .. " the purchase call " .. tostring(functionName))
@@ -1038,18 +1160,29 @@ function FM.SnipeStatus()
             end
         end
         if not any then
-            if FM.GetSettings().snipeUniversal ~= false then
-                if (Allowance(b, list[1])) > 0 then
-                    return "Your gold is at the floor (baseline minus the limit). Sniping waits until you have more.", 1, 0.35, 0.35
+            -- an item that could still be bought waits for the budget; else every item is done or no commodity
+            local waits = false
+            for _, key in ipairs(list) do
+                local left = Left(key)
+                if Kind(key) ~= "item" and Limit(key) and not (left and left <= 0) then
+                    waits = true
+                    break
                 end
-                return "Today's gold limit is spent. Sniping stops until the daily reset.", 1, 0.35, 0.35
             end
-            return "Nothing to snipe: every item is at its gold limit or cannot be sniped.", 1, 0.35, 0.35
+            if not waits then
+                return "Every item is done (its number bought) or cannot be sniped. Give one a new number or add another.", 1, 0.82, 0
+            end
+            local remaining, cap = Allowance(b)
+            if remaining > 0 then
+                return string_format("Your gold is down to what the budget keeps (%s). Sniping waits until you have more.",
+                    FM.FormatMoney(math_max(0, b.base - cap))), 1, 0.35, 0.35
+            end
+            return "Today's budget is spent. Sniping stops until the daily reset.", 1, 0.35, 0.35
         end
         for _, key in ipairs(list) do
             local seen = S.seen[key]
             if seen and seen.short then
-                return "Offers at your price, but the gold limit left is too small for one unit.", 1, 0.5, 0.2
+                return "Offers at your price, but the budget left is too small for one unit.", 1, 0.5, 0.2
             end
         end
     end
@@ -1064,17 +1197,66 @@ function FM.SnipeStatus()
     return "Sniping ...", 0.8, 0.8, 0.8
 end
 
--- State of one sniped item for the window's list: hit, seen, kind, budget info
+-- State of one sniped item for the window's list: hit, seen, kind, budget info, its "buy at most" (n, got,
+-- paid, left, done; n nil without a number)
 function FM.SnipeItemState(key)
     local hit = S.hits[key]
     if hit and GetTime() - hit.t > HIT_MAX_AGE then hit = nil end
     local seen = S.seen[key]
+    local left, n = Left(key)
+    local saved = FM.SnipeSaved(key)
     return {
         hit = hit,
         seen = seen,
         seenAge = seen and (GetTime() - seen.t) or nil,
         kind = Kind(key),
         buying = S.buy ~= nil and S.buy.key == key,
-        budget = FM.SnipeBudgetInfo(key)
+        budget = FM.SnipeBudgetInfo(),
+        n = n,
+        got = n and (n - left) or nil,
+        paid = n and saved and tonumber(saved.paid) or nil,
+        left = left,
+        done = left ~= nil and left <= 0
     }
+end
+
+---------------------------------------------------------------- FRV-54: do COMMODITY_PURCHASED / ITEM_PURCHASED fire?
+
+-- The generated API documentation lists COMMODITY_PURCHASED(itemID, quantity) and ITEM_PURCHASED(itemID), but
+-- Blizzard's Lua never registers them, so whether Forever sends them is not known. Until the maintainer's test
+-- answers it, every purchase event at the AH (any window's) goes into its own list R.ahev as
+-- "t,char,<event>,<arguments>,<ms>" (ms = GetTime() in milliseconds, the order within one minute; the newest
+-- PROBE_MAX to PROBE_MAX + 100 lines, FM.CapList trims in batches; so it never pushes anything out of R.events), and the two events also print a chat line.
+-- Unknown events are not registered (FM.On), so this costs nothing without them.
+local PROBE_EVENTS = { "COMMODITY_PRICE_UPDATED", "COMMODITY_PRICE_UNAVAILABLE", "COMMODITY_PURCHASE_SUCCEEDED",
+    "COMMODITY_PURCHASE_FAILED", "COMMODITY_PURCHASED", "ITEM_PURCHASED", "AUCTION_HOUSE_PURCHASE_COMPLETED" }
+local PROBE_MAX = 300
+local probeLast -- { event, t } of the purchase event logged before
+
+local function ProbeValue(value)
+    if FM.IsSecret(value) then return "secret" end
+    if IsNumber(value) then return tostring(value) end
+    return type(value)
+end
+
+for _, event in ipairs(PROBE_EVENTS) do
+    FM.On(event, function(...)
+        local args = {}
+        for i = 1, select("#", ...) do args[i] = ProbeValue((select(i, ...))) end
+        local now = GetTime()
+        local r = FM.R()
+        if r then
+            if type(r.ahev) ~= "table" then r.ahev = {} end
+            FM.Log("ahev", table_concat({ FM.Stamp(), FM.PlayerName() or "?", event, table_concat(args, " "),
+                tostring(math_floor(now * 1000)) }, ","), PROBE_MAX)
+        end
+        if event == "COMMODITY_PURCHASED" or event == "ITEM_PURCHASED" then
+            local itemID, quantity = ...
+            local item = IsNumber(itemID) and (Name(tostring(itemID)) .. " (" .. itemID .. ")") or ProbeValue(itemID)
+            local after = probeLast and string_format(", %.2f s after %s", now - probeLast.t, probeLast.event) or ""
+            FM.Print("FRV-54 test: " .. event .. " fired:", item .. (event == "COMMODITY_PURCHASED" and
+                (" x" .. ProbeValue(quantity)) or "") .. after)
+        end
+        probeLast = { event = event, t = now }
+    end)
 end

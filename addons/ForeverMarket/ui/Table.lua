@@ -5,8 +5,9 @@ local _, FM = ...
 -- ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
--- through Auctionator, Shift-click = link it in chat (or snipe at the AH), right-click = menu: Favorize,
--- Ignore, Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one). Column headers sort.
+-- through Auctionator, Shift-click = link it in chat (or snipe at the AH: a pick all its AH purchases), right-click
+-- = menu: Favorize, Ignore, Snipe (where Shift-click snipes, also away from the AH), Track <NPC> (TomTom arrow to
+-- its vendor or teacher, only where there is one). Column headers sort.
 
 local type = type
 local ipairs = ipairs
@@ -1029,23 +1030,48 @@ local function RowSource(row)
     return tab, row
 end
 
--- What Shift-click snipes in this tab: the main AH material of a pick at the plan's highest price, a craft's
--- main material at its max buy price, a flip at its buy-up-to price
-local function SnipeTarget(row)
-    local key, price
+-- What Shift-click and the menu's Snipe entry send to the sniper (FRV-44): a pick every AH purchase of its plan,
+-- each at its "up to" price with its units (vendor purchases stay out), a craft's or recipe's main material at its
+-- max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the biggest
+-- spend first) and the row it is for, or nil where there is nothing to snipe
+local function SnipeTargets(row)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
     tab, row = RowSource(row)
     if not tab then return nil end
-    if tab.picks then
-        key, price = row.mainKey, row.mainTop
-    elseif tab.crafts or tab.learn then
-        key, price = row.mainKey, row.maxMat
-    elseif tab.id == "flips" then
-        key, price = row.key, row.top
+    local list = {}
+    local function add(key, price, units)
+        if type(key) ~= "string" or type(price) ~= "number" or price < 1 then return end
+        list[#list + 1] = { key = key, price = math_floor(price), units = type(units) == "number" and units >= 1 and units or nil }
     end
-    if type(key) ~= "string" or type(price) ~= "number" or price < 1 then return nil end
-    return key, math_floor(price)
+    if tab.picks then
+        if row.buys then
+            for _, b in ipairs(row.buys) do add(b.key, b.top, b.ah) end
+        else
+            add(row.mainKey, row.mainTop)
+        end
+    elseif tab.crafts or tab.learn then
+        add(row.mainKey, row.maxMat)
+    elseif tab.id == "flips" then
+        add(row.key, row.top, row.units)
+    end
+    if not list[1] then return nil end
+    return list, row
+end
+
+-- "its 3 AH purchases", "144 Heavy Leather up to 2s 75c"
+local function SnipeLabel(targets)
+    if #targets > 1 then return string_format("its %d AH purchases", #targets) end
+    local t = targets[1]
+    return (t.units and (FM.FormatCount(t.units) .. " ") or "") .. Name(t.key) .. " up to " .. FM.FormatMoney(t.price)
+end
+
+local function SnipeRow(targets, row)
+    if #targets > 1 then
+        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey)
+    else
+        FM.SnipeFromTable(targets[1].key, targets[1].price, targets[1].units)
+    end
 end
 
 local function ShowRowTooltip(button)
@@ -1099,18 +1125,17 @@ local function ShowRowTooltip(button)
         GameTooltip:AddLine(BLUE .. "Claude:|r " .. note, 1, 1, 1, true)
     end
     GameTooltip:AddLine(" ")
-    local snipeKey, snipePrice = nil, nil
-    if FM.ahOpen then snipeKey, snipePrice = SnipeTarget(row) end
-    if snipeKey then
-        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: snipe " .. Name(snipeKey) .. " at up to "
-            .. FM.FormatMoney(snipePrice), 0.4, 0.75, 1)
+    local targets = SnipeTargets(row)
+    if targets and FM.ahOpen then
+        GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: snipe " .. SnipeLabel(targets), 0.4, 0.75, 1, true)
     else
         GameTooltip:AddLine("Click: search at the AH (Auctionator)   Shift-click: link", 0.4, 0.75, 1)
     end
-    -- the menu as it will open: Track only where there is an NPC to go to
+    -- the menu as it will open: Snipe where there is something to snipe, Track only where there is an NPC to go to
     local place, why
     if FM.TrackTarget then place, why = FM.TrackTarget(row.key) end
     local menu = (FM.IsFavorite(row.key) and "Unfavorize" or "Favorize") .. ", " .. (FM.IsExcluded(row.key) and "Stop ignoring" or "Ignore")
+        .. (targets and ", Snipe" or "")
     if place then
         local tomtom = _G.TomTom
         menu = menu .. ", Track " .. (place.npc or (why == "learn" and "the trainer" or "the vendor")) .. (why == "learn" and " (learn)" or "")
@@ -1153,10 +1178,13 @@ local function SearchAtAH(row)
     if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end
 end
 
--- Right-click menu of a row: plain actions; Track only where there is an NPC to go to (a vendor that sells it,
--- a trainer or vendor that teaches it), disabled without TomTom
-local function ShowRowMenu(button, key)
+-- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
+-- in the sniper); Track only where there is an NPC to go to (a vendor that sells it, a trainer or vendor that
+-- teaches it), disabled without TomTom
+local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    local key = row.key
+    local targets, of = SnipeTargets(row)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(Name(key))
         local favorite = FM.IsFavorite(key)
@@ -1173,6 +1201,9 @@ local function ShowRowMenu(button, key)
             FM.PlanPicks() -- picks plan the gold again without it
             FM.RefreshTable()
         end)
+        if targets and FM.SnipeFromTable then
+            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of) end)
+        end
         local place, why = FM.TrackTarget(key)
         if place then
             local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
@@ -1207,15 +1238,15 @@ local function OnRowClick(button, mouseButton)
     end
     if mouseButton == "RightButton" then
         GameTooltip:Hide()
-        ShowRowMenu(button, row.key)
+        ShowRowMenu(button, row)
         return
     end
     if IsShiftKeyDown and IsShiftKeyDown() then
-        -- AH open: snipe the row's main material at the table's price (its gold % stays as it is)
-        local snipeKey, snipePrice = nil, nil
-        if FM.ahOpen and FM.SnipeFromTable then snipeKey, snipePrice = SnipeTarget(row) end
-        if snipeKey then
-            FM.SnipeFromTable(snipeKey, snipePrice)
+        -- AH open: snipe what the row buys at the AH at the table's prices (a pick: all its AH purchases)
+        local targets, of
+        if FM.ahOpen and FM.SnipeFromTable then targets, of = SnipeTargets(row) end
+        if targets then
+            SnipeRow(targets, of)
             return
         end
         local link = ItemLink(row.key)

@@ -2,9 +2,11 @@ local _, FM = ...
 
 -- The snipe window (/fm snipe, "FM: snipe" at the AH). Sniping itself lives in scan/Sniper.lua and runs
 -- while this window is open at the Auction House.
---   left   the sniped items: "Name · price", click = load it into the form, the red X = stop sniping it
---   right  the form: item search with up to 20 suggestions, price per unit in g / s / c, the item's own gold %,
---          today's budget, and the universal gold threshold (bottom left). The ? explains the rules.
+--   left    the sniped items: "Name · price" (and "37 / 144" with a number), click = load it into the form,
+--           the red X = stop sniping it
+--   right   the form: item search with up to 20 suggestions, price per unit in g / s / c, "buy at most" units
+--   bottom  today's budget in one line: its % (all items together), a bar with what is spent of it, Reset.
+--           Hovering it explains it; the ? explains the rules.
 -- Both parts move together (drag the right one).
 
 local type = type
@@ -14,6 +16,7 @@ local tostring = tostring
 local tonumber = tonumber
 local math_floor = math.floor
 local math_max = math.max
+local math_min = math.min
 local string_format = string.format
 local string_lower = string.lower
 local string_find = string.find
@@ -21,9 +24,10 @@ local string_sub = string.sub
 local table_sort = table.sort
 
 local FRAME_NAME = "ForeverMarketSnipe"
-local W, H = 380, 404
+local W, H = 380, 272
 local LIST_W, ROW_H = 236, 22
 local HINT_ROWS, HINT_H = 20, 18
+local BAR_WARN = 0.75 -- the budget bar turns yellow from this share spent
 
 local GREY = "|cFF9D9D9D"
 local WHITE = "|cFFFFFFFF"
@@ -33,6 +37,7 @@ local BLUE = "|cFF66CCFF"
 
 local frame
 local selected -- key loaded into the form
+local unitsEdited = false -- the units box was typed in since the item was loaded (a new number)
 local hintKeys = {}
 
 local function Settings()
@@ -87,23 +92,16 @@ local function Panel(parent)
     return p
 end
 
-local function SetBoxEnabled(box, enabled)
-    box:SetEnabled(enabled)
-    if enabled then
-        box:SetTextColor(1, 1, 1)
-    else
-        box:SetTextColor(0.5, 0.5, 0.5)
-        box:ClearFocus()
-    end
-end
-
-local function SetLabelEnabled(fs, enabled)
-    if enabled then fs:SetTextColor(1, 0.82, 0) else fs:SetTextColor(0.5, 0.5, 0.5) end
-end
-
 local function Message(text, color)
     if not frame then return end
     frame.message:SetText((color or WHITE) .. (text or "") .. "|r")
+end
+
+local function Tooltip(owner, anchor, title, text)
+    GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
+    GameTooltip:AddLine(title)
+    if text then GameTooltip:AddLine(text, 1, 1, 1, true) end
+    GameTooltip:Show()
 end
 
 ---------------------------------------------------------------- price boxes
@@ -214,12 +212,7 @@ end
 
 ---------------------------------------------------------------- form
 
-local function PctFromSaved(key)
-    local saved = key and FM.SnipeSaved(key)
-    return FM.SnipeClampPct(saved and saved.pct or Settings().snipeUniversalPct)
-end
-
--- Load an item into the form (its saved price and %, if it was sniped before)
+-- Load an item into the form (its saved price and number, if it was sniped before)
 Select = function(key)
     if not frame then return end
     selected = key
@@ -229,8 +222,10 @@ Select = function(key)
     frame.search:ClearFocus()
     local saved = key and FM.SnipeSaved(key)
     WritePrice(saved and saved.p)
-    frame.pct:SetText(tostring(PctFromSaved(key)))
-    frame.pct:SetCursorPosition(0)
+    local n = saved and tonumber(saved.n)
+    frame.units:SetText(n and n >= 1 and tostring(math_floor(n)) or "")
+    frame.units:SetCursorPosition(0)
+    unitsEdited = false
     Message("")
     FM.RefreshSnipe()
 end
@@ -252,28 +247,44 @@ local function SubmitSnipe()
         Message("Enter a price per unit (silver and copper 0-99).", RED)
         return
     end
-    local pct
-    if Settings().snipeUniversal == false then
-        pct = tonumber(frame.pct:GetText())
-        if not pct or pct < 1 or pct > 100 then
-            Message("The gold limit is a percent between 1 and 100.", RED)
-            return
+    -- a typed number is a new one (its count starts again), an untouched box keeps the item's number and count.
+    -- When the item submitted is not the one loaded into the form (another name typed over it), what the box shows
+    -- applies to it: its count stays only when that is the number it already has
+    local units = nil
+    local loaded = key == selected
+    if unitsEdited or not loaded then
+        local typed = frame.units:GetText() or ""
+        local shown = nil
+        if typed ~= "" then
+            shown = tonumber(typed)
+            if not shown or shown < 1 then
+                Message("Buy at most: a number of units, 1 or more (empty = no limit).", RED)
+                return
+            end
+            shown = math_floor(shown)
         end
+        local saved = FM.SnipeSaved(key)
+        local current = saved and tonumber(saved.n)
+        if unitsEdited or shown ~= current then units = shown or false end
     end
     local wasSniped = FM.IsSniped(key)
-    if FM.SnipeSet(key, price, pct) then
+    if FM.SnipeSet(key, price, units) then
         selected = key
-        Message((wasSniped and "Updated: " or "Sniping: ") .. Name(key) .. " at up to " .. FM.FormatMoney(price), GREEN)
+        unitsEdited = false
+        local saved = FM.SnipeSaved(key)
+        local n = saved and tonumber(saved.n)
+        Message((wasSniped and "Updated: " or "Sniping: ") .. Name(key) .. " at up to " .. FM.FormatMoney(price)
+            .. (n and (", at most " .. FM.FormatCount(n) .. " units") or ""), GREEN)
     end
 end
 
-local function SaveUniversalPct()
-    local value = tonumber(frame.universalPct:GetText())
+local function SaveBudgetPct()
+    local value = tonumber(frame.budgetPct:GetText())
     if value and value >= 1 and value <= 100 then
         Settings().snipeUniversalPct = FM.SnipeClampPct(value)
     end
-    frame.universalPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
-    frame.universalPct:SetCursorPosition(0)
+    frame.budgetPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
+    frame.budgetPct:SetCursorPosition(0)
     FM.RefreshSnipe()
 end
 
@@ -282,13 +293,12 @@ end
 local HELP = {
     "Sniping runs while this window is open at the Auction House. It searches your items one after another (it pauses in combat, during a deep scan, on a Sell page and on the Buy page of an item you don't snipe; on a sniped item's Buy page it searches only that item).",
     "Scroll the mouse wheel (up or down) to buy: every wheel step buys the newest offer at or under an item's price. Keep the cursor off lists that scroll, for example over this window.",
-    "Before gold leaves, the server's price is checked: never more than the offers you saw, never more than your price per unit, never more than your gold limit. Anything else is cancelled.",
-    "Gold limit: a percent of your gold baseline, your gold when this window first opened after the daily reset (Reset budget sets a new one).",
-    "Universal threshold on: all items together share that percent; once it is spent, sniping stops until the daily reset. Sniping also never takes your gold under the baseline minus that percent, even when you spent gold elsewhere.",
-    "Universal threshold off: each item has its own percent, so three items at 50% may spend up to 150% together (never more than you have).",
+    "Before gold leaves, the server's price is checked: never more than the offers you saw, never more than your price per unit, never over the budget. Anything else is cancelled.",
+    "Budget: the sniper may spend a share of the gold you had when this window first opened today (the % at the bottom, all items together). Once it is spent, sniping stops until the daily reset or Reset. It never takes your gold under the rest of that, even when you spend gold elsewhere.",
+    "Buy at most: an item with a number stops when that many units are bought, across days too. A new number starts the count again, a new price keeps it. Empty: no limit but the budget.",
     "Only stackable items (commodities) can be sniped. Your own auctions are never bought.",
-    "If the server does not answer a purchase, its gold stays counted and nothing new is bought for a minute. While Blizzard's own buy window is open, sniping does not buy.",
-    "Shift-click a row in the market table while the AH is open to snipe its main material at the table's price."
+    "If the server does not answer a purchase, its gold and units stay counted and nothing new is bought for a minute. While Blizzard's own buy window is open, sniping does not buy.",
+    "Market table: Shift-click a row while the AH is open, or pick Snipe in its right-click menu (also away from the AH). A pick snipes every AH purchase of its plan with its units, other rows their main material at the table's price."
 }
 
 local function ShowHelp(self)
@@ -314,6 +324,11 @@ local function RowTooltip(self)
     if state.kind == "item" then
         GameTooltip:AddLine("Sold per auction: only stackable items can be sniped.", 1, 0.35, 0.35, true)
     end
+    if state.n then
+        GameTooltip:AddLine(string_format("Bought %s of %s for %s%s", FM.FormatCount(state.got), FM.FormatCount(state.n),
+            FM.FormatMoney(state.paid or 0), state.done and "  (done)" or ""), state.done and 0.6 or 1, state.done and 0.6 or 1,
+            state.done and 0.6 or 1)
+    end
     local seen = state.seen
     if seen then
         GameTooltip:AddDoubleLine("Cheapest now", seen.min and FM.FormatMoney(seen.min) or "none listed", 1, 0.82, 0, 1, 1, 1)
@@ -323,15 +338,9 @@ local function RowTooltip(self)
     if state.hit then
         GameTooltip:AddLine(string_format("Scroll to buy %dx for %s", state.hit.qty, FM.FormatMoney(state.hit.total)), 0.2, 1, 0.4)
     end
-    local budget = state.budget
-    if budget then
-        if budget.universal then
-            GameTooltip:AddDoubleLine("Spent today (all items)", string_format("%s of %s", FM.FormatMoney(budget.used),
-                FM.FormatMoney(budget.cap)), 1, 0.82, 0, 1, 1, 1)
-        else
-            GameTooltip:AddDoubleLine("Spent today", string_format("%s of %s (%d%%)", FM.FormatMoney(budget.used),
-                FM.FormatMoney(budget.cap), budget.pct), 1, 0.82, 0, 1, 1, 1)
-        end
+    local spent = state.budget and state.budget.spent and tonumber(state.budget.spent[key])
+    if spent and spent > 0 then
+        GameTooltip:AddDoubleLine("Spent on it today", FM.FormatMoney(spent), 1, 0.82, 0, 1, 1, 1)
     end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("Click: load into the form   X: stop sniping it", 0.4, 0.75, 1)
@@ -364,10 +373,7 @@ local function CreateRow(list, i)
         GameTooltip:Hide()
     end)
     remove:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Stop sniping " .. Name(row.key))
-        GameTooltip:AddLine("Its price and gold % are remembered for next time.", 1, 1, 1, true)
-        GameTooltip:Show()
+        Tooltip(self, "ANCHOR_RIGHT", "Stop sniping " .. Name(row.key), "Its price and number are remembered for next time.")
     end)
     remove:SetScript("OnLeave", function() GameTooltip:Hide() end)
     row.remove = remove
@@ -384,14 +390,17 @@ local function RefreshList()
         local saved = FM.SnipeSaved(key)
         local state = FM.SnipeItemState(key)
         local color = WHITE
-        if state.kind == "item" or (state.budget and state.budget.room <= 0) then
+        if state.kind == "item" or state.done or (state.budget and state.budget.room <= 0) then
             color = GREY
         elseif state.buying then
             color = BLUE
         elseif state.hit then
             color = GREEN
         end
-        row.text:SetText(color .. Name(key) .. "|r" .. GREY .. " · |r" .. FM.FormatMoney(saved and saved.p))
+        -- with a number: what is bought of it, "done" once it is all bought
+        local count = state.n and string_format("%s  %s / %s%s|r", GREY, FM.FormatCount(state.got), FM.FormatCount(state.n),
+            state.done and "  done" or "") or ""
+        row.text:SetText(color .. Name(key) .. "|r" .. GREY .. " · |r" .. FM.FormatMoney(saved and saved.p) .. count)
         row:Show()
     end
     for i = #keys + 1, #list.rows do
@@ -402,45 +411,59 @@ local function RefreshList()
     list:SetShown(#keys > 0)
 end
 
----------------------------------------------------------------- refresh
+---------------------------------------------------------------- budget
 
+-- "Budget today [50] %  [bar: spent of the day's budget]  [Reset]"; before sniping first started today the bar
+-- gives way to a note
 local function RefreshBudget()
-    local info = FM.SnipeBudgetInfo(selected or FM.SnipeList()[1])
+    if not frame.budgetPct:HasFocus() then
+        frame.budgetPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
+        frame.budgetPct:SetCursorPosition(0)
+    end
+    local info = FM.SnipeBudgetInfo()
+    local bar = frame.budgetBar
     if not info then
-        frame.budget:SetText(GREY .. "The gold baseline is set when sniping starts at the AH.|r")
+        bar:Hide()
+        frame.budgetNote:Show()
         return
     end
-    local lines = {}
-    lines[1] = string_format("Baseline: %s  %s(your gold at %s)|r", FM.FormatMoney(info.base), GREY,
-        date("%H:%M", info.since or FM.Now()))
-    if info.universal then
-        lines[2] = string_format("Spent today: %s of %s  %s(%d%%, all items)|r", FM.FormatMoney(info.total),
-            FM.FormatMoney(info.cap), GREY, info.pct)
-        lines[3] = string_format("Keeps at least: %s  %s(left now: %s)|r", FM.FormatMoney(math_max(0, info.floor or 0)),
-            GREY, FM.FormatMoney(info.room or 0))
+    frame.budgetNote:Hide()
+    bar:Show()
+    local share = info.cap > 0 and math_min(1, info.total / info.cap) or 1
+    bar:SetValue(share)
+    if info.total >= info.cap then
+        bar:SetStatusBarColor(0.8, 0.15, 0.15)
+    elseif share >= BAR_WARN then
+        bar:SetStatusBarColor(0.85, 0.7, 0)
     else
-        lines[2] = string_format("Spent today: %s  %s(all items)|r", FM.FormatMoney(info.total), GREY)
-        if selected and FM.IsSniped(selected) then
-            lines[3] = string_format("%s: %s of %s  %s(%d%%)|r", Name(selected), FM.FormatMoney(info.used),
-                FM.FormatMoney(info.cap), GREY, info.pct)
-        end
+        bar:SetStatusBarColor(0.15, 0.6, 0.25)
     end
-    frame.budget:SetText(table.concat(lines, "\n"))
+    bar.text:SetText(FM.FormatMoney(info.total) .. " of " .. FM.FormatMoney(info.cap))
 end
 
-local function RefreshThreshold()
-    local universal = Settings().snipeUniversal ~= false
-    frame.universal:SetChecked(universal)
-    SetBoxEnabled(frame.universalPct, universal)
-    SetLabelEnabled(frame.universalPctLabel, universal)
-    SetBoxEnabled(frame.pct, not universal)
-    SetLabelEnabled(frame.pctLabel, not universal)
-    SetLabelEnabled(frame.pctSuffix, not universal)
-    if not frame.universalPct:HasFocus() then
-        frame.universalPct:SetText(tostring(FM.SnipeClampPct(Settings().snipeUniversalPct)))
-        frame.universalPct:SetCursorPosition(0)
+-- Where the budget comes from, what it keeps and when it starts again
+local function BudgetTooltip(self)
+    local info = FM.SnipeBudgetInfo()
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Budget today")
+    if info then
+        GameTooltip:AddLine(string_format("You had %s when the sniper first opened today (%s). It may spend %d%% of that, %s, "
+            .. "and never takes your gold under %s, whatever you spend elsewhere. It starts again with the daily reset or with Reset.",
+            FM.FormatMoney(info.base), date("%H:%M", info.since or FM.Now()), info.pct, FM.FormatMoney(info.cap),
+            FM.FormatMoney(math_max(0, info.floor))), 1, 1, 1, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Spent today", FM.FormatMoney(info.total), 1, 0.82, 0, 1, 1, 1)
+        GameTooltip:AddDoubleLine("Left now", FM.FormatMoney(info.room), 1, 0.82, 0, 1, 1, 1)
+    else
+        GameTooltip:AddLine(string_format("It starts when sniping first starts at the AH today: the sniper may then spend %d%% "
+            .. "of the gold you have at that moment, all items together, and never takes your gold under the rest, whatever you "
+            .. "spend elsewhere. It starts again with the daily reset or with Reset.",
+            FM.SnipeClampPct(Settings().snipeUniversalPct)), 1, 1, 1, true)
     end
+    GameTooltip:Show()
 end
+
+---------------------------------------------------------------- refresh
 
 function FM.RefreshSnipe()
     if not (frame and frame:IsShown()) then return end
@@ -449,7 +472,6 @@ function FM.RefreshSnipe()
     frame.status:SetTextColor(r or 1, g or 1, b or 1)
     RefreshList()
     RefreshBudget()
-    RefreshThreshold()
 end
 
 ---------------------------------------------------------------- frame
@@ -563,74 +585,88 @@ local function CreateWindow()
     f.copper:SetPoint("LEFT", f.silver, "RIGHT", 22, 0)
     local cText = Text(f, "GameFontHighlightSmall", "LEFT", 4, 0, f.copper, "RIGHT")
     cText:SetText("|cFFEDA55Fc|r")
+
+    -- buy at most N units (optional), next to the price
+    local unitsLabel = Text(f, "GameFontNormalSmall", "TOPLEFT", 236, -116)
+    unitsLabel:SetText("Buy at most")
+    f.units = Input(f, 52, 5, true)
+    f.units:SetPoint("TOPLEFT", f, "TOPLEFT", 242, -130)
+    local unitsText = Text(f, "GameFontHighlightSmall", "LEFT", 6, 0, f.units, "RIGHT")
+    unitsText:SetText("units")
+    f.units:SetScript("OnTextChanged", function(_, userInput)
+        if userInput then unitsEdited = true end
+    end)
+    f.units:SetScript("OnEnter", function(self)
+        Tooltip(self, "ANCHOR_TOP", "Buy at most",
+            "Empty: no limit but the budget. With a number, sniping stops once that many units of the item are bought, across days too. A new number starts the count again; changing only the price keeps it.")
+    end)
+    f.units:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     f.gold:SetScript("OnTabPressed", function() f.silver:SetFocus() end)
     f.silver:SetScript("OnTabPressed", function() f.copper:SetFocus() end)
-    f.copper:SetScript("OnTabPressed", function() f.gold:SetFocus() end)
-    for _, box in ipairs({ f.gold, f.silver, f.copper }) do
+    f.copper:SetScript("OnTabPressed", function() f.units:SetFocus() end)
+    f.units:SetScript("OnTabPressed", function() f.gold:SetFocus() end)
+    for _, box in ipairs({ f.gold, f.silver, f.copper, f.units }) do
         box:SetScript("OnEnterPressed", function(self)
             self:ClearFocus()
             SubmitSnipe()
         end)
     end
 
-    -- the item's own gold %
-    f.pctLabel = Text(f, "GameFontNormalSmall", "TOPLEFT", 18, -162)
-    f.pctLabel:SetText("Gold limit of this item")
-    f.pct = Input(f, 36, 3, true)
-    f.pct:SetPoint("TOPLEFT", f, "TOPLEFT", 24, -176)
-    f.pct:SetScript("OnEnterPressed", function(self)
-        self:ClearFocus()
-        SubmitSnipe()
-    end)
-    f.pctSuffix = Text(f, "GameFontNormalSmall", "LEFT", 6, 0, f.pct, "RIGHT")
-    f.pctSuffix:SetText("% of the gold baseline")
-
     -- actions
     local snipe = Button(f, "Snipe / update", 130, SubmitSnipe)
-    snipe:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -208)
+    snipe:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -164)
     local clear = Button(f, "Clear", 70, function()
         Select(nil)
         frame.search:SetFocus()
     end)
     clear:SetPoint("LEFT", snipe, "RIGHT", 6, 0)
-    f.message = Text(f, "GameFontHighlightSmall", "TOPLEFT", 18, -236)
+    f.message = Text(f, "GameFontHighlightSmall", "TOPLEFT", 18, -194)
     f.message:SetWidth(W - 36)
     f.message:SetJustifyH("LEFT")
 
-    -- today's budget
-    local budgetHeader = Text(f, "GameFontNormal", "TOPLEFT", 18, -262)
-    budgetHeader:SetText("Today")
-    f.budget = Text(f, "GameFontHighlightSmall", "TOPLEFT", 18, -280)
-    f.budget:SetWidth(W - 36)
-    f.budget:SetJustifyH("LEFT")
-    f.budget:SetSpacing(3)
-    local reset = Button(f, "Reset budget", 110, function() FM.SnipeResetBudget() end)
-    reset:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -258)
+    -- today's budget, one line at the bottom; hovering it explains it
+    local zone = CreateFrame("Frame", nil, f)
+    zone:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 12, 12)
+    zone:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -70, 12)
+    zone:SetHeight(24)
+    zone:EnableMouse(true)
+    zone:SetScript("OnEnter", BudgetTooltip)
+    zone:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local budgetLabel = Text(zone, "GameFontNormalSmall", "LEFT", 6, 0)
+    budgetLabel:SetText("Budget today")
+    f.budgetPct = Input(zone, 32, 3, true)
+    f.budgetPct:SetPoint("LEFT", budgetLabel, "RIGHT", 12, 0)
+    f.budgetPct:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.budgetPct:HookScript("OnEditFocusLost", SaveBudgetPct)
+    f.budgetPct:SetScript("OnEnter", BudgetTooltip)
+    f.budgetPct:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local pctSign = Text(zone, "GameFontNormalSmall", "LEFT", 4, 0, f.budgetPct, "RIGHT")
+    pctSign:SetText("%")
+    local bar = CreateFrame("StatusBar", nil, zone)
+    bar:SetPoint("LEFT", pctSign, "RIGHT", 10, 0)
+    bar:SetPoint("RIGHT", zone, "RIGHT", -2, 0)
+    bar:SetHeight(16)
+    bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    bar:SetMinMaxValues(0, 1)
+    bar:SetValue(0)
+    local barBg = bar:CreateTexture(nil, "BACKGROUND")
+    barBg:SetAllPoints()
+    barBg:SetColorTexture(0.15, 0.15, 0.15, 1)
+    bar.text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bar.text:SetPoint("LEFT", bar, "LEFT", 4, 0)
+    bar.text:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+    bar.text:SetWordWrap(false)
+    f.budgetBar = bar
+    f.budgetNote = Text(zone, "GameFontHighlightSmall", "LEFT", 10, 0, pctSign, "RIGHT")
+    f.budgetNote:SetText(GREY .. "starts when sniping starts at the AH|r")
+    local reset = Button(f, "Reset", 54, function() FM.SnipeResetBudget() end)
+    reset:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 13)
     reset:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Reset budget")
-        GameTooltip:AddLine("Your gold right now becomes the new baseline and today's spending starts at zero. It also resets by itself with the daily reset.", 1, 1, 1, true)
-        GameTooltip:Show()
+        Tooltip(self, "ANCHOR_RIGHT", "Reset",
+            "Your gold right now becomes the start of today's budget, and what was spent starts at zero. The budget also starts again by itself with the daily reset.")
     end)
     reset:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- universal gold threshold (bottom left)
-    local universal = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
-    universal:SetSize(26, 26)
-    universal:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 12)
-    universal.Text:SetFontObject("GameFontHighlightSmall")
-    universal.Text:SetText("Universal gold threshold")
-    universal:SetScript("OnClick", function(self)
-        Settings().snipeUniversal = self:GetChecked() and true or false
-        FM.RefreshSnipe()
-    end)
-    f.universal = universal
-    f.universalPct = Input(f, 36, 3, true)
-    f.universalPct:SetPoint("LEFT", universal.Text, "RIGHT", 10, 0)
-    f.universalPct:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    f.universalPct:HookScript("OnEditFocusLost", SaveUniversalPct)
-    f.universalPctLabel = Text(f, "GameFontNormalSmall", "LEFT", 6, 0, f.universalPct, "RIGHT")
-    f.universalPctLabel:SetText("% (all items together)")
 
     -- the sniped items, left of the window
     local list = Panel(f)

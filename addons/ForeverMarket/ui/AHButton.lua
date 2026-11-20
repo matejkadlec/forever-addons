@@ -50,7 +50,7 @@ local function CreateButton()
         local key = GetBindingKey("FOREVERMARKET_TABLE")
         GameTooltip:AddLine("Picks, favorites, crafts, vendor and flip resell, materials and farming spots. Also /fm"
             .. (key and (" or the key " .. GetBindingText(key)) or "") .. ".", 1, 1, 1, true)
-        GameTooltip:AddLine("Shift-click a row (AH open): snipe its main material at the table's price.", 0.6, 0.8, 1, true)
+        GameTooltip:AddLine("Shift-click a row (AH open) or Snipe in its right-click menu: snipe what it buys at the AH at the table's prices (a pick: every AH purchase of its plan, with its units).", 0.6, 0.8, 1, true)
         GameTooltip:Show()
     end)
     tableButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
