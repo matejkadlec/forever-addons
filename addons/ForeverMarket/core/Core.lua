@@ -299,6 +299,7 @@ function FM.R()
         if type(r[name]) ~= "table" then r[name] = {} end
     end
     r.lastReplicateT = r.lastReplicateT or 0
+    r.ahev = nil -- the FRV-54 test's purchase event lines (1.25 to 1.29): the test is over, they go
     FM.realm = r
     FM.realmKey = key
     if FM.MigrateRealm then FM.MigrateRealm(r) end

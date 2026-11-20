@@ -1,12 +1,21 @@
 local _, FM = ...
 
--- Small buttons on the Auction House title bar: "FM: table" opens the market table, "FM: snipe" opens the
--- snipe window (sniping runs while it is open). Deep scans: /fm scan, saving for Claude: /fm save.
+-- Small buttons on the Auction House title bar, right to left: "FM: snipe" opens the snipe window (sniping runs
+-- while it is open), "FM: scan" starts a deep scan (FRV-84; disabled while one runs or the server's 15 minutes are
+-- not over, the tooltip says why), "FM: table" opens the market table. Saving for Claude: /fm save.
 
 local button
+local scanButton
 local tableButton
 
+-- "FM: scan" is enabled only when a click would start a deep scan
+local function UpdateScanButton()
+    if not scanButton then return end
+    scanButton:SetEnabled(FM.DeepScanRefusal() == nil)
+end
+
 function FM.UpdateAHButton()
+    UpdateScanButton()
     if not button then return end
     button:SetText(FM.SnipeIsActive and FM.SnipeIsActive() and "FM: sniping" or "FM: snipe")
 end
@@ -14,9 +23,23 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market Sniper")
-    GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step buys the newest offer at or under their price. Also /fm snipe.", 1, 1, 1, true)
+    GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step anywhere on screen buys the newest offer at or under their price. Also /fm snipe.", 1, 1, 1, true)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Deep scan: /fm scan   Save for Claude: /fm save", 0.6, 0.8, 1)
+    GameTooltip:AddLine("Save for Claude: /fm save", 0.6, 0.8, 1)
+    GameTooltip:Show()
+end
+
+-- What a deep scan is, when the last one was, and why the button is disabled now
+local function ShowScanTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
+    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market deep scan")
+    GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the market table, the item tooltips and Claude (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
+    local r = FM.R()
+    local last = r and r.last and r.last.t
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Last deep scan: " .. (last and (FM.FormatAge(FM.Now() - last) .. " ago") or "never"), 0.6, 0.8, 1)
+    local refusal = FM.DeepScanRefusal()
+    if refusal then GameTooltip:AddLine(refusal, 1, 0.5, 0.2, true) end
     GameTooltip:Show()
 end
 
@@ -35,12 +58,33 @@ local function CreateButton()
     button:SetScript("OnClick", function() FM.ToggleSnipe() end)
     button:SetScript("OnEnter", ShowTooltip)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    FM.UpdateAHButton()
 
-    -- market table, left of the snipe button
+    -- deep scan, left of the snipe button: the same deep scan as the automatic one (FM.StartDeepScan)
+    scanButton = CreateFrame("Button", "ForeverMarketAHScanButton", frame, "UIPanelButtonTemplate")
+    scanButton:SetSize(76, 20)
+    scanButton:SetPoint("RIGHT", button, "LEFT", -4, 0)
+    scanButton:SetFrameLevel(button:GetFrameLevel())
+    scanButton:SetText("FM: scan")
+    scanButton:SetMotionScriptsWhileDisabled(true) -- the tooltip says why it is disabled
+    scanButton:SetScript("OnClick", function()
+        FM.StartDeepScan(true)
+        UpdateScanButton()
+    end)
+    scanButton:SetScript("OnEnter", ShowScanTooltip)
+    scanButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- the 15 minutes end and the scan's progress move on by themselves: look twice a second while the AH is open
+    scanButton:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = (self.elapsed or 0) + elapsed
+        if self.elapsed < 0.5 then return end
+        self.elapsed = 0
+        UpdateScanButton()
+        if GameTooltip:IsOwned(self) then ShowScanTooltip(self) end
+    end)
+
+    -- market table, left of the scan button
     tableButton = CreateFrame("Button", "ForeverMarketAHTableButton", frame, "UIPanelButtonTemplate")
     tableButton:SetSize(76, 20)
-    tableButton:SetPoint("RIGHT", button, "LEFT", -4, 0)
+    tableButton:SetPoint("RIGHT", scanButton, "LEFT", -4, 0)
     tableButton:SetFrameLevel(button:GetFrameLevel())
     tableButton:SetText("FM: table")
     tableButton:SetScript("OnClick", function() FM.ToggleTable() end)
@@ -54,6 +98,7 @@ local function CreateButton()
         GameTooltip:Show()
     end)
     tableButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    FM.UpdateAHButton()
 end
 
 FM.On("AUCTION_HOUSE_SHOW", function()

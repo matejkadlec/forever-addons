@@ -197,10 +197,9 @@ H.test("sniper: a pick sends every AH purchase with its units, an item sold per 
     H.eq(env.printed[1]:find("sold per auction", 1, true) ~= nil, true, "and names the skipped one")
 end)
 
--- FRV-54: the purchase events under test go into a list of their own (the newest 300 to 400: FM.CapList trims in
--- batches of 100), never into R.events,
--- whose mail lines (mexpired) the Profit tab needs and cannot get back
-H.test("sniper: the FRV-54 probe logs into its own capped list, never into events", function()
+-- FRV-54: COMMODITY_PURCHASED and ITEM_PURCHASED never fired in game, so the probe that logged the purchase events
+-- is gone: a purchase logs no event line, and the probe's saved list goes when the realm data loads
+H.test("sniper: the FRV-54 probe is gone, its saved list is dropped at load", function()
     local FM, env, ah = Load()
     FM.SnipeSet(tostring(LEATHER), 100, 5)
     Offer(env, ah, LEATHER, 90, 5)
@@ -208,10 +207,54 @@ H.test("sniper: the FRV-54 probe logs into its own capped list, never into event
     env.FireEvent("COMMODITY_PURCHASED", LEATHER, 5)
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     local r = FM.R()
+    H.eq(r.ahev, nil, "no probe list")
     H.eq(#r.events, 0, "nothing in events")
-    H.eq(#r.ahev, 3, "the quote, the named event and the answer")
-    H.eq(r.ahev[2]:find(",COMMODITY_PURCHASED,2318 5,", 1, true) ~= nil, true, "the event with its item and units")
-    for _ = 1, 400 do env.FireEvent("COMMODITY_PRICE_UNAVAILABLE") end
-    H.eq(#r.ahev >= 300 and #r.ahev <= 400, true, "300 to 400 lines (" .. #r.ahev .. ")")
-    H.eq(r.ahev[#r.ahev]:find(",COMMODITY_PRICE_UNAVAILABLE,", 1, true) ~= nil, true, "the newest last")
+    H.eq(FM.SnipeSaved(tostring(LEATHER)).got, 5, "the purchase is booked as before")
+    r.ahev = { "9zgp,Tester,COMMODITY_PRICE_UPDATED,1497 59887,340352188" } -- saved by 1.25 to 1.29
+    FM.realm = nil -- the next session loads the realm data again
+    local again = FM.R()
+    H.eq(again, r, "the same realm data")
+    H.eq(again.ahev, nil, "the probe's list is gone")
+    H.eq(FM.SnipeSaved(tostring(LEATHER)).got, 5, "the rest stays")
+end)
+
+-- FRV-82: while sniping, an invisible full-screen frame above every window takes the wheel, so a step over any window
+-- buys and nothing scrolls; it shows only while sniping runs
+H.test("sniper: a wheel step on the catcher buys, the catcher shows only while sniping runs", function()
+    local FM, env, ah = Load()
+    local catcher = env.ForeverMarketSnipeWheelCatcher
+    H.eq(catcher:IsShown(), true, "shown while sniping")
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    catcher.scripts.OnMouseWheel(catcher, -1)
+    H.same(ah.started, { { LEATHER, 5 } }, "the wheel step started the purchase of the hit")
+    FM.SnipeStop()
+    H.eq(catcher:IsShown(), false, "hidden once sniping stops (the window or the AH closed)")
+    FM.SnipeStart()
+    H.eq(catcher:IsShown(), true, "back when sniping starts again")
+end)
+
+-- FRV-82: when the game does not take a wheel step on the catcher as a hardware event, the blocked purchase sent
+-- nothing; the catcher goes until /reload and the bindings (a click on the hidden button) buy, sniping goes on
+H.test("sniper: a purchase the game blocks from the catcher turns it off, the bindings buy again", function()
+    local FM, env, ah = Load()
+    local catcher = env.ForeverMarketSnipeWheelCatcher
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    local start = ah.StartCommoditiesPurchase
+    ah.StartCommoditiesPurchase = function()
+        env.FireEvent("ADDON_ACTION_BLOCKED", "ForeverMarket", "C_AuctionHouse.StartCommoditiesPurchase")
+    end
+    catcher.scripts.OnMouseWheel(catcher, -1)
+    H.eq(catcher:IsShown(), false, "the catcher is off")
+    H.eq(FM.SnipeIsActive(), true, "sniping goes on")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).buying, false, "no purchase waits for a quote")
+    H.eq(env.printed[#env.printed]:find("Failed to buy with a wheel step over a window", 1, true) ~= nil, true, "the chat says so")
+    ah.StartCommoditiesPurchase = start
+    Offer(env, ah, LEATHER, 90, 5)
+    FM.SnipeBuyClick() -- the binding's click on the hidden button
+    H.same(ah.started, { { LEATHER, 5 } }, "the binding buys")
+    FM.SnipeStop()
+    FM.SnipeStart()
+    H.eq(catcher:IsShown(), false, "it stays off until /reload")
 end)

@@ -292,7 +292,7 @@ end
 
 local HELP = {
     "Sniping runs while this window is open at the Auction House. It searches your items one after another (it pauses in combat, during a deep scan, on a Sell page and on the Buy page of an item you don't snipe; on a sniped item's Buy page it searches only that item).",
-    "Scroll the mouse wheel (up or down) to buy: every wheel step buys the newest offer at or under an item's price. Keep the cursor off lists that scroll, for example over this window.",
+    "Scroll the mouse wheel (up or down) to buy: every wheel step anywhere on screen buys the newest offer at or under an item's price, over this window and any other too. While this window is open at the AH, no list scrolls with the wheel and the camera does not zoom; close it and the wheel works as usual again.",
     "Before gold leaves, the server's price is checked: never more than the offers you saw, never more than your price per unit, never over the budget. Anything else is cancelled.",
     "Budget: the sniper may spend a share of the gold you had when this window first opened today (the % at the bottom, all items together). Once it is spent, sniping stops until the daily reset or Reset. It never takes your gold under the rest of that, even when you spend gold elsewhere.",
     "Buy at most: an item with a number stops when that many units are bought, across days too. A new number starts the count again, a new price keeps it. Empty: no limit but the budget.",

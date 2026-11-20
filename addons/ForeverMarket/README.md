@@ -7,7 +7,7 @@ act as an AH advisor: what sells, how fast, at which price, what to craft or fli
 
 | Source | When | What |
 |---|---|---|
-| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller of other players' auctions and names yours "First Surname"; the rest of yours are recognized from your auctions and posts) |
+| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or "FM: scan" at the AH, `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller of other players' auctions and names yours "First Surname"; the rest of yours are recognized from your auctions and posts) |
 | Auctionator replicate scan | if Auctionator is set to replicate full scans | same as deep scan |
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
@@ -127,6 +127,11 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
   (the chat says what); after that a rebind or a cleared key stays as the player set it (`settings.keyGiven`)
 * `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
+* AH title bar buttons, right to left (ui/AHButton.lua): "FM: snipe", "FM: scan" (1.30, FRV-84, back where it was
+  until 1.7: a click starts the same deep scan as the automatic one, `FM.StartDeepScan(true)`; disabled while a
+  scan waits, reads or saves, while Auctionator runs its own full scan and until the server's 15 minutes are over,
+  and its tooltip says why and when the last deep scan was, from `FM.DeepScanRefusal`, which `/fm scan` prints
+  too), "FM: table"
 * Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
   its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
@@ -162,7 +167,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
-* Tabs in groups: **Picks**, **Favorites** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
+* Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
@@ -175,7 +180,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `WowStyle1DropdownTemplate`; Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the
   dropdown (1.20; "% to invest" before). Until 1.28 the options sat in the row as checkboxes: "Above current skill" +
   "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore vendor" and
-  "Ignore stock" (Picks). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; hidden on Farm and Profit, which have no ignored items to show, the tabs keep their places). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+  "Ignore stock" (Picks). From 1.20 to 1.29 an "Ignored (n)" button in the tab row right of Favorites switched every tab to its ignored rows ("Show all" back); since 1.30 (FRV-83) **Ignored (n)** is a tab of its own there, see Favorites and Ignored below. Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
@@ -257,8 +262,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     like the number boxes ("Invest [95]"); a click on the text toggles it too (`FM.TextCheck`).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
-  this item** / Stop ignoring this item (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
-  `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
+  this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
+  only one that offers Stop ignoring; `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
   every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
@@ -269,7 +274,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
-  latest record.
+  latest record. An item you also ignored shows only in Ignored, with its star.
+* **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
+  (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
+  (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
+  its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item". Rows Claude hides in
+  `data/Tracked.lua` (`hide`) stay out of every tab, Ignored too.
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
   the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
   together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
@@ -505,7 +515,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
   Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
   them (a Farm window also every farm pass). A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
-  tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search or the "Ignored" view) keeps its last
+  tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search; ignored, or no longer ignored on Ignored) keeps its last
   content with an orange note at the top. Clicking a window does nothing but raise it.
 
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
@@ -669,9 +679,15 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   the budget and the item's units still to buy become a hit (sound). Your own units are subtracted
   (`numOwnerItems`), like Blizzard's buy page does; units of your other characters count as offers (the server
   sells them like any other).
-* While sniping, the mouse wheel (up and down) is an override binding that clicks a hidden button, a hardware
-  event: one step = `StartCommoditiesPurchase(itemID, qty)` for the newest hit (at most 8 s old; shrunk to the
-  budget and the units left when another purchase came since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed
+* While sniping, a mouse wheel step (up or down) anywhere on screen buys (1.30, FRV-82): an invisible full-screen
+  frame above every window (`ForeverMarketSnipeWheelCatcher`, TOOLTIP strata, frame level 10000) takes the wheel
+  and nothing else: clicks, hover tooltips and dragging reach the windows below, no window scrolls with the wheel
+  (the market table, a profession window, the chat, the sniper window's own list) and the camera does not zoom. It
+  shows while sniping runs (the window open at the AH) and hides with it. Under it, as before 1.30, the wheel is
+  an override binding that clicks a hidden button (it fired only where no window took the wheel); when the game
+  blocks a purchase call from a wheel step on the frame (not a hardware event there), the frame goes until
+  `/reload`, the chat says so, and the binding buys again. One step = `StartCommoditiesPurchase(itemID, qty)` for
+  the newest hit (at most 8 s old; shrunk to the budget and the units left when another purchase came since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed
   only when its total is not above what the search showed for those units and not under what the hit's cheapest
   units cost (else it is another purchase's quote), its unit price not above your price, its units not more than
   the item still has to buy, and it fits the budget and your gold; else it is cancelled. One purchase at a time, a
@@ -681,10 +697,10 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   without answer in 15 s (60 s), and while Blizzard's buy window is open (answers while it is open are
   Blizzard's). A confirm without answer stays counted (gold and units); the next answer within 5 minutes is
   matched to it (answers come in order), and a late failure still keeps them counted. Reset waits for it.
-* Whether the documented `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` fire on Forever,
-  which would name the bought item, is being tested (1.25, FRV-54): every purchase event at the AH, of any window,
-  goes into its own list `ahev` (see Data format), and those two also print a chat line ("FRV-54 test: ...").
-  Nothing uses them yet.
+* The documented `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` would name the bought item,
+  but they do not fire on Forever (FRV-54: logged from 1.25 to 1.29 next to every purchase event, about 30
+  commodity purchases and one item purchase without either; `docs/forever-api-notes.md`), so the matching by
+  order stays.
 * If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
   forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
   confirms in a row without answer stop sniping with one message until the window or the AH is opened again.
@@ -742,9 +758,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
-* `ahev` `t,char,event,arguments,ms` the AH purchase events while FRV-54 tests them (1.25; arguments space
-  separated, ms = `GetTime()` in milliseconds: the order within a minute), the newest 300 to 400 lines, a list of its own
-  so it never pushes lines out of `events`
+* `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
+  1.30 drops the list at load
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
