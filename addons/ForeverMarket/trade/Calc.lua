@@ -242,9 +242,18 @@ end
 -- cheaper of buying it and making it (Cured Light Hide from Light Hide + Salt, ...)
 local passCrafts = {}
 local MAX_DEPTH = 2
+local CRAFT_EDGE = 0.97 -- crafting has to beat buying clearly (time, risk): by 3%
+
+-- The one rule of buy or craft, for the table (MaterialUnit) and the plan (trade/Picks.lua, per craft run, FRV-78):
+-- craft when making the units costs clearly less than buying them. FRV-69's time allowance replaces the 3% here
+function FM.CraftBeatsBuying(craftCost, buyCost)
+    return craftCost < buyCost * CRAFT_EDGE
+end
 
 -- Cost of one unit of a material: vendor (unlimited stock), the AH ladder for a batch of crafts,
 -- or crafting it yourself from its own materials (learned recipes, up to 2 levels deep).
+-- A material priced as bought keeps its craft as craftAlt (the plan crafts the units the AH sells dearer), or
+-- noCraft = why it cannot be crafted ("recipe not learned", { missing = key }) for the pick's tooltip.
 -- crafts: the recipes by product (this pass's when nil); the item tooltip passes its own (trade/Cost.lua)
 local function MaterialUnit(key, need, view, depth, crafts)
     depth = depth or 0
@@ -260,6 +269,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
         end
     end
     local craft = depth < MAX_DEPTH and crafts[key]
+    local alt, noCraft
     if craft and craft.learned then
         local makes = craft.makes or 1
         local runs = math.ceil(need / makes)
@@ -269,6 +279,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
             local m = MaterialUnit(g.key, g.n * runs, view, depth + 1, crafts)
             if not m then
                 cost = nil
+                noCraft = { missing = g.key }
                 break
             end
             m.key, m.n = g.key, g.n
@@ -278,14 +289,19 @@ local function MaterialUnit(key, need, view, depth, crafts)
         end
         if cost then
             local unit = cost / makes
-            -- crafting has to beat buying clearly (time, risk): 3% margin
-            if not best or best.short or unit < best.unit * 0.97 then
-                best = { unit = unit, src = "craft", parts = parts, recipe = craft.recipe, makes = makes, approx = approx,
-                    buy = best }
+            alt = { unit = unit, src = "craft", parts = parts, recipe = craft.recipe, makes = makes, approx = approx }
+            if not best or best.short or FM.CraftBeatsBuying(unit, best.unit) then
+                alt.buy = best
+                best, alt = alt, nil
             end
         end
+    elseif craft then
+        noCraft = "recipe not learned"
     end
-    if best then return best end
+    if best then
+        best.craftAlt, best.noCraft = alt, noCraft
+        return best
+    end
     if not view.estimated then
         local last = AuctionatorPrice(key)
         if last then return { unit = last, src = "last", approx = true } end
@@ -332,7 +348,11 @@ local function CraftRow(craft, view)
             else
                 price = route.price
             end
-            if price and (not row.learnCost or price < row.learnCost) then row.learnCost = price end
+            if price and (not row.learnCost or price < row.learnCost) then
+                row.learnCost = price
+                -- the cheapest way is the pattern on the AH: the shopping list holds it (FRV-79)
+                row.learnAH = route.kind == "ah" and route.key or nil
+            end
         end
     end
     return FM.DeriveCraft(row)

@@ -13,7 +13,7 @@
 local H = require("harness")
 local F = require("fixtures")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Picks.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Calc.lua", "trade/Picks.lua" }
 local B = F.Base36
 local NOW_MINUTES = 400000 -- minutes since FM.EPOCH
 local WHITE, ORANGE = "|cFFFFFFFF", "|cFFFF9933"
@@ -502,4 +502,203 @@ H.test("picks: the sniper gets the plan's AH purchases with their units, never i
     H.eq(HasStep(pick, "make 11"), true, "make 11, as the room allows")
     H.same(pick.buys, { { key = "900", ah = 11, top = 1000 } }, "only the AH material, 11 up to 10s")
     H.eq(pick.mainKey, "900", "the window opens on it")
+end)
+
+-- FRV-78: a material you can craft is bought or crafted run by run, whichever is cheaper for those units.
+-- Rule: one craft run of the material (its materials from what is left of their ladders) against buying the units
+-- it gives next on the AH; crafting has to beat buying by 3% (FM.CraftBeatsBuying, the table's rule). A material it
+-- buys says why in its line: what crafting those units would cost, or why it cannot be crafted.
+-- The market of these tests: Salt (912) at a vendor for 45c; a Cured Hide is 1 Hide + 3 Salt.
+local FM_Money
+local function Money(copper) return FM_Money(copper) end
+
+local function SaltAtVendor(FM)
+    FM.VendorUnit = function(key) if key == "912" then return 45, { where = "Drac Roughcut, Elwynn" } end end
+end
+
+-- A craft that sells at 1g and needs 2 of one intermediate per craft
+local function IntermediateCraft(key, part)
+    local craft = Craft(key, 60) -- C/24h 60: room for 15
+    craft.parts = { part }
+    return craft
+end
+
+-- The tooltip's material line of a key: its text, or nil
+local function MaterialLine(pick, key)
+    for _, r in ipairs(pick.reasons) do
+        if r[1] == "i" and r[2] == key then return r[4] end
+    end
+    return nil
+end
+
+H.test("picks: a craftable material the table buys is bought while the AH is cheaper, then crafted", function()
+    local FM, env = Setup({ ["700"] = 9 })
+    FM_Money = FM.FormatMoney
+    SaltAtVendor(FM)
+    -- the table bought it (a batch of 5 crafts gets the 10 cheap units at 13s); crafting one costs 13s 42c + 3 x 45c
+    local craft = IntermediateCraft("700", { key = "910", n = 2, unit = 1300, src = "ah",
+        craftAlt = { unit = 1477, src = "craft", makes = 1, parts = {
+            { key = "911", n = 1, unit = 1342, src = "ah" }, { key = "912", n = 3, unit = 45, src = "vendor" } } } })
+    local view = View({ ["910"] = { ladder = { { 1300, 10 }, { 1766, 100 } }, qty = 110, own = 0 },
+        ["911"] = { ladder = { { 1342, 1000 } }, qty = 1000, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["700"]
+    H.eq(HasStep(pick, "make 15"), true, "make 15: 30 Cured Hides")
+    -- 13s is under 97% of 14s 77c: the 10 cheap ones are bought; 17s 66c is not: the other 20 are crafted
+    H.same(pick.buys, { { key = "911", ah = 20, top = 1342 }, { key = "910", ah = 10, top = 1300 } },
+        "the AH buys 20 Hides and the 10 cheap Cured Hides, never the dear ones")
+    H.eq(MaterialLine(pick, "910"), "AH 10 up to " .. Money(1300) .. " (crafting costs " .. Money(1477) .. " each), craft 20",
+        "the line: the split and why the cheap ones are bought")
+    H.eq(MaterialLine(pick, "911"), "    AH 20 up to " .. Money(1342), "the Hides under it")
+    H.eq(MaterialLine(pick, "912"), "    vendor 60 at " .. Money(45), "the Salt under it")
+    H.same(FM.ShoppingList("pick", pick), { "911", "910" }, "the shopping list: the plan's AH purchases, no Salt, no product")
+end)
+
+H.test("picks: a material the table crafts is bought once crafting it gets dearer than the AH", function()
+    local FM, env = Setup({ ["701"] = 9 })
+    FM_Money = FM.FormatMoney
+    SaltAtVendor(FM)
+    -- 20 Hides at 13s 42c, then 25s: crafting costs 14s 77c, then 26s 35c; the AH sells it at 17s
+    local craft = IntermediateCraft("701", { key = "920", n = 2, unit = 1477, src = "craft", makes = 1, parts = {
+        { key = "921", n = 1, unit = 1342, src = "ah" }, { key = "912", n = 3, unit = 45, src = "vendor" } } })
+    local view = View({ ["920"] = { ladder = { { 1700, 100 } }, qty = 100, own = 0 },
+        ["921"] = { ladder = { { 1342, 20 }, { 2500, 1000 } }, qty = 1020, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["701"]
+    H.eq(HasStep(pick, "make 15"), true, "make 15")
+    H.same(pick.buys, { { key = "921", ah = 20, top = 1342 }, { key = "920", ah = 10, top = 1700 } },
+        "20 crafted from the cheap Hides, the last 10 bought: no Hide at 25s")
+    H.eq(MaterialLine(pick, "920"), "AH 10 up to " .. Money(1700) .. " (crafting costs " .. Money(2635) .. " each), craft 20",
+        "the line says what crafting the bought ones would have cost")
+end)
+
+H.test("picks: a craftable material without a usable recipe is bought and the line says why", function()
+    local FM, env = Setup({ ["702"] = 9, ["703"] = 9 })
+    FM_Money = FM.FormatMoney
+    local unlearned = IntermediateCraft("702", { key = "930", n = 1, unit = 1000, src = "ah", noCraft = "recipe not learned" })
+    local missing = IntermediateCraft("703", { key = "931", n = 1, unit = 1000, src = "ah", noCraft = { missing = "932" } })
+    local plenty = { ladder = { { 1000, 100000 } }, qty = 100000, own = 0 }
+    local picks = Compute(FM, env, { crafts = { unlearned, missing } }, View({ ["930"] = plenty, ["931"] = plenty }))
+    H.eq(MaterialLine(picks["702"], "930"), "AH 15 up to " .. Money(1000) .. " (recipe not learned)", "recipe not learned")
+    H.eq(MaterialLine(picks["703"], "931"), "AH 15 up to " .. Money(1000) .. " (no price for " .. FM.GetName("932") .. ")",
+        "a material of its recipe has no price")
+end)
+
+H.test("picks: a material without a recipe has no reason in its line", function()
+    local FM, env = Setup({ ["704"] = 9 })
+    FM_Money = FM.FormatMoney
+    local pick = Compute(FM, env, { crafts = { Craft("704", 60) } })["704"]
+    H.eq(MaterialLine(pick, "900"), "AH 15 up to " .. Money(1000), "just what the plan buys")
+end)
+
+-- The table's price of a material (FM.MaterialUnit, trade/Calc.lua): bought or crafted for a batch, whichever is
+-- cheaper by the 3%; a bought one keeps its craft for the plan (craftAlt), or why it has none (noCraft)
+H.test("materials: a bought material keeps its craft, a crafted one its purchase, an unlearned recipe says so", function()
+    local FM = Setup({})
+    SaltAtVendor(FM)
+    local cured = { learned = true, makes = 1, recipe = "Cured Hide", reagents = { { key = "911", n = 1 }, { key = "912", n = 3 } } }
+    local function Unit(ladder910)
+        local view = View({ ["910"] = { ladder = ladder910, qty = 100, own = 0 },
+            ["911"] = { ladder = { { 1342, 1000 } }, qty = 1000, own = 0 } })
+        return FM.MaterialUnit("910", 10, view, 0, { ["910"] = cured })
+    end
+    local m = Unit({ { 1300, 100 } })
+    H.eq(m.src, "ah", "13s on the AH beats crafting at 14s 77c")
+    H.eq(m.craftAlt and m.craftAlt.unit, 1477, "the craft is kept for the plan")
+    H.eq(m.craftAlt and m.craftAlt.parts[1].key, "911", "with its materials")
+    m = Unit({ { 1766, 100 } })
+    H.eq(m.src, "craft", "17s 66c on the AH: crafted")
+    H.eq(m.buy and m.buy.unit, 1766, "the purchase is kept")
+    m = Unit({ { 1500, 100 } })
+    H.eq(m.src, "ah", "15s: crafting at 14s 77c is not 3% cheaper, bought")
+    cured.learned = false
+    m = Unit({ { 1300, 100 } })
+    H.eq(m.craftAlt, nil, "no craft")
+    H.eq(m.noCraft, "recipe not learned", "an unlearned recipe")
+end)
+
+-- FRV-79: the shopping list of a row click holds only what you would buy on the AH
+H.test("shopping list: a craft lists its AH materials, intermediates replaced by theirs, never vendor items or itself", function()
+    local FM = Setup({})
+    local row = { key = "800", learned = true, parts = {
+        { key = "801", n = 8, src = "ah" },
+        { key = "802", n = 2, src = "craft", parts = {
+            { key = "803", n = 1, src = "ah" },
+            { key = "804", n = 3, src = "vendor" },
+            { key = "805", n = 1, src = "craft", parts = { { key = "806", n = 2, src = "ah" }, { key = "804", n = 1, src = "vendor" } } } } },
+        { key = "807", n = 1, src = "vendor" },
+        { key = "808", n = 1, src = "last" }, -- on the AH, none listed now
+        { key = "801", n = 1, src = "ah" },   -- once in the list
+    } }
+    H.same(FM.ShoppingList("craft", row), { "801", "803", "806", "808" }, "the AH materials, two levels deep")
+    row.learned, row.learnAH = false, "809"
+    H.same(FM.ShoppingList("craft", row), { "809", "801", "803", "806", "808" }, "a recipe to learn: its pattern on the AH first")
+end)
+
+H.test("shopping list: a flip, a vendor resell or an item without a craft is the item itself", function()
+    local FM = Setup({})
+    H.same(FM.ShoppingList("item", { key = "810" }), { "810" }, "a flip or vendor resell row")
+    H.same(FM.ShoppingList("pick", { key = "811", kind = "flip" }), { "811" }, "a flip or vendor resell pick")
+    H.same(FM.ShoppingList("craft", { key = "812" }), { "812" }, "an item without priced materials")
+end)
+
+H.test("shopping list: a pick learning its recipe from the AH pattern has the pattern, then its purchases", function()
+    local FM, env = Setup({ ["720"] = 9 }, { tableLearn = true })
+    local row = Craft("720", 60)
+    row.learned = false
+    row.craft.learn = { { kind = "ah", key = "721", req = 0 } } -- the pattern on the AH for 1g
+    local pick = Compute(FM, env, { crafts = { row } })["720"]
+    H.eq(pick and pick.kind, "learn", "a pick that learns the recipe")
+    H.same(FM.ShoppingList("pick", pick), { "721", "900" }, "the pattern, then the material")
+end)
+
+H.test("picks: a craft under 3% cheaper than the AH is no reason to craft, and the line says so", function()
+    local FM, env = Setup({ ["705"] = 9 })
+    FM_Money = FM.FormatMoney
+    SaltAtVendor(FM)
+    -- crafting at 14s 77c, the AH at 15s: 1.5% cheaper
+    local craft = IntermediateCraft("705", { key = "940", n = 2, unit = 1500, src = "ah",
+        craftAlt = { unit = 1477, src = "craft", makes = 1, parts = {
+            { key = "941", n = 1, unit = 1342, src = "ah" }, { key = "912", n = 3, unit = 45, src = "vendor" } } } })
+    local view = View({ ["940"] = { ladder = { { 1500, 100 } }, qty = 100, own = 0 },
+        ["941"] = { ladder = { { 1342, 1000 } }, qty = 1000, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["705"]
+    H.same(pick.buys, { { key = "940", ah = 30, top = 1500 } }, "all 30 bought")
+    H.eq(MaterialLine(pick, "940"), "AH 30 up to " .. Money(1500) .. " (crafting costs " .. Money(1477) .. " each, under 3% less)",
+        "the line says why")
+end)
+
+H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to the next crafts", function()
+    local FM, env = Setup({ ["706"] = 9 })
+    FM_Money = FM.FormatMoney
+    -- one run of 30s makes 3 (10s each), the AH sells it at 14s; the product needs 1 per craft
+    local craft = IntermediateCraft("706", { key = "950", n = 1, unit = 1000, src = "craft", makes = 3, parts = {
+        { key = "951", n = 1, unit = 3000, src = "ah" } } })
+    local view = View({ ["950"] = { ladder = { { 1400, 100 } }, qty = 100, own = 0 },
+        ["951"] = { ladder = { { 3000, 1000 } }, qty = 1000, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["706"]
+    H.eq(HasStep(pick, "make 15"), true, "make 15")
+    H.same(pick.buys, { { key = "951", ah = 5, top = 3000 } }, "5 runs crafted, none bought at 14s")
+    H.eq(MaterialLine(pick, "950"), "craft 15", "the spare units of its own crafts are not yours")
+    H.eq(MaterialLine(pick, "951"), "    AH 5 up to " .. Money(3000), "the material of its 5 runs")
+    -- each product craft uses one unit at 10s: 95s after the cut - 10s; the spare units are not counted twice
+    H.eq(pick.unitProfit, 8500, "profit per item: 85s")
+    H.eq(pick.invest, 15000, "the gold of the 5 runs: 1g 50s")
+end)
+
+H.test("picks: bought, then crafted, then bought again: the line gives the reason of the dear units", function()
+    local FM, env = Setup({ ["707"] = 12 })
+    FM_Money = FM.FormatMoney
+    SaltAtVendor(FM)
+    -- 10 Cured Hides at 13s, then 17s; Hides 20 at 13s 42c, then 25s: crafting costs 14s 77c, then 26s 35c
+    local craft = Craft("707", 80) -- C/24h 80: room for 20, 40 Cured Hides
+    craft.parts = { { key = "960", n = 2, unit = 1300, src = "ah",
+        craftAlt = { unit = 1477, src = "craft", makes = 1, parts = {
+            { key = "961", n = 1, unit = 1342, src = "ah" }, { key = "912", n = 3, unit = 45, src = "vendor" } } } } }
+    local view = View({ ["960"] = { ladder = { { 1300, 10 }, { 1700, 100 } }, qty = 110, own = 0 },
+        ["961"] = { ladder = { { 1342, 20 }, { 2500, 1000 } }, qty = 1020, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["707"]
+    H.eq(HasStep(pick, "make 20"), true, "make 20")
+    H.same(pick.buys, { { key = "960", ah = 20, top = 1700 }, { key = "961", ah = 20, top = 1342 } },
+        "the 10 cheap ones and the last 10 bought, 20 crafted from the cheap Hides")
+    H.eq(MaterialLine(pick, "960"), "AH 20 up to " .. Money(1700) .. " (crafting costs " .. Money(2635) .. " each), craft 20",
+        "the reason of the units at 17s: crafting them would cost 26s 35c")
 end)
