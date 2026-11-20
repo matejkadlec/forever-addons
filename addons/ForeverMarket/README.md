@@ -166,14 +166,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
-  materials at the AH price, and Picks plans with what you hold ("Ignore stock" off). A table saved on it opens on
+  materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
 * At most 8 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`).
-* Filter row: the tab's checkboxes line up from the search box to the right, its buttons from the refresh icon
-  (Blizzard's `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`). Checkboxes: "Above current
-  skill" + "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore
-  vendor" and "Ignore stock" (Picks). Right side: the profession dropdown (Blizzard's `WowStyle1DropdownTemplate`;
-  Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the dropdown (1.20; "% to invest" before). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; hidden on Farm and Profit, which have no ignored items to show, the tabs keep their places). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
+* Filter row: on Picks, Craft and Learn, right of the search box, **Filters**, **Global filters** and **Use global
+  filters [ ]** (1.29, FRV-89); the buttons on the right line up from the refresh icon (Blizzard's
+  `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`): the profession dropdown (Blizzard's
+  `WowStyle1DropdownTemplate`; Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the
+  dropdown (1.20; "% to invest" before). Until 1.28 the options sat in the row as checkboxes: "Above current skill" +
+  "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore vendor" and
+  "Ignore stock" (Picks). The "Ignored (n)" button sits in the tab row right of Favorites since 1.20, in the blue of Picks and Favorites (the lists you keep; hidden on Farm and Profit, which have no ignored items to show, the tabs keep their places). Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
@@ -186,8 +188,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Craft** columns: Item, **PPH** (1.12), PPG, Max mat buy, Min. price, On AH, C/8h, C/24h. A recipe still to learn
   shows its name grey, a blue "learn" and what learning it costs next to it (1.18; 1.13 to 1.17 a "Recipe cost"
   column, empty for every learned recipe); sorting by that cost is on the Learn tab.
-  Recipes still to learn above your skill now follow "Above current skill" / "Max. above current skill" (shared with
-  the Learn tab). PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
+  Recipes still to learn follow the tab's filters (Filters below): "Include not learned recipes", "Over skill level",
+  "Over character level". PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
   `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: PPH. The
@@ -203,9 +205,52 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (Where to get takes its width otherwise). A green arrow marks the recipes the picks would take once you have the
   skill (`FM.trade.pickLevels`, up to 3, the "Level for" rows of Picks until 1.17); its tooltip says why. Default
   sort: profit now, then the lowest skill.
-  "Above current skill" (default on, `tableLearnHigher`): off hides recipes above your skill now; on shows them up
-  to "Max. above current skill" points above it (number box, default 10, `tableLearnMaxAbove`). Hover = the
-  craft tooltip with every route and the 7 days; right-click = the menu below (Track leads to the teacher).
+  Its filters (Filters below): "Over skill level" and "Over character level" with their caps, at the top level (the tab
+  holds only recipes still to learn). Hover = the craft tooltip with every route (its skill, and the character level
+  it needs, red above yours) and the 7 days; right-click = the menu below (Track leads to the teacher).
+* **Filters** (1.29, FRV-89; `ui/Filters.lua`, the values in `core/Core.lua`): Picks, Craft and Learn each have their
+  own set (`settings.tableFilters.picks` / `.latest` / `.learn`), and one global set (`.global`) applies to every tab
+  whose **Use global filters** is checked (`settings.tableUseGlobal[tab]`, default unchecked). While a tab uses its
+  own set, its "Global filters" button is greyed out and disabled; while it uses the global set, its "Filters"
+  button is. Changing one tab's set never changes another's (until 1.28 "Not learned" was shared by Craft and Picks,
+  "Above current skill" by Craft and Learn).
+  * The dialog: one window that shows the set the current tab uses, its title says which ("Picks filters", "Global
+    filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
+    (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
+    left of it when the screen ends there). Every change applies at once: the table shows it, Picks plans again
+    (also while the plan is locked). Switching tabs shows the new tab's set (a tab without filters hides it until you
+    are back), closing the table closes it and opening the table again opens only the table, Esc closes it. The
+    buttons open it, a click again closes it. A child option is greyed out and disabled while its parent is
+    unchecked. The global dialog marks an option some tabs lack ("(Picks only)", "(Picks, Craft)"); there it does
+    not apply.
+  * Options (Picks has all; the default in brackets):
+    * **Include not learned recipes** [x] (Picks, Craft; was "Not learned")
+      * **Over character level** [ ] (Picks, Craft, Learn, FRV-91): recipes that need a higher character level than
+        yours, up to **Over character level cap** [5] levels above it; unchecked, a recipe above your level is hidden
+      * **Over skill level** [x] (Picks, Craft, Learn; was "Above current skill"): recipes above your skill, up to
+        **Over skill level cap** [10] points above it (was "Max. above current skill")
+    * **Exclude vendor flips** [ ] (Picks; was "Ignore vendor"): the plan buys nothing from vendors to resell
+    * **Exclude already listed items** [ ] (Picks): an item is no pick once your listings of it (all characters, as
+      the room on the AH counts them) reach both **Listed items count threshold** [1] units and **Listed items value
+      threshold** [0g 0s 1c] at your listing prices (`FM.OwnListings`'s `value`: a post at its unit price, an
+      auction list entry at its buyout, per unit for an item, as the unit price for a commodity); 0 or empty
+      becomes 1, 0g 0s 0c becomes 1c. With the defaults any listing excludes the item; the reason names it
+    * **Exclude stock for crafting** [ ] (Picks, FRV-90): checked, the plan buys every material as if your bags and
+      bank were empty (tools you own still count); unchecked, your materials are used first (Picks below)
+  * In Learn the level and skill options are at the top level. Number boxes are as wide as their digits.
+  * A recipe's character level (FRV-91): the level a way to learn it asks for, per route (`route.level` in
+    trade/Sources.lua): a trainer's from ForeverArtisan_Contacts' `levelReq` (`GetTrainerServiceLevelReq`), a vendor
+    pattern's from its `levelReq`, else its "Requires Level" line, else its item info, a pattern on the AH from its
+    item info (`itemMinLevel`), else its tooltip ([forever-api-notes](../../docs/forever-api-notes.md)). A recipe
+    passes a tab's filters when one way to learn it fits both the skill limit and the level limit (`FM.RecipeFits`);
+    an unknown level counts as none; learned recipes are never affected. Your level: `UnitLevel("player")`.
+  * Saved values (1.29): "Not learned", "Ignore vendor", "Above current skill" and "Max. above current skill" carried
+    over into each tab's own set where they applied; "Ignore stock" has no successor with its meaning, the new options
+    and the global set start at their defaults; the old keys (`tableLearn`, `tableIgnoreStock`, `tableIgnoreVendor`,
+    `tableLearnHigher`, `tableLearnMaxAbove`) are dropped at load (`FM.MigrateFilters`). Broken values get their
+    default, numbers their range (`FM.FilterClamp`).
+  * Every checkbox of the table and its dialogs has its text first, the box after it ("Lock plan after refresh [x]"),
+    like the number boxes ("Invest [95]"); a click on the text toggles it too (`FM.TextCheck`).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the table and the picks, `settings.excluded`; the "Ignored (n)" button shows only those,
@@ -230,11 +275,17 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   judged on its own with one pick's share of the plan's gold, so it can take the place of a plan pick; up to 20
   picks together; `pick.extra`); sorting works inside each section, the default is the
   rank. Recipes worth leveling for left Picks in 1.17: they are nothing to do now (`FM.trade.pickLevels`, up to 3;
-  their rows on Learn carry a green arrow and say so in the tooltip). No "list your stock" rows (1.9). "Ignore stock" (default on, `tableIgnoreStock`): the
-  plans treat bags and bank as empty (everything bought, nothing of yours to sell; tools you own still count, your
-  AH listings always count); off: your stock is used first and counts as stock to sell. Your stock =
-  bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound units are used for crafting
-  but never listed (bank: slots seen while it was open, else the bind type).
+  their rows on Learn carry a green arrow and say so in the tooltip; a recipe you cannot learn yet because of your
+  skill or your character level is one of them, within the Picks filters' caps). Your stock (1.29, FRV-89, FRV-90;
+  until 1.28 "Ignore stock", on by default, treated bags and bank as empty): the materials you hold are used first
+  and only the rest is bought ("Exclude stock for crafting" checked buys everything; tools you own count either way);
+  units of a pick's own item that you hold always count as the pick's: it makes or buys that many fewer and lists
+  them with the new ones ("list 18 at 1g for 24h (1 you hold)"), so making one unit of a pick lowers how many it
+  plans; when they cover the pick, it stays as a **Stock** pick (Invest 0, "list your 18 at 1g for 24h", profit
+  against what one more unit would cost now). What an earlier pick of the plan uses as material is no longer yours
+  to list. No other "list your stock" rows (1.9). Your stock = bags and bank slot by slot (`FM.Owned`): what you wear
+  isn't counted, soulbound units are used for crafting but never listed (bank: slots seen while it was open, else
+  the bind type).
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
@@ -244,10 +295,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
     sold out, your pace was capped by what you listed, so half the buyers counts when it is more; before 1.22 that
     rule held while you still had units listed too (Barbaric Bracers: "make 14" next to 10 listed).
-    Time to sell = your listings + bag/bank units + the new ones over that rate; the queue of others at the
-    same price counts only at the 1s floor (elsewhere you undercut it).
+    Time to sell = your listings + the pick's units (the new ones and what you hold of it) over that rate; the queue
+    of others at the same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
-    Flip), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
+    Flip / Stock), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
     explains). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
     behind it (`pick.expected`, `pick.listHours`, a tie goes to 8h; sorting uses the shown value): what buyers take
     in that time earns the profit, the deposit of the rest is lost when the auction expires, at the pick's
@@ -255,9 +306,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     confidence only, the listing already counts the time to sell. The tooltip's "One listing of all of it" keeps
     both lengths. The rank still follows a day's expected profit (the score). Until 1.16: Pick (rank and type
     before the name), Expected 8h, Expected 24h, PPG and a cut off Plan column.
-  * The second line of a pick: its steps in order, ">" between them (`pick.steps`): learn (where, price) > buy
-    (the main purchase: how many, what, up to which AH price or at which vendor; the other purchases and tools
-    counted as "(+n more)", the tooltip lists them) > make > list (price, and the length of Expected). Evidence
+  * The second line of a pick: its steps in order, ">" between them (`pick.steps`): learn (where, price) > use (your
+    own materials, the most first: "use 9 Heavy Leather from your bags (+1 more)", bags, bank or both; 1.29, FRV-90;
+    the tooltip's material lines say "9 from your bags" each) > buy (the main purchase: how many, what, up to which
+    AH price or at which vendor; the other purchases and tools counted as "(+n more)", the tooltip lists them; only
+    what is bought, as Invest and the shopping list) > make > list (price, and the length of Expected; with units you
+    hold, how many in all and how many of them yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * "Invest [X] % across [Y] picks" (1.20, two number boxes left of the professions): X (`tableInvestPct`, default
     90) is the share of your gold the whole plan may use, at most 90%: 10% stay for deposits, so above 90 changes
@@ -266,16 +320,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (`P.perPick` in `Step`), so what one does not use (the C/24h cap, the margin) goes to the later ones; 1 puts
     everything into the best pick. From 1.14 to 1.19 the one box "% to invest" was the most of your gold one pick
     may use and the number of picks fell out by itself: a saved value under 90 now limits the whole plan.
-    "Ignore vendor" (`tableIgnoreVendor`, default off): the plan
-    without vendor resells. All of them recompute the picks.
+    The Picks filters ("Exclude vendor flips" and the others, Filters above) are inputs of the plan too. All of them
+    recompute the picks.
   * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
     table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
     "share of an item's C/24h one pick may plan" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
     everything that leaves the AH, bought or taken down, and other sellers undercut you during the day, so a
     quarter of it is what one more seller can expect to sell in a 24h listing; before 1.19 the only limits were half
     of the buyers (18 of 43 Barbaric Bracers a day) and 100 units. What you already list uses up the cap first:
-    room = cap - your listings, on all your characters, whatever "Ignore stock" says (that box covers bags and
-    bank). A room under one craft (the recipe's "makes") or one unit is no pick, and the row says why ("you list 10
+    room = cap - your listings, on all your characters (what you hold of the item is the pick's own and takes its
+    room with the new units). A room under one craft (the recipe's "makes") or one unit is no pick, and the row says why ("you list 10
     already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "too little circulation: ...", "circulation not known yet"). It holds
     for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, but out of scope", and it
     is an input of the plan: the gold a smaller pick leaves goes to the next ones. The buyers' limit (half of the
@@ -324,7 +378,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
     1.20.3, and turning it off plans at once.
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
-    picks whose gold stayed reserved): "Not learned" off plans without recipes to learn, the profession dropdown
+    picks whose gold stayed reserved): the Picks filters (its own or the global ones; "Include not learned recipes"
+    off plans without recipes to learn, "Exclude already listed items" leaves out what you list, "Over skill level"
+    and "Over character level" set which recipes to learn are "Level for" information), the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
     leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.

@@ -5,7 +5,9 @@ local addonName, FM = ...
 local print = print
 local type = type
 local pairs = pairs
+local ipairs = ipairs
 local tostring = tostring
+local tonumber = tonumber
 local math_floor = math.floor
 local string_format = string.format
 
@@ -36,12 +38,7 @@ FM.DEFAULTS = {
     reloadPopup = true, -- offer a UI reload when the AH closes with unsaved snapshots
     alerts = true, -- chat alerts: undercuts and advice buy prices
     chatSummary = true, -- one chat line after each processed scan
-    tableLearn = true, -- market table: show recipes you can still learn
     tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
-    tableIgnoreStock = true, -- picks: plan as if your bags and bank were empty
-    tableLearnHigher = true, -- Learn tab: also recipes above your skill now
-    tableLearnMaxAbove = 10, -- Learn tab: at most this many points above your skill now
-    tableIgnoreVendor = false, -- picks: plan without vendor resells
     tableInvestPct = 90, -- picks: "Invest [X] %": the share of your gold the whole plan may use, in percent (at most 90 counts)
     tableInvestPicks = 3, -- picks: "across [Y] picks": the plan has up to this many picks
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
@@ -167,12 +164,116 @@ function FM.InitializeSavedData()
     -- the Materials tab is gone (1.18): a table saved on it opens on the default tab, its saved sort goes
     if db.settings.tableTab == "mats" then db.settings.tableTab = nil end
     if type(db.settings.tableSort) == "table" then db.settings.tableSort.mats = nil end
+    FM.MigrateFilters(db.settings)
     if type(db.realms) ~= "table" then db.realms = {} end
     FM.db = db
 end
 
 function FM.GetSettings()
     return FM.db and FM.db.settings or FM.DEFAULTS
+end
+
+---------------------------------------------------------------- filters of the Picks, Craft and Learn tabs (FRV-89)
+-- Each of the three tabs has its own set (tableFilters.picks / .latest / .learn), or uses the shared set
+-- (tableFilters.global) while its "Use global filters" is checked (tableUseGlobal[tab]). A tab reads only the options
+-- it has (FM.FILTER_TABS), so an option of the global set that a tab lacks does not apply there.
+
+FM.FILTER_DEFAULTS = {
+    learn = true,         -- Include not learned recipes (Picks, Craft)
+    overLevel = false,    -- Over character level: recipes up to the cap above your level (FRV-91)
+    overLevelCap = 5,
+    overSkill = true,     -- Over skill level: recipes up to the cap above your skill
+    overSkillCap = 10,
+    noVendor = false,     -- Exclude vendor flips (Picks)
+    noListed = false,     -- Exclude already listed items (Picks)
+    listedCount = 1,      -- ... at least this many units listed
+    listedValue = 1,      -- ... worth at least this much (copper) at your listing prices
+    noStock = false,      -- Exclude stock for crafting (Picks, FRV-90)
+}
+FM.FILTER_SETS = { "picks", "latest", "learn", "global" }
+
+-- The options each tab has (the global set has all of them)
+local ALL_TABS = { picks = true, latest = true, learn = true }
+FM.FILTER_TABS = {
+    learn = { picks = true, latest = true },
+    overLevel = ALL_TABS, overLevelCap = ALL_TABS, overSkill = ALL_TABS, overSkillCap = ALL_TABS,
+    noVendor = { picks = true }, noListed = { picks = true }, listedCount = { picks = true }, listedValue = { picks = true },
+    noStock = { picks = true },
+}
+
+-- Whole numbers within each box's range: the caps from 0, the thresholds from 1 (0 or empty becomes 1)
+local FILTER_RANGE = {
+    overLevelCap = { 0, 99 }, overSkillCap = { 0, 999 }, listedCount = { 1, 999 }, listedValue = { 1, 999 * 10000 + 9999 },
+}
+function FM.FilterClamp(key, value)
+    local range = FILTER_RANGE[key]
+    if not range then return value and true or false end
+    local n = math_floor(tonumber(value) or 0)
+    if n < range[1] then n = range[1] end
+    if n > range[2] then n = range[2] end
+    return n
+end
+
+-- A set filled in: missing or broken values get their default, numbers their range
+local function FillFilterSet(set)
+    if type(set) ~= "table" then set = {} end
+    for key, default in pairs(FM.FILTER_DEFAULTS) do
+        local value = set[key]
+        if type(value) ~= type(default) then value = default end
+        set[key] = FM.FilterClamp(key, value)
+    end
+    return set
+end
+
+-- 1.29 (FRV-89): the options of the filter row move into the filters dialogs. Today's values carry over into each
+-- tab's own set where the meaning is the same ("Not learned" -> Include not learned recipes on Picks and Craft,
+-- "Ignore vendor" -> Exclude vendor flips, "Above current skill" / "Max. above current skill" -> Over skill level /
+-- its cap on all three); "Ignore stock" has no successor with its meaning, the new options and the global set start
+-- at their defaults. The old keys go.
+local OLD_FILTER_KEYS = { "tableLearn", "tableIgnoreStock", "tableIgnoreVendor", "tableLearnHigher", "tableLearnMaxAbove" }
+function FM.MigrateFilters(s)
+    if type(s.tableFilters) ~= "table" then
+        local sets = {}
+        for _, name in ipairs(FM.FILTER_SETS) do sets[name] = FillFilterSet(nil) end
+        for _, name in ipairs({ "picks", "latest", "learn" }) do
+            local set = sets[name]
+            if s.tableLearn ~= nil and name ~= "learn" then set.learn = s.tableLearn and true or false end
+            if s.tableLearnHigher ~= nil then set.overSkill = s.tableLearnHigher ~= false end
+            if type(s.tableLearnMaxAbove) == "number" then set.overSkillCap = FM.FilterClamp("overSkillCap", s.tableLearnMaxAbove) end
+        end
+        if s.tableIgnoreVendor ~= nil then sets.picks.noVendor = s.tableIgnoreVendor == true end
+        s.tableFilters = sets
+    end
+    for _, name in ipairs(FM.FILTER_SETS) do s.tableFilters[name] = FillFilterSet(s.tableFilters[name]) end
+    if type(s.tableUseGlobal) ~= "table" then s.tableUseGlobal = {} end
+    for _, key in ipairs(OLD_FILTER_KEYS) do s[key] = nil end
+end
+
+-- The tab uses the global set ("Use global filters" checked)
+function FM.UsesGlobalFilters(tab)
+    local use = FM.GetSettings().tableUseGlobal
+    return type(use) == "table" and use[tab] == true
+end
+
+-- The stored set by name (picks, latest, learn, global), filled in
+function FM.FilterSet(name)
+    local s = FM.GetSettings()
+    if type(s.tableFilters) ~= "table" then
+        if s == FM.DEFAULTS then return FillFilterSet(nil) end -- no saved data yet: the defaults, nothing stored
+        FM.MigrateFilters(s)
+    end
+    local set = s.tableFilters[name]
+    if type(set) ~= "table" then
+        set = FillFilterSet(nil)
+        s.tableFilters[name] = set
+    end
+    return set
+end
+
+-- The filters a tab applies now: its own set, or the global one while it uses that, and the set's name
+function FM.TableFilters(tab)
+    local name = FM.UsesGlobalFilters(tab) and "global" or tab
+    return FM.FilterSet(name), name
 end
 
 function FM.RealmKey()
@@ -225,6 +326,14 @@ function FM.PlayerFirstName()
     local name = UnitName and UnitName("player")
     if FM.IsSecret(name) or type(name) ~= "string" or name == "" then return "?" end
     return name
+end
+
+-- The logged-in character's level (UnitLevel: SecretArguments only, its result is never secret on forever; guarded
+-- anyway), nil while it cannot be read: the recipes' level limit then holds nothing back (FRV-91)
+function FM.PlayerLevel()
+    local level = UnitLevel and UnitLevel("player")
+    if FM.IsSecret(level) or type(level) ~= "number" or level < 1 then return nil end
+    return level
 end
 
 -- The logged-in character's GUID, nil while it cannot be read

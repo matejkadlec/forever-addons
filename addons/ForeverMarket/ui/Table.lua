@@ -354,9 +354,9 @@ local FARM_COLUMNS = {
 
 local KIND_LABEL = {
     craft = GREEN .. "Craft|r", learn = BLUE .. "Learn|r", level = GREY .. "Level for|r", vendor = YELLOW .. "Vendor|r",
-    flip = YELLOW .. "Flip|r"
+    flip = YELLOW .. "Flip|r", stock = WHITE .. "Stock|r" -- what you hold covers the pick: list it (FRV-89)
 }
-local KIND_NAME = { craft = "Craft", learn = "Learn", level = "Level for", vendor = "Vendor", flip = "Flip" }
+local KIND_NAME = { craft = "Craft", learn = "Learn", level = "Level for", vendor = "Vendor", flip = "Flip", stock = "Stock" }
 
 local RANK_TIP = "#: the pick's place in the plan, by a day's expected profit at its confidence."
 local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH and at vendors, plus a recipe or tool it still needs."
@@ -654,6 +654,13 @@ local function BuildRows(tab, lookup)
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     if not lookup then view.outliers = 0 end
+    -- recipes still to learn: the tab's filters (its own or the global ones, FRV-89) set how far above your skill
+    -- and your character level they may go (FRV-91); Picks applies its filters in its plan (trade/Picks.lua)
+    local filters, maxLevel = nil, math.huge
+    if tab.crafts or tab.learn then
+        filters = FM.TableFilters(tab.id)
+        maxLevel = select(2, FM.RecipeLimits(filters, 0, FM.PlayerLevel()))
+    end
     for _, row in ipairs(source) do
         local keep = true
         if hideOutliers and IsOutlier(row, tab, lo, hi) then
@@ -663,21 +670,16 @@ local function BuildRows(tab, lookup)
         if tab.farm then
             if needle and not string_find(string_lower((row.mobName or "") .. " " .. (row.zone or "")), needle, 1, true) then keep = false end
         else
-            if tab.learn then
-                if prof and row.craft.prof ~= prof then keep = false end
-                -- above your skill now: none, or up to the "Max. above current skill" points
-                local above = s.tableLearnHigher == false and 0 or (tonumber(s.tableLearnMaxAbove) or 10)
-                if keep and row.minSkill and row.minSkill > (row.skillNow or 0) + above then keep = false end
-            end
-            if tab.crafts and row.learned == false and row.minSkill then
-                -- not learned yet and above your skill now: none, or up to "Max. above current skill" points
-                local above = s.tableLearnHigher == false and 0 or (tonumber(s.tableLearnMaxAbove) or 10)
-                if row.minSkill > (row.skillNow or row.craft.skillNow or 0) + above then keep = false end
-            end
-            -- Picks: these filters are inputs of the plan (trade/Picks.lua), they never hide a finished plan's picks
+            if tab.learn and prof and row.craft.prof ~= prof then keep = false end
             if tab.crafts then
-                if row.learned == false and not s.tableLearn then keep = false end
+                -- Include not learned recipes (Craft only: Learn holds nothing else)
+                if row.learned == false and not filters.learn then keep = false end
                 if keep and prof and row.craft.prof ~= prof then keep = false end
+            end
+            -- a recipe still to learn: one way to learn it within "Over skill level" and "Over character level"
+            if keep and filters and row.learned == false and row.craft then
+                local maxSkill = FM.RecipeLimits(filters, row.skillNow or row.craft.skillNow, nil)
+                if not FM.RecipeFits(row.craft, maxSkill, maxLevel) then keep = false end
             end
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             local minProfit = s.tableMinProfit
@@ -789,6 +791,14 @@ local function SellText(row)
     return Money(row.sell) .. GREY .. "  cheapest of others - 1c|r"
 end
 
+-- ", level 45" after a way to learn a recipe that asks for a character level (FRV-91), red above yours
+local function RouteLevel(route)
+    local need = route.level or 0
+    if need <= 0 then return "" end
+    local level = FM.PlayerLevel()
+    return GREY .. ", |r" .. ((level and need > level) and RED or GREY) .. string_format("level %d", need) .. "|r"
+end
+
 local function LearnLines(craft)
     for i, route in ipairs(craft.learnAll or craft.learn or {}) do
         if i > 4 then break end
@@ -796,11 +806,12 @@ local function LearnLines(craft)
             local f = FM.LatestRecord(route.key)
             local price = f and FM.Dec(f[2])
             Line("Pattern on the AH", (price and ("from " .. Money(price)) or "?") ..
-                (route.req and (GREY .. string_format("  skill %d%s", route.req, route.est and " (estimated)" or "") .. "|r") or ""))
+                (route.req and (GREY .. string_format("  skill %d%s", route.req, route.est and " (estimated)" or "") .. "|r") or "")
+                .. RouteLevel(route))
         else
             local high = (route.req or 0) > (craft.skillNow or 0)
             local text = Money(route.price) .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
-                .. (high and RED or GREY) .. string_format("skill %d", route.req or 0) .. "|r" .. GREY
+                .. (high and RED or GREY) .. string_format("skill %d", route.req or 0) .. "|r" .. RouteLevel(route) .. GREY
             if route.limited then text = text .. ", limited stock" end
             if route.rep then text = text .. ", needs reputation" end
             Line(route.kind == "trainer" and "Trainer" or "Vendor", text .. "|r")
@@ -1023,7 +1034,7 @@ local function PickStatus(row)
         -- the green arrow on Learn, on the recipe's own row only (a Flip or Vendor row of the same item keeps its
         -- rank): the reason without its own "one of the best ..." ending
         local need = reason and reason:gsub(", one of the best recipes to level for$", "")
-        Note(LEVEL_ICON .. " One of the best recipes to level for: the picks would take it once you have the skill"
+        Note(LEVEL_ICON .. " One of the best recipes to level for: the picks would take it once you can learn it"
             .. (need and (" (" .. need .. ")") or "") .. ".", GREEN)
     elseif rank then
         Note(string_format("In the picks (#%d, %s)", rank, trade.pickExtra and trade.pickExtra[row.key] and "also good, but out of scope"
@@ -1344,41 +1355,45 @@ local function Button(parent, label, width, onClick)
     return b
 end
 
-local function Check(parent, label, x, settingKey)
+-- A checkbox with its text first, like the boxes ("Invest [95]", FRV-89): the label, then the box right of it; a
+-- click on the text toggles it too. Place it by its label (c.label:SetPoint), the box follows
+function FM.TextCheck(parent, label, font)
     local c = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     c:SetSize(22, 22)
-    c:SetPoint("TOPLEFT", parent, "TOPLEFT", x, FILTER_Y + 1)
-    local fs = Text(c, "GameFontHighlight", "LEFT", 22, 0, c, "LEFT")
+    local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlight")
     fs:SetText(label)
     c.label = fs
-    c:SetScript("OnClick", function(self)
-        Settings()[settingKey] = self:GetChecked() and true or false
-        view.offset = 0
-        FM.RefreshTable()
+    c:SetPoint("LEFT", fs, "RIGHT", 2, 0)
+    local function Fit()
+        local width = fs:GetStringWidth()
+        if type(width) ~= "number" or width <= 0 then width = #(fs:GetText() or "") * 7 end
+        c:SetHitRectInsets(-math.ceil(width) - 2, 0, 0, 0)
+    end
+    Fit()
+    c.Fit = Fit
+    -- greyed out with its text while disabled
+    hooksecurefunc(c, "SetEnabled", function(self, on)
+        local v = on and 1 or 0.5
+        fs:SetTextColor(v, v, v)
     end)
-    c.settingKey = settingKey
     return c
 end
 
--- Filter row of a tab: the shown checkboxes (and the Learn tab's number box) line up from the search box to
--- the right, the shown buttons from Refresh to the left, so nothing floats in the middle
+local function Check(parent, label, x)
+    local c = FM.TextCheck(parent, label)
+    c.label:SetPoint("LEFT", parent, "TOPLEFT", x, FILTER_Y - 10)
+    return c
+end
+
+-- Filter row of Picks, Craft and Learn: "Filters", "Global filters" and "Use global filters [ ]" right of the search
+-- box (FRV-89); the shown buttons line up from Refresh to the left, so nothing floats in the middle
 local function LayoutFilters(f)
-    local x = 192
-    for _, c in ipairs({ f.higher, f.maxAbove, f.learn, f.vendorOff, f.stock }) do
-        if c:IsShown() then
-            local labelWidth = c.label and c.label:GetStringWidth()
-            if type(labelWidth) ~= "number" or labelWidth <= 0 then labelWidth = #(c.label and c.label:GetText() or "") * 7 end
-            c:ClearAllPoints()
-            if c == f.maxAbove then
-                -- its label sits left of the box
-                c:SetPoint("TOPLEFT", f, "TOPLEFT", x + labelWidth + 8, FILTER_Y)
-                x = x + labelWidth + 8 + 36 + 14
-            else
-                c:SetPoint("TOPLEFT", f, "TOPLEFT", x, FILTER_Y + 1)
-                x = x + 22 + labelWidth + 14
-            end
-        end
-    end
+    f.filtersButton:ClearAllPoints()
+    f.filtersButton:SetPoint("LEFT", f.search, "RIGHT", 12, 0)
+    f.globalButton:ClearAllPoints()
+    f.globalButton:SetPoint("LEFT", f.filtersButton, "RIGHT", 4, 0)
+    f.useGlobal.label:ClearAllPoints()
+    f.useGlobal.label:SetPoint("LEFT", f.globalButton, "RIGHT", 12, 0)
     local anchor = f.refresh
     if f.prof:IsShown() then
         f.prof:ClearAllPoints()
@@ -1635,11 +1650,12 @@ local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30
 local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
-    for _, w in ipairs({ frame.learn, frame.prof, frame.stock, frame.vendorOff, frame.invest, frame.invest.label,
-        frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.higher, frame.maxAbove, frame.maxAbove.label, frame.excluded, frame.empty, frame.summary, frame.lock }) do
+    for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
+        frame.invest, frame.invest.label, frame.slots, frame.slots.label, frame.slots.suffix,
+        frame.excluded, frame.empty, frame.summary, frame.lock, frame.lock.label }) do
         w:Hide()
     end
+    if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
     frame.status:SetText(StatusText())
@@ -1722,14 +1738,18 @@ Render = function()
         end
     end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
-    frame.learn:SetShown((tab.crafts or tab.picks) and true or false)
-    frame.prof:SetShown((tab.crafts or tab.picks or tab.learn) and true or false)
-    frame.learn:SetChecked(Settings().tableLearn and true or false)
-    frame.stock:SetChecked(Settings().tableIgnoreStock ~= false)
-    frame.stock:SetShown(tab.picks and true or false)
-    frame.vendorOff:SetChecked(Settings().tableIgnoreVendor == true)
-    frame.vendorOff:SetShown(tab.picks and true or false)
+    -- the filters of Picks, Craft and Learn (FRV-89): its own ("Filters") or the global ones ("Global filters"),
+    -- the button of the set it does not use greyed out
+    local filterTab = (tab.crafts or tab.picks or tab.learn) and true or false
+    local useGlobal = filterTab and FM.UsesGlobalFilters(tab.id)
+    for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label }) do w:SetShown(filterTab) end
+    frame.filtersButton:SetEnabled(filterTab and not useGlobal)
+    frame.globalButton:SetEnabled(useGlobal and true or false)
+    frame.useGlobal:SetChecked(useGlobal and true or false)
+    if FM.FiltersDialogSync then FM.FiltersDialogSync(filterTab and tab.id or nil) end
+    frame.prof:SetShown(filterTab)
     frame.lock:SetShown(tab.picks and true or false)
+    frame.lock.label:SetShown(tab.picks and true or false)
     frame.lock:SetChecked(FM.PicksLocked())
     frame.invest:SetShown(tab.picks and true or false)
     frame.invest.label:SetShown(tab.picks and true or false)
@@ -1738,17 +1758,6 @@ Render = function()
     frame.slots.label:SetShown(tab.picks and true or false)
     frame.slots.suffix:SetShown(tab.picks and true or false)
     if not frame.slots:HasFocus() then frame.slots:SetText(tostring(Settings().tableInvestPicks or 3)) end
-    -- skill limits on Learn and Craft (recipes still to learn)
-    local skillTab = (tab.learn or tab.crafts) and true or false
-    frame.higher:SetChecked(Settings().tableLearnHigher ~= false)
-    frame.higher:SetShown(skillTab)
-    frame.maxAbove:SetShown(skillTab)
-    frame.maxAbove.label:SetShown(skillTab)
-    if not frame.maxAbove:HasFocus() then frame.maxAbove:SetText(tostring(Settings().tableLearnMaxAbove or 10)) end
-    -- greyed while recipes above your skill are off
-    local higherOn = Settings().tableLearnHigher ~= false
-    frame.maxAbove:SetEnabled(higherOn)
-    frame.maxAbove.label:SetTextColor(higherOn and 1 or 0.5, higherOn and 1 or 0.5, higherOn and 1 or 0.5)
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
     frame.excluded:SetShown(not tab.farm) -- Farm lists mobs, not items; the tabs keep their places without it
     LayoutFilters(frame)
@@ -1778,6 +1787,24 @@ function FM.RefreshTable()
     if FM.PriceGraphRefresh then FM.PriceGraphRefresh() end
     -- and the sticky row tooltips, as "Lock plan after refresh" says (ui/StickyTooltip.lua)
     if FM.StickyRefresh then FM.StickyRefresh() end
+end
+
+-- A filter of a set changed (the dialog, "Use global filters"; FRV-89): the plan follows when Picks uses that set,
+-- the table shows the current tab again
+function FM.TableFiltersChanged(setName)
+    view.offset = 0
+    if setName == "picks" or (setName == "global" and FM.UsesGlobalFilters("picks")) then FM.PlanPicks() end
+    FM.RefreshTable()
+end
+
+-- The filters dialog was closed by its X or Esc: the buttons open it again
+function FM.FiltersDialogClosed()
+    view.filtersOpen = false
+end
+
+-- Whether the filters dialog should be open (the table shows it on Picks, Craft and Learn)
+function FM.FiltersWanted()
+    return view.filtersOpen and true or false
 end
 
 -- The refresh button of the table and of every sticky window: recipes and vendors read again, a new Picks plan
@@ -1921,29 +1948,42 @@ local function CreateTable()
     f.search = search
     f.searchLabel = searchLabel
 
-    f.learn = Check(f, "Not learned", 202, "tableLearn")
-    f.learn:SetScript("OnClick", function(self)
-        Settings().tableLearn = self:GetChecked() and true or false
-        view.offset = 0
-        FM.PlanPicks() -- the picks plan again, with or without recipes to learn
-        FM.RefreshTable()
+    -- the filters of Picks, Craft and Learn (FRV-89): the tab's own, or the global ones while "Use global filters" is
+    -- checked; each button opens the one dialog (ui/Filters.lua) on the set the tab uses, a click again closes it
+    local function FilterTip(button, title, text)
+        button:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(title)
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            if not self:IsEnabled() then
+                GameTooltip:AddLine(FM.UsesGlobalFilters(view.tab) and "This tab uses the global filters (Use global filters)."
+                    or "This tab uses its own filters: check Use global filters to use these.", 1, 0.82, 0, true)
+            end
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        -- the tooltip also over a disabled button
+        if button.SetMotionScriptsWhileDisabled then button:SetMotionScriptsWhileDisabled(true) end
+    end
+    f.filtersButton = Button(f, "Filters", 70, function()
+        view.filtersOpen = not (view.filtersOpen and FM.FiltersDialogShown and FM.FiltersDialogShown())
+        Render()
     end)
-    f.stock = Check(f, "Ignore stock", 290, "tableIgnoreStock")
-    -- picks without vendor resells (the gold goes to the other picks)
-    f.vendorOff = Check(f, "Ignore vendor", 290, "tableIgnoreVendor")
-    f.vendorOff:SetScript("OnClick", function(self)
-        Settings().tableIgnoreVendor = self:GetChecked() and true or false
-        view.offset = 0
-        FM.PlanPicks() -- the picks plan again
-        FM.RefreshTable()
+    FilterTip(f.filtersButton, "Filters", "This tab's own filters: recipes to learn and how far above your skill and level, and on Picks what the plan leaves out. They change only this tab.")
+    f.globalButton = Button(f, "Global filters", 100, function()
+        view.filtersOpen = not (view.filtersOpen and FM.FiltersDialogShown and FM.FiltersDialogShown())
+        Render()
     end)
-    f.vendorOff:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Ignore vendor")
-        GameTooltip:AddLine("The picks plan without buying from vendors to resell; their gold goes to the other picks.", 1, 1, 1, true)
-        GameTooltip:Show()
+    FilterTip(f.globalButton, "Global filters", "One set of filters for every tab with Use global filters checked (Picks, Craft, Learn); an option a tab does not have does not apply there.")
+    f.useGlobal = Check(f, "Use global filters", 0)
+    f.useGlobal:SetScript("OnClick", function(self)
+        local s = Settings()
+        if type(s.tableUseGlobal) ~= "table" then s.tableUseGlobal = {} end
+        s.tableUseGlobal[view.tab] = self:GetChecked() and true or nil
+        -- the tab's filters switch sets: the plan follows on Picks, the open dialog shows the other set
+        FM.TableFiltersChanged(view.tab)
     end)
-    f.vendorOff:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.")
     -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (whole percent, 1-100),
     -- Y = the picks the plan has at most
     local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
@@ -2003,54 +2043,6 @@ local function CreateTable()
     end)
     slots:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.slots = slots
-    f.higher = Check(f, "Above current skill", 202, "tableLearnHigher")
-    f.higher:SetChecked(Settings().tableLearnHigher ~= false)
-    f.higher:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Above current skill")
-        GameTooltip:AddLine("Also recipes that need more skill than you have now (their skill is red), up to \"Max. above current skill\" points above it.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.higher:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- how far above your skill now the Learn tab still lists recipes (whole points)
-    local maxAbove = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    maxAbove:SetSize(36, 22)
-    maxAbove:SetAutoFocus(false)
-    maxAbove:SetNumeric(true)
-    maxAbove:SetMaxLetters(3)
-    maxAbove.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, maxAbove, "LEFT")
-    maxAbove.label:SetText("Max. above current skill")
-    local function SaveMaxAbove(self)
-        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableLearnMaxAbove or 10)
-        Settings().tableLearnMaxAbove = n
-        self:SetText(tostring(n))
-        view.offset = 0
-        FM.RefreshTable()
-    end
-    maxAbove:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    maxAbove:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    maxAbove:HookScript("OnEditFocusLost", SaveMaxAbove)
-    maxAbove:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Max. above current skill")
-        GameTooltip:AddLine("Recipes that need at most this many points more than your skill now (default 10). Enter to apply.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    maxAbove:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.maxAbove = maxAbove
-    f.stock:SetScript("OnClick", function(self)
-        Settings().tableIgnoreStock = self:GetChecked() and true or false
-        view.offset = 0
-        FM.PlanPicks() -- the picks plan again
-        FM.RefreshTable()
-    end)
-    f.stock:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Ignore stock")
-        GameTooltip:AddLine("On: the picks plan as if your bags and bank were empty (all materials bought, nothing of yours to sell). Off: your own materials are used first and your units count as stock to sell. Your auctions on the AH count either way.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.stock:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- profession filter: Blizzard's dropdown with every profession of this character
     local prof = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
     prof:SetWidth(130)
@@ -2151,12 +2143,9 @@ local function CreateTable()
     f.summary:SetJustifyH("LEFT")
     f.summary:SetWordWrap(false)
     f.summary:Hide()
-    -- Picks: "Lock plan after refresh" on the summary's line, at the right (FRV-63)
-    f.lock = Check(f, "Lock plan after refresh", 0, "tablePicksLock")
-    f.lock.label:ClearAllPoints()
-    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -18, TOP + 24 - ROW_H / 2)
-    f.lock:ClearAllPoints()
-    f.lock:SetPoint("RIGHT", f.lock.label, "LEFT", -2, 0)
+    -- Picks: "Lock plan after refresh" on the summary's line, at the right (FRV-63), its text first (FRV-89)
+    f.lock = FM.TextCheck(f, "Lock plan after refresh")
+    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, TOP + 24 - ROW_H / 2)
     f.lock:SetScript("OnClick", function(self)
         Settings().tablePicksLock = self:GetChecked() and true or false
         -- off: Picks plans by itself again, from now on; on: the plan shown now is held
@@ -2171,6 +2160,7 @@ local function CreateTable()
     end)
     f.lock:SetScript("OnLeave", function() GameTooltip:Hide() end)
     f.lock:Hide()
+    f.lock.label:Hide()
 
     -- rows
     f.rows = {}
@@ -2227,6 +2217,13 @@ local function CreateTable()
             local tab = CurrentTab()
             if tab.id == "flips" and FlipStaleText(tab) ~= view.stale then Render() end
         end
+    end)
+    -- closing the table closes the filters dialog; opening it again opens only the table (not on Alt+Z: the table is
+    -- still shown then)
+    f:SetScript("OnHide", function(self)
+        if self:IsShown() then return end
+        view.filtersOpen = false
+        if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
     end)
     f:SetScript("OnShow", function()
         FM.EnsureTrade()

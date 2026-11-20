@@ -745,20 +745,41 @@ CapSell = function(row)
     end
 end
 
--- Learn tab: the lowest skill any known way teaches it at, where to learn it (cheapest place first),
--- and the profit per 1g at last week's usual prices (median daily lows; vendor materials at the vendor)
+-- The limits of a tab's filters for recipes still to learn: the highest skill and the highest character level a way
+-- to learn one may ask for ("Over skill level" / "Over character level" and their caps, FRV-89, FRV-91). level nil =
+-- your level is not known: no level limit
+function FM.RecipeLimits(filters, skillNow, level)
+    local skill = (skillNow or 0) + (filters.overSkill and (filters.overSkillCap or 0) or 0)
+    local maxLevel = level and (level + (filters.overLevel and (filters.overLevelCap or 0) or 0)) or math.huge
+    return skill, maxLevel
+end
+
+-- A recipe still to learn passes a tab's limits when one way to learn it fits both the skill and the level (an
+-- unknown skill or level counts as none). A recipe without any known way passes: nothing tells it apart
+function FM.RecipeFits(craft, maxSkill, maxLevel)
+    local routes = craft.learnAll or craft.learn or {}
+    if not routes[1] then return true end
+    for _, r in ipairs(routes) do
+        if (r.req or 0) <= maxSkill and (r.level or 0) <= maxLevel then return true end
+    end
+    return false
+end
+
+-- Learn tab: the lowest skill and character level any known way teaches it at, where to learn it (cheapest place
+-- first), and the profit per 1g at last week's usual prices (median daily lows; vendor materials at the vendor)
 local function LearnInfo(row)
     local craft = row.craft
-    local minSkill, route
+    local minSkill, minLevel, route
     for _, r in ipairs(craft.learnAll or craft.learn or {}) do
         if r.req and (not minSkill or r.req < minSkill) then minSkill = r.req end
+        if not minLevel or (r.level or 0) < minLevel then minLevel = r.level or 0 end
         -- a place you can walk to beats an AH pattern; among them the cheapest
         local placed = r.kind ~= "ah"
         if not route or (placed and route.kind == "ah") or (placed == (route.kind ~= "ah") and (r.price or 0) < (route.price or 0)) then
             route = r
         end
     end
-    row.minSkill, row.route = minSkill, route
+    row.minSkill, row.minLevel, row.route = minSkill, minLevel, route
     row.skillNow = craft.skillNow
     local function Usual(key)
         local usual = usualCache[key]
