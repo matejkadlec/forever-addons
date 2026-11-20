@@ -4,8 +4,8 @@ local _, FM = ...
 -- Tabs in groups: Picks, Favorites (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH result,
 -- ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
--- Row tooltip = how a number was worked out. Click = search the item (and its materials) at the AH
--- through Auctionator, Shift-click = link it in chat (or snipe at the AH: a pick all its AH purchases), right-click
+-- Row tooltip = how a number was worked out. Click = search its shopping list at the AH through Auctionator
+-- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift-click = link it in chat (or snipe at the AH: a pick all its AH purchases), right-click
 -- = menu: Favorize, Ignore, Snipe (where Shift-click snipes, also away from the AH), Track <NPC> (TomTom arrow to
 -- its vendor or teacher, only where there is one), Show price graph (ui/PriceGraph.lua). Column headers sort.
 
@@ -1153,6 +1153,16 @@ end
 
 ---------------------------------------------------------------- actions
 
+-- What a click searches at the AH: only what you would buy there (FRV-79, trade/Picks.lua FM.ShoppingList): a
+-- pick its plan's AH purchases, a craft or recipe its AH materials (never the item), a flip, a vendor resell or
+-- an item without a craft the item itself. FRV-47 searches the same list in Blizzard's AH
+local function ShoppingList(row)
+    local tab, src = RowSource(row.stepsOf or row)
+    if tab and tab.picks then return FM.ShoppingList("pick", src) end
+    if tab and (tab.crafts or tab.learn) and src.craft then return FM.ShoppingList("craft", src) end
+    return FM.ShoppingList("item", src)
+end
+
 local function SearchAtAH(row)
     local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
     if not FM.ahOpen then
@@ -1164,21 +1174,16 @@ local function SearchAtAH(row)
         return
     end
     local names, seen = {}, {}
-    local function add(key)
-        local name = key and Name(key)
+    for _, key in ipairs(ShoppingList(row)) do
+        local name = Name(key)
         if name and not seen[name] and not name:find("^item:") then
             seen[name] = true
             names[#names + 1] = name
         end
     end
-    add(row.key)
-    local tab
-    tab, row = RowSource(row)
-    tab = tab or {}
-    if tab.picks then
-        for _, key in ipairs(row.searchKeys or {}) do add(key) end
-    elseif (tab.crafts or tab.learn) and row.craft then
-        for _, g in ipairs(row.craft.reagents or {}) do add(g.key) end
+    if not names[1] then
+        FM.Print("Nothing to buy on the AH for " .. Name(row.key) .. ": what it needs comes from a vendor or your bags.")
+        return
     end
     local ok, err = pcall(api.MultiSearchExact, "ForeverMarket", names)
     if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end

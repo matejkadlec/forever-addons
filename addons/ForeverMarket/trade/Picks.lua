@@ -421,10 +421,12 @@ end
 
 ---------------------------------------------------------------- material supply (shared by all picks)
 -- A trial records what a plan would take: used[key] = units of others' auctions, stock[key] = your units,
--- made[key] = spare intermediates, vendor[key], top[key] = highest AH price paid. Trials chain to a parent.
+-- made[key] = spare intermediates, vendor[key], top[key] = highest AH price paid, crafted[key] = units of an
+-- intermediate the plan makes; for one it buys: craftAt[key] = the lowest unit cost crafting them would have had,
+-- craftNo[key] = the material that ran out for crafting them. Trials chain to a parent.
 
 local function NewTrial(parent)
-    return { parent = parent, used = {}, stock = {}, made = {}, vendor = {}, top = {} }
+    return { parent = parent, used = {}, stock = {}, made = {}, vendor = {}, top = {}, crafted = {}, craftAt = {}, craftNo = {} }
 end
 
 local function Sum(trial, field, key)
@@ -437,12 +439,16 @@ local function Sum(trial, field, key)
 end
 
 local function Merge(dst, src)
-    for _, field in ipairs({ "used", "stock", "made", "vendor" }) do
+    for _, field in ipairs({ "used", "stock", "made", "vendor", "crafted" }) do
         for key, n in pairs(src[field]) do dst[field][key] = (dst[field][key] or 0) + n end
     end
     for key, u in pairs(src.top) do
         if not dst.top[key] or u > dst.top[key] then dst.top[key] = u end
     end
+    for key, u in pairs(src.craftAt) do
+        if not dst.craftAt[key] or u < dst.craftAt[key] then dst.craftAt[key] = u end
+    end
+    for key, missing in pairs(src.craftNo) do dst.craftNo[key] = missing end
 end
 
 -- What one of your own units is worth: what it would sell for, never more than buying it
@@ -453,30 +459,10 @@ local function StockValue(key, buyUnit)
     return buyUnit
 end
 
--- Take n units of a material for a plan: your stock, then crafting it (when the table found that
--- cheaper), then the cheaper of vendor and the AH ladder unit by unit. Returns value, capital or nil.
-local function Take(key, n, part, trial, depth)
-    local value, capital = 0, 0
-    local have = (P.stockLeft[key] or StockOf(key)) - Sum(trial, "stock", key) + Sum(trial, "made", key)
-    if have > 0 then
-        local take = math_min(have, n)
-        trial.stock[key] = (trial.stock[key] or 0) + take
-        value = value + take * StockValue(key, part.unit)
-        n = n - take
-    end
-    if n <= 0 then return value, capital end
-    if part.src == "craft" and part.parts and depth < 1 then
-        local makes = part.makes or 1
-        local runs = math_ceil(n / makes)
-        for _, sub in ipairs(part.parts) do
-            local v, c = Take(sub.key, sub.n * runs, sub, trial, depth + 1)
-            if not v then return nil end
-            value, capital = value + v, capital + c
-        end
-        local extra = runs * makes - n
-        if extra > 0 then trial.made[key] = (trial.made[key] or 0) + extra end
-        return value, capital
-    end
+-- Buy n units of a material: the AH ladder unit by unit while it is cheaper than the vendor, the rest at the
+-- vendor. Returns what it costs, or nil when the AH runs out and no vendor sells it
+local function Buy(key, n, trial)
+    local cost = 0
     local vendorUnit = FM.VendorUnit(key, false)
     -- never buy what you are selling yourself
     local ladder = Yours(key) > 0 and EMPTY or Ladder(key)
@@ -491,8 +477,7 @@ local function Take(key, n, part, trial, depth)
             skip = 0
             if vendorUnit and vendorUnit <= level[1] then break end
             local take = math_min(q, n)
-            value = value + take * level[1]
-            capital = capital + take * level[1]
+            cost = cost + take * level[1]
             trial.used[key] = (trial.used[key] or 0) + take
             if not trial.top[key] or level[1] > trial.top[key] then trial.top[key] = level[1] end
             n = n - take
@@ -500,11 +485,72 @@ local function Take(key, n, part, trial, depth)
     end
     if n > 0 then
         if not vendorUnit then return nil end
-        value = value + n * vendorUnit
-        capital = capital + n * vendorUnit
+        cost = cost + n * vendorUnit
         trial.vendor[key] = (trial.vendor[key] or 0) + n
     end
-    return value, capital
+    return cost
+end
+
+-- Take n units of a material for a plan: your stock, then for a material you can craft, run by run the cheaper of
+-- crafting one run (its materials from what is left of their ladders) and buying the same units next (FRV-78:
+-- the table chose one route for a batch of 5 crafts; a bigger plan reaches dearer units of either), else the
+-- cheaper of vendor and the AH ladder unit by unit. Returns value, capital or nil.
+local function Take(key, n, part, trial, depth)
+    local value, capital = 0, 0
+    local have = (P.stockLeft[key] or StockOf(key)) - Sum(trial, "stock", key) + Sum(trial, "made", key)
+    if have > 0 then
+        local take = math_min(have, n)
+        trial.stock[key] = (trial.stock[key] or 0) + take
+        value = value + take * StockValue(key, part.unit)
+        n = n - take
+    end
+    if n <= 0 then return value, capital end
+    local craft = depth < 1 and (part.src == "craft" and part or part.craftAlt)
+    if craft and craft.parts then
+        local makes = craft.makes or 1
+        while n > 0 do
+            local units = math_min(n, makes)
+            -- one run crafted, against buying the units it gives (a last run's spare units stay as made)
+            local run = NewTrial(trial)
+            local runValue, runCapital = 0, 0
+            local missing
+            for _, sub in ipairs(craft.parts) do
+                local v, c = Take(sub.key, sub.n, sub, run, depth + 1)
+                if not v then
+                    runValue, missing = nil, sub.key
+                    break
+                end
+                runValue, runCapital = runValue + v, runCapital + c
+            end
+            local bought = NewTrial(trial)
+            local cost = Buy(key, units, bought)
+            if runValue and (not cost or FM.CraftBeatsBuying(runValue, cost)) then
+                run.parent = nil
+                Merge(trial, run)
+                trial.crafted[key] = (trial.crafted[key] or 0) + makes
+                if makes > units then trial.made[key] = (trial.made[key] or 0) + makes - units end
+                value, capital = value + runValue, capital + runCapital
+            elseif cost then
+                bought.parent = nil
+                Merge(trial, bought)
+                -- why the plan buys: what crafting these units would have cost, or what ran out for it
+                if runValue then
+                    local unit = runValue / units
+                    if not trial.craftAt[key] or unit < trial.craftAt[key] then trial.craftAt[key] = unit end
+                else
+                    trial.craftNo[key] = missing
+                end
+                value, capital = value + cost, capital + cost
+            else
+                return nil
+            end
+            n = n - units
+        end
+        return value, capital
+    end
+    local cost = Buy(key, n, trial)
+    if not cost then return nil end
+    return value + cost, capital + cost
 end
 
 -- Craft one by one until the margin, the gold or the buyers run out
@@ -627,28 +673,51 @@ local function ShortWhere(where)
     return where and (where:match("^([^,]+)") or where) or "a vendor"
 end
 
+-- Why the plan buys a material instead of crafting it (FRV-78): what crafting those units would have cost, what
+-- ran out for it, or why the table could not craft it at all; nil for a material without a recipe
+local function BuyReason(part, trial)
+    local key = part.key
+    local craftAt = trial.craftAt[key]
+    if craftAt then
+        -- cheaper by less than the 3% crafting has to beat buying by (FM.CraftBeatsBuying)
+        local paid = trial.top[key] or FM.VendorUnit(key, false)
+        return "crafting costs " .. M(craftAt) .. " each" .. ((paid and craftAt < paid) and ", under 3% less" or "")
+    end
+    if trial.craftNo[key] then return "no " .. Name(trial.craftNo[key]) .. " left to craft it" end
+    local no = part.noCraft
+    if no == "recipe not learned" then return no end
+    if type(no) == "table" and no.missing then return "no price for " .. Name(no.missing) end
+    return nil
+end
+
+-- A pick's material lines: what the plan does with each ("your 4, AH 10 up to 14s 50c, craft 20"), why it buys
+-- one it could craft, and under a crafted one the materials of its crafts
 local function MaterialLines(row, trial, reasons)
+    local function describe(key, bits)
+        local fromStock = trial.stock[key] or 0
+        local used = trial.used[key] or 0
+        local vendor = trial.vendor[key] or 0
+        if fromStock > 0 then bits[#bits + 1] = "your " .. Count(fromStock) end
+        if used > 0 then bits[#bits + 1] = string_format("AH %s up to %s", Count(used), M(trial.top[key])) end
+        if vendor > 0 then bits[#bits + 1] = string_format("vendor %s at %s", Count(vendor), M(FM.VendorUnit(key, false))) end
+        return used + vendor > 0
+    end
     for _, part in ipairs(row.parts) do
         local bits = {}
-        local function describe(key)
-            local fromStock = trial.stock[key] or 0
-            local used = trial.used[key] or 0
-            local vendor = trial.vendor[key] or 0
-            if fromStock > 0 then bits[#bits + 1] = "your " .. Count(fromStock) end
-            if used > 0 then bits[#bits + 1] = string_format("AH %s up to %s", Count(used), M(trial.top[key])) end
-            if vendor > 0 then bits[#bits + 1] = string_format("vendor %s at %s", Count(vendor), M(FM.VendorUnit(key, false))) end
+        if describe(part.key, bits) then
+            local why = BuyReason(part, trial)
+            if why then bits[#bits] = bits[#bits] .. " (" .. why .. ")" end
         end
-        describe(part.key)
-        if part.src == "craft" and part.parts then
-            bits[#bits + 1] = "craft it"
-            reasons[#reasons + 1] = { "i", part.key, part.n, table_concat(bits, ", ") }
-            for _, sub in ipairs(part.parts) do
-                bits = {}
-                describe(sub.key)
-                reasons[#reasons + 1] = { "i", sub.key, sub.n, "    " .. table_concat(bits, ", ") }
+        local crafted = trial.crafted[part.key] or 0
+        if crafted > 0 then bits[#bits + 1] = "craft " .. Count(crafted) end
+        reasons[#reasons + 1] = { "i", part.key, part.n, table_concat(bits, ", ") }
+        local craft = part.src == "craft" and part or part.craftAlt
+        if crafted > 0 and craft and craft.parts then
+            for _, sub in ipairs(craft.parts) do
+                local subBits = {}
+                describe(sub.key, subBits)
+                reasons[#reasons + 1] = { "i", sub.key, sub.n, "    " .. table_concat(subBits, ", ") }
             end
-        else
-            reasons[#reasons + 1] = { "i", part.key, part.n, table_concat(bits, ", ") }
         end
     end
 end
@@ -701,6 +770,52 @@ local function AHBuys(trial)
     local list = {}
     for _, e in ipairs(Purchases(trial)) do
         if e.ah > 0 and e.top then list[#list + 1] = { key = e.key, ah = e.ah, top = e.top } end
+    end
+    return list
+end
+
+---------------------------------------------------------------- shopping list (FRV-79)
+-- What a row click of the market table searches at the AH: only what you would buy there. One list for every
+-- search (Auctionator's today, Blizzard's with FRV-47).
+
+-- The AH materials of a craft: an intermediate you make replaced by its materials (two levels deep, as the table
+-- prices them), vendor materials never; "last" = an AH material none of which is listed right now
+local function CraftMaterials(parts, add)
+    for _, m in ipairs(parts or EMPTY) do
+        if m.src == "craft" and m.parts then
+            CraftMaterials(m.parts, add)
+        elseif m.src ~= "vendor" then
+            add(m.key)
+        end
+    end
+end
+
+-- kind "pick": a pick's row (pick.shopping, the AH purchases of its plan); "craft": a craft or recipe row of the
+-- Craft and Learn tabs (the pattern when its cheapest way is the AH, then its AH materials, never the item);
+-- anything else (Flip, vendor resells, an item without a craft): the item itself. Item keys, each once
+function FM.ShoppingList(kind, row)
+    local list, seen = {}, {}
+    local function add(key)
+        if type(key) == "string" and not seen[key] then
+            seen[key] = true
+            list[#list + 1] = key
+        end
+    end
+    if kind == "pick" and row.shopping then
+        for _, key in ipairs(row.shopping) do add(key) end
+    elseif kind == "craft" and row.parts then
+        add(row.learned == false and row.learnAH or nil)
+        CraftMaterials(row.parts, add)
+        -- a material without any price stops the pricing: it and the reagents after it, unless a vendor sells them
+        if row.missing and row.craft then
+            local priced = {}
+            for _, m in ipairs(row.parts) do priced[m.key] = true end
+            for _, g in ipairs(row.craft.reagents or EMPTY) do
+                if not priced[g.key] and not FM.VendorUnit(g.key, false) then add(g.key) end
+            end
+        end
+    else
+        add(row.key)
     end
     return list
 end
@@ -863,9 +978,16 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
     pick.reasons = list
-    local search = {}
-    for _, part in ipairs(row.parts) do search[#search + 1] = part.key end
-    pick.searchKeys = search
+    -- the shopping list of a row click: the plan's AH purchases (FRV-79); a recipe to level for has no plan to buy
+    if c.kind == "level" then
+        pick.shopping = FM.ShoppingList("craft", row)
+    else
+        local shopping = {}
+        if c.ah and c.pattern then shopping[#shopping + 1] = c.pattern end
+        for _, b in ipairs(pick.buys or EMPTY) do shopping[#shopping + 1] = b.key end
+        for _, name in ipairs(toolsToBuy) do shopping[#shopping + 1] = KeyOfName(name) end
+        pick.shopping = shopping
+    end
     pick.toolCost = toolCost
     return pick
 end
@@ -1031,7 +1153,7 @@ local function Learnable(row, profSkill)
         end
         if price and route.req and not route.est then
             if not best or price < best.price then
-                best = { price = price, req = route.req, ah = route.kind == "ah",
+                best = { price = price, req = route.req, ah = route.kind == "ah", pattern = route.kind == "ah" and route.key or nil,
                     where = route.kind == "ah" and "pattern on the AH" or (route.where or "?") }
             end
         end
@@ -1066,7 +1188,8 @@ local function Candidates(out, why)
         else
             local l = Learnable(row, profSkill)
             if l then
-                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, where = l.where, ah = l.ah }
+                list[#list + 1] = { kind = l.kind, row = row, learnCost = l.price, req = l.req, skill = l.skill, where = l.where, ah = l.ah,
+                    pattern = l.pattern }
             else
                 why[row.key] = "recipe price or skill requirement not known yet"
             end

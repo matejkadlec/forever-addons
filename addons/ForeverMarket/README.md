@@ -331,6 +331,17 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * One plan for X% of your gold (at most 90), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
+  * A material you can craft yourself (Cured Heavy Hide from Heavy Hide + Salt) is bought or crafted craft run by
+    craft run, whichever is cheaper for those units (1.27, FRV-78): one run crafted, its materials from what is
+    left of their ladders, against buying the units it gives next on the AH or at the vendor; crafting has to beat
+    buying by 3%, the table's rule (`FM.CraftBeatsBuying`, trade/Calc.lua). Before 1.27 the plan kept the route
+    the table chose for a batch of 5 crafts, so a bigger pick bought the cheap units and then the dear ones up the
+    ladder (Barbaric Bracers: 30 Cured Heavy Hide up to 17s 66c next to a craft price of 14s 77c), or crafted every
+    unit while its materials got dearer. The table keeps the craft of a material it prices as bought
+    (`craftAlt`) or why there is none (`noCraft`). The pick's material line shows the split ("AH 10 up to 13s 00c
+    (crafting costs 14s 77c each), craft 20") and, for a craftable material it buys, why: what crafting those
+    units would cost (", under 3% less" when that is cheaper by less than the margin), "no Heavy Hide left to craft it", "recipe not learned", "no price for ..."; the materials of
+    a crafted one are listed under it.
   * No loss: profit at the usual price (median daily low of the last week) when that is under the sell
     price, minus deposits lost on relists (share from your invoices, else 12%), must stay positive. Confidence
     (demand evidence, 3 day swing of uncapped prices, falling price today, cornered market, days of stock
@@ -404,7 +415,14 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
   Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h one pick may plan (1.19,
   default 25%, `tableCircPct`; see Picks, Room on the AH).
-* Click a row at the open AH: Auctionator search of the item and its materials. Shift-click: link (at the AH:
+* Click a row at the open AH: an Auctionator shopping list of only what you would buy there (1.27, FRV-79,
+  `FM.ShoppingList` in trade/Picks.lua; FRV-47 will search the same list in Blizzard's AH): a craft (Craft, Learn, a
+  favorite whose best use is a craft) its AH materials, an intermediate the table crafts replaced by its materials
+  (two levels deep), never vendor materials and never the item itself, the pattern first when the cheapest way to
+  learn the recipe is the AH; a pick exactly the AH purchases of its plan (`pick.shopping`: the pattern it buys on
+  the AH, `pick.buys`, a tool it buys there); Flip, vendor resells and items without a craft the item itself. With
+  nothing to buy on the AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level
+  materials. Shift-click: link (at the AH:
   snipe what it buys there, a pick every AH purchase of its plan; see Sniper). Right-click: the menu above, with
   Snipe on every row Shift-click snipes from (also away from the AH).
 
