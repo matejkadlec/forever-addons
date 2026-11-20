@@ -52,11 +52,15 @@ local function Save(key, kind, rows, full)
 
     local levels = {}
     local entries = {}
-    local othersMin -- the cheapest unit price of others (your auctions are "@"), for the price graph (FRV-76)
+    -- the cheapest unit price of others for the price graph (FRV-76): rows not yours, or a commodity row with more
+    -- units than yours (one row holds every seller at its price); only from a full result, a partial one may not
+    -- hold the cheapest unit
+    local othersMin
     for i, row in ipairs(rows) do
         local unit = FM.UnitPrice(row.qty, row.buyout)
         levels[unit] = (levels[unit] or 0) + row.qty
-        if row.owner ~= "@" and (not othersMin or unit < othersMin) then othersMin = unit end
+        local others = row.owner ~= "@" or (row.othersQty or 0) > 0
+        if full and others and (not othersMin or unit < othersMin) then othersMin = unit end
         entries[i] = Enc(row.aid) .. ":" .. Enc(row.qty) .. ":" .. Enc(row.buyout) .. ":" .. Enc(row.left) .. ":" .. row.owner
     end
     local ladder = FM.EncodeLadder(FM.SortedLevels(levels), 20)
@@ -151,12 +155,15 @@ local function CaptureCommodity(itemID)
         local r = ah.GetCommoditySearchResultInfo(itemID, i)
         if type(r) == "table" and type(r.unitPrice) == "number" and type(r.quantity) == "number" and r.quantity > 0
             and not FM.IsSecret(r.unitPrice) then
+            local mine = r.numOwnerItems
             rows[#rows + 1] = {
                 aid = r.auctionID or i,
                 qty = r.quantity,
                 buyout = r.unitPrice * r.quantity,
                 left = r.timeLeftSeconds or 0,
-                owner = OwnerTag(r.owners, (r.numOwnerItems or 0) > 0)
+                owner = OwnerTag(r.owners, (mine or 0) > 0),
+                -- units of others in a row that holds yours too (the price graph's cheapest of others)
+                othersQty = (type(mine) == "number" and not FM.IsSecret(mine) and mine > 0) and (r.quantity - mine) or nil
             }
         end
     end
