@@ -302,7 +302,8 @@ end
 -- The realm's name, the first part of the saved data's key (FRV-92). Since the client 1.60.1.71037 (2026-11-20)
 -- GetRealmName() returns "" on Forever (that build's Blizzard Lua stopped comparing realm names); then the realm
 -- is the saved one whose characters (charInfo) hold this character's GUID, else one of the same server (the GUID's
--- second part; the most recently seen), else the only realm saved for this faction, else "Server <id>" for a realm
+-- second part; the most recently seen), else the only realm saved for this faction when nothing says it is another
+-- server (the GUID cannot be read, or that realm's characters have no GUID saved), else "Server <id>" for a realm
 -- without saved data. nil while neither the name nor the GUID can be read and the saved data does not decide it
 function FM.RealmName()
     local name = GetRealmName and GetRealmName()
@@ -310,13 +311,15 @@ function FM.RealmName()
     local guid = FM.PlayerGUID and FM.PlayerGUID()
     local server = ServerOf(guid)
     local faction = Faction()
-    local sameServer, sameSeen, only, several
+    local sameServer, sameSeen, only, onlyHasGuids, several
     for key, r in pairs(FM.db and FM.db.realms or {}) do
         local realm, keyFaction = SplitKey(key)
         if not StrayRealm(realm) and type(r) == "table" then
+            local hasGuids = false
             for _, info in pairs(type(r.charInfo) == "table" and r.charInfo or {}) do
                 if type(info) == "table" and type(info.guid) == "string" then
                     if guid and info.guid == guid then return realm end
+                    hasGuids = true
                     local seen = tonumber(info.seen) or 0
                     if server and ServerOf(info.guid) == server and (not sameServer or seen > sameSeen) then
                         sameServer, sameSeen = realm, seen
@@ -325,12 +328,13 @@ function FM.RealmName()
             end
             if keyFaction == faction then
                 if only and only ~= realm then several = true end
-                only = only or realm
+                if not only then only, onlyHasGuids = realm, hasGuids end
             end
         end
     end
     if sameServer then return sameServer end
-    if only and not several then return only end
+    -- its characters are on other servers: a character of a new realm does not write into it
+    if only and not several and not (server and onlyHasGuids) then return only end
     return server and ("Server " .. server) or nil
 end
 

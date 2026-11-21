@@ -59,6 +59,35 @@ H.test("realm: a new character finds its realm by the server of its GUID, withou
     H.eq(FM.RealmName(), "Old Realm", "the realm of another character on the same server")
     local FM2 = Load({ ["Other Realm-Alliance"] = Bucket("Player-99-0001"), ["Third-Alliance"] = Bucket("Player-98-0001") }, "", GUID)
     H.eq(FM2.RealmName(), "Server 6842", "a realm without saved data")
+    -- the only saved realm of the faction is on another server: a new realm, not that one
+    local FM3 = Load({ ["Other Realm-Alliance"] = Bucket("Player-99-0001") }, "", GUID)
+    H.eq(FM3.RealmName(), "Server 6842", "the only saved realm's characters are on server 99")
+    -- saved before its characters had GUIDs (before 1.23): nothing says it is another server
+    local old = Bucket(nil)
+    old.charInfo = {}
+    local FM4 = Load({ ["Old Realm-Alliance"] = old }, "", GUID)
+    H.eq(FM4.RealmName(), "Old Realm", "the only realm, its characters without GUIDs")
+end)
+
+-- /fm wipe confirm deletes the realm's market data; which characters are the realm's stays, so with an empty realm
+-- name the same key comes back (the feed import compares it)
+H.test("realm: /fm wipe confirm keeps the realm's key when the realm name is empty", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Diff.lua", "scan/Snapshot.lua", "core/SlashCommands.lua" })
+    env.ForeverMarketDB = { realms = { ["Old Realm-Alliance"] = Bucket(GUID) } }
+    env.GetRealmName = function() return "" end
+    env.UnitGUID = function() return GUID end
+    env.UnitFactionGroup = function() return "Alliance", "Alliance" end
+    FM.InitializeSavedData()
+    FM.RegisterSlashCommands()
+    H.eq(FM.R().items["2318"] ~= nil, true, "market data before")
+    env.SlashCmdList.FOREVERMARKET("wipe confirm")
+    H.eq(FM.realmKey, "Old Realm-Alliance", "the same key after the wipe")
+    H.eq(FM.R(), env.ForeverMarketDB.realms["Old Realm-Alliance"], "the same bucket")
+    H.eq(FM.R().items["2318"], nil, "its market data is gone")
+    H.same(FM.R().posts, {}, "its logs too")
+    H.eq(FM.R().charInfo.Tester.guid, GUID, "its characters stay")
+    H.eq(env.printed[#env.printed]:find("All market data of Old Realm-Alliance deleted.", 1, true) ~= nil, true, "the chat names it")
 end)
 
 H.test("realm: without a GUID yet, the only saved realm of the faction, else nothing is kept for the session", function()
