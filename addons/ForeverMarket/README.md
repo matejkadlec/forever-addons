@@ -732,6 +732,14 @@ Buys commodities the moment someone lists them at or under your price, one mouse
 
 ## Data format (ForeverMarketDB.realms["Realm-Faction"])
 
+The realm is `GetRealmName()`. Since the client 1.60.1.71037 it is empty on Forever (FRV-92), so 1.30.2 finds the
+realm in the saved data (`FM.RealmName`): the bucket whose characters (`charInfo`) hold the logged-in character's
+GUID, else one with a character of the same server (the GUID's second part), else the only realm saved for the
+faction, else "Server <id>". A bucket the empty name made ("-Alliance", "?-Alliance") gives its gold lines to
+the realm's bucket and is removed, unless it holds market data (then it stays and the chat says so). ForeverArtisan
+now writes a second entry per character ("Name--GUIDPART"): `FM.ArtisanEntries` takes both, the recipes of the
+one read last, the highest skill.
+
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
 (random suffix variants share one key, like in Auctionator on Forever; `items[key].v = 1` marks such items,
 whose prices mix variants of different value, so flips and undercut alerts skip them). The replicate list
