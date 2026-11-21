@@ -496,12 +496,13 @@ end
 -- made[key] = spare intermediates, madeAt[key] = their unit cost, fromMade[key] = of stock[key] the spare ones,
 -- vendor[key], top[key] = highest AH price paid, crafted[key] = units of an intermediate the plan makes; for one it
 -- buys, why (buyWhy[key], the newest bought run, the dearest: both ladders only climb): { at = what crafting its
--- units would have cost each, vs = what buying them cost each } or { missing = the material that ran out for
--- crafting them }. Trials chain to a parent.
+-- units would have cost each, vs = what buying them cost each, secs = the seconds of crafting one unit it saves }
+-- or { missing = the material that ran out for crafting them }; for one it crafts, craftWhy[key] of the newest
+-- crafted run: { at, vs } (FRV-69, the line says how much dearer buying was). Trials chain to a parent.
 
 local function NewTrial(parent)
     return { parent = parent, used = {}, stock = {}, made = {}, madeAt = {}, fromMade = {}, vendor = {}, top = {},
-        crafted = {}, buyWhy = {} }
+        crafted = {}, buyWhy = {}, craftWhy = {} }
 end
 
 local function Sum(trial, field, key)
@@ -520,8 +521,9 @@ local function Merge(dst, src)
     for key, u in pairs(src.top) do
         if not dst.top[key] or u > dst.top[key] then dst.top[key] = u end
     end
-    -- src is always the newer trial: its reason and its runs' unit cost replace the older ones
+    -- src is always the newer trial: its reasons and its runs' unit cost replace the older ones
     for key, why in pairs(src.buyWhy) do dst.buyWhy[key] = why end
+    for key, why in pairs(src.craftWhy) do dst.craftWhy[key] = why end
     for key, u in pairs(src.madeAt) do dst.madeAt[key] = u end
 end
 
@@ -574,10 +576,11 @@ local function Buy(key, n, trial)
     return cost
 end
 
--- Take n units of a material for a plan: your stock, then for a material you can craft, run by run the cheaper of
--- crafting one run (its materials from what is left of their ladders) and buying the same units next (FRV-78:
--- the table chose one route for a batch of 5 crafts; a bigger plan reaches dearer units of either), else the
--- cheaper of vendor and the AH ladder unit by unit. Returns value, capital or nil.
+-- Take n units of a material for a plan: your stock, then for a material you can craft, run by run crafting one run
+-- (its materials from what is left of their ladders) or buying the same units next, by FM.CraftBeatsBuying (FRV-78:
+-- the table chose one route for a batch of 5 crafts; a bigger plan reaches dearer units of either; FRV-69: buying
+-- may cost more by the allowance of the crafting time it saves), else the cheaper of vendor and the AH ladder unit
+-- by unit. Returns value, capital or nil.
 local function Take(key, n, part, trial, depth)
     local value, capital = 0, 0
     local spare = Sum(trial, "made", key) - Sum(trial, "fromMade", key)
@@ -614,9 +617,12 @@ local function Take(key, n, part, trial, depth)
             end
             local bought = NewTrial(trial)
             local cost = Buy(key, units, bought)
-            if runValue and (not cost or FM.CraftBeatsBuying(runValue / makes, cost / units)) then
+            local secs = craft.secs and craft.secs / makes -- seconds of crafting per unit (nil: not known)
+            if runValue and (not cost or FM.CraftBeatsBuying(runValue / makes, cost / units, secs)) then
                 run.parent = nil
                 Merge(trial, run)
+                -- false: nothing left to buy them (no reason in the line, the older run's no longer holds)
+                trial.craftWhy[key] = cost and { at = runValue / makes, vs = cost / units } or false
                 trial.crafted[key] = (trial.crafted[key] or 0) + makes
                 if makes > units then
                     trial.made[key] = (trial.made[key] or 0) + makes - units
@@ -628,7 +634,7 @@ local function Take(key, n, part, trial, depth)
                 bought.parent = nil
                 Merge(trial, bought)
                 -- why the plan buys: what crafting these units would have cost against buying them, or what ran out
-                trial.buyWhy[key] = runValue and { at = runValue / makes, vs = cost / units } or { missing = missing }
+                trial.buyWhy[key] = runValue and { at = runValue / makes, vs = cost / units, secs = secs } or { missing = missing }
                 value, capital = value + cost, capital + cost
             else
                 return nil
@@ -762,14 +768,15 @@ local function ShortWhere(where)
     return where and (where:match("^([^,]+)") or where) or "a vendor"
 end
 
--- Why the plan buys a material instead of crafting it (FRV-78): what crafting those units would have cost, what
--- ran out for it, or why the table could not craft it at all; nil for a material without a recipe
+-- Why the plan buys a material instead of crafting it (FRV-78): what crafting those units would have cost (FRV-69:
+-- and, when buying was dearer, by how much and the crafting time it saves), what ran out for it, or why the table
+-- could not craft it at all; nil for a material without a recipe
 local function BuyReason(part, trial)
     local key = part.key
     local why = trial.buyWhy[key]
     if why and why.at then
-        -- cheaper by less than the 3% crafting has to beat buying by (FM.CraftBeatsBuying)
-        return "crafting costs " .. M(why.at) .. " each" .. (why.at < why.vs and ", under 3% less" or "")
+        local premium = FM.BuyPremiumText(why.at, why.vs, why.secs, true)
+        return "crafting costs " .. M(why.at) .. " each" .. (premium and (", " .. premium) or "")
     end
     if why and why.missing then return "no " .. Name(why.missing) .. " left to craft it" end
     local no = part.noCraft
@@ -797,7 +804,12 @@ local function MaterialLines(row, trial, reasons)
             if why then bits[#bits] = bits[#bits] .. " (" .. why .. ")" end
         end
         local crafted = trial.crafted[part.key] or 0
-        if crafted > 0 then bits[#bits + 1] = "craft " .. Count(crafted) end
+        if crafted > 0 then
+            -- how much dearer buying the newest crafted run's units would have been (FRV-69)
+            local why = trial.craftWhy[part.key]
+            local premium = why and FM.BuyPremiumText(why.at, why.vs)
+            bits[#bits + 1] = "craft " .. Count(crafted) .. (premium and (" (" .. premium .. ")") or "")
+        end
         reasons[#reasons + 1] = { "i", part.key, part.n, table_concat(bits, ", ") }
         local craft = part.src == "craft" and part or part.craftAlt
         if crafted > 0 and craft and craft.parts then
@@ -864,7 +876,7 @@ end
 
 ---------------------------------------------------------------- shopping list (FRV-79)
 -- What a row click of the market table searches at the AH: only what you would buy there. One list for every
--- search (Auctionator's today, Blizzard's with FRV-47).
+-- search: Blizzard's Buy list since 1.33 (FRV-47, FM.SearchAH in ui/AHButton.lua), Auctionator's shopping list before.
 
 -- The AH materials of a craft: an intermediate you make replaced by its materials (two levels deep, as the table
 -- prices them), vendor materials never; "last" = an AH material none of which is listed right now

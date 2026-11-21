@@ -4,7 +4,7 @@ local _, FM = ...
 -- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
 -- result, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
--- Row tooltip = how a number was worked out. Click = search its shopping list at the AH through Auctionator
+-- Row tooltip = how a number was worked out. Click = search its shopping list in Blizzard's Buy list at the AH
 -- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift+click =
 -- link it in chat (or snipe at the AH: a pick all its AH purchases), Alt+click = the tooltip as a sticky window
 -- (ui/StickyTooltip.lua), right-click = menu: Favorize, Ignore, Snipe (where Shift+click snipes, also away from the
@@ -240,17 +240,18 @@ local function OnAH(row)
     return text
 end
 
--- Crafting time for 1g of materials (cast time + a short gap per craft)
+-- Crafting time for 1g of materials (cast time + a short gap per craft, and crafting the materials it crafts)
 local function TimePer1g(r)
-    local seconds = r.craft and FM.CraftSeconds and FM.CraftSeconds(r.craft)
+    local seconds = FM.CraftRowSeconds(r)
     if not (seconds and r.cost and r.cost > 0) then return nil end
     return 10000 / r.cost * seconds
 end
 
 -- Profit of an hour of crafting = profit per 1g / time per 1g (1g per 1g in 30 min = 2g/h, 50s per 1g in
--- 10 min = 3g/h): gold is the limited input, time isn't, so this ranks crafts
+-- 10 min = 3g/h): gold is the limited input, time isn't, so this ranks crafts. A material it crafts adds its
+-- crafting time, a bought one none (FRV-69)
 local function ProfitPerHour(r)
-    local seconds = r.craft and FM.CraftSeconds and FM.CraftSeconds(r.craft)
+    local seconds = FM.CraftRowSeconds(r)
     if not (seconds and seconds > 0 and r.profit) then return nil end
     return r.profit / seconds * 3600
 end
@@ -902,7 +903,15 @@ local function CraftTooltip(row, past)
         local note = SRC_LABEL[m.src] or m.src
         if m.src == "ah" and m.approx then note = note .. " *" end
         if m.src == "craft" then
-            note = "craft it" .. (m.buy and (", buying costs " .. Money(m.buy.unit)) or "")
+            -- why it is crafted (FRV-69): how much dearer buying is, or too few on the AH for the batch
+            local why = m.buy and (m.buy.short and "too few on the AH" or FM.BuyPremiumText(m.unit, m.buy.unit))
+            note = "craft it" .. (m.buy and (", buying costs " .. Money(m.buy.unit)) or "") .. (why and (" (" .. why .. ")") or "")
+        elseif m.craftAlt then
+            -- a material you could craft, bought: its craft price, and when buying is dearer, by how much and the
+            -- crafting time it saves (within the allowance, FM.CraftBeatsBuying)
+            local alt = m.craftAlt
+            local why = FM.BuyPremiumText(alt.unit, m.unit, alt.secs and alt.secs / (alt.makes or 1), true)
+            note = note .. " (craft price " .. Money(alt.unit) .. (why and (": " .. why) or "") .. ")"
         end
         Item("  ", m.key, m.n, Money(m.unit), note)
         if m.src == "ah" and m.short then Note("    too few listed for a batch", RED) end
@@ -923,10 +932,13 @@ local function CraftTooltip(row, past)
         Line("Profit", P1g(row.profit))
         Line("PPG", P1g(row.p1g, row.approx))
     end
-    local seconds = FM.CraftSeconds and FM.CraftSeconds(row.craft)
+    local seconds, matSeconds = FM.CraftRowSeconds(row)
     if seconds then
         local per1g = TimePer1g(row)
-        Line("Craft time", string_format("%.1fs", seconds) .. GREY .. "  incl. 0.5s between crafts|r"
+        -- the materials it crafts add their crafting time, bought ones none (FRV-69)
+        local incl = (matSeconds or 0) > 0 and string_format("  incl. 0.5s between crafts and %.1fs crafting its materials", matSeconds)
+            or "  incl. 0.5s between crafts"
+        Line("Craft time", string_format("%.1fs", seconds) .. GREY .. incl .. "|r"
             .. (per1g and (GREY .. "  ·  |r" .. Duration(per1g) .. GREY .. " per 1g of materials|r") or ""))
         local perHour = ProfitPerHour(row)
         if perHour then Line("PPH", P1g(perHour, row.approx) .. GREY .. "  of crafting|r") end
@@ -1163,7 +1175,7 @@ local function RowHints(tab, row)
         GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
         return
     end
-    GameTooltip:AddLine("Click: create shopping list", HINT_R, HINT_G, HINT_B)
+    GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
     local targets = FM.ahOpen and SnipeTargets(row)
     if targets then
@@ -1217,7 +1229,7 @@ end
 
 -- What a click searches at the AH: only what you would buy there (FRV-79, trade/Picks.lua FM.ShoppingList): a
 -- pick its plan's AH purchases, a craft or recipe its AH materials (never the item), a flip, a vendor resell or
--- an item without a craft the item itself. FRV-47 searches the same list in Blizzard's AH
+-- an item without a craft the item itself
 local function ShoppingList(row)
     local tab, src = RowSource(row.stepsOf or row)
     if tab and tab.picks then return FM.ShoppingList("pick", src) end
@@ -1225,30 +1237,40 @@ local function ShoppingList(row)
     return FM.ShoppingList("item", src)
 end
 
-local function SearchAtAH(row)
-    local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
+-- Searches the keys in Blizzard's Buy list (FRV-47, FM.SearchAH in ui/AHButton.lua; Auctionator's shopping list
+-- until 1.32); away from the AH it says to open it. Returns how many items it searched
+local function SearchKeys(keys)
     if not FM.ahOpen then
         FM.Print("Open the Auction House to search it.")
-        return
+        return nil
     end
-    if not (api and api.MultiSearchExact) then
-        FM.PrintError("Searching needs Auctionator.")
-        return
-    end
-    local names, seen = {}, {}
-    for _, key in ipairs(ShoppingList(row)) do
-        local name = Name(key)
-        if name and not seen[name] and not name:find("^item:") then
-            seen[name] = true
-            names[#names + 1] = name
-        end
-    end
-    if not names[1] then
+    local n, err = FM.SearchAH(keys)
+    if not n then FM.PrintError("Failed to search the AH: " .. tostring(err)) end
+    return n
+end
+
+local function SearchAtAH(row)
+    local keys = ShoppingList(row)
+    if FM.ahOpen and not keys[1] then
         FM.Print("Nothing to buy on the AH for " .. Name(row.key) .. ": what it needs comes from a vendor or your bags.")
         return
     end
-    local ok, err = pcall(api.MultiSearchExact, "ForeverMarket", names)
-    if not ok then FM.PrintError("Auctionator search failed: " .. tostring(err)) end
+    SearchKeys(keys)
+end
+
+-- Favorites' "Search all at the AH" (FRV-47): one search for every favorite the tab shows (ignored ones are not)
+local function SearchFavorites()
+    local keys = {}
+    for key, on in pairs(type(Settings().favorites) == "table" and Settings().favorites or {}) do
+        if on and not FM.IsExcluded(key) then keys[#keys + 1] = key end
+    end
+    table_sort(keys)
+    if FM.ahOpen and not keys[1] then
+        FM.Print("No favorites yet: right-click a row in any tab > Favorize this item.")
+        return
+    end
+    local n = SearchKeys(keys)
+    if n then FM.Print("Searching your favorites at the AH:", FM.FormatCount(n)) end
 end
 
 -- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
@@ -1394,6 +1416,9 @@ local function LayoutFilters(f)
     f.filtersButton:SetPoint("LEFT", f.search, "RIGHT", 12, 0)
     f.globalButton:ClearAllPoints()
     f.globalButton:SetPoint("LEFT", f.filtersButton, "RIGHT", 4, 0)
+    -- Favorites has no filters: its search button takes their place
+    f.searchAll:ClearAllPoints()
+    f.searchAll:SetPoint("LEFT", f.search, "RIGHT", 12, 0)
     f.useGlobal.label:ClearAllPoints()
     f.useGlobal.label:SetPoint("LEFT", f.globalButton, "RIGHT", 12, 0)
     local anchor = f.refresh
@@ -1653,7 +1678,7 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
         frame.invest, frame.invest.label, frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.empty, frame.summary, frame.lock, frame.lock.label }) do
+        frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll }) do
         w:Hide()
     end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
@@ -1750,6 +1775,7 @@ Render = function()
     frame.useGlobal:SetChecked(useGlobal and true or false)
     if FM.FiltersDialogSync then FM.FiltersDialogSync(filterTab and tab.id or nil) end
     frame.prof:SetShown(filterTab)
+    frame.searchAll:SetShown((tab.favs and not tab.ignored) and true or false)
     frame.lock:SetShown(tab.picks and true or false)
     frame.lock.label:SetShown(tab.picks and true or false)
     frame.lock:SetChecked(FM.PicksLocked())
@@ -1989,6 +2015,15 @@ local function CreateTable()
         FM.TableFiltersChanged(view.tab)
     end)
     FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.")
+    -- Favorites: "Search all at the AH" (FRV-47), every favorite in one search of Blizzard's Buy list
+    f.searchAll = Button(f, "Search all at the AH", 150, SearchFavorites)
+    f.searchAll:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Search all at the AH")
+        GameTooltip:AddLine("Searches every favorite at once in Blizzard's Buy list (the Auction House must be open): the ones on the AH are listed there, a click on one opens its Buy page. Buy there, or snipe them (Shift+click a row here).", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (whole percent, 1-100),
     -- Y = the picks the plan has at most
     local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")

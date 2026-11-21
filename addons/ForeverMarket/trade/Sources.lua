@@ -263,14 +263,85 @@ local function PatternLevel(key)
     return RecipeOwnLevel(lines)
 end
 
--- Auctionator's cache of vendor prices it saw at merchants (reagents only, no place)
-local function AuctionatorVendorPrice(key)
-    local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
-    if not (api and api.GetVendorPriceByItemID) then return nil end
-    local ok, price = pcall(api.GetVendorPriceByItemID, "ForeverMarket", tonumber(key))
-    if ok and type(price) == "number" and price > 0 then return price end
-    return nil
+---------------------------------------------------------------- vendor prices seen at merchants (FRV-48)
+-- While a merchant window is open, what it sells for gold without limit is kept per realm and faction:
+-- R.vendorSeen[key] = "<unit price>,<time>,<npc name>": copper per unit (a plain number, decimals for a stack of
+-- several), FM.Stamp(), the NPC's name (empty when it was secret). A visit replaces what it saw. Limited stock (a
+-- numAvailable of 0 or more: Blizzard shows a stock above 0 and greys an item at 0), extended costs and currencies
+-- are not recorded: they cannot supply a batch of crafts. Auctionator's own vendor cache was read until 1.32
+
+-- "12.5", "45": a unit price without trailing zeros
+local function UnitText(unit)
+    local text = string.format("%.4f", unit):gsub("0+$", ""):gsub("%.$", "")
+    return text
 end
+
+-- The merchant's name, without the separators of the line; "" when it is secret (UnitName of an NPC can be)
+local function MerchantName()
+    local name = UnitName and UnitName("npc")
+    if FM.IsSecret(name) or type(name) ~= "string" then return "" end
+    return (name:gsub("[,;]", ""))
+end
+
+-- Reads the open merchant's offers into R.vendorSeen; returns how many it recorded
+function FM.ReadMerchant()
+    local getInfo = C_MerchantFrame and C_MerchantFrame.GetItemInfo
+    local count = GetMerchantNumItems and GetMerchantNumItems()
+    if not getInfo or FM.IsSecret(count) or type(count) ~= "number" or count <= 0 then return 0 end
+    local r = FM.R()
+    if not r then return 0 end
+    if type(r.vendorSeen) ~= "table" then r.vendorSeen = {} end
+    local seen, npc, stamp, recorded = r.vendorSeen, MerchantName(), FM.Stamp(), 0
+    for index = 1, count do
+        local ok, info = pcall(getInfo, index)
+        if ok and type(info) == "table" then
+            local price, stack, available = info.price, info.stackCount, info.numAvailable
+            local plain = not (FM.IsSecret(price) or FM.IsSecret(stack) or FM.IsSecret(available)
+                or FM.IsSecret(info.hasExtendedCost) or FM.IsSecret(info.currencyID))
+            -- for gold, without limit
+            if plain and type(price) == "number" and price > 0 and type(available) == "number" and available < 0
+                and not info.hasExtendedCost and info.currencyID == nil then
+                local link = GetMerchantItemLink and GetMerchantItemLink(index)
+                local key = not FM.IsSecret(link) and FM.KeyFromLink(link)
+                if key then
+                    if type(stack) ~= "number" or stack < 1 then stack = 1 end
+                    seen[key] = UnitText(price / stack) .. "," .. stamp .. "," .. npc
+                    recorded = recorded + 1
+                end
+            end
+        end
+    end
+    return recorded
+end
+
+-- What a merchant was seen selling an item for: { unit, where, npc, seen = epoch seconds } or nil
+local function SeenOffer(key)
+    local r = FM.R()
+    local line = r and type(r.vendorSeen) == "table" and r.vendorSeen[key]
+    if type(line) ~= "string" then return nil end
+    local unit, stamp, npc = line:match("^([^,]*),([^,]*),(.*)$")
+    unit = tonumber(unit)
+    if not unit or unit <= 0 then return nil end
+    npc = npc ~= "" and npc or nil
+    return { unit = unit, price = unit, stack = 1, npc = npc, seen = FM.Unstamp(stamp),
+        where = npc and ("a vendor (seen at " .. npc .. ")") or "a vendor" }
+end
+FM.SeenVendorOffer = SeenOffer
+
+-- At the merchant: what it shows now, again a moment later (items whose data the client loads after the window
+-- opened) and after every change of its list (a purchase, the filter)
+local merchantOpen = false
+FM.On("MERCHANT_SHOW", function()
+    merchantOpen = true
+    FM.ReadMerchant()
+    C_Timer.After(2, function()
+        if merchantOpen then FM.ReadMerchant() end
+    end)
+end)
+FM.On("MERCHANT_UPDATE", function()
+    if merchantOpen then FM.ReadMerchant() end
+end)
+FM.On("MERCHANT_CLOSED", function() merchantOpen = false end)
 
 -- Builds FM.sources = { crafts = {...}, vendors = {key -> {best, offers}}, profs = {...} }
 function FM.BuildSources()
@@ -379,14 +450,15 @@ function FM.Sources()
 end
 
 -- Cheapest vendor price per unit of an item: (unit, offer) or nil. Material costs leave out offers
--- with limited stock (allowLimited false): those cannot supply a batch of crafts.
+-- with limited stock (allowLimited false): those cannot supply a batch of crafts. ForeverArtisan's Trade Contacts
+-- first (they know the place); where they have no such offer, what a merchant was seen selling it for without limit
+-- (FRV-48, R.vendorSeen)
 function FM.VendorUnit(key, allowLimited)
     local v = FM.Sources().vendors[key]
     local offer = v and (allowLimited ~= false and v.best or v.unlimited)
     if offer then return offer.unit, offer end
-    if v then return nil end
-    local price = AuctionatorVendorPrice(key)
-    if price then return price, { unit = price, where = "a vendor (Auctionator saw it)" } end
+    local seen = SeenOffer(key)
+    if seen then return seen.unit, seen end
     return nil
 end
 

@@ -96,6 +96,8 @@ local INPUT_TIPS = {
     tableCircPct = "The most of an item's C/24h one pick may add to the AH, your listings on all characters included. Whole numbers 1 to 100 (default 25).",
     -- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
     tableFirstPct = "A commodity you have no sales of plans a first batch of at most this share of its C/24h. Whole numbers 1 to 10 (default 2).",
+    -- Craft materials: buying a material you can craft saves its crafting time, so it may cost a little more (FRV-69)
+    tableTimePct = "A material you can craft yourself is bought instead when buying it costs at most this many percent more than crafting it, per second of crafting one unit that buying saves (its cast time plus 0.5 s between crafts): at 2, a 3 s craft allows 6%. Craft, Picks and the item tooltips follow it. 0: always the cheaper route. A material whose cast time is not known yet (its recipe not read in the profession window) takes the cheaper route. Whole numbers 0 to 20 (default 2).",
 }
 
 -- A changed value of an input: an input of the picks plan, so it plans again (only when there are numbers already)
@@ -103,6 +105,7 @@ local function SaveSetting(settingKey, value)
     local settings = FM.GetSettings()
     if settings[settingKey] == value then return end
     settings[settingKey] = value
+    FM.dataVersion = (FM.dataVersion or 0) + 1 -- the item tooltips' material cost follows the buy or craft rate too
     if FM.trade and FM.PlanPicks then FM.PlanPicks() end
     if FM.RefreshTable then FM.RefreshTable() end
 end
@@ -174,13 +177,13 @@ local function MoneyInput(label, text, settingKey)
     end)
 end
 
--- One box with "%" after it
-local function PercentInput(label, text, settingKey)
+-- One box with "%" after it (or the rest of the sentence: suffix)
+local function PercentInput(label, text, settingKey, suffix)
     local box = FM.NumberBox(panel, 3)
     box:SetPoint("LEFT", label, "RIGHT", 12, 0)
     local percent = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
     percent:SetPoint("LEFT", box, "RIGHT", 2, 0)
-    percent:SetText("%")
+    percent:SetText(suffix or "%")
     InputTip(box, text, settingKey)
     local input = { settingKey = settingKey, boxes = { box } }
     function input.Show()
@@ -242,17 +245,19 @@ function FM.RegisterSettingsPanel()
     end
 
     local y = -64 - #OPTIONS * 30 - 6
-    -- a label at y and its input after it; the next row 34 lower
-    local function InputRow(text, Make, settingKey)
+    -- a label at y and its input after it (suffix: the text after the input); the next row 34 lower
+    local function InputRow(text, Make, settingKey, suffix)
         local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         label:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
         label:SetText(text)
-        Make(label, text, settingKey)
+        Make(label, text .. (suffix and (" [N]" .. suffix) or ""), settingKey, suffix)
         y = y - 34
     end
     InputRow("Market table: minimum profit per item", MoneyInput, "tableMinProfit")
     InputRow("Picks: share of an item's C/24h one pick may plan", PercentInput, "tableCircPct")
     InputRow("Picks: first batch of a commodity without your sales, share of C/24h", PercentInput, "tableFirstPct")
+    InputRow("Buy a craftable material when it costs at most", PercentInput, "tableTimePct",
+        "% more per second of crafting it saves")
     y = y - 6
 
     local tableButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")

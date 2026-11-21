@@ -2,11 +2,64 @@ local _, FM = ...
 
 -- Small buttons on the Auction House title bar, right to left: "FM: snipe" opens the snipe window (sniping runs
 -- while it is open), "FM: scan" starts a deep scan (FRV-84; disabled while one runs or the server's 15 minutes are
--- not over, the tooltip says why), "FM: table" opens the market table.
+-- not over, the tooltip says why), "FM: table" opens the market table. And the market table's search in Blizzard's
+-- Buy list (FM.SearchAH, FRV-47).
 
 local button
 local scanButton
 local tableButton
+
+---------------------------------------------------------------- search in Blizzard's Buy list (FRV-47)
+
+-- The sorts of Blizzard's Buy list (its saved g_auctionHouseSortsBySearchContext of the browse), copied; price, then
+-- name like Blizzard's browse default without them
+local function BrowseSorts()
+    local order = Enum and Enum.AuctionHouseSortOrder
+    if not order then return {} end
+    local sorts = {}
+    local saved = _G.g_auctionHouseSortsBySearchContext
+    local context = AuctionHouseSearchContext and AuctionHouseSearchContext.BrowseAll
+    local list = type(saved) == "table" and context ~= nil and saved[context]
+    if type(list) == "table" then
+        for _, s in ipairs(list) do
+            if type(s) == "table" and type(s.sortOrder) == "number" then
+                sorts[#sorts + 1] = { sortOrder = s.sortOrder, reverseSort = s.reverseSort == true }
+            end
+        end
+    end
+    if #sorts == 0 then
+        sorts = { { sortOrder = order.Price, reverseSort = false }, { sortOrder = order.Name, reverseSort = false } }
+    end
+    return sorts
+end
+
+-- Searches these items (keys) in Blizzard's Auction House by item ID: C_AuctionHouse.SearchForItemKeys, one item key
+-- of the bare item ID each, in one call. The results arrive like any browse (AUCTION_HOUSE_BROWSE_RESULTS_UPDATED), so
+-- Blizzard's Buy list shows them and a click there opens the item's Buy page. Another page of the AH open (a Buy page,
+-- Sell, Auctions): the list is shown, the way Blizzard's favorites search does (AuctionHouseFrameMixin:QueryAll);
+-- already on the list, the frame is left alone. Returns how many items it searched, or nil and why not
+function FM.SearchAH(keys)
+    local api = C_AuctionHouse
+    if not (api and api.SearchForItemKeys and api.MakeItemKey) then return nil, "this client has no search by item" end
+    local itemKeys, seen = {}, {}
+    for _, key in ipairs(keys) do
+        local id = FM.ItemIDFromKey(key)
+        if id and not seen[id] then
+            seen[id] = true
+            local ok, itemKey = pcall(api.MakeItemKey, id)
+            if ok and type(itemKey) == "table" then itemKeys[#itemKeys + 1] = itemKey end
+        end
+    end
+    if not itemKeys[1] then return 0 end
+    local ok, err = pcall(api.SearchForItemKeys, itemKeys, BrowseSorts())
+    if not ok then return nil, tostring(err) end
+    -- show the list: SetDisplayMode runs from AddOn code here (docs/forever-api-notes.md, Auction House: taint)
+    local frame, modes = _G.AuctionHouseFrame, _G.AuctionHouseFrameDisplayMode
+    if frame and modes and modes.Buy and frame.GetDisplayMode and frame.SetDisplayMode and frame:GetDisplayMode() ~= modes.Buy then
+        pcall(frame.SetDisplayMode, frame, modes.Buy)
+    end
+    return #itemKeys
+end
 
 -- "FM: scan" is enabled only when a click would start a deep scan
 local function UpdateScanButton()
@@ -97,6 +150,7 @@ local function CreateButton()
         local key = GetBindingKey("FOREVERMARKET_TABLE")
         GameTooltip:AddLine("Picks, favorites, crafts, vendor and flip resell, materials and farming spots. Also /fm"
             .. (key and (" or the key " .. GetBindingText(key)) or "") .. ".", 1, 1, 1, true)
+        GameTooltip:AddLine("Click a row (AH open): what it buys on the AH in Blizzard's Buy list.", 0.6, 0.8, 1, true)
         GameTooltip:AddLine("Shift-click a row (AH open) or Snipe in its right-click menu: snipe what it buys at the AH at the table's prices (a pick: every AH purchase of its plan, with its units).", 0.6, 0.8, 1, true)
         GameTooltip:Show()
     end)

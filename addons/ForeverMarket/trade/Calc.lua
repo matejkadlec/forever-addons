@@ -19,7 +19,6 @@ local Enc, Dec = FM.Enc, FM.Dec
 local type = type
 local pairs = pairs
 local ipairs = ipairs
-local tostring = tostring
 local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
@@ -213,17 +212,60 @@ end
 
 FM.BatchUnit = BatchUnit
 
-local function AuctionatorPrice(key)
-    local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
-    if not (api and api.GetAuctionPriceByItemID) then return nil end
-    local ok, price = pcall(api.GetAuctionPriceByItemID, "ForeverMarket", tonumber(key))
-    if ok and type(price) == "number" and price > 0 then return price end
-    return nil
+-- The cheapest price of one record or rollup: others' when it knows them, else its minimum (only yours, or a record
+-- that cannot tell yours apart); nil without any
+local function RecordPrice(f, key)
+    local others = FM.OthersMin(f, key)
+    if others then return others end
+    local p = Dec(f[2])
+    return (p and p > 0) and p or nil
+end
+
+local function RollupPrice(f)
+    local n, lowest = FM.RollupOthers(f)
+    if n > 0 and lowest and lowest > 0 then return lowest end
+    local p = Dec(f[4]) -- minMin: yours among them
+    return (p and p > 0) and p or nil
+end
+
+-- The last price ForeverMarket saw of an item (FRV-48, Auctionator's last price before): the cheapest price of its
+-- newest record that has one, the per-scan records of 72 hours first, then the daily rollups of 60 days; nil when
+-- nothing in 60 days had a price. Cached until the data changes (FM.dataVersion)
+local LAST_DAYS = FM.LIMITS.rollupDays
+local lastCache, lastVersion = {}, nil
+function FM.LastPrice(key)
+    if lastVersion ~= (FM.dataVersion or 0) then lastCache, lastVersion = {}, FM.dataVersion or 0 end
+    local cached = lastCache[key]
+    if cached ~= nil then return cached or nil end
+    local item = FM.R().items[key]
+    local price
+    -- the newest record first (FM.LatestRecord is cheap), then the older ones only when it has no price
+    local latest = FM.LatestRecord(key)
+    price = latest and RecordPrice(latest, key)
+    if not price and latest then
+        local records = FM.DetailRecords(item)
+        for i = #records - 1, 1, -1 do
+            price = RecordPrice(records[i], key)
+            if price then break end
+        end
+    end
+    if not price and item and item.r then
+        local today = math_floor((FM.Now() - FM.EPOCH) / 86400)
+        local newest
+        for roll in string_gmatch(item.r, "[^;]+") do
+            local f = FM.Split(roll, ",")
+            local day = Dec(string_sub(f[1], 2))
+            local p = day and day >= today - LAST_DAYS and RollupPrice(f)
+            if p and (not newest or day > newest) then newest, price = day, p end
+        end
+    end
+    lastCache[key] = price or false
+    return price
 end
 
 -- Price to list at: just under the cheapest auction of others (never under the lowest price an auction
 -- can have: 1s for single items, the 4th return says the market sits at that floor); with none, your own
--- price or the last seen
+-- price or the last seen (an estimate, counted as today's)
 local function SellPrice(key, view)
     local p = view.Get(key)
     if p and p.ladder[1] then
@@ -233,7 +275,7 @@ local function SellPrice(key, view)
     end
     if p and p.ownMin then return p.ownMin, "own", p end
     if view.estimated then return nil, nil, p end
-    local last = AuctionatorPrice(key)
+    local last = FM.LastPrice(key)
     if last then return last, "last", p end
     return nil, nil, p
 end
@@ -242,12 +284,64 @@ end
 -- cheaper of buying it and making it (Cured Light Hide from Light Hide + Salt, ...)
 local passCrafts = {}
 local MAX_DEPTH = 2
-local CRAFT_EDGE = 0.97 -- crafting has to beat buying clearly (time, risk): by 3%
+
+-- Buying a material you can craft saves the crafting time (FRV-69): it may cost this much more, as a share of the
+-- craft price: its seconds of crafting per unit x the setting tableTimePct (% per second, default 2: a 3 s craft
+-- allows 6%). 0 when the rate is 0 or the cast time is not known (the cheaper route then)
+function FM.BuyAllowance(secondsPerUnit)
+    local rate = FM.GetSettings().tableTimePct
+    if type(secondsPerUnit) ~= "number" or type(rate) ~= "number" or rate <= 0 or secondsPerUnit <= 0 then return 0 end
+    return secondsPerUnit * rate / 100
+end
 
 -- The one rule of buy or craft, for the table (MaterialUnit) and the plan (trade/Picks.lua, per craft run, FRV-78):
--- craft when making the units costs clearly less than buying them. FRV-69's time allowance replaces the 3% here
-function FM.CraftBeatsBuying(craftCost, buyCost)
-    return craftCost < buyCost * CRAFT_EDGE
+-- buy when (buying - crafting) / crafting <= the allowance, else craft. Costs per unit (or both for the same units)
+function FM.CraftBeatsBuying(craftCost, buyCost, secondsPerUnit)
+    return buyCost > craftCost * (1 + FM.BuyAllowance(secondsPerUnit))
+end
+
+-- "3s", "1.5s": the seconds of crafting one unit
+local function Seconds(s)
+    if s >= 10 then return string.format("%.0fs", s) end
+    return (string.format("%.1f", s):gsub("%.0$", "")) .. "s"
+end
+
+-- Why a material line buys or crafts a craftable material (FRV-69): "buying 4% dearer, saves 3s per unit" for one
+-- it buys, "buying 17% dearer" for one it crafts; nil when buying is not dearer than crafting
+function FM.BuyPremiumText(craftUnit, buyUnit, secondsPerUnit, bought)
+    if type(craftUnit) ~= "number" or type(buyUnit) ~= "number" or craftUnit <= 0 or buyUnit <= craftUnit then return nil end
+    local pct = (buyUnit - craftUnit) / craftUnit * 100
+    local text = pct < 0.5 and "buying under 1% dearer" or string.format("buying %d%% dearer", math_floor(pct + 0.5))
+    if bought and type(secondsPerUnit) == "number" and secondsPerUnit > 0 then
+        text = text .. ", saves " .. Seconds(secondsPerUnit) .. " per unit"
+    end
+    return text
+end
+
+-- Seconds of crafting per unit of a priced material: its recipe's cast time per unit and its own crafted materials',
+-- 0 for one bought or from a vendor; nil while a cast time of it is not known
+local function MaterialSeconds(m)
+    if m.src ~= "craft" then return 0 end
+    if not m.secs then return nil end
+    local total = m.secs
+    for _, sub in ipairs(m.parts or {}) do
+        local s = MaterialSeconds(sub)
+        if s then total = total + s * (sub.n or 1) end
+    end
+    return total / (m.makes or 1)
+end
+
+-- Seconds one craft of a row takes (PPH, time per 1g): its own cast time plus crafting the materials it crafts
+-- (FRV-69: none for a bought material); nil while its own cast time is not known. Second value: the materials' part
+function FM.CraftRowSeconds(row)
+    local own = row.craft and FM.CraftSeconds and FM.CraftSeconds(row.craft)
+    if not own then return nil end
+    local mats = 0
+    for _, m in ipairs(row.parts or {}) do
+        local s = MaterialSeconds(m)
+        if s then mats = mats + s * (m.n or 1) end
+    end
+    return own + mats, mats
 end
 
 -- Cost of one unit of a material: vendor (unlimited stock), the AH ladder for a batch of crafts,
@@ -289,8 +383,10 @@ local function MaterialUnit(key, need, view, depth, crafts)
         end
         if cost then
             local unit = cost / makes
-            alt = { unit = unit, src = "craft", parts = parts, recipe = craft.recipe, makes = makes, approx = approx }
-            if not best or best.short or FM.CraftBeatsBuying(unit, best.unit) then
+            -- secs: one craft's seconds (cast time + the gap), nil while not known (FRV-69's allowance needs it)
+            local secs = FM.CraftSeconds and FM.CraftSeconds(craft) or nil
+            alt = { unit = unit, src = "craft", parts = parts, recipe = craft.recipe, makes = makes, approx = approx, secs = secs }
+            if not best or best.short or FM.CraftBeatsBuying(unit, best.unit, secs and secs / makes) then
                 alt.buy = best
                 best, alt = alt, nil
             end
@@ -303,7 +399,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
         return best
     end
     if not view.estimated then
-        local last = AuctionatorPrice(key)
+        local last = FM.LastPrice(key)
         if last then return { unit = last, src = "last", approx = true } end
     end
     return nil
@@ -523,19 +619,10 @@ end
 
 ---------------------------------------------------------------- usual price (flips)
 
-local DAY0 = time({ year = 2020, month = 1, day = 1, hour = 0 }) -- Auctionator's day numbers
+local DAY0 = time({ year = 2020, month = 1, day = 1, hour = 0 }) -- local days, counted from 2020-01-01
 
 local function DayOf(seconds)
     return math_floor((seconds - DAY0) / 86400)
-end
-
-local function AuctionatorHistory(key)
-    local auctionator = _G.Auctionator
-    local database = type(auctionator) == "table" and auctionator.Database
-    local db = type(database) == "table" and database.db
-    local entry = type(db) == "table" and db[key]
-    if type(entry) ~= "table" then return nil end
-    return entry
 end
 
 local function Median(list)
@@ -545,7 +632,8 @@ local function Median(list)
 end
 
 -- Median of the daily lowest prices of the last 8 days (today left out) and of the last 2 of them.
--- Per day: our scans (median of their minimums), the daily rollup, or Auctionator's daily low.
+-- Per day: our scans (median of their minimums), else the daily rollup; no other source (FRV-48: Auctionator's daily
+-- lows filled the days without either until 1.32)
 local function UsualPrice(key, now)
     local today = DayOf(now)
     local ours = {}
@@ -570,7 +658,6 @@ local function UsualPrice(key, now)
             rolled[DayOf(FM.EPOCH + utcDay * 86400 + 43200)] = sumMin / nMin
         end
     end
-    local auc = AuctionatorHistory(key)
     local values, recent = {}, {}
     for day = today - 8, today - 1 do
         local v
@@ -578,10 +665,6 @@ local function UsualPrice(key, now)
             v = Median(ours[day])
         elseif rolled[day] then
             v = rolled[day]
-        elseif auc then
-            local h = type(auc.h) == "table" and auc.h[tostring(day)]
-            local l = type(auc.l) == "table" and auc.l[tostring(day)]
-            if h and l then v = math_min(h, l) else v = h or l end
         end
         if v then
             values[#values + 1] = v

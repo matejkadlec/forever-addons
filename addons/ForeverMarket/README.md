@@ -75,7 +75,8 @@ have no marks, so its records stay as they were).
   * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
     * **now**: the materials of one unit at today's prices, priced the way the market table prices them
       (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, whichever is cheaper, an intermediate you
-      can make yourself up to 2 levels deep when that beats buying by 3%), here on the freshest ladders (below);
+      can make yourself up to 2 levels deep unless buying it costs at most the allowance of the crafting time it
+      saves, FRV-69, see Picks), here on the freshest ladders (below);
       the recipe is the learned one of the ForeverArtisan data, else the one your newest craft of it used. Never the
       item's own price: a material without any price leaves "-"
     * **you paid**: the materials' basis per unit that the craft log recorded at the craft (below), over the units
@@ -182,6 +183,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
+* Vendor prices of materials (`FM.VendorUnit`): Trade Contacts' offers first (they know the place); where they have
+  none, what a merchant was seen selling the item for (1.33, FRV-48, `R.vendorSeen`, trade/Sources.lua): while a
+  merchant window is open (`MERCHANT_SHOW`, a second read 2 s later, `MERCHANT_UPDATE`), every item it sells for gold
+  without limit (`C_MerchantFrame.GetItemInfo(index)`: `numAvailable` below 0; not `hasExtendedCost`, no
+  `currencyID`; `price` is for `stackCount` units) is kept with the NPC's name (`UnitName("npc")`, kept without it
+  when secret); a visit replaces what it saw; the material line names it "a vendor (seen at <npc>)". Until 1.32 the
+  fallback was Auctionator's own cache of vendor prices ("a vendor (Auctionator saw it)").
 * Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
@@ -212,8 +220,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   "Over character level". PPH = profit per craft / seconds per craft x 3600 (= PPG / time per 1g: gold is
   the limited input, crafting time isn't), seconds = the recipe spell's cast time
   (`C_Spell.GetSpellInfo(recipeID).castTime`, the recipe ID is its spell ID, `craft.spell` from ForeverArtisan's
-  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Default sort: PPH. The
-  craft tooltip shows the craft time and the time per 1g of materials.
+  `r.id`) + 0.5 s between crafts; "?" when the spell isn't known (sorted last). Since 1.33 (FRV-69,
+  `FM.CraftRowSeconds`) the seconds also count crafting the materials the row crafts (their cast time per unit, as
+  far as it is known), none for a bought one. Default sort: PPH. The craft tooltip shows the craft time (with the
+  materials' part) and the time per 1g of materials.
+* Materials in Craft's row tooltip (1.33, FRV-69): a material you can craft says why it is crafted or bought: `craft
+  it, buying costs 17s 25c (buying 17% dearer)` (or "too few on the AH" for a batch), `AH (craft price 14s 77c:
+  buying 2% dearer, saves 3s per unit)`; `(craft price ...)` alone when buying is the cheaper route anyway.
 * **Learn** = every recipe still to learn, losing ones too (1.18 layout): **Recipe** first (icon, quality color, no
   "learn": every row is one), **Skill** (until 1.17 "Min": the lowest skill of its routes; white when you have it,
   red when not), **Cost** (the cheapest route, `row.learnCost`; grey = the last seen price of a pattern that is not
@@ -289,7 +302,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
-  latest record. An item you also ignored shows only in Ignored, with its star.
+  latest record. An item you also ignored shows only in Ignored, with its star. "Search all at the AH" (1.33,
+  FRV-47, right of the search box where the other tabs have their filters): one search of every favorite the tab
+  shows in Blizzard's Buy list (`FM.SearchAH`, below), with a chat line of how many; the ones on the AH are listed
+  there. It takes the place of a shopping list: the list is your favorites, the buying is Blizzard's Buy page or the
+  sniper. Away from the AH it says to open it.
 * **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
@@ -429,18 +446,25 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
   * A material you can craft yourself (Cured Heavy Hide from Heavy Hide + Salt) is bought or crafted craft run by
-    craft run, whichever is cheaper for those units (1.27, FRV-78): one run crafted, its materials from what is
+    craft run (1.27, FRV-78): one run crafted, its materials from what is
     left of their ladders, against buying the units still needed next on the AH or at the vendor, per unit (a
     recipe that makes 3 for a product that needs 1: the spare units go to the next crafts, each craft counts the
-    units it uses at their share of the run's cost); crafting has to beat
-    buying by 3%, the table's rule (`FM.CraftBeatsBuying`, trade/Calc.lua). Before 1.27 the plan kept the route
+    units it uses at their share of the run's cost), by the table's rule (`FM.CraftBeatsBuying`, trade/Calc.lua).
+    Since 1.33 (FRV-69) buying saves the crafting time, so it may cost a little more: buy when (buying - crafting) /
+    crafting <= allowance, allowance = seconds per unit (the recipe's cast time + 0.5 s, `FM.CraftSeconds`, divided
+    by the units one craft makes) x the settings panel's rate (`tableTimePct`, % per second, default 2: a 3 s craft
+    allows 6%); rate 0 or a cast time not known yet (the recipe not read in the profession window) = the cheaper
+    route. So the plan buys up the AH ladder while the premium stays within the allowance and crafts the rest. 1.27
+    to 1.32 crafting had to beat buying by a fixed 3%. Before 1.27 the plan kept the route
     the table chose for a batch of 5 crafts, so a bigger pick bought the cheap units and then the dear ones up the
     ladder (Barbaric Bracers: 30 Cured Heavy Hide up to 17s 66c next to a craft price of 14s 77c), or crafted every
     unit while its materials got dearer. The table keeps the craft of a material it prices as bought
-    (`craftAlt`) or why there is none (`noCraft`). The pick's material line shows the split ("AH 10 up to 13s 00c
-    (crafting costs 14s 77c each), craft 20") and, for a craftable material it buys, why: what crafting those
-    units would cost (", under 3% less" when that is cheaper by less than the margin), "no Heavy Hide left to craft it", "recipe not learned", "no price for ..."; the materials of
-    a crafted one are listed under it.
+    (`craftAlt`, with its seconds per craft `secs`) or why there is none (`noCraft`). The pick's material line shows
+    the split ("AH 10 up to 13s 00c (crafting costs 14s 77c each), craft 20 (buying 20% dearer)") and, for a
+    craftable material it buys, why: what crafting those units would cost (and when buying is dearer, by how much
+    and the time it saves: ", buying 4% dearer, saves 3s per unit"), "no Heavy Hide left to craft it", "recipe not
+    learned", "no price for ..."; for the units it crafts how much dearer buying them would be (the newest crafted
+    run, `craftWhy`); the materials of a crafted one are listed under it.
   * No loss: profit at the usual price (median daily low of the last week) when that is under the sell
     price, minus deposits lost on relists (share from your invoices, else 12%), must stay positive. Confidence
     (demand evidence, 3 day swing of uncapped prices, falling price today, cornered market, days of stock
@@ -456,11 +480,21 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   cheaper posts and the AH hangs ("Creating 0/15", throttled system never ready). Every sell price respects it;
   rows at that floor say so (no undercut possible, you queue behind the others).
 * Crafts: sell = cheapest listing of others - 1c, capped at the usual price (median daily low of the last
-  week) when that listing is over 125% of it. Material cost = cheapest of vendor (unlimited stock), the AH
-  ladder for 5 crafts, or crafting it yourself (learned recipes, 2 levels deep). PPG = profit / cost,
+  week) when that listing is over 125% of it; none listed by others: your own price; none listed at all: the last
+  price (below). Material cost = cheapest of vendor (unlimited stock), the AH
+  ladder for 5 crafts, or crafting it yourself (learned recipes, 2 levels deep; bought instead within the
+  allowance of the crafting time it saves, FRV-69, see Picks); none of these: the last price. PPG = profit / cost,
   max mat buy = main AH material price that still leaves 10% profit, min. price = the price that still
   breaks even after the 5% cut when you bought that material at max mat buy (= sell / 1.1; the two work as a
   pair), or the break-even of today's material prices when that is higher (tooltip shows both).
+* Last price (1.33, FRV-48, `FM.LastPrice` in trade/Calc.lua): for an item not listed in the latest snapshot, the
+  cheapest price of its newest record that has one (others' when the record knows them apart, else its minimum),
+  the per-scan records of 72 hours first, then the daily rollups of 60 days; nothing in 60 days = no price. It is
+  marked "last" (an estimate, counted as today's) for a craft's list price and a material. Until 1.32 it was
+  Auctionator's last price, mostly a copy of our own data since 1.16.
+* Usual price (`FM.UsualPrice`): the median of the daily lows of the last 8 days (today left out) from our own scans,
+  else the day's rollup; since 1.33 (FRV-48) nothing else, before Auctionator's daily lows filled the days without
+  either, so the usual price is the same with and without Auctionator.
 * 3 day history (`r.track.h`, one line per scan `<t>|<flag>|key:cost:sell:maxMat:onAH;...`, flag `~` = estimated
   from records): the 3 day ranges in tooltips and picks (the "Past 3 days" tab is gone since 1.10).
 * **Vendor** (until 1.10 "Vendor resell") columns (1.18): Item, PPG, Vendor price, **List at** (`row.sell`, in place
@@ -513,16 +547,26 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
   (`tableMinProfit`, in copper) hides the rows of the Craft, Vendor and Flip tabs that earn less per item, and crafts
   without a known profit; 0g 0s 0c is no minimum (the old "Any"); on Picks the plan leaves them out instead (1.17). Below it the Picks' share of an
-  item's C/24h one pick may plan (1.19, `tableCircPct`) and the first batch of a commodity without your sales (1.31,
-  FRV-71, `tableFirstPct`; see Picks, Room on the AH).
-* The three are number inputs since 1.32 (FRV-86; dropdowns before): minimum profit "[X]g [Y]s [Z]c" like the AH's
+  item's C/24h one pick may plan (1.19, `tableCircPct`), the first batch of a commodity without your sales (1.31,
+  FRV-71, `tableFirstPct`; see Picks, Room on the AH) and the buy or craft rate (1.33, FRV-69, `tableTimePct`: "Buy a
+  craftable material when it costs at most [N]% more per second of crafting it saves", 0 to 20, default 2, 0 = always
+  the cheaper route; see Picks, buy or craft).
+* The first three are number inputs since 1.32 (FRV-86; dropdowns before), the rate one since it came (1.33): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
-  25; the first batch 1 to 10, default 2, the bounds of its dropdown). Whole numbers only; Enter or a click elsewhere applies (out of range is clamped, nothing typed keeps the
+  25; the first batch 1 to 10, default 2, the bounds of its dropdown), the rate "[N]% more per second ..." (0 to 20,
+  default 2). Whole numbers only; Enter or a click elsewhere applies (out of range is clamped, nothing typed keeps the
   saved value) and plans the picks again as the dropdowns did, Esc shows the saved value again. The ranges are
   `FM.SETTING_RANGE` in core/Core.lua; at load a saved dropdown step stays, the old "Any" (no value saved) becomes
   the default 1c, a broken value its default.
-* Click a row at the open AH: an Auctionator shopping list of only what you would buy there (1.27, FRV-79,
-  `FM.ShoppingList` in trade/Picks.lua; FRV-47 will search the same list in Blizzard's AH): a craft (Craft, Learn, a
+* Click a row at the open AH: Blizzard's own Buy list shows only what you would buy there (1.33, FRV-47; an
+  Auctionator shopping list from 1.27 to 1.32, which needed Auctionator: without it the click printed "Searching
+  needs Auctionator."). `FM.SearchAH` (ui/AHButton.lua) sends one `C_AuctionHouse.SearchForItemKeys` with one item key
+  of the bare item ID per item (`C_AuctionHouse.MakeItemKey(itemID)`) and the Buy list's own saved sorts (price, then
+  name without them); the results arrive like any browse, so Blizzard's list shows them and a click there opens the
+  item's Buy page. With another page of the AH open (a Buy page, Sell, Auctions) it switches to the list
+  (`AuctionHouseFrame:SetDisplayMode(AuctionHouseFrameDisplayMode.Buy)`, as Blizzard's favorites search does); on
+  the list it leaves the frame alone. Away from the AH: "Open the Auction House to search it." The list is
+  `FM.ShoppingList` in trade/Picks.lua (1.27, FRV-79): a craft (Craft, Learn, a
   favorite whose best use is a craft) its AH materials, an intermediate the table crafts replaced by its materials
   (two levels deep), never vendor materials and never the item itself, the pattern first when the cheapest way to
   learn the recipe is the AH; a pick exactly the AH purchases of its plan (`pick.shopping`: the pattern it buys on
@@ -532,8 +576,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   snipe what it buys there, a pick every AH purchase of its plan; see Sniper). Right-click: the menu above, with
   Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the row's tooltip as a sticky
   window (below).
-* The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: create shopping
-  list", "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ..."),
+* The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
+  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ..."),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
   (Auctionator)   Shift-click: link" and "Right-click: " with the menu's entries). Farm: "Click: TomTom arrow to the
   spawns", "Shift+click: link the best drop to chat", the Alt+click line; the column headers say "Shift+click" too.
@@ -854,6 +898,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
   craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
   and 5000 lines at most
+* `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
+  without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
+  not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid }` (kept after removal;
   `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; a `pct` from
   before 1.25 is left unused), `budget[character] = { base, since, reset, total, spent[key] }`
