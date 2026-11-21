@@ -4,10 +4,12 @@ local addonName, FM = ...
 --
 -- While the snipe window is open at the AH, the sniped commodities are searched one after another
 -- (C_AuctionHouse.SendSearchQuery, at most ~90 per minute and paced by the AH's own throttle). Units of other
--- sellers at or under an item's price that fit the budget (and its "buy at most") become a "hit". Every mouse wheel
--- step anywhere on screen buys the newest hit (FRV-82: an invisible full-screen frame above every window takes the
--- wheel, so no window scrolls; where the game does not take that as a hardware event, the override bindings that
--- click a hidden button do it, which only fire where no window takes the wheel):
+-- sellers at or under an item's price that fit the budget (and its "buy at most") become a "hit"; a hit lives until
+-- its item's next search result replaces or clears it, at most 30 s (FRV-40). Every mouse wheel step anywhere on
+-- screen buys the newest hit (FRV-82: an invisible full-screen frame above every window takes the wheel, so no
+-- window scrolls; where the game does not take that as a hardware event, the override bindings that click a hidden
+-- button do it, which only fire where no window takes the wheel); the Buy button of a row buys that row's hit
+-- (FRV-40, FM.SnipeBuyRow; a call the game blocks from it turns the buttons off until /reload):
 --   1. StartCommoditiesPurchase(itemID, qty)   HasRestrictions: only from that click, never in combat
 --   2. COMMODITY_PRICE_UPDATED brings the server's quote. It is confirmed only when its total is not above
 --      what the search showed for those units, its unit price is not above your price, and it fits the
@@ -23,10 +25,13 @@ local addonName, FM = ...
 --
 -- Budget, per character (R.snipe.budget[name]), one for all items together (FRV-42; until 1.25 an item could
 -- have its own % of base instead, that mode is gone):
---   base   your gold when the window first opened after the daily reset (or after Reset)
---   total  gold the sniper spent since then; spent[key] per item
---   all items together may spend snipeUniversalPct % of base, then sniping stops; it also never takes your gold
---   under base minus that (the floor), whatever the bookkeeping says
+--   base   your gold when the budget was last refreshed: the first sniping after the daily reset, the window's
+--          refresh button, and every opening of the window while "Automatically refresh budget" is on (FRV-94)
+--   total  gold the sniper spent since then (what counts against the budget)
+--   day    gold the sniper spent today, spent[key] and units[key] per item: a refresh keeps them, only the daily
+--          reset zeroes them (FRV-94; until 1.34 Reset dropped them with the budget)
+--   all items together may spend snipeUniversalPct % of base, or the manual amount (snipeManual, FRV-94), then
+--   sniping stops; it also never takes your gold under base minus that (the floor), whatever the bookkeeping says
 -- Buy at most N units of an item (FRV-43, optional): saved[key].n = N, saved[key].got = units bought since N was
 -- set (paid = what they cost). A hit never takes more than N - got; an item at N is done: not searched, never
 -- bought. A new number starts the count again, a new price keeps it, the daily reset doesn't touch it.
@@ -37,7 +42,7 @@ local addonName, FM = ...
 --   list   = { key, ... }                              sniped items, in the order they were added
 --   saved  = { [key] = { p = copper, n, got, paid } }  price and "buy at most" of an item, kept after removal
 --                                                      (the pct of an item from before 1.25 is left unused)
---   budget = { [character] = { base, since, reset, total, spent = { [key] = copper } } }
+--   budget = { [character] = { base, since, reset, total, day, spent = { [key] = copper }, units = { [key] = n } } }
 -- }
 
 local type = type
@@ -60,7 +65,8 @@ local TICK = 0.1               -- seconds between two looks at the search queue
 local SEARCH_GAP = 0.65        -- at least this long between two searches (the AH allows 100 per minute)
 local PAGE_SEARCH_GAP = 2      -- on Blizzard's Buy page of a sniped item: its list jumps to the top on every search
 local RESULT_TIMEOUT = 3       -- a search without results in time is given up
-local HIT_MAX_AGE = 8          -- an older hit is not bought, the next search refreshes it
+local HIT_MAX_AGE = 30         -- an older hit is not bought (FRV-40, 8 s before): the next search of its item replaces it
+local BOUGHT_SHOW = 3          -- the banner names a purchase this long
 local QUOTE_TIMEOUT = 5        -- the server's quote has to arrive within this
 local QUOTE_HOLD = 30          -- a purchase cancelled before its quote came: no new one until it comes or this passed
 local CLICK_QUOTE_TIMEOUT = 10 -- click-confirm mode: how long a quote waits for the next wheel step
@@ -92,7 +98,13 @@ local S = {
     lastSave = {},   -- [key] = GetTime() of the last market log record while sniping
     numberSet = {},  -- [key] = how often its "buy at most" was set this session (a purchase counted for an older one is not taken back)
     bindWanted = nil, -- binding change waiting for the end of combat
-    wheel = nil      -- true while a wheel step on the catcher runs (a purchase call the game blocks then turns it off)
+    wheel = nil,     -- true while a wheel step on the catcher runs (a purchase call the game blocks then turns it off)
+    button = nil,    -- true while a row's Buy button runs (FRV-40; a blocked purchase call turns the buttons off)
+    buttonOff = nil, -- the game blocked a purchase call of a Buy button: only the wheel buys until /reload
+    bought = nil,    -- { text, t } of the last purchase, for the banner (FRV-40)
+    roundStart = nil, -- GetTime() of the first search of the round running now, and its searches so far
+    roundDone = 0,
+    roundTime = nil  -- seconds the last full round over the searchable items took (the banner's "a round takes")
 }
 FM.snipeState = S
 
@@ -105,7 +117,9 @@ local function Name(key)
     return FM.GetName(key)
 end
 
+-- The hit and purchase sounds, unless switched off in the settings panel (FRV-45)
 local function PlaySoundKit(name)
+    if not FM.GetSettings().snipeSound then return end
     local kit = SOUNDKIT and SOUNDKIT[name]
     if kit and PlaySound then pcall(PlaySound, kit) end
 end
@@ -226,19 +240,32 @@ local function Budget(create)
         if not create then return nil end
         local money = Money()
         if not money then return nil end
-        b = { base = money, since = now, reset = now + SecondsToReset(), total = 0, spent = {} }
+        b = { base = money, since = now, reset = now + SecondsToReset(), total = 0, day = 0, spent = {}, units = {} }
         s.budget[name] = b
     end
     if type(b.spent) ~= "table" then b.spent = {} end
+    if type(b.units) ~= "table" then b.units = {} end
     b.base = tonumber(b.base) or 0
     b.total = tonumber(b.total) or 0
+    -- saved before 1.34 (FRV-94): one count only, since the budget started, which was the day's as far as it knew
+    b.day = tonumber(b.day) or b.total
     return b
 end
 
--- Gold all items may still spend today by the bookkeeping: remaining, cap, pct (one budget for all, FRV-42)
+-- The budget's cap: the manual amount (FRV-94), or the % of base (pct nil with the manual amount)
+local function Cap(b)
+    local settings = FM.GetSettings()
+    if settings.snipeManual then
+        local amount = tonumber(settings.snipeManualAmount)
+        return (amount and amount == amount and amount > 0) and math_floor(amount) or 0, nil
+    end
+    local pct = ClampPct(settings.snipeUniversalPct)
+    return math_floor(b.base * pct / 100), pct
+end
+
+-- Gold all items may still spend by the bookkeeping: remaining, cap, pct (one budget for all, FRV-42)
 local function Allowance(b)
-    local pct = ClampPct(FM.GetSettings().snipeUniversalPct)
-    local cap = math_floor(b.base * pct / 100)
+    local cap, pct = Cap(b)
     return math_max(0, cap - b.total), cap, pct
 end
 
@@ -251,43 +278,57 @@ local function Room(b)
     return math_max(0, math_min(remaining, money, money - (b.base - cap)))
 end
 
--- Budget numbers for the window (nil before the window first opened today)
+-- Budget numbers for the window (nil before the budget first started today). total = spent since the last refresh,
+-- day = spent by the sniper today, remaining = cap - total, room = what a purchase may cost right now; pct is nil
+-- with the manual amount (manual = true)
 function FM.SnipeBudgetInfo()
     local b = Budget(false)
     if not b then return nil end
     local remaining, cap, pct = Allowance(b)
-    return { base = b.base, since = b.since, total = b.total, remaining = remaining, cap = cap, pct = pct,
-        floor = b.base - cap, room = Room(b), spent = b.spent }
+    return { base = b.base, since = b.since, total = b.total, day = b.day, remaining = remaining, cap = cap, pct = pct,
+        manual = pct == nil, floor = b.base - cap, room = Room(b), spent = b.spent, units = b.units }
 end
 
-function FM.SnipeResetBudget()
+-- Start the budget again from your gold now (with the manual amount: that amount from now on); what the sniper
+-- spent and bought today stays (FRV-94: only the daily reset zeroes it). Not while a purchase waits for the server's
+-- answer, whose gold belongs to the budget it was confirmed in. quiet: no chat line when it can't (the window's
+-- automatic refresh). Returns true when the budget was refreshed
+function FM.SnipeRefreshBudget(quiet)
     if (S.buy and S.buy.stage == "confirm") or S.orphans[1] then
-        FM.PrintError("Failed to reset the budget: a purchase is still waiting for the server's answer.")
-        return
+        if not quiet then FM.PrintError("Failed to refresh the budget: a purchase is still waiting for the server's answer.") end
+        return false
     end
     local s = Data()
-    if not s then return end
-    s.budget[FM.PlayerName()] = nil
-    wipe(S.hits)
-    local b = Budget(true)
-    if b then
-        local _, cap, pct = Allowance(b)
-        FM.Print(string_format("Sniper budget reset: today it may spend %d%% of %s,", pct, FM.FormatMoney(b.base)),
-            FM.FormatMoney(cap))
-    end
+    local money = Money()
+    if not (s and money) then return false end
+    local old = Budget(false)
+    local now = FM.Now()
+    s.budget[FM.PlayerName()] = { base = money, since = now, reset = old and old.reset or now + SecondsToReset(),
+        total = 0, day = old and old.day or 0, spent = old and old.spent or {}, units = old and old.units or {} }
+    wipe(S.hits) -- sized for the budget before: the next search of each item sizes them again
     Refresh()
+    return true
 end
 
-local function Reserve(b, key, amount)
+-- A confirmed purchase counts against the budget and into the day's gold and units
+local function Reserve(b, key, amount, qty)
     b.total = (tonumber(b.total) or 0) + amount
+    b.day = (tonumber(b.day) or 0) + amount
     b.spent[key] = (tonumber(b.spent[key]) or 0) + amount
+    b.units[key] = (tonumber(b.units[key]) or 0) + (qty or 0)
 end
 
-local function Release(b, key, amount)
+-- The server says a confirmed purchase failed: its gold and units are given back
+local function Release(b, key, amount, qty)
     if type(b) ~= "table" or type(amount) ~= "number" or amount <= 0 then return end
     b.total = math_max(0, (tonumber(b.total) or 0) - amount)
+    b.day = math_max(0, (tonumber(b.day) or 0) - amount)
     local left = (tonumber(b.spent[key]) or 0) - amount
     b.spent[key] = left > 0 and left or nil
+    if type(b.units) == "table" then
+        local units = (tonumber(b.units[key]) or 0) - (qty or 0)
+        b.units[key] = units > 0 and units or nil
+    end
 end
 
 -- A confirmed purchase of an item with a number counts its units as bought (and their gold as paid)
@@ -332,6 +373,7 @@ FM.SnipeKind = Kind
 local CancelBuy -- defined below
 local Evaluate -- defined below
 local CatcherBlocked -- defined below
+local ButtonBlocked -- defined below
 
 -- Results of an item the client already holds (Blizzard's Buy page, an earlier search): evaluated right away.
 -- An old result is safe: the server's quote is checked against it before any gold leaves.
@@ -566,6 +608,29 @@ local function SendSearch(key)
     end
 end
 
+-- Items sniping searches now (not sold per auction, with a price, not done, budget left)
+local function CountSearchable(b)
+    local n = 0
+    for _, key in ipairs(FM.SnipeList()) do
+        if Searchable(key, b) then n = n + 1 end
+    end
+    return n
+end
+
+-- One more search of the round robin over n items: the (n+1)th search starts the next round, and the round before
+-- took from its first search to this one (the banner's "a round takes about ...", FRV-40)
+local function CountRound(n)
+    local now = GetTime()
+    if not S.roundStart then
+        S.roundStart, S.roundDone = now, 0
+    end
+    S.roundDone = S.roundDone + 1
+    if S.roundDone > n then
+        S.roundTime = now - S.roundStart
+        S.roundStart, S.roundDone = now, 1
+    end
+end
+
 local function ExpireHits()
     local now = GetTime()
     local changed = false
@@ -601,8 +666,10 @@ local function Tick()
     if pageItem then
         local pageKey = tostring(pageItem)
         if Searchable(pageKey, b) then key = pageKey end
+        S.roundStart, S.roundTime = nil, nil -- one item only: no round of the list
     else
         key = NextKey(b)
+        if key then CountRound(CountSearchable(b)) end
     end
     if key then SendSearch(key) end
 end
@@ -727,6 +794,13 @@ local function NewestHit()
     return best
 end
 
+-- The hit of one item while it is still fresh (a row's Buy button)
+local function FreshHit(key)
+    local hit = S.hits[key]
+    if hit and GetTime() - hit.t <= HIT_MAX_AGE then return hit end
+    return nil
+end
+
 -- Every check before gold leaves: a real quote, not above what the search showed for these units, unit price
 -- and average not above your price, not more units than the item still has to buy, the same budget as when the
 -- hit was found, inside it and inside your gold
@@ -743,15 +817,16 @@ local function QuoteOK(buy, total, unit)
     if not limit or unit > limit or total > limit * buy.qty then return false, "above your price" end
     local left = Left(buy.key)
     if left and buy.qty > left then return false, "more units than it still has to buy" end
-    if Budget(false) ~= buy.budget then return false, "the budget was reset" end
-    if total > Room(buy.budget) then return false, "over today's budget" end
+    if Budget(false) ~= buy.budget then return false, "the budget was refreshed" end
+    if total > Room(buy.budget) then return false, "over the budget" end
     return true
 end
 
--- Stop sniping until the window is opened again (the game blocks it, the server does not answer)
+-- Stop sniping until "Try again" in the window's banner (FRV-40), or the window or the AH is opened again (the game
+-- blocks it, the server does not answer)
 local function Halt(reason)
     S.halted = reason
-    FM.PrintError("Failed to keep sniping: " .. reason .. ". Sniping stopped, close and open the snipe window or the AH to try again.")
+    FM.PrintError("Failed to keep sniping: " .. reason .. ". Sniping stopped.")
     FM.SnipeStop()
 end
 
@@ -794,7 +869,7 @@ local function Confirm(fromClick)
         CancelBuy(why)
         return
     end
-    Reserve(buy.budget, buy.key, buy.quote)
+    Reserve(buy.budget, buy.key, buy.quote, buy.qty)
     buy.reserved = buy.quote
     CountUnits(buy)
     buy.stage = "confirm"
@@ -805,7 +880,7 @@ local function Confirm(fromClick)
     local called, err = Call("confirm", C_AuctionHouse.ConfirmCommoditiesPurchase, buy.itemID, buy.qty)
     if not called then
         UncountUnits(buy)
-        Release(buy.budget, buy.key, buy.reserved)
+        Release(buy.budget, buy.key, buy.reserved, buy.qty)
         buy.stage = "quote"
         CancelBuy()
         FM.PrintError("Failed to buy " .. Name(buy.key) .. ": " .. tostring(err))
@@ -832,14 +907,15 @@ local function Confirm(fromClick)
     Refresh()
 end
 
--- One wheel step (hardware event): confirm a waiting quote in click mode, else start buying the newest hit
-function FM.SnipeBuyClick()
+-- One wheel step or a row's Buy button (hardware events): confirm a waiting quote in click mode, else start buying
+-- the newest hit; key (the Buy button, FRV-40): that item's hit only, and only its own waiting quote
+function FM.SnipeBuyClick(key)
     if not S.active or S.halted or not FM.ahOpen or InCombatLockdown() then return end
     local ah = C_AuctionHouse
     if not (ah and ah.StartCommoditiesPurchase and ah.ConfirmCommoditiesPurchase) then return end
     local buy = S.buy
     if buy then
-        if buy.stage == "click" then
+        if buy.stage == "click" and (key == nil or key == buy.key) then
             local left = ah.GetQuoteDurationRemaining and ah.GetQuoteDurationRemaining()
             if BlizzardBuying() then
                 -- the pending purchase may be Blizzard's now: leave it alone
@@ -858,7 +934,8 @@ function FM.SnipeBuyClick()
         Refresh()
         return
     end
-    local hit = NewestHit()
+    local hit
+    if key ~= nil then hit = FreshHit(key) else hit = NewestHit() end
     if not hit then return end
     local b = Budget(true)
     if not b then return end
@@ -895,6 +972,21 @@ function FM.SnipeBuyClick()
         end
     end)
     Refresh()
+end
+
+-- A row's Buy (or Confirm) button (FRV-40): that row's hit through the same checks as a wheel step. A purchase call
+-- the game blocks from it turns the buttons off (ButtonBlocked)
+function FM.SnipeBuyRow(key)
+    if S.buttonOff or type(key) ~= "string" then return end
+    S.button = true
+    local ok, err = pcall(FM.SnipeBuyClick, key)
+    S.button = nil
+    if not ok and geterrorhandler then geterrorhandler()(err) end
+end
+
+-- The Buy buttons are off: the game blocked a purchase call from one this session
+function FM.SnipeButtonsOff()
+    return S.buttonOff == true
 end
 
 FM.On("COMMODITY_PRICE_UPDATED", function(unitPrice, totalPrice)
@@ -959,7 +1051,11 @@ FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     local left, n = Left(buy.key)
     FM.Print(string_format("Bought %dx %s for", buy.qty, Name(buy.key)), FM.FormatMoney(buy.reserved or 0)
         .. (n and string_format(" (%s / %s%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and " done" or "") or "")
-        .. (info and (" (budget today " .. FM.FormatMoney(info.total) .. " of " .. FM.FormatMoney(info.cap) .. ")") or ""))
+        .. (info and (" (budget " .. FM.FormatMoney(info.total) .. " of " .. FM.FormatMoney(info.cap) .. ")") or ""))
+    -- the banner names it for a moment (FRV-40)
+    S.bought = { text = string_format("Bought %s %s for %s", FM.FormatCount(buy.qty), Name(buy.key),
+        FM.FormatMoney(buy.reserved or 0)), t = GetTime() }
+    C_Timer.After(BOUGHT_SHOW, Refresh)
     Refresh()
 end)
 
@@ -985,7 +1081,7 @@ FM.On("COMMODITY_PURCHASE_FAILED", function()
     S.unanswered = 0
     S.hits[buy.key] = nil
     UncountUnits(buy) -- the server says nothing was bought: give its units and its gold back
-    Release(buy.budget, buy.key, buy.reserved)
+    Release(buy.budget, buy.key, buy.reserved, buy.qty)
     S.lastSent = 0
     FM.Print("Snipe of " .. Name(buy.key) .. " failed:", "someone was faster (gold not spent)")
     Refresh()
@@ -1010,20 +1106,27 @@ local function OnBlocked(forbidden, blockedAddon, functionName)
         CatcherBlocked(which)
         return
     end
+    if S.button then
+        -- a row's Buy button is not accepted for this call: only the wheel buys from now on
+        ButtonBlocked(which)
+        return
+    end
     local buy = S.buy
     if which == "confirm" and buy and buy.stage == "confirm" and not forbidden and not buy.clicked then
         UncountUnits(buy)
-        Release(buy.budget, buy.key, buy.reserved)
+        Release(buy.budget, buy.key, buy.reserved, buy.qty)
         buy.reserved = nil
         FM.GetSettings().snipeConfirmClick = true
-        FM.Print("The game wants a click to confirm purchases:", "the next wheel step confirms")
+        -- the settings panel's option shows it, and switches it off again (FRV-45)
+        FM.Print("The game wants a click to confirm purchases: the next wheel step confirms. Options -> AddOns -> Market:",
+            "Sniper: confirm every purchase with a second wheel step")
         EnterClick(buy)
         return
     end
     if buy then
         if buy.stage == "confirm" then
             UncountUnits(buy)
-            Release(buy.budget, buy.key, buy.reserved)
+            Release(buy.budget, buy.key, buy.reserved, buy.qty)
         end
         S.buy = nil
     end
@@ -1101,7 +1204,7 @@ CatcherBlocked = function(which)
     if buy then
         if which == "confirm" and buy.stage == "confirm" then
             UncountUnits(buy)
-            Release(buy.budget, buy.key, buy.reserved)
+            Release(buy.budget, buy.key, buy.reserved, buy.qty)
             buy.reserved = nil
             EnterClick(buy)
         elseif which == "start" then
@@ -1109,6 +1212,26 @@ CatcherBlocked = function(which)
         end
     end
     FM.PrintError("Failed to buy with a wheel step over a window: the game does not allow it there. Until /reload the wheel buys only where no window takes it.")
+    Refresh()
+end
+
+-- The game blocked a purchase call of a row's Buy button (FRV-40; that the client takes its click as a hardware event
+-- for these calls is not yet seen in game): the buttons go until /reload and the wheel buys as before. A blocked
+-- start sent nothing; a blocked click confirm counts nothing and waits for a wheel step
+ButtonBlocked = function(which)
+    S.buttonOff = true
+    local buy = S.buy
+    if buy then
+        if which == "confirm" and buy.stage == "confirm" then
+            UncountUnits(buy)
+            Release(buy.budget, buy.key, buy.reserved, buy.qty)
+            buy.reserved = nil
+            EnterClick(buy)
+        elseif which == "start" then
+            S.buy = nil
+        end
+    end
+    FM.PrintError("Failed to buy with the Buy button: the game does not allow it. Until /reload the mouse wheel buys.")
     Refresh()
 end
 
@@ -1132,6 +1255,7 @@ function FM.SnipeStart()
     S.noQuote = 0
     S.waiting = nil
     S.lastSent = 0
+    S.roundStart, S.roundTime = nil, nil
     Budget(true)
     SetBindings(true)
     ShowCatcher(true)
@@ -1174,36 +1298,47 @@ end)
 
 ---------------------------------------------------------------- window info
 
--- One status line for the window: text, r, g, b
+-- "(2s 10c each)", or "(2s 10c to 2s 20c each)" when the hit takes units of several prices
+local function EachText(hit)
+    local low = hit.rows and hit.rows[1] and hit.rows[1][1] or hit.top
+    if not low or low == hit.top then return "(" .. FM.FormatMoney(hit.top) .. " each)" end
+    return "(" .. FM.FormatMoney(low) .. " to " .. FM.FormatMoney(hit.top) .. " each)"
+end
+
+-- The banner of the window (FRV-40): text and its kind, which the window colors: "hit" (green, large), "bought"
+-- (green), "buying" (blue), "paused" (orange), "stopped" (red, with "Try again" when sniping itself stopped:
+-- FM.SnipeHalted), "watching" (plain) and "idle" (plain, nothing runs)
 function FM.SnipeStatus()
     local list = FM.SnipeList()
-    if S.halted then return "Stopped: " .. S.halted .. ". Close and open this window to try again.", 1, 0.35, 0.35 end
-    if not FM.ahOpen then return "Open the Auction House to snipe.", 1, 0.82, 0 end
-    if #list == 0 then return "Add an item to start sniping.", 1, 0.82, 0 end
-    if InCombatLockdown() then return "Paused in combat.", 1, 0.5, 0.2 end
+    if S.halted then return "Stopped: " .. S.halted .. ".", "stopped" end
+    if not FM.ahOpen then return "Open the Auction House to snipe items.", "idle" end
+    if #list == 0 then return "Add an item to start sniping.", "idle" end
+    if InCombatLockdown() then return "Paused in combat.", "paused" end
     local buy = S.buy
     if buy then
         if buy.stage == "click" then
-            return string_format("Scroll once more to confirm %dx %s for %s", buy.qty, Name(buy.key),
-                FM.FormatMoney(buy.quote or buy.expected)), 0.2, 1, 0.4
+            return string_format("%s: %s %s for %s", S.buttonOff and "Scroll once more to confirm"
+                or "Scroll once more or click Confirm", FM.FormatCount(buy.qty), Name(buy.key),
+                FM.FormatMoney(buy.quote or buy.expected)), "hit"
         end
-        return string_format("Buying %dx %s ...", buy.qty, Name(buy.key)), 0.4, 0.8, 1
+        return string_format("Buying %s %s ...", FM.FormatCount(buy.qty), Name(buy.key)), "buying"
     end
-    if not S.active then return "Sniping is off.", 1, 0.82, 0 end
+    if S.bought and GetTime() - S.bought.t < BOUGHT_SHOW then return S.bought.text, "bought" end
+    if not S.active then return "Sniping is off.", "idle" end
     local hold = HoldReason()
-    if hold then return "Paused: " .. hold .. ".", 1, 0.5, 0.2 end
+    if hold then return "Paused: " .. hold .. ".", "paused" end
     -- a hit can be bought during a deep scan and on any page (only the searches pause then): it comes first
     local hit = NewestHit()
     if hit then
-        return string_format("Scroll the mouse wheel: buy %dx %s for %s", hit.qty, Name(hit.key), FM.FormatMoney(hit.total)),
-            0.2, 1, 0.4
+        return string_format("%s: %s %s for %s %s", S.buttonOff and "Scroll to buy" or "Scroll or click Buy",
+            FM.FormatCount(hit.qty), Name(hit.key), FM.FormatMoney(hit.total), EachText(hit)), "hit"
     end
-    if DeepScanBusy() then return "Paused while the deep scan runs.", 1, 0.82, 0 end
+    if DeepScanBusy() then return "Paused while the deep scan runs.", "paused" end
     local page = BlizzardPageInTheWay()
     if page == "sell" then
-        return "Paused while the AH shows a Sell page. Go back to the item list.", 1, 0.82, 0
+        return "Paused while the AH shows a Sell page. Go back to the item list.", "paused"
     elseif page == "buy" then
-        return "Paused while the AH shows the Buy page of an item you don't snipe. Go back to the item list.", 1, 0.82, 0
+        return "Paused while the AH shows the Buy page of an item you don't snipe. Go back to the item list.", "paused"
     end
     local b = Budget(false)
     if b then
@@ -1225,48 +1360,60 @@ function FM.SnipeStatus()
                 end
             end
             if not waits then
-                return "Every item is done (its number bought) or cannot be sniped. Give one a new number or add another.", 1, 0.82, 0
+                return "Every item is done (its number bought) or cannot be sniped. Give one a new number or add another.", "idle"
             end
             local remaining, cap = Allowance(b)
             if remaining > 0 then
                 return string_format("Your gold is down to what the budget keeps (%s). Sniping waits until you have more.",
-                    FM.FormatMoney(math_max(0, b.base - cap))), 1, 0.35, 0.35
+                    FM.FormatMoney(math_max(0, b.base - cap))), "stopped"
             end
-            return "Today's budget is spent. Sniping stops until the daily reset.", 1, 0.35, 0.35
+            return "The budget is spent. Sniping waits for the daily reset or a refresh of the budget.", "stopped"
         end
         for _, key in ipairs(list) do
             local seen = S.seen[key]
             if seen and seen.short then
-                return "Offers at your price, but the budget left is too small for one unit.", 1, 0.5, 0.2
+                return "Offers at your price, but the budget left is too small for one unit.", "paused"
             end
         end
     end
     local pageItem = BuyPageItem()
     if pageItem then
         -- the Buy page of a sniped item: only that one is searched
-        return "Sniping " .. Name(tostring(pageItem)) .. " on its Buy page" .. (#list > 1 and
-            ". Go back to the item list for the others." or " ..."), 0.8, 0.8, 0.8
+        return "Watching " .. Name(tostring(pageItem)) .. " on its Buy page" .. (#list > 1 and
+            ". Go back to the item list for the others." or " ..."), "watching"
     end
-    local waiting = S.waiting
-    if waiting then return "Searching " .. Name(waiting.key) .. " ...", 0.8, 0.8, 0.8 end
-    return "Sniping ...", 0.8, 0.8, 0.8
+    -- what runs: how many items are searched in turn, and how long a round over them took last time
+    local n = b and CountSearchable(b) or #list
+    return string_format("Watching %d item%s%s", n, n == 1 and "" or "s", S.roundTime
+        and string_format("  ·  a round takes about %d s", math_max(1, math_floor(S.roundTime + 0.5))) or " ..."), "watching"
 end
 
--- State of one sniped item for the window's list: hit, seen, kind, budget info, its "buy at most" (n, got,
--- paid, left, done; n nil without a number)
+-- Sniping stopped by itself (the game blocked it, the server did not answer): the banner's "Try again" starts it
+-- again (FM.SnipeStart clears it), FRV-40
+function FM.SnipeHalted()
+    return S.halted ~= nil
+end
+
+-- State of one sniped item for the window's list: hit, seen, kind, budget info, what the sniper bought of it today
+-- (units, spent; FRV-40), whether its quote waits for a confirm (confirm), its "buy at most" (n, got, paid, left,
+-- done; n nil without a number)
 function FM.SnipeItemState(key)
-    local hit = S.hits[key]
-    if hit and GetTime() - hit.t > HIT_MAX_AGE then hit = nil end
+    local hit = FreshHit(key)
     local seen = S.seen[key]
     local left, n = Left(key)
     local saved = FM.SnipeSaved(key)
+    local budget = FM.SnipeBudgetInfo()
+    local buy = S.buy
     return {
         hit = hit,
         seen = seen,
         seenAge = seen and (GetTime() - seen.t) or nil,
         kind = Kind(key),
-        buying = S.buy ~= nil and S.buy.key == key,
-        budget = FM.SnipeBudgetInfo(),
+        buying = buy ~= nil and buy.key == key,
+        confirm = buy ~= nil and buy.key == key and buy.stage == "click",
+        budget = budget,
+        units = budget and tonumber(budget.units[key]) or 0,
+        spent = budget and tonumber(budget.spent[key]) or 0,
         n = n,
         got = n and (n - left) or nil,
         paid = n and saved and tonumber(saved.paid) or nil,

@@ -43,8 +43,12 @@ FM.DEFAULTS = {
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
-    snipeUniversalPct = 50, -- sniper: the budget, % of your gold at the day's first sniping that all items may spend together
-    snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)
+    snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
+    snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
+    snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
+    snipeAutoRefresh = true, -- sniper: "Automatically refresh budget" from your gold every time the window opens (FRV-94)
+    snipeManual = false, -- sniper: "Set budget manually": the budget is snipeManualAmount instead of the % (FRV-94)
+    snipeManualAmount = 0, -- sniper: the manual budget, in copper
     perfMode = "day", -- Profit tab: one dot per day, week or month
     perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
     priceMode = "day" -- price graph: one dot per day, week or month
@@ -156,6 +160,7 @@ FM.SETTING_RANGE = {
     tableCircPct = { 1, 100 },
     tableFirstPct = { 1, 10 },
     tableTimePct = { 0, 20 }, -- 0 = always the cheaper route
+    snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
 }
 
 -- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all

@@ -32,7 +32,7 @@ FM.On("ADDON_ACTION_BLOCKED", ReportBlocked)
 ---------------------------------------------------------------- key bindings (Bindings.xml)
 
 BINDING_NAME_FOREVERMARKET_TABLE = "Forever Market: market table"
-BINDING_NAME_FOREVERMARKET_SNIPE = "Forever Market: sniper"
+BINDING_NAME_FOREVERMARKET_SNIPE = "Forever Market: toggle sniper window"
 
 -- Bindings run as global code, so they reach the AddOn through these two functions
 function ForeverMarket_ToggleTable()
@@ -43,31 +43,44 @@ function ForeverMarket_ToggleSnipe()
     FM.ToggleSnipe()
 end
 
-local DEFAULT_KEY = "U"
+-- The default keys, each given once per binding set and remembered in its own saved flag: U for the market table,
+-- Z for the sniper window (FRV-94; Z also when the game's Sheathe/Unsheathe Weapon has it)
+local DEFAULT_KEYS = {
+    { action = "FOREVERMARKET_TABLE", key = "U", flag = "keyGiven", what = "The market table opens" },
+    { action = "FOREVERMARKET_SNIPE", key = "Z", flag = "snipeKeyGiven", what = "The sniper window opens and closes" },
+}
 
--- The market table gets the key U once per binding set (account, or a character with its own bindings).
--- After that the player's choice stands: rebinding or clearing it in Options -> Keybindings is never undone.
+-- Each default key once per binding set (account, or a character with its own bindings). After that the player's
+-- choice stands: rebinding or clearing it in Options -> Keybindings is never undone, nor a key it already had
 local function GiveDefaultKey()
     if InCombatLockdown() then return false end -- bindings cannot change in combat
     local set = GetCurrentBindingSet()
     local settings = FM.GetSettings()
-    if type(settings.keyGiven) ~= "table" then settings.keyGiven = {} end
     local slot = (set == Enum.BindingSet.Character) and FM.PlayerName() or "account"
-    if settings.keyGiven[slot] then return true end
-    if GetBindingKey("FOREVERMARKET_TABLE") then
-        settings.keyGiven[slot] = true -- already has a key
-        return true
+    local changed = false
+    for _, d in ipairs(DEFAULT_KEYS) do
+        if type(settings[d.flag]) ~= "table" then settings[d.flag] = {} end
+        local given = settings[d.flag]
+        if not given[slot] then
+            if GetBindingKey(d.action) then
+                given[slot] = true -- already has a key
+            else
+                local old = GetBindingAction(d.key)
+                -- an unknown binding leaves the flag unset: tried again next login
+                if SetBinding(d.key, d.action) then
+                    given[slot] = true
+                    changed = true
+                    local before = ""
+                    if type(old) == "string" and old ~= "" then
+                        before = " (instead of " .. (GetBindingName(old) or old) .. ")"
+                    end
+                    FM.Print(d.what .. " with the key " .. FM.COLOR.ORANGE .. d.key .. FM.COLOR.YELLOW .. before
+                        .. " now. Change it in Options -> Keybindings -> Jim's Forever AddOns.")
+                end
+            end
+        end
     end
-    local old = GetBindingAction(DEFAULT_KEY)
-    if not SetBinding(DEFAULT_KEY, "FOREVERMARKET_TABLE") then return true end -- binding unknown: try again next login
-    SaveBindings(set)
-    settings.keyGiven[slot] = true
-    local before = ""
-    if type(old) == "string" and old ~= "" then
-        before = " (instead of " .. (GetBindingName(old) or old) .. ")"
-    end
-    FM.Print("The market table opens with the key " .. FM.COLOR.ORANGE .. DEFAULT_KEY .. FM.COLOR.YELLOW .. before
-        .. " now. Change it in Options -> Keybindings -> Jim's Forever AddOns.")
+    if changed then SaveBindings(set) end
     return true
 end
 
