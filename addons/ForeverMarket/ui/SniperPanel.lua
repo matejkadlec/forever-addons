@@ -663,7 +663,8 @@ local function RefreshBanner()
     banner.text:SetFontObject(style.large and "GameFontNormalLarge" or "GameFontHighlight")
     banner.text:SetTextColor(style.text[1], style.text[2], style.text[3])
     banner.text:SetText(text or "")
-    local retry = kind == "stopped" and FM.SnipeHalted()
+    -- "Try again" only where it can start sniping again: at the AH, after sniping stopped itself
+    local retry = kind == "stopped" and FM.SnipeHalted() and FM.ahOpen and true or false
     banner.retry:SetShown(retry)
     banner.text:SetPoint("RIGHT", banner, "RIGHT", retry and -110 or -10, 0)
     -- a short pulse when an offer shows up
@@ -1176,13 +1177,16 @@ function FM.ToggleSnipe()
 end
 
 -- It follows the AH (FRV-39): it hides when the AH closes and comes back when the AH opens again in this session,
--- unless it was closed by hand meanwhile
+-- unless it was closed by hand meanwhile. A frame later: Esc closes the AH before the special frames
+-- (CloseWindows, then CloseSpecialWindows), so an Esc that closes both hides it by hand first and it stays closed
 FM.On("AUCTION_HOUSE_CLOSED", function()
-    if not (frame and frame:IsShown()) then return end
-    hidingForAH = true
-    frame:Hide()
-    hidingForAH = false
-    reopenWithAH = true
+    C_Timer.After(0, function()
+        if FM.ahOpen or not (frame and frame:IsShown()) then return end
+        hidingForAH = true
+        frame:Hide()
+        hidingForAH = false
+        reopenWithAH = true
+    end)
 end)
 
 FM.On("AUCTION_HOUSE_SHOW", function()

@@ -256,6 +256,7 @@ H.test("sniper window: it hides with the AH and comes back with it, unless close
     local f = Open(FM, env)
     FM.ahOpen = false
     env.FireEvent("AUCTION_HOUSE_CLOSED")
+    env.FlushTimers()
     H.eq(f:IsShown(), false, "hidden with the AH")
     FM.ahOpen = true
     env.FireEvent("AUCTION_HOUSE_SHOW")
@@ -269,6 +270,48 @@ H.test("sniper window: it hides with the AH and comes back with it, unless close
     env.FireEvent("AUCTION_HOUSE_SHOW")
     env.FlushTimers()
     H.eq(f:IsShown(), false, "closed by hand, it stays closed")
+end)
+
+-- Esc closes the AH first and the special frames after it (CloseWindows, then CloseSpecialWindows): an Esc that
+-- closes both is a close by hand, whenever AUCTION_HOUSE_CLOSED arrives
+H.test("sniper window: Esc that closes the AH and the window together leaves it closed", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.ahOpen = false
+    env.FireEvent("AUCTION_HOUSE_CLOSED") -- the AH's OnHide, before the special frames
+    f:Hide() -- CloseSpecialWindows in the same key press
+    env.FlushTimers()
+    FM.ahOpen = true
+    env.FireEvent("AUCTION_HOUSE_SHOW")
+    env.FlushTimers()
+    H.eq(f:IsShown(), false, "it stays closed")
+end)
+
+-- Round 1 of the review: a stop away from the AH shows the AH line and no "Try again" that could do nothing there
+H.test("sniper window: after a stop, away from the AH the banner asks for the AH, Try again shows only at the AH", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    local f = Open(FM, env)
+    ah.results[LEATHER] = { { unitPrice = 90, quantity = 5, numOwnerItems = 0 } }
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", LEATHER)
+    ah.StartCommoditiesPurchase = function()
+        env.FireEvent("ADDON_ACTION_FORBIDDEN", "ForeverMarket", "C_AuctionHouse.StartCommoditiesPurchase")
+    end
+    FM.SnipeBuyClick()
+    H.eq(FM.SnipeHalted(), true, "stopped")
+    H.eq(f.banner.retry.shown, true, "Try again at the AH")
+    FM.ahOpen = false
+    env.FireEvent("AUCTION_HOUSE_CLOSED")
+    env.FlushTimers()
+    FM.ShowSnipe() -- the key, away from the AH
+    local text, kind = FM.SnipeStatus()
+    H.eq(text, "Open the Auction House to snipe items.", "the AH line")
+    H.eq(kind, "idle", "not red")
+    H.eq(f.banner.retry.shown, false, "no Try again away from the AH")
+    FM.ahOpen = true
+    env.FireEvent("AUCTION_HOUSE_SHOW")
+    H.eq(FM.SnipeHalted(), false, "at the AH sniping starts again")
+    H.eq(FM.SnipeIsActive(), true, "and runs")
 end)
 
 H.test("sniper window: Set budget manually enables its boxes, greys the % out, and its amount is the budget", function()

@@ -777,7 +777,8 @@ per purchase.
     that spans several prices "(2s 10c to 2s 20c each)"), "Buying ..." blue, paused orange (combat, a deep scan,
     Blizzard's Sell page or another item's Buy page, a late answer awaited, offers at your price but too little budget
     for one unit), stopped red (the budget spent, your gold down to what it keeps, or sniping stopped by itself: then
-    with a "Try again" button that starts it again without closing the window), "Bought 12 Heavy Leather for 25s 20c"
+    with a "Try again" button that starts it again without closing the window; away from the AH the banner asks for
+    the AH instead, and opening the window there starts sniping again), "Bought 12 Heavy Leather for 25s 20c"
     for 3 seconds after a purchase (the chat line stays), else "Watching 4 items · a round takes about 3 s" (the
     length of the last full round over the items searched in turn)
   * The add row (FRV-41): the item box (Blizzard's `SearchBoxTemplate` with "Add an item" and its own clear button),
@@ -816,8 +817,10 @@ per purchase.
   * The `?`: five lines of help
 * Where it opens: a dragged position (`snipePos`, also one saved by an older version: the window is clamped to the
   screen), else at the AH's right edge while the AH is open, else the screen's center. It follows the AH: when the AH
-  closes the window hides and it comes back when the AH opens again in the same session (sniping resumes); closed by
-  hand (x, Esc, the key) it stays closed. Opened away from the AH it is a window for editing the list
+  closes the window hides (a frame later, so an Esc that closes the AH and the window together counts as closed by
+  hand: Blizzard's Esc closes the AH before the special frames) and it comes back when the AH opens again in the same
+  session (sniping resumes); closed by hand (x, Esc, the key) it stays closed. Opened away from the AH it is a window
+  for editing the list
 * Settings panel (FRV-45): "Sniper: sounds for an offer and a purchase" (`snipeSound`, on) and "Sniper: confirm every
   purchase with a second wheel step" (`snipeConfirmClick`, off; the game may switch it on itself, see below, and the
   chat line then names this option)

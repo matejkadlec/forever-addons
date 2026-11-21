@@ -1310,8 +1310,9 @@ end
 -- FM.SnipeHalted), "watching" (plain) and "idle" (plain, nothing runs)
 function FM.SnipeStatus()
     local list = FM.SnipeList()
-    if S.halted then return "Stopped: " .. S.halted .. ".", "stopped" end
+    -- away from the AH a stop does not matter: opening the window there starts sniping again (FM.SnipeStart)
     if not FM.ahOpen then return "Open the Auction House to snipe items.", "idle" end
+    if S.halted then return "Stopped: " .. S.halted .. ".", "stopped" end
     if #list == 0 then return "Add an item to start sniping.", "idle" end
     if InCombatLockdown() then return "Paused in combat.", "paused" end
     local buy = S.buy
