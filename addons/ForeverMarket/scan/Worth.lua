@@ -22,6 +22,7 @@ local _, FM = ...
 -- R.bank[char]    = "t|id:all:free,..."     your bank as last seen
 -- R.mailbox[char] = "t|money|id:count,..."  your mailbox as last seen
 -- R.sent[char]    = { "t|id:count,...", ... }  mail from your other characters on its way to char (scan/Characters.lua)
+-- R.gear          = { "t|wearer|id|units|value|ref|item", ... }  AH purchases equipped as own gear (FRV-93, below)
 
 local Enc, Dec = FM.Enc, FM.Dec
 local type = type
@@ -359,11 +360,222 @@ local function Auctions(r, char, now, mailT, add, look)
     return total
 end
 
+-- How many units of an item stack (nil while unknown)
+local function MaxStack(key)
+    local id = FM.ItemIDFromKey(key)
+    local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
+    return IsNumber(stack) and stack or nil
+end
+
+-- Whether what you hold counts a won auction's mail of an item as a purchase of its own: an item known not to
+-- stack (a commodity's won mail is in the purchase log already)
+local function WonCounts(key)
+    return MaxStack(key) == 1
+end
+
+---------------------------------------------------------------- own gear (FRV-93)
+-- An item bought on the AH that one of your characters equips is your own gear, not a trade: its purchase leaves the
+-- Profit tab (trade/Performance.lua) and what you hold. Equipping binds it, so it never comes back, even when taken
+-- off again. Matched by item ID (a won auction of a variant with a suffix has no key: by the equipped item's name)
+-- against the purchases of all your characters not sold or own gear yet, the oldest first, one unit per equipped
+-- item: a character that wears e units of an item and is the wearer of m marks of it gets e - m new marks, so taking
+-- gear off and on again marks nothing. Checked at login (gear equipped before 1.31 too) and after every
+-- PLAYER_EQUIPMENT_CHANGED.
+-- R.gear = { "t|wearer|id|units|value|ref|item", ... }  t = FM.Stamp of the mark, id = the equipped item's ID,
+--   units = units marked, value = what one unit counted for in the readings of what you hold at the mark (the usual AH
+--   price, at least the vendor's; 0 when no reading counts it), ref = the purchase ("b<t>,<char>" a buys line,
+--   "i<sent>,<char>" a won auction's mail, FM.GearRef), item = its key (buys) or the mail's item name
+local GEAR_MAX = 2000 -- marks kept
+local EMPTY_LIST = {}
+
+-- The purchase a mark belongs to: kind "b" (buys, t in epoch seconds) or "i" (a won auction's mail, its sent stamp)
+local function GearRef(kind, stamp, who)
+    return kind .. tostring(stamp) .. "," .. (who or "")
+end
+FM.GearRef = GearRef
+
+-- The marks: { { t, wearer, id, units, value, ref, item, who = the buyer }, ... } in the order they were made
+local function GearMarks(r)
+    local list = {}
+    for _, line in ipairs(type(r.gear) == "table" and r.gear or {}) do
+        local f = FM.Split(line, "|")
+        local t, id, units = FM.Unstamp(f[1]), tonumber(f[3]), Dec(f[4])
+        if t and id and units and units > 0 and f[6] and f[7] and f[7] ~= "" then
+            list[#list + 1] = { t = t, wearer = f[2], id = id, units = units, value = Dec(f[5]) or 0, ref = f[6],
+                item = f[7], who = f[6]:match(",(.*)$") or "" }
+        end
+    end
+    return list
+end
+
+-- The own-gear units of each purchase: "ref|item" -> { units, list = its marks } (trade/Performance.lua)
+function FM.OwnGear(r)
+    local map = {}
+    for _, m in ipairs(GearMarks(r or FM.R())) do
+        local id = m.ref .. "|" .. m.item
+        local e = map[id]
+        if not e then
+            e = { units = 0, list = {} }
+            map[id] = e
+        end
+        e.units = e.units + m.units
+        e.list[#e.list + 1] = m
+    end
+    return map
+end
+
+-- Your AH purchases of the items in want ([itemID] = the names of its equipped units: a won auction of a variant
+-- with a suffix has no key), all characters, in one pass over the logs: [itemID] = its purchases, oldest first,
+-- with the units still yours to wear (left): bought, less your sales of it after the purchase (the oldest units
+-- sell first) and the units of its own-gear marks, in time order
+local function OpenPurchases(r, want, marks)
+    local nameKeys = NameKeys(r)
+    local byName = {} -- an equipped unit's name -> its item ID
+    for id, names in pairs(want) do
+        for name in pairs(names) do byName[name] = id end
+    end
+    local lists, moves = {}, {}
+    local function Add(id, p)
+        lists[id] = lists[id] or {}
+        lists[id][#lists[id] + 1] = p
+    end
+    for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
+        local t, key, qty, who = line:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
+        local id = key and FM.ItemIDFromKey(key)
+        if id and want[id] then
+            Add(id, { t = tonumber(t), key = key, item = key, ref = GearRef("b", t, who), qty = tonumber(qty), counts = true })
+        end
+    end
+    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+        local f = FM.Split(line, ",")
+        local name = f[4]
+        local key = name and nameKeys[name]
+        local id
+        if key then id = FM.ItemIDFromKey(key) elseif name then id = byName[name] end
+        local t = id and want[id] and FM.Unstamp(f[1])
+        if t then
+            local qty = Dec(f[6]) or 1
+            if f[3] == "seller" then
+                moves[id] = moves[id] or {}
+                moves[id][#moves[id] + 1] = { t = t, sale = qty }
+            elseif f[3] == "buyer" and not (key and (MaxStack(key) or 1) > 1) then
+                -- a won auction (a stacking item's mail is its logged purchase's); what you hold counted it only where
+                -- the item is known not to stack (WonCounts)
+                Add(id, { t = t, key = key, item = name, ref = GearRef("i", f[1], f[2]), qty = qty,
+                    counts = key and WonCounts(key) or false })
+            end
+        end
+    end
+    for _, m in ipairs(marks) do
+        if want[m.id] then
+            moves[m.id] = moves[m.id] or {}
+            moves[m.id][#moves[m.id] + 1] = { t = m.t, mark = m }
+        end
+    end
+    for id, list in pairs(lists) do
+        table_sort(list, function(a, b) return a.t < b.t end)
+        for _, p in ipairs(list) do p.left = p.qty end
+        local todo = moves[id] or {}
+        table_sort(todo, function(a, b) return a.t < b.t end)
+        for _, mv in ipairs(todo) do
+            local need = mv.sale or mv.mark.units
+            for _, p in ipairs(list) do
+                if need <= 0 or p.t > mv.t then break end
+                -- a sale takes the oldest units bought before it, a mark its own purchase's
+                if mv.sale or (p.ref == mv.mark.ref and p.item == mv.mark.item) then
+                    local n = math_min(need, p.left)
+                    p.left, need = p.left - n, need - n
+                end
+            end
+        end
+    end
+    return lists
+end
+
+local SLOT_FIRST, SLOT_LAST = INVSLOT_FIRST_EQUIPPED or 1, INVSLOT_LAST_EQUIPPED or 19
+
+-- What the logged-in character wears (head to tabard): [itemID] = { n = units, names = { [name] = true } }
+local function Equipped()
+    local worn = {}
+    if not GetInventoryItemID then return worn end
+    for slot = SLOT_FIRST, SLOT_LAST do
+        local ok, id = pcall(GetInventoryItemID, "player", slot)
+        if ok and IsNumber(id) then
+            local e = worn[id]
+            if not e then
+                e = { n = 0, names = {} }
+                worn[id] = e
+            end
+            e.n = e.n + 1
+            local okLink, link = false, nil
+            if GetInventoryItemLink then okLink, link = pcall(GetInventoryItemLink, "player", slot) end
+            local name = okLink and type(link) == "string" and not FM.IsSecret(link) and link:match("|h%[(.-)%]|h")
+            if name and name ~= "" then e.names[name] = true end
+        end
+    end
+    return worn
+end
+
+-- Marks what the logged-in character wears and one of your characters bought on the AH as own gear (see above);
+-- returns the units marked
+function FM.CheckGear()
+    local worn = Equipped()
+    if next(worn) == nil then return 0 end
+    local r = FM.R()
+    local me = FM.PlayerName()
+    local marks = GearMarks(r)
+    local wearing = {} -- [id] = units this character already wears as own gear
+    for _, m in ipairs(marks) do
+        if m.wearer == me then wearing[m.id] = (wearing[m.id] or 0) + m.units end
+    end
+    -- the items worn with more units than marks: only their purchases are looked up
+    local want, new = {}, {}
+    for id, e in pairs(worn) do
+        if e.n > (wearing[id] or 0) then
+            want[id], new[id] = e.names, e.n - (wearing[id] or 0)
+        end
+    end
+    if next(want) == nil then return 0 end
+    local open = OpenPurchases(r, want, marks)
+    local added = 0
+    for id in pairs(want) do
+        local left = new[id]
+        for _, p in ipairs(open[id] or EMPTY_LIST) do
+            if left <= 0 then break end
+            local n = math_min(left, p.left)
+            if n > 0 then
+                -- what one unit counted for in your readings until now (none where they never counted it)
+                local value = (p.key and p.counts) and math_floor(ValueOfKey(p.key, 1) + 0.5) or 0
+                if type(r.gear) ~= "table" then r.gear = {} end
+                FM.CapList(r.gear, GEAR_MAX)
+                r.gear[#r.gear + 1] = table_concat({ FM.Stamp(), me, tostring(id), Enc(n), Enc(value), p.ref, p.item }, "|")
+                left, added = left - n, added + n
+            end
+        end
+    end
+    return added
+end
+
+local gearPending = false
+local function CheckGearSoon()
+    if gearPending then return end
+    gearPending = true
+    -- one check after a swap of several slots
+    C_Timer.After(1, function()
+        gearPending = false
+        local ok, err = pcall(FM.CheckGear)
+        if not ok and geterrorhandler then geterrorhandler()(err) end
+    end)
+end
+FM.On("PLAYER_EQUIPMENT_CHANGED", CheckGearSoon)
+FM.On("PLAYER_LOGIN", function() C_Timer.After(5, CheckGearSoon) end)
+
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
 -- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:
 -- those were farmed or looted), since the logs are complete. Purchases logged before 1.15.5 have no character and
 -- count for every one. Returns two maps: of char alone, and of all your characters together (FRV-37: bought by
--- any of them, less the sales of any of them, so an item one bought and another sold is no longer held).
+-- any of them, less the sales of any of them, so an item one bought and another sold is no longer held). Own gear
+-- (FRV-93) leaves them at its mark like a sale.
 local function NetBought(r, char)
     local own, all = {}, {} -- key -> { { t, units }, ... }
     local fromOwn, fromAll = FM.CoveredFrom(r, char), FM.CoveredFrom(r)
@@ -391,13 +603,14 @@ local function NetBought(r, char)
             local qty = Dec(f[6]) or 1
             if f[3] == "seller" then
                 Move(key, t, -qty, f[2] == char)
-            elseif f[3] == "buyer" then
-                -- a commodity's won mail is in the purchase log already
-                local id = FM.ItemIDFromKey(key)
-                local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
-                if IsNumber(stack) and stack == 1 then Move(key, t, qty, f[2] == char) end
+            elseif f[3] == "buyer" and WonCounts(key) then
+                Move(key, t, qty, f[2] == char)
             end
         end
+    end
+    for _, m in ipairs(GearMarks(r)) do
+        local key = m.ref:sub(1, 1) == "b" and m.item or nameKeys[m.item]
+        if key and (m.ref:sub(1, 1) == "b" or WonCounts(key)) then Move(key, m.t, -m.units, m.who == "" or m.who == char) end
     end
     local function Net(moves)
         local net = {}
@@ -658,7 +871,14 @@ end)
 for _, event in ipairs({ "MAIL_CLOSED", "AUCTION_HOUSE_CLOSED", "MERCHANT_CLOSED", "TRADE_CLOSED" }) do
     FM.On(event, function() Later(true) end)
 end
-FM.On("PLAYER_LOGOUT", function() pcall(FM.RecordWorth, true) end)
+-- at logout the bags' containers may be gone already: a reading without any bag item would miss what they hold, a
+-- dip until the next login (FRV-73), so it is left out
+FM.On("PLAYER_LOGOUT", function()
+    pcall(function()
+        if FM.BagIndex and next(FM.BagIndex()) == nil then return end
+        FM.RecordWorth(true)
+    end)
+end)
 FM.On("PLAYER_LOGIN", function()
     FM.R().money = nil -- the hourly money log of 1.15.0-1.15.1 (the AH result needs none)
     C_Timer.After(40, function() FM.RecordWorth(true) end)

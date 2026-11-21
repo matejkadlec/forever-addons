@@ -309,6 +309,55 @@ H.test("profit: this character alone counts only its own money and readings", fu
     H.eq(sold, 7, "both sales in the lists")
 end)
 
+-- Rule (FRV-75): every won auction counts as a purchase; before 1.31 the second of two of the same item within 12
+-- hours was taken for the first one's logged purchase and left out
+H.test("profit: two won auctions of the same item within 12 hours are two purchases", function()
+    local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
+    env.GetMoney = nil
+    r.names["2488"] = "Fine Sword"
+    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbm" }
+    for _, hoursAgo in ipairs({ 5, 4 }) do
+        r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(NOW - hoursAgo * 3600), "Ada", "buyer", "Fine Sword", "Seller", B(1),
+            B(500), B(500), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")
+    end
+    local series = FM.PerfSeries("day", NOW, "char")
+    local qty, money = 0, 0
+    for _, p in ipairs(series.periods) do
+        for _, e in ipairs(p.bought) do qty, money = qty + e.qty, money + e.money end
+    end
+    H.eq(qty, 2, "both swords bought")
+    H.eq(money, 1000, "for 500 each")
+    H.eq(series.change, -1000, "the AH's money: both paid (no reading holds them here)")
+end)
+
+-- Rule (FRV-75): a commodity purchase from the purchase log and the mail it comes in count once
+H.test("profit: a logged commodity purchase and its mail count once", function()
+    local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
+    env.GetMoney = nil
+    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbm" }
+    Buy(r, NOW - 5 * 3600, CLOTH, 20, 2000, "Ada")
+    r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(NOW - 5 * 3600), "Ada", "buyer", CLOTH_NAME, "Seller", B(20),
+        B(2000), B(2000), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")
+    local series = FM.PerfSeries("day", NOW, "char")
+    local qty, money = 0, 0
+    for _, p in ipairs(series.periods) do
+        for _, e in ipairs(p.bought) do qty, money = qty + e.qty, money + e.money end
+    end
+    H.eq(qty, 20, "the purchase once")
+    H.eq(money, 2000, "paid once")
+    H.eq(series.change, -2000, "taken off the AH's money once")
+end)
+
+-- Rule (FRV-73): no reading at logout while the bags read empty (their containers may be gone already)
+H.test("profit: no reading at logout while the bags read empty", function()
+    local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
+    env.FireEvent("PLAYER_LOGOUT")
+    H.eq(r.worth.Ada, nil, "left out")
+    state.bags[CLOTH] = 3
+    env.FireEvent("PLAYER_LOGOUT")
+    H.eq(#r.worth.Ada, 1, "a reading once the bags hold something")
+end)
+
 H.test("profit: a mail with items to another character of yours is logged once the server confirms it", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Characters.lua" })
     env.clock = NOW

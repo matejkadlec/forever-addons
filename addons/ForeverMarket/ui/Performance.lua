@@ -255,7 +255,8 @@ function FM.PerfFooter()
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
 end
 
--- Gold or bags changed while the tab is open: draw again (at most every 2 seconds)
+-- Gold, bags or gear changed while the tab is open: draw again (at most every 2 seconds; the own-gear check after an
+-- equipment change runs a second after it, FRV-93)
 local pending = false
 local function Changed()
     if pending or not (panel and panel:IsVisible()) then return end
@@ -267,3 +268,4 @@ local function Changed()
 end
 FM.On("PLAYER_MONEY", Changed)
 FM.On("BAG_UPDATE_DELAYED", Changed)
+FM.On("PLAYER_EQUIPMENT_CHANGED", Changed)

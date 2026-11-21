@@ -491,6 +491,77 @@ H.test("picks: without 3 sales of yours the market share is the rate, listed or 
     H.eq(HasStep(picks["504"], "make 13"), true, "18 less your 5 listed: make 13")
 end)
 
+-- Rule (FRV-71): a commodity (an item that stacks, FM.ItemStacks) plans with your pace whenever you have 3+ sales in
+-- the window, listed or sold out; without them a first batch only: at most the settings panel's first batch share
+-- of C/24h (tableFirstPct, default 2%) and what one 8h listing at the market rate (half the buyers) sells. Items
+-- sold per auction keep the rule above. Buyers here: 36 a day, half = 18, so one 8h listing sells 6.
+local function Commodities(FM, keys)
+    local set = {}
+    for _, key in ipairs(keys) do set[key] = true end
+    FM.ItemStacks = function(key) return set[key] or false end
+end
+
+H.test("picks: a commodity you sold out of plans with your pace, not half the buyers", function()
+    -- 12 sold in 20h = 14.4 a day; the market's 18 would count for an item sold per auction
+    local FM, env, r = Setup({ ["511"] = 9 })
+    Commodities(FM, { "511" })
+    OwnRecord(r, "511", 12, 0)
+    local picks = Compute(FM, env, { crafts = { Craft("511", 400) } })
+    H.eq(HasStep(picks["511"], "make 14"), true, "your 14 a day: make 14")
+    H.eq(Reason(picks["511"], "A commodity: your own pace is the rate (its buyers are mostly relists).") ~= nil, true,
+        "the tooltip says why")
+end)
+
+H.test("picks: a commodity with your pace of 79 a day and 155 listed is no pick (Cured Thick Hide)", function()
+    -- 66 sold in 20h = 79 a day; C/24h 7300 leaves the 25% cap far above
+    local FM, env, r = Setup({ ["512"] = 9 })
+    Commodities(FM, { "512" })
+    OwnRecord(r, "512", 66, 155)
+    local out = { crafts = { Craft("512", 7300) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["512"], nil, "no pick")
+    H.eq(out.pickWhy["512"], "you list 155 and sell 79 a day yourself (66 sold in 3 days): they cover 46h", "the reason")
+end)
+
+H.test("picks: a commodity without sales of yours plans a first batch only, the share and the 8h listing cap it", function()
+    -- C/24h 4000: 2% = 80, one 8h listing at 18 a day = 6: make 6
+    local FM, env = Setup({ ["513"] = 9 })
+    Commodities(FM, { "513" })
+    local picks = Compute(FM, env, { crafts = { Craft("513", 4000) } })
+    H.eq(HasStep(picks["513"], "make 6"), true, "one 8h listing: make 6")
+    H.eq(Reason(picks["513"], "No sales of your own yet: a first batch (a commodity's buyers are mostly relists).") ~= nil,
+        true, "the tooltip says why")
+    H.eq(Reason(picks["513"], "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6") ~= nil, true,
+        "the room line")
+    -- C/24h 200: 2% = 4 binds
+    FM, env = Setup({ ["513"] = 9 })
+    Commodities(FM, { "513" })
+    picks = Compute(FM, env, { crafts = { Craft("513", 200) } })
+    H.eq(HasStep(picks["513"], "make 4"), true, "2% of 200: make 4")
+    -- the share is a setting
+    FM, env = Setup({ ["513"] = 9 }, { tableFirstPct = 1 })
+    Commodities(FM, { "513" })
+    picks = Compute(FM, env, { crafts = { Craft("513", 200) } })
+    H.eq(HasStep(picks["513"], "make 2"), true, "1% of 200: make 2")
+    -- too small for one craft: no pick, and why
+    FM, env = Setup({ ["513"] = 9 })
+    Commodities(FM, { "513" })
+    local out = { crafts = { Craft("513", 20) } }
+    picks = Compute(FM, env, out)
+    H.eq(picks["513"], nil, "no pick")
+    H.eq(out.pickWhy["513"], "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the market rate 6)",
+        "the reason")
+end)
+
+H.test("picks: an item sold per auction keeps half the buyers without sales of yours", function()
+    local FM, env = Setup({ ["514"] = 9 })
+    Commodities(FM, { "513" })
+    local picks = Compute(FM, env, { crafts = { Craft("514", 4000) } })
+    H.eq(HasStep(picks["514"], "make 18"), true, "half of 36 buyers: make 18")
+    H.eq(Reason(picks["514"], "No sales of your own yet: a first batch (a commodity's buyers are mostly relists)."), nil,
+        "no first batch note")
+end)
+
 -- FRV-44: what Shift-click and the row menu send to the sniper. Rule: every AH purchase of the plan with its planned
 -- units and its highest AH price, the units the steps line names; a material bought at a vendor never goes to it
 H.test("picks: the sniper gets the plan's AH purchases with their units, never its vendor purchases", function()
