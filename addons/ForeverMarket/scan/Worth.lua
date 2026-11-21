@@ -381,10 +381,12 @@ end
 -- item: a character that wears e units of an item and is the wearer of m marks of it gets e - m new marks, so taking
 -- gear off and on again marks nothing. Checked at login (gear equipped before 1.31 too) and after every
 -- PLAYER_EQUIPMENT_CHANGED.
--- R.gear = { "t|wearer|id|units|value|ref|item", ... }  t = FM.Stamp of the mark, id = the equipped item's ID,
+-- R.gear = { "t|wearer|id|units|value|ref|item|how", ... }  t = FM.Stamp of the mark, id = the equipped item's ID,
 --   units = units marked, value = what one unit counted for in the readings of what you hold at the mark (the usual AH
 --   price, at least the vendor's; 0 when no reading counts it), ref = the purchase ("b<t>,<char>" a buys line,
---   "i<sent>,<char>" a won auction's mail, FM.GearRef), item = its key (buys) or the mail's item name
+--   "i<sent>,<char>" a won auction's mail, FM.GearRef), item = its key (buys) or the mail's item name, how = "e" seen
+--   equipped (the mark is the moment of the equipping) or "l" found worn by the login check (when it was equipped
+--   is not known: trade/Performance.lua takes no steps of what you held back for it)
 local GEAR_MAX = 2000 -- marks kept
 local EMPTY_LIST = {}
 
@@ -394,7 +396,8 @@ local function GearRef(kind, stamp, who)
 end
 FM.GearRef = GearRef
 
--- The marks: { { t, wearer, id, units, value, ref, item, who = the buyer }, ... } in the order they were made
+-- The marks: { { t, wearer, id, units, value, ref, item, who = the buyer, login = found worn at login }, ... } in the
+-- order they were made
 local function GearMarks(r)
     local list = {}
     for _, line in ipairs(type(r.gear) == "table" and r.gear or {}) do
@@ -402,7 +405,7 @@ local function GearMarks(r)
         local t, id, units = FM.Unstamp(f[1]), tonumber(f[3]), Dec(f[4])
         if t and id and units and units > 0 and f[6] and f[7] and f[7] ~= "" then
             list[#list + 1] = { t = t, wearer = f[2], id = id, units = units, value = Dec(f[5]) or 0, ref = f[6],
-                item = f[7], who = f[6]:match(",(.*)$") or "" }
+                item = f[7], who = f[6]:match(",(.*)$") or "", login = f[8] == "l" }
         end
     end
     return list
@@ -517,8 +520,8 @@ local function Equipped()
 end
 
 -- Marks what the logged-in character wears and one of your characters bought on the AH as own gear (see above);
--- returns the units marked
-function FM.CheckGear()
+-- atLogin = the login check (gear found worn, how = "l"), else an equipping seen now ("e"). Returns the units marked
+function FM.CheckGear(atLogin)
     local worn = Equipped()
     if next(worn) == nil then return 0 end
     local r = FM.R()
@@ -548,7 +551,8 @@ function FM.CheckGear()
                 local value = (p.key and p.counts) and math_floor(ValueOfKey(p.key, 1) + 0.5) or 0
                 if type(r.gear) ~= "table" then r.gear = {} end
                 FM.CapList(r.gear, GEAR_MAX)
-                r.gear[#r.gear + 1] = table_concat({ FM.Stamp(), me, tostring(id), Enc(n), Enc(value), p.ref, p.item }, "|")
+                r.gear[#r.gear + 1] = table_concat({ FM.Stamp(), me, tostring(id), Enc(n), Enc(value), p.ref, p.item,
+                    atLogin and "l" or "e" }, "|")
                 left, added = left - n, added + n
             end
         end
@@ -557,18 +561,27 @@ function FM.CheckGear()
 end
 
 local gearPending = false
+local gearLive = false -- the login check ran: from now on an equipment change is an equipping seen as it happens
+local function RunCheck(atLogin)
+    local ok, err = pcall(FM.CheckGear, atLogin)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
+end
 local function CheckGearSoon()
     if gearPending then return end
     gearPending = true
-    -- one check after a swap of several slots
+    -- one check after a swap of several slots; before the login check (equipment loading) it counts as found worn
     C_Timer.After(1, function()
         gearPending = false
-        local ok, err = pcall(FM.CheckGear)
-        if not ok and geterrorhandler then geterrorhandler()(err) end
+        RunCheck(not gearLive)
     end)
 end
 FM.On("PLAYER_EQUIPMENT_CHANGED", CheckGearSoon)
-FM.On("PLAYER_LOGIN", function() C_Timer.After(5, CheckGearSoon) end)
+FM.On("PLAYER_LOGIN", function()
+    C_Timer.After(5, function()
+        RunCheck(true)
+        gearLive = true
+    end)
+end)
 
 -- Units bought on the AH and not sold there since, by item: purchases (commodities, a year) and won auctions
 -- of other items, less your sales from the mail, in time order (a sale before a purchase can't sell its units:

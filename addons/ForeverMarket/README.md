@@ -608,9 +608,13 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   won auction's mail read) until it was equipped: both steps are taken back where they landed (the first reading
   after each, or the reading of right now) at the value it counted for when it was equipped, so neither the day it
   arrived nor the day it was equipped moves; that is exact for gear the same character equips while ForeverMarket
-  runs, gear found at login counts from that login, and gear mailed to another character leaves "This character"
-  of the buyer at the mailing (as before), so there the step back lands at the equipping. Item IDs match whatever
-  you wear: an item looted and worn while you hold a bought one of the same ID for resale marks the bought one.
+  runs, and gear mailed to another character leaves "This character" of the buyer at the mailing (as before), so
+  there the step back lands at the equipping. Gear the login check finds worn (equipped while ForeverMarket did not
+  watch, e.g. before 1.31; also what an equipment change before that check finds) was equipped at a moment nobody
+  saw: none of its steps is taken back, they stay where they landed (bought and worn the same day: the day rises by
+  its price; bought one day and worn another: the first shows its usual price gained, the second the same lost;
+  bought and worn before your first reading: nothing moves). Item IDs match whatever you wear: an item looted and
+  worn while you hold a bought one of the same ID for resale marks the bought one.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
   since (oldest first). What the lists saw change (`osold`, also an auction still shown sold, `opart`, `ocancel`,
   `ogone`) is matched to the mails you read of the item (sent after the list before it and by the list that saw
@@ -831,10 +835,11 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
-* `gear` lines `t|wearer|id|units|value|ref|item` (1.31, FRV-93): AH purchases equipped as own gear, one line per
-  mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped item,
-  value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
-  purchase (`b<t>,<char>` a `buys` line, `i<sent>,<char>` a won auction's mail), item = its key or the mail's name
+* `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
+  per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
+  item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
+  purchase (`b<t>,<char>` a `buys` line, `i<sent>,<char>` a won auction's mail), item = its key or the mail's name,
+  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it)
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the

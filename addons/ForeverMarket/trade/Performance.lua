@@ -508,7 +508,10 @@ local function Build(r, char, mode, now)
     -- reading of the line at or after the moment, or the reading of right now: series.liveFix), the arrival's with
     -- the mark's value off, the equipping's with it back; none when no reading lies between them. A step that counted
     -- nothing (the line's first reading, a change of what it saw) is not taken back either. All characters: the
-    -- joint line from its first reading on, before it the buyer's own
+    -- joint line from its first reading on, before it the buyer's own. Gear the login check found worn (m.login) was
+    -- equipped at a moment nobody saw, so no step is taken back for it: its steps stay where they landed (its arrival's
+    -- gain and its equipping's drop add up to nothing), and a step back can neither move one into the wrong period nor
+    -- take back a drop no reading had (bought and equipped before the line's first reading)
     series.liveFix = 0
     local liveLine = all and joint or lists[char]
     local function LineAt(who, t)
@@ -540,7 +543,7 @@ local function Build(r, char, mode, now)
             local value = m.value * m.units
             local lineA, jointA = LineAt(fix.who, fix.arrival)
             local lineM, jointM = LineAt(fix.who, m.t)
-            if value > 0 and lineA and lineM then
+            if value > 0 and lineA and lineM and not m.login then
                 local kA, kM = FirstFrom(lineA, fix.arrival), FirstFrom(lineM, m.t)
                 if not (lineA == lineM and kA == kM) then
                     Fix(lineA, jointA, kA, -value)

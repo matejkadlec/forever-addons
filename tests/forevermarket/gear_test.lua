@@ -50,7 +50,17 @@ local function Session(saved, first, guid, clock)
     r.names[tostring(SWORD)] = SWORD_NAME
     r.names[tostring(RING)] = RING_NAME
     H.eq(FM.PlayerName(), first, "the character's key")
+    -- logged in: the login check ran (nothing worn yet), so an equipment change from now on is seen as it happens
+    env.C_Timer.NewTicker = function() end -- the readings' ticker
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
     return FM, env, state, r
+end
+
+-- Logs in again with what state.worn holds: the login check finds it worn
+local function Login(env)
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
 end
 
 -- A won auction's mail: sent and read at t, money = what it cost
@@ -104,8 +114,9 @@ H.test("gear: equipping a bought item takes it out of Bought and both totals ris
     Equip(env, state, 16, SWORD)
     H.eq(#r.gear, 1, "one mark")
     local f = FM.Split(r.gear[1], "|")
-    H.same({ f[2], f[3], f[4], f[5], f[6], f[7] },
-        { "Ada", tostring(SWORD), "1", B(450), FM.GearRef("i", FM.Stamp(day + 3600), "Ada"), SWORD_NAME }, "the mark")
+    H.same({ f[2], f[3], f[4], f[5], f[6], f[7], f[8] },
+        { "Ada", tostring(SWORD), "1", B(450), FM.GearRef("i", FM.Stamp(day + 3600), "Ada"), SWORD_NAME, "e" },
+        "the mark: seen equipped")
     r.worth.Ada[3] = Reading(FM, day + 4 * 3600, 0)
     env.clock = day + 5 * 3600
     local after = FM.PerfSeries("day", env.clock, "char")
@@ -217,11 +228,50 @@ H.test("gear: what is worn at login is checked, a variant with a suffix by its n
     Won(FM, r, "Ada", SWORD_NAME, 500, NOW - 4 * 3600)
     state.worn[16] = SWORD
     state.names[16] = "Fine Sword of the Monkey"
-    env.C_Timer.NewTicker = function() end -- the readings' ticker
-    env.FireEvent("PLAYER_LOGIN")
-    env.FlushTimers()
+    Login(env)
     H.eq(#r.gear, 1, "marked at login")
     local f = FM.Split(r.gear[1], "|")
-    H.same({ f[5], f[7] }, { "0", "Fine Sword of the Monkey" }, "the variant (no reading counted it: value 0)")
+    H.same({ f[5], f[7], f[8] }, { "0", "Fine Sword of the Monkey", "l" },
+        "the variant (no reading counted it: value 0), found worn at login")
     H.same({ Bought(FM.PerfSeries("day", NOW, "char")) }, { 1, 500 }, "the plain sword stays")
+end)
+
+-- Rule: gear the login check finds worn was equipped at a moment nobody saw, so none of its steps in what you held is
+-- taken back; its payment still leaves the tab
+H.test("gear: bought and equipped before the first reading, found at login: nothing moves", function()
+    local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
+    local day = FM.PerfStart("day", NOW)
+    -- the sword was won and worn before the first reading of what Ada holds: no reading ever counted it; the
+    -- readings saw bags and mailbox ("hm"), like the reading of right now
+    Won(FM, r, "Ada", SWORD_NAME, 500, day - 2 * 3600)
+    r.mailbox.Ada = FM.Stamp(day - 3 * 3600) .. "|0|"
+    local function Line(t) return FM.Stamp(t) .. "," .. B(1) .. "," .. B(0) .. ",hm" end
+    r.worth.Ada = { Line(day - 3600), Line(day + 3600) }
+    env.GetMoney = function() return 1 end
+    env.clock = day + 2 * 3600
+    H.eq(FM.PerfSeries("day", env.clock, "char").change, 0, "before: a purchase before the first reading is neutral")
+    state.worn[16] = SWORD
+    Login(env)
+    H.eq(#r.gear, 1, "found worn")
+    H.eq(FM.Split(r.gear[1], "|")[8], "l", "by the login check")
+    H.eq(FM.PerfSeries("day", env.clock, "char").change, 0, "no gain out of nowhere in the reading of right now")
+    -- and once a reading after the mark is stored
+    r.worth.Ada[3] = Line(day + 3 * 3600)
+    env.clock = day + 4 * 3600
+    H.eq(FM.PerfSeries("day", env.clock, "char").change, 0, "nor in a stored reading")
+end)
+
+H.test("gear: bought, held and worn the same day, found at login: the day rises by its price", function()
+    local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
+    local day = FM.PerfStart("day", NOW)
+    -- won at 00:30, held at 01:00 at its usual price, worn by 02:00 (ForeverMarket 1.30 did not watch)
+    Won(FM, r, "Ada", SWORD_NAME, 500, day + 1800)
+    r.worth.Ada = { Reading(FM, day - 3600, 0), Reading(FM, day + 3600, 450), Reading(FM, day + 2 * 3600, 0) }
+    env.clock = day + 3 * 3600
+    H.eq(FM.PerfSeries("day", env.clock, "char").change, -500, "before: paid 500, held and gone again")
+    state.worn[16] = SWORD
+    Login(env)
+    local series = FM.PerfSeries("day", env.clock, "char")
+    H.eq(series.change, 0, "its price back: the held steps stay and add up to nothing")
+    H.same({ Bought(series) }, { 0, 0 }, "gone from Bought")
 end)
