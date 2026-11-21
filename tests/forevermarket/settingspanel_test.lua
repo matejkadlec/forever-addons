@@ -1,6 +1,6 @@
 -- ForeverMarket ui/SettingsPanel.lua: the number inputs of the settings panel (FRV-86) that replaced the dropdowns.
 -- Rule: minimum profit per item is three boxes (gold, silver, copper) for one value in copper, the two shares of C/24h
--- one box each with "%" (the first batch 1-10); Enter or a lost focus applies (out of range clamped, an empty box counts 0 among the three,
+-- one box each with "%" (the first batch 1-10), the buy or craft rate one box (FRV-69, 0-20, default 2); Enter or a lost focus applies (out of range clamped, an empty box counts 0 among the three,
 -- nothing typed at all keeps the saved value), a changed value plans the picks again, Esc shows the saved value again.
 
 local H = require("harness")
@@ -34,7 +34,7 @@ local function EditBoxes(env)
 end
 
 -- The panel on saved settings; boxes 1-3 = gold, silver, copper of the minimum profit, 4 = share of C/24h,
--- 5 = first batch. plans() = how often the picks planned again
+-- 5 = first batch, 6 = the buy or craft rate (FRV-69). plans() = how often the picks planned again
 local function Load(saved)
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "ui/Filters.lua" })
     env.ForeverMarketDB = saved
@@ -68,15 +68,15 @@ local function Shown(boxes)
     return table.concat(texts, " ")
 end
 
-H.test("settings panel: a new install shows 0g 0s 1c, 25% and 2%", function()
+H.test("settings panel: a new install shows 0g 0s 1c, 25%, 2% and 2% per second", function()
     local _, boxes = Load(nil)
-    H.eq(#boxes, 5, "five boxes")
-    H.eq(Shown(boxes), "0 0 1 25 2", "the defaults")
+    H.eq(#boxes, 6, "six boxes")
+    H.eq(Shown(boxes), "0 0 1 25 2 2", "the defaults")
 end)
 
 H.test("settings panel: values of the old dropdowns load into the inputs", function()
     local _, boxes = Load({ settings = { tableMinProfit = 2000, tableCircPct = 33, tableFirstPct = 10 } })
-    H.eq(Shown(boxes), "0 20 0 33 10", "20s, 33%, 10%")
+    H.eq(Shown(boxes), "0 20 0 33 10 2", "20s, 33%, 10%, the new rate's default")
 end)
 
 H.test("settings panel: gold, silver and copper are one value, an empty box counts 0, a change plans again", function()
@@ -86,14 +86,14 @@ H.test("settings panel: gold, silver and copper are one value, an empty box coun
     boxes[2]:SetText("")
     Type(boxes[3], "5")
     H.eq(FM.GetSettings().tableMinProfit, 10005, "1g 0s 5c")
-    H.eq(Shown(boxes), "1 0 5 25 2", "shown again split")
+    H.eq(Shown(boxes), "1 0 5 25 2 2", "shown again split")
     H.eq(plans(), 1, "planned again")
     Type(boxes[3], "5")
     H.eq(plans(), 1, "the same value plans nothing")
     for _, box in ipairs({ boxes[1], boxes[2] }) do box:SetText("") end
     Type(boxes[3], "")
     H.eq(FM.GetSettings().tableMinProfit, 10005, "nothing typed keeps the saved value")
-    H.eq(Shown(boxes), "1 0 5 25 2", "the saved value shown again")
+    H.eq(Shown(boxes), "1 0 5 25 2 2", "the saved value shown again")
     Type(boxes[1], "0")
     boxes[3]:SetText("0")
     Type(boxes[3], "0")
@@ -117,6 +117,19 @@ H.test("settings panel: a share is clamped to its range, empty keeps it", functi
     H.eq(plans(), 4, "each change planned again")
 end)
 
+-- FRV-69: buying a craftable material may cost this many % more per second of crafting it saves; 0 = the cheaper route
+H.test("settings panel: the buy or craft rate is one box, 0 to 20, a change plans again", function()
+    local FM, boxes, plans = Load(nil)
+    Type(boxes[6], "5")
+    H.eq(FM.GetSettings().tableTimePct, 5, "5% per second")
+    Type(boxes[6], "0")
+    H.eq(FM.GetSettings().tableTimePct, 0, "0 may be saved: the cheaper route")
+    Type(boxes[6], "50")
+    H.eq(FM.GetSettings().tableTimePct, 20, "at most 20")
+    H.eq(boxes[6]:GetText(), "20", "shown clamped")
+    H.eq(plans(), 3, "each change planned again")
+end)
+
 H.test("settings panel: Esc shows the saved value again and saves nothing", function()
     local FM, boxes, plans = Load(nil)
     Type(boxes[4], "40", "OnEscapePressed")
@@ -124,6 +137,6 @@ H.test("settings panel: Esc shows the saved value again and saves nothing", func
     H.eq(boxes[4]:GetText(), "25", "25 shown again")
     Type(boxes[2], "50", "OnEscapePressed")
     H.eq(FM.GetSettings().tableMinProfit, 1, "still 1c")
-    H.eq(Shown(boxes), "0 0 1 25 2", "the saved values shown")
+    H.eq(Shown(boxes), "0 0 1 25 2 2", "the saved values shown")
     H.eq(plans(), 0, "nothing planned")
 end)

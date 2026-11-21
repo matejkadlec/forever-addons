@@ -32,6 +32,7 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.tableInvestPicks, 3, "across [Y] picks: 3")
     H.eq(s.tableCircPct, 25, "share of C/24h: 25")
     H.eq(s.tableFirstPct, 2, "first batch of a commodity: 2")
+    H.eq(s.tableTimePct, 2, "buy or craft rate: 2% per second (FRV-69)")
     H.eq(s.tableMinProfit, 1, "minimum profit per item: 0g 0s 1c")
 end)
 
@@ -80,6 +81,10 @@ H.test("settings: broken input values load as whole numbers in range or the defa
     H.eq(s.tableMinProfit, 0, "negative: 0")
     H.eq(s.tableCircPct, 12, "a fraction: the whole number below")
     H.eq(s.tableFirstPct, 2, "false: the default")
+    -- FRV-69: the buy or craft rate, 0 to 20
+    H.eq(Load({ settings = { tableTimePct = 0 } }).GetSettings().tableTimePct, 0, "rate 0 stays")
+    H.eq(Load({ settings = { tableTimePct = 35 } }).GetSettings().tableTimePct, 20, "rate over 20: 20")
+    H.eq(Load({ settings = { tableTimePct = -1 } }).GetSettings().tableTimePct, 0, "negative rate: 0")
 end)
 
 H.test("settings: what an input saves is clamped, nothing typed is no value", function()

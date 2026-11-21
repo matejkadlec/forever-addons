@@ -317,8 +317,9 @@ end
 local recipes = setmetatable({}, { __index = function(_, key) return FM.RecipeOf and FM.RecipeOf(key) or nil end })
 
 -- Materials of n crafted units now, per unit: each material the way the market table prices it (vendor or AH
--- ladder, whichever is cheaper, or an intermediate you make yourself, up to 2 levels deep, when that beats buying
--- by 3%), here on the freshest ladders; nil when a material has no price
+-- ladder, whichever is cheaper, or an intermediate you make yourself, up to 2 levels deep, unless buying it costs
+-- at most the allowance of the crafting time it saves, FM.CraftBeatsBuying), here on the freshest ladders; nil when
+-- a material has no price
 local function CraftNow(recipe, n)
     if not FM.MaterialUnit then return nil end
     local makes = recipe.makes or 1
