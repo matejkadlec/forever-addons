@@ -876,7 +876,8 @@ end
 
 ---------------------------------------------------------------- shopping list (FRV-79)
 -- What a row click of the market table searches at the AH: only what you would buy there. One list for every
--- search: Blizzard's Buy list since 1.33 (FRV-47, FM.SearchAH in ui/AHButton.lua), Auctionator's shopping list before.
+-- search (FM.SearchAH in ui/AHButton.lua): Auctionator's shopping list when Auctionator is loaded, else Blizzard's Buy
+-- list (since 1.33, FRV-47; before it the click needed Auctionator).
 
 -- The AH materials of a craft: an intermediate you make replaced by its materials (two levels deep, as the table
 -- prices them), vendor materials never; "last" = an AH material none of which is listed right now

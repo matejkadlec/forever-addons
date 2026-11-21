@@ -4,8 +4,9 @@ local _, FM = ...
 -- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
 -- result, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
--- Row tooltip = how a number was worked out. Click = search its shopping list in Blizzard's Buy list at the AH
--- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift+click =
+-- Row tooltip = how a number was worked out. Click = search its shopping list at the AH, in Auctionator's Shopping
+-- tab when Auctionator is loaded, else in Blizzard's Buy list (only what you would buy there: a craft's AH
+-- materials, a pick's AH purchases, a flip's item), Shift+click =
 -- link it in chat (or snipe at the AH: a pick all its AH purchases), Alt+click = the tooltip as a sticky window
 -- (ui/StickyTooltip.lua), right-click = menu: Favorize, Ignore, Snipe (where Shift+click snipes, also away from the
 -- AH), Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one), Show price graph
