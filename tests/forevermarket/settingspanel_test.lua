@@ -1,6 +1,6 @@
 -- ForeverMarket ui/SettingsPanel.lua: the number inputs of the settings panel (FRV-86) that replaced the dropdowns.
 -- Rule: minimum profit per item is three boxes (gold, silver, copper) for one value in copper, the two shares of C/24h
--- one box each with "%"; Enter or a lost focus applies (out of range clamped, an empty box counts 0 among the three,
+-- one box each with "%" (the first batch 1-10); Enter or a lost focus applies (out of range clamped, an empty box counts 0 among the three,
 -- nothing typed at all keeps the saved value), a changed value plans the picks again, Esc shows the saved value again.
 
 local H = require("harness")
@@ -100,7 +100,7 @@ H.test("settings panel: gold, silver and copper are one value, an empty box coun
     H.eq(FM.GetSettings().tableMinProfit, 0, "0g 0s 0c may be saved")
 end)
 
-H.test("settings panel: a share is clamped to 1-100, empty keeps it", function()
+H.test("settings panel: a share is clamped to its range, empty keeps it", function()
     local FM, boxes, plans = Load(nil)
     Type(boxes[4], "150")
     H.eq(FM.GetSettings().tableCircPct, 100, "150% is 100%")
@@ -112,7 +112,9 @@ H.test("settings panel: a share is clamped to 1-100, empty keeps it", function()
     H.eq(boxes[4]:GetText(), "1", "the saved value shown again")
     Type(boxes[5], "5")
     H.eq(FM.GetSettings().tableFirstPct, 5, "first batch 5%")
-    H.eq(plans(), 3, "each change planned again")
+    Type(boxes[5], "50")
+    H.eq(FM.GetSettings().tableFirstPct, 10, "first batch: at most 10%")
+    H.eq(plans(), 4, "each change planned again")
 end)
 
 H.test("settings panel: Esc shows the saved value again and saves nothing", function()

@@ -148,11 +148,12 @@ function FM.FormatCount(n)
 end
 
 -- The number inputs of the settings panel (FRV-86) and their whole number ranges: the minimum profit per item in
--- copper (0g 0s 0c to 999g 99s 99c), the shares of C/24h in percent
+-- copper (0g 0s 0c = no minimum, to 999g 99s 99c), the shares of C/24h in percent (the first batch within the bounds
+-- of its old dropdown, 1 to 10)
 FM.SETTING_RANGE = {
     tableMinProfit = { 0, 999 * 10000 + 9999 },
     tableCircPct = { 1, 100 },
-    tableFirstPct = { 1, 100 },
+    tableFirstPct = { 1, 10 },
 }
 
 -- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all

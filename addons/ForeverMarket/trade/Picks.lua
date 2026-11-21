@@ -1536,7 +1536,7 @@ function FM.ComputePicks(out, ctx, done)
         demand = {}, owned = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo, yours = {},
         ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
-        minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit or nil }
+        minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit > 0 and s.tableMinProfit or nil }
     -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (at most 90%, the rest
     -- pays deposits), Y = the picks it has at most; Step gives each pick its share of what is left
     local share = tonumber(s.tableInvestPct)

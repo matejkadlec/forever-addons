@@ -372,7 +372,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
     cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from. A commodity's first batch (1.31,
     FRV-71) has the smaller cap of the settings panel's "first batch of a commodity without your sales" share of
-    C/24h (1 to 100%, default 2, `tableFirstPct`; a dropdown of 1 / 2 / 3 / 5 / 10% in 1.31) and what one 8h listing at the market rate (half the
+    C/24h (1 to 10%, default 2, `tableFirstPct`; a dropdown of 1 / 2 / 3 / 5 / 10% in 1.31) and what one 8h listing at the market rate (half the
     buyers) sells: "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6"; too small for
     one craft or one unit: "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the
     market rate 6)".
@@ -511,13 +511,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the feed what the game already has.
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
-  (`tableMinProfit`, in copper) hides crafts and recipes that earn less per item, and those without a known profit
-  (vendor resells and flips stay); on Picks the plan leaves them out instead (1.17). Below it the Picks' share of an
+  (`tableMinProfit`, in copper) hides the rows of the Craft, Vendor and Flip tabs that earn less per item, and crafts
+  without a known profit; 0g 0s 0c is no minimum (the old "Any"); on Picks the plan leaves them out instead (1.17). Below it the Picks' share of an
   item's C/24h one pick may plan (1.19, `tableCircPct`) and the first batch of a commodity without your sales (1.31,
   FRV-71, `tableFirstPct`; see Picks, Room on the AH).
 * The three are number inputs since 1.32 (FRV-86; dropdowns before): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
-  25 and 2). Whole numbers only; Enter or a click elsewhere applies (out of range is clamped, nothing typed keeps the
+  25; the first batch 1 to 10, default 2, the bounds of its dropdown). Whole numbers only; Enter or a click elsewhere applies (out of range is clamped, nothing typed keeps the
   saved value) and plans the picks again as the dropdowns did, Esc shows the saved value again. The ranges are
   `FM.SETTING_RANGE` in core/Core.lua; at load a saved dropdown step stays, the old "Any" (no value saved) becomes
   the default 1c, a broken value its default.

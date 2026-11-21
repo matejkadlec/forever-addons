@@ -91,11 +91,11 @@ local COIN = { "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r" }
 local COIN_COPPER = { 10000, 100, 1 }
 local INPUT_TIPS = {
     -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
-    tableMinProfit = "Rows of the market table and picks that earn less per item are hidden (crafts and recipes; vendor resells and flips stay). Whole numbers, silver and copper 0 to 99 (default 0g 0s 1c).",
+    tableMinProfit = "Rows of the Craft, Vendor and Flip tabs and picks that earn less per item are hidden, crafts without a known profit too. 0g 0s 0c: no minimum. Whole numbers, silver and copper 0 to 99 (default 0g 0s 1c).",
     -- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
     tableCircPct = "The most of an item's C/24h one pick may add to the AH, your listings on all characters included. Whole numbers 1 to 100 (default 25).",
     -- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
-    tableFirstPct = "A commodity you have no sales of plans a first batch of at most this share of its C/24h. Whole numbers 1 to 100 (default 2).",
+    tableFirstPct = "A commodity you have no sales of plans a first batch of at most this share of its C/24h. Whole numbers 1 to 10 (default 2).",
 }
 
 -- A changed value of an input: an input of the picks plan, so it plans again (only when there are numbers already)

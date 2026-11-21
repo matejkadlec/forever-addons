@@ -692,8 +692,9 @@ local function BuildRows(tab, lookup)
                 if not FM.RecipeFits(row.craft, maxSkill, maxLevel) then keep = false end
             end
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
+            -- the settings panel's minimum profit per item; 0g 0s 0c is no minimum (FRV-86, the old "Any")
             local minProfit = s.tableMinProfit
-            if keep and minProfit and not tab.favs and not tab.learn and not tab.picks then
+            if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks then
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
