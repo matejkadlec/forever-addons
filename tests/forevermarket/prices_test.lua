@@ -8,6 +8,10 @@
 --     extended cost = no price in items or a currency, no currencyID = not a currency it sells) is kept as
 --     R.vendorSeen[key] = "<unit price>,<time>,<npc name>"; a secret NPC name
 --     keeps the price without a name. FM.VendorUnit uses it where ForeverArtisan's Trade Contacts have no offer
+--   * Crafting time of a Craft row (FRV-69, FM.CraftRowSeconds): its own cast time plus, per material it crafts, the
+--     material's seconds per unit (its cast time and its own crafted materials', over the units one craft makes)
+--     times the units needed; a bought or vendor material and a cast time not known yet add nothing; nil while the
+--     row's own cast time is not known
 
 local H = require("harness")
 local F = require("fixtures")
@@ -192,4 +196,31 @@ H.test("vendor prices: the merchant is read when it opens and when its list chan
     env.FireEvent("MERCHANT_UPDATE")
     env.FlushTimers() -- the second read after MERCHANT_SHOW comes after the close
     H.eq(next(r.vendorSeen), nil, "nothing read after the close")
+end)
+
+-- FRV-69: the crafting time of a Craft row (PPH, time per 1g) counts the materials it crafts, none it buys
+H.test("craft seconds: a row's own cast time plus its crafted materials' per unit, bought ones and unknown casts 0", function()
+    local FM = Load()
+    FM.CraftSeconds = function(craft) return craft.testSecs end -- the cast time plus the gap, as the spell gives it
+    local row = { craft = { testSecs = 3.5 }, parts = {
+        { src = "craft", secs = 2.5, makes = 1, n = 3 }, -- an intermediate: 3 x 2.5s
+        { src = "craft", secs = 3, makes = 2, n = 4 },   -- a recipe that makes 2: 4 x 1.5s
+        { src = "ah", n = 5 },                            -- bought: 0
+        { src = "vendor", n = 2 },                        -- from a vendor: 0
+        { src = "craft", makes = 1, n = 2 },              -- its cast time not known yet: 0
+        { src = "craft", secs = 2, makes = 1, n = 1, parts = { -- with a crafted material of its own: 2s + 2 x 1.5s
+            { src = "craft", secs = 1.5, makes = 1, n = 2 },
+            { src = "ah", n = 3 },
+        } },
+    } }
+    local total, mats = FM.CraftRowSeconds(row)
+    H.eq(mats, 18.5, "7.5 + 6 + 5 for the crafted materials")
+    H.eq(total, 22, "3.5 of its own")
+    row.parts = { { src = "ah", n = 5 } }
+    total, mats = FM.CraftRowSeconds(row)
+    H.eq(total, 3.5, "only bought materials: its own cast time")
+    H.eq(mats, 0, "and nothing for them")
+    row.craft = { testSecs = nil }
+    H.eq(FM.CraftRowSeconds(row), nil, "its own cast time not known yet: no time")
+    H.eq(FM.CraftRowSeconds({ parts = {} }), nil, "no craft: no time")
 end)

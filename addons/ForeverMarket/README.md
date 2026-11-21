@@ -303,9 +303,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
   latest record. An item you also ignored shows only in Ignored, with its star. "Search all at the AH" (1.33,
-  FRV-47, right of the search box where the other tabs have their filters): one search of every favorite the tab
-  shows (`FM.SearchAH`, below: Auctionator's Shopping tab when Auctionator is loaded, else Blizzard's Buy list), with
-  a chat line of how many; the ones on the AH are listed there. Away from the AH it says to open it.
+  FRV-47, right of the search box where the other tabs have their filters): one search of every favorite that is
+  not ignored, whatever the name filter shows (`FM.SearchAH`, below: Auctionator's Shopping tab when Auctionator is
+  loaded, else Blizzard's Buy list), with a chat line of how many; the ones on the AH are listed there. Away from the
+  AH it says to open it.
 * **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;

@@ -1259,7 +1259,8 @@ local function SearchAtAH(row)
     SearchKeys(keys)
 end
 
--- Favorites' "Search all at the AH" (FRV-47): one search for every favorite the tab shows (ignored ones are not)
+-- Favorites' "Search all at the AH" (FRV-47): one search for every favorite, the items themselves (ignored ones are
+-- not searched; the name filter does not narrow it)
 local function SearchFavorites()
     local keys = {}
     for key, on in pairs(type(Settings().favorites) == "table" and Settings().favorites or {}) do
