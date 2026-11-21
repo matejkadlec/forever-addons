@@ -1,7 +1,8 @@
 # Forever Market
 
-Auction House market logger for WoW: Forever. It records the market over time so Claude can
-act as an AH advisor: what sells, how fast, at which price, what to craft or flip.
+Auction House market logger for WoW: Forever. It records the market over time and works out from it what
+sells, how fast, at which price and what to craft, buy or flip: the market table and its picks, the item
+tooltips and the sniper, all in the game.
 
 ## What it records
 
@@ -62,8 +63,7 @@ have no marks, so its records stay as they were).
   can never go to the AH, so an AH price on them is noise. Auctionator's tooltip post call is registered before ours
   (`## OptionalDeps` loads it first) so its line is already there when we look; for gear its key lookup is
   asynchronous and only finishes late while the item is uncached, so we stay out of that case instead of
-  risking a second line, and the next hover is right. Then `Claude list at 3s 45c (90% in 8h)`,
-  then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): groups with a
+  risking a second line, and the next hover is right. Then after a blank line what the item costs you and the least to sell it for (trade/Cost.lua): groups with a
   gold header and indented rows, values right-aligned, a grey "-" when there is nothing to show (never bought, no AH
   price or deposit estimate). n = your sellable units, else one stack. Your units are grouped by how they came to
   you (1.21, FRV-64 / FRV-65): your newest purchases and crafts of the item cover them, newest first (the ones you
@@ -130,8 +130,10 @@ have no marks, so its records stay as they were).
   a search the AH did not finish may not hold the cheapest unit, so it is skipped rather than guessed).
   Auctionator's own scans are left alone, it already stored them itself. This is what keeps its `Auction` tooltip line, selling tab and price history in
   step with ours instead of showing a price from the last in-game deep scan
-* Alerts: undercuts of your auctions, advised buy prices reached
-* After the AH closes with new data: popup to reload, because saved variables only reach the disk on reload
+* 1.32 (FRV-85, FRV-87) removed what only served a price analysis outside the game (a tooltip line and row notes
+  written into the AddOn's `data/` folder, the reload offer after the AH closed, `/fm save`, the bag counts of watched
+  items `inv`) and the chat alerts for undercuts and buy prices (`/fm popup`, `/fm alerts`); their saved keys go at
+  load
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
 * Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and sniper. The market
   table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
@@ -178,7 +180,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 
 * Rows come from the ForeverArtisan AddOns of the logged in character: every recipe of its professions
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
-  skill cap) and every vendor offer in Trade Contacts. `data/Tracked.lua` only adds Claude's notes and hides rows.
+  skill cap) and every vendor offer in Trade Contacts.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
 * Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
@@ -291,8 +293,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
-  its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item". Rows Claude hides in
-  `data/Tracked.lua` (`hide`) stay out of every tab, Ignored too.
+  its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
   the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
   together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
@@ -358,7 +359,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     recompute the picks.
   * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
     table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
-    "share of an item's C/24h one pick may plan" (10 / 15 / 20 / 25 / 33 / 50 / 100%, default 25, `tableCircPct`). C/24h counts
+    "share of an item's C/24h one pick may plan" (1 to 100%, default 25, `tableCircPct`; a dropdown of 10 / 15 / 20 /
+    25 / 33 / 50 / 100% until 1.31). C/24h counts
     everything that leaves the AH, bought or taken down, and other sellers undercut you during the day, so a
     quarter of it is what one more seller can expect to sell in a 24h listing; before 1.19 the only limits were half
     of the buyers (18 of 43 Barbaric Bracers a day) and 100 units. What you already list uses up the cap first:
@@ -370,7 +372,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
     cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from. A commodity's first batch (1.31,
     FRV-71) has the smaller cap of the settings panel's "first batch of a commodity without your sales" share of
-    C/24h (1 / 2 / 3 / 5 / 10%, default 2, `tableFirstPct`) and what one 8h listing at the market rate (half the
+    C/24h (1 to 10%, default 2, `tableFirstPct`; a dropdown of 1 / 2 / 3 / 5 / 10% in 1.31) and what one 8h listing at the market rate (half the
     buyers) sells: "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6"; too small for
     one craft or one unit: "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the
     market rate 6)".
@@ -509,10 +511,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the feed what the game already has.
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
-  (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
-  Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h one pick may plan (1.19,
-  default 25%, `tableCircPct`) and the first batch of a commodity without your sales (1.31, FRV-71, default 2%,
-  `tableFirstPct`; see Picks, Room on the AH).
+  (`tableMinProfit`, in copper) hides the rows of the Craft, Vendor and Flip tabs that earn less per item, and crafts
+  without a known profit; 0g 0s 0c is no minimum (the old "Any"); on Picks the plan leaves them out instead (1.17). Below it the Picks' share of an
+  item's C/24h one pick may plan (1.19, `tableCircPct`) and the first batch of a commodity without your sales (1.31,
+  FRV-71, `tableFirstPct`; see Picks, Room on the AH).
+* The three are number inputs since 1.32 (FRV-86; dropdowns before): minimum profit "[X]g [Y]s [Z]c" like the AH's
+  price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
+  25; the first batch 1 to 10, default 2, the bounds of its dropdown). Whole numbers only; Enter or a click elsewhere applies (out of range is clamped, nothing typed keeps the
+  saved value) and plans the picks again as the dropdowns did, Esc shows the saved value again. The ranges are
+  `FM.SETTING_RANGE` in core/Core.lua; at load a saved dropdown step stays, the old "Any" (no value saved) becomes
+  the default 1c, a broken value its default.
 * Click a row at the open AH: an Auctionator shopping list of only what you would buy there (1.27, FRV-79,
   `FM.ShoppingList` in trade/Picks.lua; FRV-47 will search the same list in Blizzard's AH): a craft (Craft, Learn, a
   favorite whose best use is a craft) its AH materials, an intermediate the table crafts replaced by its materials
@@ -794,7 +802,7 @@ holds market data (then it stays and the chat says so). ForeverArtisan now write
 
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
 (random suffix variants share one key, like in Auctionator on Forever; `items[key].v = 1` marks such items,
-whose prices mix variants of different value, so flips and undercut alerts skip them). The replicate list
+whose prices mix variants of different value, so flips skip them). The replicate list
 only has base names, so a deep scan reads one auction link per weapon/armor item never checked: a suffix ID
 or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that was never checked.
 
@@ -823,7 +831,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
   (`buyout` holds the quantity for commodity sales)
-* `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
+* `mailSeen`, `gold`, `owned`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
+  only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
   seen, since, bagsEmpty }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
   `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
@@ -849,9 +858,10 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; a `pct` from
   before 1.25 is left unused), `budget[character] = { base, since, reset, total, spent[key] }`
 
-## Claude's side
+## Analysis outside the game
 
-`tools/fm_analyze.py` (Python 3.8+, standard library only):
+`tools/fm_analyze.py` (Python 3.8+, standard library only) reads the saved variables and prints tables; it writes
+nothing:
 
 ```
 python3 tools/fm_analyze.py summary
@@ -860,9 +870,8 @@ python3 tools/fm_analyze.py price "Camp Tent" --hours 8 --conf 0.9 --qty 20 --co
 python3 tools/fm_analyze.py movers
 python3 tools/fm_analyze.py sales --days 14
 python3 tools/fm_analyze.py craft --prof Leatherworking
-python3 tools/fm_analyze.py flips --budget 5g [--advise 5]
+python3 tools/fm_analyze.py flips --budget 5g
 python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
-python3 tools/fm_analyze.py advice set "Camp Tent" --list 3s45c --conf "90% in 8h"
 ```
 
 `room` (1.22, FRV-56) puts Picks' room on the AH next to your real sales: per item you listed in the window, your
@@ -875,6 +884,5 @@ Sales rates (sold/day) appear once there are 2 hours of deep scans or searches a
 `price --rate <sold/day>` simulates with your own estimate before that. `flips` lists cheap listings
 below the usual price (median daily lowest price of the last week) with real stock above them.
 
-`advice` keeps `tools/advice.json` and writes `data/Advice.lua`, shown in game after `/reload`.
-The saved variables are found automatically (Windows layout `_forever_/WTF` or the Claude device
-mount `~/mnt/WTF`); `--sv` overrides.
+The saved variables are found automatically (Windows layout `_forever_/WTF`, or a WTF folder mounted at
+`~/mnt/WTF`); `--sv` overrides. Until 1.31 it could also write price notes into the AddOn's `data/` folder.

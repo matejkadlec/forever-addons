@@ -33,10 +33,6 @@ local function ProcessReplicateData(scanData)
             FM.deep.snap = nil
             FM.deep.state = "idle"
             if FM.UpdateAHButton then FM.UpdateAHButton() end
-            if FM.popupAfterSave then
-                FM.popupAfterSave = nil
-                FM.ShowReloadPopup()
-            end
         end)
     end)
 end

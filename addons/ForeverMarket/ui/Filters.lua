@@ -104,6 +104,7 @@ local function ShowMoney(row, value)
     row.boxes[3]:SetText(tostring(value % 100))
 end
 
+-- A box for a whole number of so many digits; Enter takes the focus away (the settings panel's inputs use it too)
 local function NumberBox(parent, digits)
     local b = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
     b:SetSize(BOX_W[digits] or 28, 22)
@@ -114,6 +115,7 @@ local function NumberBox(parent, digits)
     b:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     return b
 end
+FM.NumberBox = NumberBox
 
 local function CreateRow(w, opt)
     local row = { opt = opt }

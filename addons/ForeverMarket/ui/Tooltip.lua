@@ -1,9 +1,9 @@
 local _, FM = ...
 
--- Item tooltip lines: Claude's advice, and below it, after a blank line, what the item costs you and
--- the least to sell it for (trade/Cost.lua), in two groups with a gold header and indented rows with
--- right-aligned values. Lines are added synchronously with AddLine (no right column, no wrapping),
--- so they never fight with other tooltip AddOns.
+-- Item tooltip lines: after a blank line, what the item costs you and the least to sell it for
+-- (trade/Cost.lua), in two groups with a gold header and indented rows with right-aligned values.
+-- Lines are added synchronously with AddLine (no right column, no wrapping), so they never fight with
+-- other tooltip AddOns.
 -- The AH price itself is Auctionator's own "Auction" line at the top of the tooltip, which
 -- scan/Auctionator.lua keeps fed from every refresh of our data; where Auctionator leaves none we
 -- add that line ourselves, with the same label and the price in Blizzard's coin format.
@@ -15,10 +15,7 @@ local string_sub = string.sub
 local type = type
 local ipairs = ipairs
 
-local cache = {}
 local cacheVersion = -1
-
-local SEP = " |cFF9D9D9D·|r "
 
 -- Cost now against what you paid: white within 5%, orange 5%+ cheaper, red 15%+ cheaper, green 5%+ dearer
 local CHEAPER, MUCH_CHEAPER, DEARER = 0.05, 0.15, 0.05
@@ -83,31 +80,6 @@ local function AuctionLine(tooltip, key, link)
     local price = FM.FreshUnitPrice and FM.FreshUnitPrice(key)
     if not price or price <= 0 then return nil end
     return label, CoinMoney(price)
-end
-
-local function AdviceLine(key)
-    local advice = FM.Advice
-    local entry = advice and type(advice.items) == "table" and advice.items[key]
-    if type(entry) ~= "table" then return nil end
-    local parts = {}
-    if type(entry.list) == "number" then
-        local text = "list at " .. FM.FormatMoney(entry.list)
-        if type(entry.conf) == "string" and entry.conf ~= "" then text = text .. " (" .. entry.conf .. ")" end
-        parts[#parts + 1] = text
-    end
-    if type(entry.buyBelow) == "number" then
-        parts[#parts + 1] = "buy below " .. FM.FormatMoney(entry.buyBelow)
-    end
-    if type(entry.note) == "string" and entry.note ~= "" then
-        parts[#parts + 1] = entry.note
-    end
-    if #parts == 0 then return nil end
-    local line = FM.COLOR.BLUE .. "Claude|r " .. table.concat(parts, SEP)
-    local generated = type(advice.generated) == "number" and advice.generated or nil
-    if generated and FM.Now() - generated > 12 * 3600 then
-        line = line .. " |cFF9D9D9D(" .. FM.FormatAge(FM.Now() - generated) .. " old)|r"
-    end
-    return line
 end
 
 local function NowColor(now, paid)
@@ -179,18 +151,12 @@ local function CostLines(key)
     return lines
 end
 
-local function LinesFor(key)
+-- New data (a scan, a setting) empties the cost cache
+local function CheckCache()
     if cacheVersion ~= FM.dataVersion then
-        cache = {}
         costCache = {}
         cacheVersion = FM.dataVersion
     end
-    local entry = cache[key]
-    if entry == nil then -- false = this item has no advice
-        entry = AdviceLine(key) or false
-        cache[key] = entry
-    end
-    return entry
 end
 
 -- The item's key and, when the tooltip knows it, its link (the link also tells whether the client has
@@ -211,20 +177,17 @@ end
 local function OnItemTooltip(tooltip, data)
     if tooltip.__fmDone or not FM.realm then return end
     local settings = FM.GetSettings()
-    if not settings.tooltip and not settings.adviceLine then return end
+    if not settings.tooltip then return end
     local key, link = KeyOfTooltip(tooltip, data)
     if not key then return end
     tooltip.__fmDone = true
-    if settings.tooltip then
-        local label, money = AuctionLine(tooltip, key, link)
-        if label then
-            tooltip:AddDoubleLine(label, WHITE_FONT_COLOR and WHITE_FONT_COLOR:WrapTextInColorCode(money)
-                or ("|cFFFFFFFF" .. money .. "|r"))
-        end
+    local label, money = AuctionLine(tooltip, key, link)
+    if label then
+        tooltip:AddDoubleLine(label, WHITE_FONT_COLOR and WHITE_FONT_COLOR:WrapTextInColorCode(money)
+            or ("|cFFFFFFFF" .. money .. "|r"))
     end
-    local advice = LinesFor(key)
-    if settings.adviceLine and advice then tooltip:AddLine(advice, 1, 1, 1) end
-    local cost = settings.tooltip and CostLines(key)
+    CheckCache()
+    local cost = CostLines(key)
     if cost then
         tooltip:AddLine(" ")
         for _, line in ipairs(cost) do

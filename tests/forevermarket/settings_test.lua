@@ -32,6 +32,68 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.tableInvestPicks, 3, "across [Y] picks: 3")
     H.eq(s.tableCircPct, 25, "share of C/24h: 25")
     H.eq(s.tableFirstPct, 2, "first batch of a commodity: 2")
+    H.eq(s.tableMinProfit, 1, "minimum profit per item: 0g 0s 1c")
+end)
+
+-- FRV-85, FRV-87: the settings of the removed tooltip line, reload offer and chat alerts go at load, the rest stays
+H.test("settings: the keys of removed features go, the other settings stay", function()
+    local s = Load({ settings = { adviceLine = true, reloadPopup = false, alerts = true, chatSummary = false,
+        excluded = { ["2589"] = true } } }).GetSettings()
+    H.eq(s.adviceLine, nil, "the tooltip line's key is gone")
+    H.eq(s.reloadPopup, nil, "the reload offer's key is gone")
+    H.eq(s.alerts, nil, "the chat alerts' key is gone")
+    H.eq(s.chatSummary, false, "a saved setting stays")
+    H.same(s.excluded, { ["2589"] = true }, "ignored items stay")
+end)
+
+H.test("settings: the bag counts of watched items go from every realm, its other data stays", function()
+    local FM, env = Load({ settings = {}, realms = {
+        ["Realm-Alliance"] = { inv = { Tester = "1|2589:1:2" }, items = { ["2589"] = { d = "r1,64" } }, watch = { ["2589"] = "m" } },
+        ["Other-Horde"] = { inv = { Alt = "1|" }, gold = { "1,2" } },
+    } })
+    local realms = env.ForeverMarketDB.realms
+    H.eq(realms["Realm-Alliance"].inv, nil, "gone on this realm")
+    H.eq(realms["Other-Horde"].inv, nil, "gone on another realm")
+    H.same(realms["Realm-Alliance"].items, { ["2589"] = { d = "r1,64" } }, "item records stay")
+    H.same(realms["Realm-Alliance"].watch, { ["2589"] = "m" }, "watched items stay")
+    H.same(realms["Other-Horde"].gold, { "1,2" }, "gold lines stay")
+    H.eq(FM.db, env.ForeverMarketDB, "the same saved table")
+end)
+
+-- FRV-86: the dropdowns became inputs; a saved step carries over, the old "Any" (nothing saved) is the default 1c
+H.test("settings: values of the old dropdowns carry over into the inputs", function()
+    local s = Load({ settings = { tableMinProfit = 2000, tableCircPct = 33, tableFirstPct = 10 } }).GetSettings()
+    H.eq(s.tableMinProfit, 2000, "20s stays")
+    H.eq(s.tableCircPct, 33, "33% stays")
+    H.eq(s.tableFirstPct, 10, "10% stays")
+    s = Load({ settings = { tableCircPct = 25 } }).GetSettings()
+    H.eq(s.tableMinProfit, 1, "Any (no value saved) becomes 0g 0s 1c")
+end)
+
+H.test("settings: broken input values load as whole numbers in range or the default", function()
+    local s = Load({ settings = { tableMinProfit = "x", tableCircPct = 150, tableFirstPct = 0 } }).GetSettings()
+    H.eq(s.tableMinProfit, 1, "no number: the default")
+    H.eq(s.tableCircPct, 100, "over 100%: 100")
+    H.eq(s.tableFirstPct, 1, "under 1%: 1")
+    H.eq(Load({ settings = { tableFirstPct = 50 } }).GetSettings().tableFirstPct, 10, "first batch over 10%: 10")
+    s = Load({ settings = { tableMinProfit = -5, tableCircPct = 12.7, tableFirstPct = false } }).GetSettings()
+    H.eq(s.tableMinProfit, 0, "negative: 0")
+    H.eq(s.tableCircPct, 12, "a fraction: the whole number below")
+    H.eq(s.tableFirstPct, 2, "false: the default")
+end)
+
+H.test("settings: what an input saves is clamped, nothing typed is no value", function()
+    local FM = Load(nil)
+    H.eq(FM.SettingClamp("tableCircPct", "40"), 40, "typed 40")
+    H.eq(FM.SettingClamp("tableCircPct", "0"), 1, "0%: 1")
+    H.eq(FM.SettingClamp("tableCircPct", "999"), 100, "999%: 100")
+    H.eq(FM.SettingClamp("tableCircPct", ""), nil, "empty: no value")
+    H.eq(FM.SettingClamp("tableFirstPct", "abc"), nil, "letters: no value")
+    H.eq(FM.SettingClamp("tableFirstPct", "25"), 10, "first batch: at most 10%")
+    H.eq(FM.SettingClamp("tableMinProfit", 0), 0, "0g 0s 0c may be saved")
+    H.eq(FM.SettingClamp("tableMinProfit", 999 * 10000 + 99 * 100 + 99), 9999999, "999g 99s 99c")
+    H.eq(FM.SettingClamp("tableMinProfit", 10000000), 9999999, "over 999g 99s 99c: clamped")
+    H.eq(FM.SettingClamp("tableNoOutliers", 5), nil, "no input setting")
 end)
 
 H.test("settings: Lock plan after refresh is on for a new install and for existing settings, a saved off stays", function()

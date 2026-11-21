@@ -16,7 +16,7 @@ desktop.ini
 *.bak
 *.zip
 
-# ForeverMarket tool output (Claude advice input, Battle.net probe result)
+# ForeverMarket tool output (Battle.net probe result)
 addons/ForeverMarket/tools/*.json
 __pycache__/
 

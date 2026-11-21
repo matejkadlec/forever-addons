@@ -494,9 +494,7 @@ end
 -- Watched items get full depth (ladder, single sales) in their records
 function FM.IsWatched(key)
     local r = FM.R()
-    if r.watch[key] then return true end
-    local advice = FM.Advice
-    return advice and type(advice.items) == "table" and advice.items[key] ~= nil or false
+    return r.watch[key] and true or false
 end
 
 -- flag: "m" manual, "p" posted by you, "s" searched (a stronger reason replaces a weaker one)

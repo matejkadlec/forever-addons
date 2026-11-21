@@ -20,9 +20,8 @@ local function PrintHelp()
     PrintHelpLine("", "Open or close the market table")
     PrintHelpLine("snipe", "Open or close the snipe window (sniping runs while it is open at the AH)")
     PrintHelpLine("help", "This list")
-    PrintHelpLine("status", "What is stored, last scans, Claude's advice")
+    PrintHelpLine("status", "What is stored, last scans")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
-    PrintHelpLine("save", "Reload the UI so the data reaches Claude")
     PrintHelpLine("watch <item links or IDs>", "Keep full market depth for these items")
     PrintHelpLine("unwatch <item links or IDs>", "Stop watching items")
     PrintHelpLine("watchlist", "List watched items")
@@ -30,14 +29,11 @@ local function PrintHelp()
     PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("chars", "Your characters on this realm and faction: gold, last seen, saved bags, bank and mailbox")
     PrintHelpLine("forget <name>", "Forget a deleted, renamed or moved character (its logs stay)")
-    PrintHelpLine("advice", "Show Claude's current advice")
     PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it)")
     PrintHelpLine("tooltip <on|off>", "AH price, cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
     PrintHelpLine("auctionator <on|off>", "Keep Auctionator's prices fed from our data")
-    PrintHelpLine("popup <on|off>", "Reload offer after the AH closes")
-    PrintHelpLine("alerts <on|off>", "Undercut and buy price alerts")
     PrintHelpLine("options", "Open the settings panel")
     PrintHelpLine("wipe confirm", "Delete all market data of this realm and faction")
 end
@@ -72,34 +68,6 @@ local function Status()
     FM.Print("Scans in the last 24h:", deep24 .. " deep, " .. browse24 .. " Auctionator")
     FM.Print("Last deep scan:", r.last and r.last.t and (FM.FormatAge(now - r.last.t) .. " ago") or "never")
     FM.Print("Your posts / sales logged:", #r.posts .. " / " .. #r.invoices)
-    FM.Print("Unsaved snapshots:", FM.unsavedSnapshots .. (FM.unsavedSnapshots > 0 and " (" .. CMD .. " save)" or ""))
-    local advice = FM.Advice
-    if advice and type(advice.generated) == "number" and advice.generated > 0 then
-        local n = 0
-        for _ in pairs(advice.items or {}) do n = n + 1 end
-        FM.Print("Claude's advice:", n .. " items, " .. FM.FormatAge(now - advice.generated) .. " old")
-    end
-end
-
-local function ShowAdvice()
-    local advice = FM.Advice
-    if not advice or type(advice.items) ~= "table" or not advice.generated or advice.generated == 0 then
-        FM.Print("No advice from Claude yet.")
-        return
-    end
-    FM.Print("Claude's advice (" .. FM.FormatAge(FM.Now() - advice.generated) .. " old):")
-    if type(advice.note) == "string" and advice.note ~= "" then
-        print("  " .. FM.COLOR.BLUE .. advice.note .. "|r")
-    end
-    for key, entry in pairs(advice.items) do
-        local parts = {}
-        if type(entry.list) == "number" then
-            parts[#parts + 1] = "list " .. FM.FormatMoney(entry.list) .. (entry.conf and (" (" .. entry.conf .. ")") or "")
-        end
-        if type(entry.buyBelow) == "number" then parts[#parts + 1] = "buy below " .. FM.FormatMoney(entry.buyBelow) end
-        if type(entry.note) == "string" then parts[#parts + 1] = entry.note end
-        print(string_format("  %s%s|r: %s", ORANGE, FM.GetName(key), table.concat(parts, ", ")))
-    end
 end
 
 local function ItemSummary(rest)
@@ -182,8 +150,6 @@ local function HandleSlash(msg)
         Status()
     elseif command == "scan" then
         FM.StartDeepScan(true)
-    elseif command == "save" then
-        FM.SaveForClaude()
     elseif command == "watch" or command == "unwatch" then
         local keys = FM.KeysFromText(rest)
         if #keys == 0 then
@@ -218,8 +184,6 @@ local function HandleSlash(msg)
         ListCharacters()
     elseif command == "forget" then
         Forget(rest)
-    elseif command == "advice" then
-        ShowAdvice()
     elseif command == "item" then
         ItemSummary(rest)
     elseif command == "tooltip" then
@@ -230,10 +194,6 @@ local function HandleSlash(msg)
         Toggle("rescanWhileOpen", arg, "Deep scan every 15 min while the AH is open")
     elseif command == "auctionator" then
         Toggle("feedAuctionator", arg, "Our prices into Auctionator")
-    elseif command == "popup" then
-        Toggle("reloadPopup", arg, "Reload popup")
-    elseif command == "alerts" then
-        Toggle("alerts", arg, "Alerts")
     elseif command == "options" or command == "config" then
         FM.OpenSettings()
     elseif command == "wipe" then

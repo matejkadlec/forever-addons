@@ -2,7 +2,7 @@ local _, FM = ...
 
 -- Small buttons on the Auction House title bar, right to left: "FM: snipe" opens the snipe window (sniping runs
 -- while it is open), "FM: scan" starts a deep scan (FRV-84; disabled while one runs or the server's 15 minutes are
--- not over, the tooltip says why), "FM: table" opens the market table. Saving for Claude: /fm save.
+-- not over, the tooltip says why), "FM: table" opens the market table.
 
 local button
 local scanButton
@@ -24,8 +24,6 @@ local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market Sniper")
     GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step anywhere on screen buys the newest offer at or under their price. Also /fm snipe.", 1, 1, 1, true)
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Save for Claude: /fm save", 0.6, 0.8, 1)
     GameTooltip:Show()
 end
 
@@ -36,7 +34,7 @@ local SNAPSHOT_SOURCE = { fm = "deep scan", aucr = "Auctionator's full scan", ap
 local function ShowScanTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market deep scan")
-    GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the market table, the item tooltips and Claude (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
+    GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the market table, the picks and the item tooltips (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
     local r = FM.R()
     local last = r and r.last
     local source = last and SNAPSHOT_SOURCE[last.source]
