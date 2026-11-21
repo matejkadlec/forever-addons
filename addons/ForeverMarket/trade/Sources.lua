@@ -44,22 +44,31 @@ local function List(t)
 end
 FM.List = List
 
--- The character entry of a ForeverArtisan profession DB: "Name-Realm-GUIDPART" keys
+local function RecipeCount(data)
+    local n = 0
+    for _ in pairs(type(data.recipes) == "table" and data.recipes or {}) do n = n + 1 end
+    return n
+end
+
+-- The character's entry of a ForeverArtisan profession DB: of its entries (FM.ArtisanEntries, core/Core.lua) the
+-- recipes of the one read last (scanned; then the one with more recipes), the highest skill and skill cap of any
+-- (they only grow)
 local function CharData(db)
-    local chars = type(db) == "table" and db.chars
-    if type(chars) ~= "table" then return nil end
-    -- ForeverArtisan keys a character by UnitName's first return, not by ForeverMarket's key (FRV-35)
-    local name = FM.PlayerFirstName()
-    local realm = GetRealmName and GetRealmName() or ""
-    local prefix = name .. "-" .. realm
-    local fallback
-    for key, data in pairs(chars) do
-        if type(key) == "string" and type(data) == "table" then
-            if key == prefix or key:sub(1, #prefix + 1) == prefix .. "-" then return data end
-            if key:sub(1, #name + 1) == name .. "-" then fallback = data end
+    local entries = FM.ArtisanEntries(db)
+    if #entries <= 1 then return entries[1] end
+    local best
+    for _, data in ipairs(entries) do
+        local scanned, bestScanned = tonumber(data.scanned) or -1, best and (tonumber(best.scanned) or -1)
+        if not best or scanned > bestScanned or (scanned == bestScanned and RecipeCount(data) > RecipeCount(best)) then
+            best = data
         end
     end
-    return fallback
+    local merged = { recipes = best.recipes, skill = best.skill, skillMax = best.skillMax }
+    for _, data in ipairs(entries) do
+        if (tonumber(data.skill) or 0) > (tonumber(merged.skill) or 0) then merged.skill = data.skill end
+        if (tonumber(data.skillMax) or 0) > (tonumber(merged.skillMax) or 0) then merged.skillMax = data.skillMax end
+    end
+    return merged
 end
 
 local function RecipeName(itemName)

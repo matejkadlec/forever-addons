@@ -234,12 +234,16 @@ local function HandleSlash(msg)
         FM.OpenSettings()
     elseif command == "wipe" then
         if arg == "confirm" then
-            FM.db.realms[FM.realmKey] = nil
+            -- which characters are this realm's (charInfo, no market data) stays: with GetRealmName() empty the realm
+            -- is found by them (FM.RealmName, FRV-92), so the key and the feed import stay the same
+            local old = FM.R()
+            local key = FM.realmKey
+            FM.db.realms[key] = { charInfo = old and old.charInfo or {} }
             FM.realm = nil
             FM.R()
             FM.ResetSignatures()
             FM.dataVersion = FM.dataVersion + 1
-            FM.Print("All market data of " .. FM.realmKey .. " deleted.")
+            FM.Print("All market data of " .. key .. " deleted.")
         else
             FM.PrintError("This deletes all market data of this realm. Type " .. CMD .. " wipe confirm")
         end

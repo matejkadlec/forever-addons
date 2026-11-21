@@ -5,7 +5,9 @@ local addonName, FM = ...
 -- While the snipe window is open at the AH, the sniped commodities are searched one after another
 -- (C_AuctionHouse.SendSearchQuery, at most ~90 per minute and paced by the AH's own throttle). Units of other
 -- sellers at or under an item's price that fit the budget (and its "buy at most") become a "hit". Every mouse wheel
--- step (an override binding that clicks a hidden button, so it is a hardware event) buys the newest hit:
+-- step anywhere on screen buys the newest hit (FRV-82: an invisible full-screen frame above every window takes the
+-- wheel, so no window scrolls; where the game does not take that as a hardware event, the override bindings that
+-- click a hidden button do it, which only fire where no window takes the wheel):
 --   1. StartCommoditiesPurchase(itemID, qty)   HasRestrictions: only from that click, never in combat
 --   2. COMMODITY_PRICE_UPDATED brings the server's quote. It is confirmed only when its total is not above
 --      what the search showed for those units, its unit price is not above your price, and it fits the
@@ -46,7 +48,6 @@ local tonumber = tonumber
 local math_floor = math.floor
 local math_min = math.min
 local math_max = math.max
-local select = select
 local string_find = string.find
 local string_format = string.format
 local table_concat = table.concat
@@ -90,7 +91,8 @@ local S = {
     calling = nil,   -- "start" / "confirm" while that purchase call runs (blocked calls report during it)
     lastSave = {},   -- [key] = GetTime() of the last market log record while sniping
     numberSet = {},  -- [key] = how often its "buy at most" was set this session (a purchase counted for an older one is not taken back)
-    bindWanted = nil -- binding change waiting for the end of combat
+    bindWanted = nil, -- binding change waiting for the end of combat
+    wheel = nil      -- true while a wheel step on the catcher runs (a purchase call the game blocks then turns it off)
 }
 FM.snipeState = S
 
@@ -329,6 +331,7 @@ FM.SnipeKind = Kind
 
 local CancelBuy -- defined below
 local Evaluate -- defined below
+local CatcherBlocked -- defined below
 
 -- Results of an item the client already holds (Blizzard's Buy page, an earlier search): evaluated right away.
 -- An old result is safe: the server's quote is checked against it before any gold leaves.
@@ -1002,6 +1005,11 @@ local function OnBlocked(forbidden, blockedAddon, functionName)
         end
     end
     if not which then return end
+    if S.wheel then
+        -- a wheel step on the catcher is not a hardware event for this call: the bindings buy from now on
+        CatcherBlocked(which)
+        return
+    end
     local buy = S.buy
     if which == "confirm" and buy and buy.stage == "confirm" and not forbidden and not buy.clicked then
         UncountUnits(buy)
@@ -1059,6 +1067,51 @@ local function SetBindings(on)
     end
 end
 
+-- FRV-82: a binding fires only where no frame takes the wheel (the market table, a profession window, chat), so
+-- while sniping an invisible full-screen frame above every window takes it first: the wheel only, clicks and hover
+-- pass through to the windows below. A plain frame, so showing and hiding it is allowed in combat too
+local catcher = CreateFrame("Frame", "ForeverMarketSnipeWheelCatcher", UIParent)
+catcher:SetAllPoints(UIParent)
+catcher:SetFrameStrata("TOOLTIP")
+catcher:SetFrameLevel(10000)
+catcher:EnableMouseWheel(true)
+catcher:SetMouseClickEnabled(false)
+catcher:SetMouseMotionEnabled(false)
+catcher:Hide()
+local catcherOff = false -- the game blocked a purchase call from it: the bindings buy until /reload
+
+catcher:SetScript("OnMouseWheel", function()
+    S.wheel = true
+    local ok, err = pcall(FM.SnipeBuyClick)
+    S.wheel = nil
+    if not ok and geterrorhandler then geterrorhandler()(err) end
+end)
+
+local function ShowCatcher(on)
+    if on and not catcherOff then catcher:Show() else catcher:Hide() end
+end
+
+-- The game blocked a purchase call of a wheel step on the catcher: it goes, the bindings buy again (only where no
+-- window takes the wheel, as before 1.30). A blocked start sent nothing; a blocked click confirm waits for the next
+-- wheel step again
+CatcherBlocked = function(which)
+    catcherOff = true
+    catcher:Hide()
+    local buy = S.buy
+    if buy then
+        if which == "confirm" and buy.stage == "confirm" then
+            UncountUnits(buy)
+            Release(buy.budget, buy.key, buy.reserved)
+            buy.reserved = nil
+            EnterClick(buy)
+        elseif which == "start" then
+            S.buy = nil
+        end
+    end
+    FM.PrintError("Failed to buy with a wheel step over a window: the game does not allow it there. Until /reload the wheel buys only where no window takes it.")
+    Refresh()
+end
+
 ---------------------------------------------------------------- start / stop
 
 local ticker
@@ -1081,6 +1134,7 @@ function FM.SnipeStart()
     S.lastSent = 0
     Budget(true)
     SetBindings(true)
+    ShowCatcher(true)
     if ticker then ticker:Cancel() end
     ticker = C_Timer.NewTicker(TICK, SafeTick)
     Refresh()
@@ -1093,6 +1147,7 @@ function FM.SnipeStop()
         ticker = nil
     end
     SetBindings(false)
+    ShowCatcher(false)
     S.waiting = nil
     wipe(S.hits)
     if S.buy and S.buy.stage ~= "confirm" then CancelBuy() end
@@ -1218,45 +1273,4 @@ function FM.SnipeItemState(key)
         left = left,
         done = left ~= nil and left <= 0
     }
-end
-
----------------------------------------------------------------- FRV-54: do COMMODITY_PURCHASED / ITEM_PURCHASED fire?
-
--- The generated API documentation lists COMMODITY_PURCHASED(itemID, quantity) and ITEM_PURCHASED(itemID), but
--- Blizzard's Lua never registers them, so whether Forever sends them is not known. Until the maintainer's test
--- answers it, every purchase event at the AH (any window's) goes into its own list R.ahev as
--- "t,char,<event>,<arguments>,<ms>" (ms = GetTime() in milliseconds, the order within one minute; the newest
--- PROBE_MAX to PROBE_MAX + 100 lines, FM.CapList trims in batches; so it never pushes anything out of R.events), and the two events also print a chat line.
--- Unknown events are not registered (FM.On), so this costs nothing without them.
-local PROBE_EVENTS = { "COMMODITY_PRICE_UPDATED", "COMMODITY_PRICE_UNAVAILABLE", "COMMODITY_PURCHASE_SUCCEEDED",
-    "COMMODITY_PURCHASE_FAILED", "COMMODITY_PURCHASED", "ITEM_PURCHASED", "AUCTION_HOUSE_PURCHASE_COMPLETED" }
-local PROBE_MAX = 300
-local probeLast -- { event, t } of the purchase event logged before
-
-local function ProbeValue(value)
-    if FM.IsSecret(value) then return "secret" end
-    if IsNumber(value) then return tostring(value) end
-    return type(value)
-end
-
-for _, event in ipairs(PROBE_EVENTS) do
-    FM.On(event, function(...)
-        local args = {}
-        for i = 1, select("#", ...) do args[i] = ProbeValue((select(i, ...))) end
-        local now = GetTime()
-        local r = FM.R()
-        if r then
-            if type(r.ahev) ~= "table" then r.ahev = {} end
-            FM.Log("ahev", table_concat({ FM.Stamp(), FM.PlayerName() or "?", event, table_concat(args, " "),
-                tostring(math_floor(now * 1000)) }, ","), PROBE_MAX)
-        end
-        if event == "COMMODITY_PURCHASED" or event == "ITEM_PURCHASED" then
-            local itemID, quantity = ...
-            local item = IsNumber(itemID) and (Name(tostring(itemID)) .. " (" .. itemID .. ")") or ProbeValue(itemID)
-            local after = probeLast and string_format(", %.2f s after %s", now - probeLast.t, probeLast.event) or ""
-            FM.Print("FRV-54 test: " .. event .. " fired:", item .. (event == "COMMODITY_PURCHASED" and
-                (" x" .. ProbeValue(quantity)) or "") .. after)
-        end
-        probeLast = { event = event, t = now }
-    end)
 end

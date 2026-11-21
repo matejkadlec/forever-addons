@@ -276,16 +276,112 @@ function FM.TableFilters(tab)
     return FM.FilterSet(name), name
 end
 
+-- The player's faction ("Alliance"), "?" while it cannot be read
+local function Faction()
+    local faction = UnitFactionGroup and UnitFactionGroup("player")
+    if FM.IsSecret(faction) or type(faction) ~= "string" or faction == "" then return "?" end
+    return faction
+end
+
+-- A saved data key "Realm-Faction" split in its realm and faction (the faction is after the last "-")
+local function SplitKey(key)
+    if type(key) ~= "string" then return nil, nil end
+    return key:match("^(.*)%-([^%-]*)$")
+end
+
+-- A realm part that is no realm: an empty name (client 1.60.1.71037 on, before 1.30.2) or "?" (none at all)
+local function StrayRealm(realm)
+    return realm == nil or realm == "" or realm == "?"
+end
+
+-- The server part of a player GUID ("Player-6842-00CB83C3" -> "6842")
+local function ServerOf(guid)
+    return type(guid) == "string" and guid:match("^Player%-(%d+)%-") or nil
+end
+
+-- The realm's name, the first part of the saved data's key (FRV-92). Since the client 1.60.1.71037 (2026-11-20)
+-- GetRealmName() returns "" on Forever (that build's Blizzard Lua stopped comparing realm names); then the realm
+-- is the saved one whose characters (charInfo) hold this character's GUID, else one of the same server (the GUID's
+-- second part; the most recently seen), else the only realm saved for this faction when nothing says it is another
+-- server (the GUID cannot be read, or that realm's characters have no GUID saved), else "Server <id>" for a realm
+-- without saved data. nil while neither the name nor the GUID can be read and the saved data does not decide it
+function FM.RealmName()
+    local name = GetRealmName and GetRealmName()
+    if not FM.IsSecret(name) and type(name) == "string" and name ~= "" then return name end
+    local guid = FM.PlayerGUID and FM.PlayerGUID()
+    local server = ServerOf(guid)
+    local faction = Faction()
+    local sameServer, sameSeen, only, onlyHasGuids, several
+    for key, r in pairs(FM.db and FM.db.realms or {}) do
+        local realm, keyFaction = SplitKey(key)
+        if not StrayRealm(realm) and type(r) == "table" then
+            local hasGuids = false
+            for _, info in pairs(type(r.charInfo) == "table" and r.charInfo or {}) do
+                if type(info) == "table" and type(info.guid) == "string" then
+                    if guid and info.guid == guid then return realm end
+                    hasGuids = true
+                    local seen = tonumber(info.seen) or 0
+                    if server and ServerOf(info.guid) == server and (not sameServer or seen > sameSeen) then
+                        sameServer, sameSeen = realm, seen
+                    end
+                end
+            end
+            if keyFaction == faction then
+                if only and only ~= realm then several = true end
+                if not only then only, onlyHasGuids = realm, hasGuids end
+            end
+        end
+    end
+    if sameServer then return sameServer end
+    -- its characters are on other servers: a character of a new realm does not write into it
+    if only and not several and not (server and onlyHasGuids) then return only end
+    return server and ("Server " .. server) or nil
+end
+
 function FM.RealmKey()
-    local realm = GetRealmName and GetRealmName() or "?"
-    local faction = UnitFactionGroup and UnitFactionGroup("player") or "?"
-    return tostring(realm) .. "-" .. tostring(faction)
+    return (FM.RealmName() or "?") .. "-" .. Faction()
 end
 
 local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
     "worth", "bank", "mailbox", "bags", "charInfo", "sent" }
 
--- Data of the current realm and faction (the AH is per realm and faction)
+-- What a stray bucket must not hold to be dropped: market data and logs that nothing else can bring back
+local STRAY_MARKET = { "items", "scans", "posts", "events", "invoices", "owned", "inv", "sent", "crafts", "buys",
+    "deposits", "track", "watch", "mailSeen" }
+
+local function HoldsMarketData(stray)
+    for _, name in ipairs(STRAY_MARKET) do
+        if type(stray[name]) == "table" and next(stray[name]) ~= nil then return true end
+    end
+    local snipe, farm = stray.snipe, stray.farm
+    if type(snipe) == "table" and ((type(snipe.list) == "table" and next(snipe.list) ~= nil)
+        or (type(snipe.saved) == "table" and next(snipe.saved) ~= nil)) then return true end
+    if type(farm) == "table" and ((tonumber(farm.kills) or 0) > 0
+        or (type(farm.mobs) == "table" and next(farm.mobs) ~= nil)) then return true end
+    return false
+end
+
+-- Buckets an unreadable realm name made ("-Alliance", "?-Alliance"; FRV-92): the sessions behind them saw none of
+-- the real data, so their per-character readings (bags, Profit readings with nothing held) are wrong; their gold
+-- lines are real and join the realm's own bucket, the rest goes. One with market data stays, and the chat says so
+local function FoldStrayBuckets(r, faction)
+    for _, realm in ipairs({ "", "?" }) do
+        local key = realm .. "-" .. faction
+        local stray = FM.db.realms[key]
+        if type(stray) == "table" and stray ~= r then
+            if HoldsMarketData(stray) then
+                FM.PrintError("Failed to fold the saved data under \"" .. key .. "\" into " .. FM.realmKey
+                    .. ": it holds market data. It stays saved apart, nothing is lost.")
+            else
+                for _, line in ipairs(type(stray.gold) == "table" and stray.gold or {}) do r.gold[#r.gold + 1] = line end
+                FM.db.realms[key] = nil
+            end
+        end
+    end
+end
+
+-- Data of the current realm and faction (the AH is per realm and faction). Kept for the session once the realm is
+-- known; while it is not (FM.RealmName nil), each call looks again
 function FM.R()
     if FM.realm then return FM.realm end
     if not FM.db then return nil end
@@ -299,8 +395,12 @@ function FM.R()
         if type(r[name]) ~= "table" then r[name] = {} end
     end
     r.lastReplicateT = r.lastReplicateT or 0
-    FM.realm = r
+    r.ahev = nil -- the FRV-54 test's purchase event lines (1.25 to 1.29): the test is over, they go
     FM.realmKey = key
+    local realm, faction = SplitKey(key)
+    if StrayRealm(realm) then return r end -- not known yet: the next call looks again
+    FM.realm = r
+    FoldStrayBuckets(r, faction)
     if FM.MigrateRealm then FM.MigrateRealm(r) end
     return r
 end
@@ -343,6 +443,34 @@ local function PlayerGUID()
     return guid
 end
 FM.PlayerGUID = PlayerGUID
+
+-- This character's entries in a ForeverArtisan DB, keyed "Name-Realm-GUIDPART" by UnitName's first return (not by
+-- ForeverMarket's key, FRV-35). ForeverArtisan builds the realm part from GetRealmName(), which is "" since the client
+-- 1.60.1.71037 (FRV-92): it then starts a second entry "Name--GUIDPART" next to the old one, both this character's
+-- (the GUID's last part). When no key ends with it: the entries of this name on this realm or without a realm, else
+-- the last one of this name
+function FM.ArtisanEntries(db)
+    local chars = type(db) == "table" and db.chars
+    if type(chars) ~= "table" then return {} end
+    local name = FM.PlayerFirstName()
+    local guid = FM.PlayerGUID and FM.PlayerGUID()
+    local suffix = guid and guid:match("%-(%x+)$")
+    suffix = suffix and ("-" .. suffix)
+    local prefix = name .. "-"
+    local onRealm = name .. "-" .. (FM.RealmName and FM.RealmName() or "") .. "-"
+    local noRealm = name .. "--"
+    local byGuid, byRealm, fallback = {}, {}, nil
+    for key, data in pairs(chars) do
+        if type(key) == "string" and type(data) == "table" and key:sub(1, #prefix) == prefix then
+            if suffix and key:sub(-#suffix) == suffix then byGuid[#byGuid + 1] = data end
+            if key:sub(1, #onRealm) == onRealm or key:sub(1, #noRealm) == noRealm then byRealm[#byRealm + 1] = data end
+            fallback = data
+        end
+    end
+    if byGuid[1] then return byGuid end
+    if byRealm[1] then return byRealm end
+    return { fallback }
+end
 
 -- The key of the logged-in character in every per-character record and log line (FRV-35): its first name, as
 -- before 1.23; a second character with the same first name on this realm and faction gets its full name. Every

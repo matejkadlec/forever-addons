@@ -1,8 +1,8 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in groups: Picks, Favorites (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH result,
--- ui/Performance.lua), Learn, Farm (green).
+-- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
+-- result, ui/Performance.lua), Learn, Farm (green).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search its shopping list at the AH through Auctionator
 -- (only what you would buy there: a craft's AH materials, a pick's AH purchases, a flip's item), Shift+click =
@@ -471,6 +471,9 @@ if FM.PICKS_READY then
         inlineIcon = true, defaultSort = { { 1, false } } }
 end
 TABS[#TABS + 1] = { id = "favs", label = "Favorites", columns = FAV_COLUMNS, favs = true, group = 1 }
+-- every ignored item, a table one to one like Favorites (FRV-83; until 1.30 a button that switched every tab to its
+-- ignored rows); its label counts them
+TABS[#TABS + 1] = { id = "ignored", label = "Ignored", columns = FAV_COLUMNS, favs = true, ignored = true, group = 1 }
 TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, data = "crafts", crafts = true, group = 2,
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
@@ -595,21 +598,22 @@ end
 
 local FAV_TABS = { "latest", "vendor", "flips", "learn" }
 
-local function FavoriteRows(trade)
+-- Favorites and Ignored: one row per item of the set (settings.favorites, settings.excluded), its best use among the
+-- tabs
+local function KeptRows(trade, set)
     local out = {}
-    local favorites = Settings().favorites
-    if type(favorites) ~= "table" then return out end
+    if type(set) ~= "table" then return out end
     local hits = {}
     for _, id in ipairs(FAV_TABS) do
         for _, row in ipairs(trade and trade[TAB_BY_ID[id].data] or {}) do
-            if favorites[row.key] then
+            if set[row.key] then
                 hits[row.key] = hits[row.key] or {}
                 local list = hits[row.key]
                 list[#list + 1] = { id = id, row = row }
             end
         end
     end
-    for key in pairs(favorites) do
+    for key in pairs(set) do
         local fav = { key = key, fav = true, tabs = {} }
         local seenTab = {}
         for _, hit in ipairs(hits[key] or {}) do
@@ -640,13 +644,21 @@ local function FavoriteRows(trade)
 end
 
 -- The rows of a tab (the current one when nil) as the table shows them. lookup: the rows a sticky window looks its
--- row up in (FRV-80): the tab's filters, not the name search or the "Ignored" view, unsorted, picks without sections
+-- row up in (FRV-80): the tab's filters, not the name search, unsorted, picks without sections
 local function BuildRows(tab, lookup)
     tab = tab or CurrentTab()
     local trade = FM.trade
-    local source = tab.farm and (FM.farm and FM.farm.rows or {})
-        or (tab.favs and FavoriteRows(trade) or (trade and trade[tab.data] or {}))
     local s = Settings()
+    local source
+    if tab.farm then
+        source = FM.farm and FM.farm.rows or {}
+    elseif tab.ignored then
+        source = KeptRows(trade, s.excluded) -- nil before the first item is ignored: no rows
+    elseif tab.favs then
+        source = KeptRows(trade, s.favorites)
+    else
+        source = trade and trade[tab.data] or {}
+    end
     local needle = (not lookup and view.filter ~= "") and string_lower(view.filter) or nil
     local prof = ProfFilter()
     local out = {}
@@ -687,12 +699,8 @@ local function BuildRows(tab, lookup)
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
-            -- ignored items: hidden, or the only ones shown in the "Ignored" view (a view, like the name search: a
-            -- sticky window's lookup leaves them out whatever the table shows)
-            if keep then
-                local excluded = FM.IsExcluded(row.key)
-                if view.showExcluded and not lookup then keep = excluded elseif excluded then keep = false end
-            end
+            -- ignored items show only in the Ignored tab (FRV-83), a favorite too
+            if keep and not tab.ignored and FM.IsExcluded(row.key) then keep = false end
             if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
         end
         if keep then out[#out + 1] = row end
@@ -1268,7 +1276,7 @@ local function ShowRowMenu(button, row)
         root:CreateButton(ignored and "Stop ignoring this item" or "Ignore this item", function()
             FM.SetExcluded(key, not ignored)
             FM.Print(ignored and (Name(key) .. " is back in the market table.")
-                or (Name(key) .. " ignored: hidden from the market table and the picks. The Ignored button shows them."))
+                or (Name(key) .. " ignored: hidden from the other tabs and the picks. The Ignored tab lists it."))
             FM.PlanPicks() -- picks plan the gold again without it
             FM.RefreshTable()
         end)
@@ -1565,9 +1573,6 @@ local function FooterText(total)
     if trade and trade.empty then
         return "No deep scan yet: open the Auction House and click \"FM: scan\"."
     end
-    if view.showExcluded then
-        text = text .. "  ·  " .. YELLOW .. "only ignored items|r" .. GREY .. ", right-click > Stop ignoring this item brings one back"
-    end
     if (view.outliers or 0) > 0 then
         text = text .. string_format("  ·  %d outliers hidden", view.outliers)
     end
@@ -1579,6 +1584,8 @@ local function FooterText(total)
     end
     if tab.picks then
         text = text .. "  ·  # = a day's profit, Expected = one listing of all of it  ·  hover for why"
+    elseif tab.ignored then
+        text = text .. "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item brings it back"
     elseif tab.favs then
         text = text .. "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs"
     elseif tab.crafts then
@@ -1652,7 +1659,7 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
         frame.invest, frame.invest.label, frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.excluded, frame.empty, frame.summary, frame.lock, frame.lock.label }) do
+        frame.empty, frame.summary, frame.lock, frame.lock.label }) do
         w:Hide()
     end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
@@ -1676,6 +1683,7 @@ end
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
+    frame.tabs.ignored:SetText(string_format("Ignored (%d)", FM.ExcludedCount()))
     -- the plan's pass shows "Computing..." and renders itself
     if EnsurePlan(tab) then return end
     local graph = (tab.graph and FM.PerfShow) and true or false
@@ -1759,15 +1767,15 @@ Render = function()
     frame.slots.suffix:SetShown(tab.picks and true or false)
     if not frame.slots:HasFocus() then frame.slots:SetText(tostring(Settings().tableInvestPicks or 3)) end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
-    frame.excluded:SetShown(not tab.farm) -- Farm lists mobs, not items; the tabs keep their places without it
     LayoutFilters(frame)
-    frame.excluded:SetText(view.showExcluded and "Show all" or string_format("Ignored (%d)", FM.ExcludedCount()))
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
     if total == 0 and not (FM.trade and FM.trade.empty) then
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
-        if tab.favs and not busy and not view.showExcluded then
+        if tab.ignored and not busy and FM.ExcludedCount() == 0 then
+            text = "No ignored items: right-click a row in any tab > Ignore this item."
+        elseif tab.favs and not tab.ignored and not busy then
             text = "No favorites yet: right-click a row in any tab > Favorize this item."
         end
         if tab.farm and not busy and FM.farm and FM.farm.questie == false then
@@ -1906,14 +1914,7 @@ local function CreateTable()
             rightIndex = rightIndex + 1
             b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
         else
-            if group and t.group ~= group then
-                -- the lists you keep end here: the "Ignored (n)" button sits right of Favorites, a place of its own
-                if group == 1 then
-                    f.ignoredX = x
-                    x = x + 98
-                end
-                x = x + 24
-            end
+            if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
             x = x + 98
         end
@@ -1930,6 +1931,16 @@ local function CreateTable()
         end
         f.tabs[t.id] = b
     end
+    -- what the Ignored tab is (FRV-83), also over the selected (disabled) tab
+    local ignoredTab = f.tabs.ignored
+    ignoredTab:SetMotionScriptsWhileDisabled(true)
+    ignoredTab:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Ignored items")
+        GameTooltip:AddLine("Every item you ignored, a table like Favorites. Ignored items show in no other tab and never become picks. Right-click a row in any tab > Ignore this item adds it here; here, Stop ignoring this item brings it back. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    ignoredTab:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- filter row
     local search = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
@@ -2063,26 +2074,6 @@ local function CreateTable()
         end)
     end
     f.prof = prof
-    -- in the tab row right of Favorites, in the blue of the lists you keep (Picks, Favorites)
-    f.excluded = Button(f, "Ignored", 94, function()
-        view.showExcluded = not view.showExcluded
-        view.offset = 0
-        FM.RefreshTable()
-    end)
-    f.excluded:SetPoint("TOPLEFT", f, "TOPLEFT", f.ignoredX or 210, -30)
-    for _, part in ipairs({ f.excluded.Left, f.excluded.Middle, f.excluded.Right }) do
-        if part then
-            part:SetDesaturated(true)
-            part:SetVertexColor(GROUP_COLOR[1][1], GROUP_COLOR[1][2], GROUP_COLOR[1][3])
-        end
-    end
-    f.excluded:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Ignored items")
-        GameTooltip:AddLine("Shows only the items you ignored (right-click a row > Ignore this item; Stop ignoring this item brings it back). Click again for the normal view. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    f.excluded:SetScript("OnLeave", function() GameTooltip:Hide() end)
     -- recompute: Blizzard's round arrow button (the AH has the same one)
     local refresh = CreateFrame("Button", nil, f, "RefreshButtonTemplate")
     refresh:SetSize(26, 26)

@@ -49,10 +49,12 @@ function Stubs.NewEnvironment()
 
     -- Frames keep their OnEvent script and events; FireEvent delivers an event to the frames registered for it
     -- (every other frame method is a no-op)
-    -- Show / Hide / IsShown keep a shown state (Hide runs OnHide); a font string is a stub frame that measures 0
+    -- Show / Hide / IsShown keep a shown state (Hide runs OnHide); a font string is a stub frame that measures 0;
+    -- a named frame is a global of that name, as in the client
     local frames = {}
-    env.CreateFrame = function()
+    env.CreateFrame = function(_, name)
         local frame = setmetatable({ scripts = {}, events = {} }, frameMeta)
+        if type(name) == "string" then env[name] = frame end
         function frame:SetScript(name, fn) self.scripts[name] = fn end
         function frame:RegisterEvent(event) self.events[event] = true end
         function frame:UnregisterEvent(event) self.events[event] = nil end

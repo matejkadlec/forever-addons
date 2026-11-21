@@ -97,23 +97,15 @@ local function Remember(guid)
     return false
 end
 
+-- The skinning skill from ForeverArtisan: the highest of the character's entries (FM.ArtisanEntries in
+-- core/Core.lua; since FRV-92 it can have two), the skill only grows
 local function SkinningSkill()
-    local db = _G.ForeverArtisanSkinningDB
-    local chars = type(db) == "table" and db.chars
-    if type(chars) ~= "table" then return 0 end
-    -- ForeverArtisan keys a character "Name-Realm-GUIDPART" by UnitName's first return, not by ForeverMarket's
-    -- record key (FRV-35: a second character with the same first name has its full name there)
-    local name = FM.PlayerFirstName()
-    local withRealm = name .. "-" .. (GetRealmName and GetRealmName() or "") .. "-"
-    local prefix = name .. "-"
-    local fallback
-    for key, data in pairs(chars) do
-        if type(key) == "string" and type(data) == "table" then
-            if key:sub(1, #withRealm) == withRealm then return data.skill or 0 end
-            if key:sub(1, #prefix) == prefix then fallback = data.skill or 0 end
-        end
+    local skill = 0
+    for _, data in ipairs(FM.ArtisanEntries and FM.ArtisanEntries(_G.ForeverArtisanSkinningDB) or {}) do
+        local value = tonumber(data.skill) or 0
+        if value > skill then skill = value end
     end
-    return fallback or 0
+    return skill
 end
 FM.SkinningSkill = SkinningSkill
 

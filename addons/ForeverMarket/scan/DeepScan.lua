@@ -184,20 +184,32 @@ FM.On("REPLICATE_ITEM_LIST_UPDATE", function()
     end
 end, true)
 
--- manual: true when the player asked for it (prints why it cannot run)
-function FM.StartDeepScan(manual)
-    local function refuse(msg)
-        if manual then FM.PrintError(msg) end
-        return false
+-- Why a deep scan cannot start now, nil when it can: /fm scan prints it, the "FM: scan" button (FRV-84) is
+-- disabled and says it in its tooltip
+function FM.DeepScanRefusal()
+    if not FM.DeepScanSupported() then return "Deep scan is not supported by this client." end
+    if not FM.ahOpen then return "Open the Auction House first." end
+    local state = FM.deep.state
+    if state == "waiting" then return "A deep scan is already running: waiting for the server's list." end
+    if state == "walking" then
+        return string.format("A deep scan is already running: reading the list, %d%%.", math_floor((FM.deep.progress or 0) * 100))
     end
-    if not FM.DeepScanSupported() then return refuse("Deep scan is not supported by this client.") end
-    if not FM.ahOpen then return refuse("Open the Auction House first.") end
-    if FM.deep.state ~= "idle" then return refuse("A deep scan is already running.") end
-    if FM.aucReplicateRunning then return refuse("Auctionator is running its own full scan, ForeverMarket saves that one.") end
+    if state ~= "idle" then return "A deep scan is already running: saving it." end
+    if FM.aucReplicateRunning then return "Auctionator is running its own full scan, ForeverMarket saves that one." end
     local cooldown = FM.DeepScanCooldown()
     if cooldown > 0 then
-        return refuse(string.format("The server allows a deep scan every 15 minutes, next one in %d:%02d.",
-            math_floor(cooldown / 60), math_floor(cooldown % 60)))
+        return string.format("The server allows a deep scan every 15 minutes, next one in %d:%02d.",
+            math_floor(cooldown / 60), math_floor(cooldown % 60))
+    end
+    return nil
+end
+
+-- manual: true when the player asked for it (prints why it cannot run)
+function FM.StartDeepScan(manual)
+    local refusal = FM.DeepScanRefusal()
+    if refusal then
+        if manual then FM.PrintError(refusal) end
+        return false
     end
 
     FM.R().lastReplicateT = FM.Now()
