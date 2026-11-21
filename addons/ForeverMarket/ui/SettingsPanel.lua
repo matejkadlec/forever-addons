@@ -5,14 +5,19 @@ local _, FM = ...
 
 local CreateFrame = CreateFrame
 local string_format = string.format
+local math_floor = math.floor
+local tostring = tostring
+local tonumber = tonumber
+local ipairs = ipairs
 
 local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
 local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
 local CHILD_CATEGORY_NAME = "Market"
-local CHILD_DESCRIPTION = "Auction House market logger and Claude's price advice"
+local CHILD_DESCRIPTION = "Auction House logger, market table and sniper"
 
 local panel
 local checkboxes = {}
+local inputs = {}
 local infoText
 
 local function GetCategoryID(category)
@@ -77,20 +82,112 @@ local OPTIONS = {
     { key = "rescanWhileOpen", label = "Deep scan again every 15 min while the Auction House stays open" },
     { key = "feedAuctionator", label = "Keep Auctionator's prices fed from our data (no Auctionator full scan needed)" },
     { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
-    { key = "adviceLine", label = "Claude's advice line on item tooltips" },
-    { key = "reloadPopup", label = "Offer a UI reload after the AH closes, so Claude gets the new data" },
-    { key = "alerts", label = "Chat alerts: you were undercut, an advised buy price was hit" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
     { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" }
 }
 
--- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
-local MIN_PROFIT_STEPS = { { false, "Any" }, { 10, "10c" }, { 100, "1s" }, { 500, "5s" }, { 2000, "20s" }, { 10000, "1g" } }
+-- The number inputs (FRV-86); the ranges are FM.SETTING_RANGE in core/Core.lua
+local COIN = { "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r" }
+local COIN_COPPER = { 10000, 100, 1 }
+local INPUT_TIPS = {
+    -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
+    tableMinProfit = "Rows of the market table and picks that earn less per item are hidden (crafts and recipes; vendor resells and flips stay). Whole numbers, silver and copper 0 to 99 (default 0g 0s 1c).",
+    -- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
+    tableCircPct = "The most of an item's C/24h one pick may add to the AH, your listings on all characters included. Whole numbers 1 to 100 (default 25).",
+    -- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
+    tableFirstPct = "A commodity you have no sales of plans a first batch of at most this share of its C/24h. Whole numbers 1 to 100 (default 2).",
+}
 
--- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
-local CIRC_SHARE_STEPS = { 10, 15, 20, 25, 33, 50, 100 }
--- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
-local FIRST_SHARE_STEPS = { 1, 2, 3, 5, 10 }
+-- A changed value of an input: an input of the picks plan, so it plans again (only when there are numbers already)
+local function SaveSetting(settingKey, value)
+    local settings = FM.GetSettings()
+    if settings[settingKey] == value then return end
+    settings[settingKey] = value
+    if FM.trade and FM.PlanPicks then FM.PlanPicks() end
+    if FM.RefreshTable then FM.RefreshTable() end
+end
+
+local function InputTip(box, label, settingKey)
+    box:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(label)
+        GameTooltip:AddLine(INPUT_TIPS[settingKey], 1, 1, 1, true)
+        GameTooltip:AddLine("Enter or click elsewhere to apply, Esc keeps the saved value.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    box:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- An input's boxes apply on Enter or when they lose focus (out of range clamped, nothing typed keeps the saved
+-- value); Esc shows the saved value again
+local function WireInput(input, Parse)
+    for _, box in ipairs(input.boxes) do
+        box:HookScript("OnEditFocusLost", function()
+            if input.restore then
+                input.restore = nil
+            else
+                local value = Parse()
+                if value then SaveSetting(input.settingKey, value) end
+            end
+            input.Show()
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            input.restore = true
+            self:ClearFocus()
+        end)
+    end
+    inputs[#inputs + 1] = input
+    return input
+end
+
+-- Gold, silver and copper boxes after the label, like the AH's price inputs: one value in copper
+local function MoneyInput(label, text, settingKey)
+    local input = { settingKey = settingKey, boxes = {} }
+    local prev
+    for i = 1, 3 do
+        local box = FM.NumberBox(panel, i == 1 and 3 or 2)
+        box:SetPoint("LEFT", prev and prev.coin or label, "RIGHT", prev and 10 or 12, 0)
+        box.coin = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        box.coin:SetPoint("LEFT", box, "RIGHT", 2, 0)
+        box.coin:SetText(COIN[i])
+        InputTip(box, text, settingKey)
+        input.boxes[i] = box
+        prev = box
+    end
+    function input.Show()
+        local value = FM.GetSettings()[settingKey]
+        input.boxes[1]:SetText(tostring(math_floor(value / 10000)))
+        input.boxes[2]:SetText(tostring(math_floor(value / 100) % 100))
+        input.boxes[3]:SetText(tostring(value % 100))
+    end
+    -- an empty box counts 0; all three empty is no value
+    return WireInput(input, function()
+        local total, any = 0, false
+        for i, box in ipairs(input.boxes) do
+            local n = tonumber(box:GetText() or "")
+            if n then
+                any = true
+                total = total + n * COIN_COPPER[i]
+            end
+        end
+        return any and FM.SettingClamp(settingKey, total) or nil
+    end)
+end
+
+-- One box with "%" after it
+local function PercentInput(label, text, settingKey)
+    local box = FM.NumberBox(panel, 3)
+    box:SetPoint("LEFT", label, "RIGHT", 12, 0)
+    local percent = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    percent:SetPoint("LEFT", box, "RIGHT", 2, 0)
+    percent:SetText("%")
+    InputTip(box, text, settingKey)
+    local input = { settingKey = settingKey, boxes = { box } }
+    function input.Show()
+        box:SetText(tostring(FM.GetSettings()[settingKey]))
+    end
+    return WireInput(input, function() return FM.SettingClamp(settingKey, box:GetText()) end)
+end
 
 local function Refresh()
     if not panel then return end
@@ -98,18 +195,19 @@ local function Refresh()
     for _, checkbox in ipairs(checkboxes) do
         checkbox:SetChecked(settings[checkbox.settingKey] and true or false)
     end
-    if panel.minProfit and panel.minProfit.GenerateMenu then panel.minProfit:GenerateMenu() end
-    if panel.circShare and panel.circShare.GenerateMenu then panel.circShare:GenerateMenu() end
-    if panel.firstShare and panel.firstShare.GenerateMenu then panel.firstShare:GenerateMenu() end
+    -- the saved values, except in an input you are typing in
+    for _, input in ipairs(inputs) do
+        local typing = false
+        for _, box in ipairs(input.boxes) do typing = typing or box:HasFocus() end
+        if not typing then input.Show() end
+    end
     if infoText and FM.realm then
         local r = FM.realm
         local items = 0
         for _ in pairs(r.items) do items = items + 1 end
         local last = r.last and r.last.t and (FM.FormatAge(FM.Now() - r.last.t) .. " ago") or "never"
-        local advice = FM.Advice and FM.Advice.generated and FM.Advice.generated > 0
-            and (FM.FormatAge(FM.Now() - FM.Advice.generated) .. " old") or "none yet"
-        infoText:SetText(string_format("Realm: %s\nItems tracked: %s\nLast deep scan: %s\nClaude's advice: %s",
-            FM.realmKey or "?", FM.FormatCount(items), last, advice))
+        infoText:SetText(string_format("Realm: %s\nItems tracked: %s\nLast deep scan: %s",
+            FM.realmKey or "?", FM.FormatCount(items), last))
     end
 end
 
@@ -126,7 +224,7 @@ function FM.RegisterSettingsPanel()
 
     local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -40)
-    subtitle:SetText("Logs the Auction House over time so Claude can advise on prices. Market table: " .. FM.SLASH_COMMAND .. ", commands: " .. FM.SLASH_COMMAND .. " help")
+    subtitle:SetText("Logs the Auction House over time to price, plan and snipe. Market table: " .. FM.SLASH_COMMAND .. ", commands: " .. FM.SLASH_COMMAND .. " help")
 
     for index, option in ipairs(OPTIONS) do
         local checkbox = CreateFrame("CheckButton", "ForeverMarketOption" .. index, panel, "UICheckButtonTemplate")
@@ -144,68 +242,22 @@ function FM.RegisterSettingsPanel()
     end
 
     local y = -64 - #OPTIONS * 30 - 6
-    local minLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    minLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
-    minLabel:SetText("Market table: minimum profit per item")
-    local minProfit = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-    minProfit:SetWidth(100)
-    minProfit:SetPoint("LEFT", minLabel, "RIGHT", 12, 0)
-    if minProfit.SetupMenu then
-        minProfit:SetupMenu(function(_, root)
-            local function IsSelected(value) return (FM.GetSettings().tableMinProfit or false) == value end
-            local function SetSelected(value)
-                local changed = (FM.GetSettings().tableMinProfit or false) ~= (value or false)
-                FM.GetSettings().tableMinProfit = value or nil
-                -- the picks plan without what earns less (only when there are numbers already)
-                if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
-                if FM.RefreshTable then FM.RefreshTable() end
-            end
-            for _, step in ipairs(MIN_PROFIT_STEPS) do root:CreateRadio(step[2], IsSelected, SetSelected, step[1]) end
-        end)
-    end
-    panel.minProfit = minProfit
-    y = y - 34
-    -- a percent setting of the picks plan as a dropdown at y: an input of the plan, a change plans again
-    local function ShareDropdown(text, settingKey, steps)
+    -- a label at y and its input after it; the next row 34 lower
+    local function InputRow(text, Make, settingKey)
         local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         label:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
         label:SetText(text)
-        local dropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-        dropdown:SetWidth(120)
-        dropdown:SetPoint("LEFT", label, "RIGHT", 12, 0)
-        if dropdown.SetupMenu then
-            dropdown:SetupMenu(function(_, root)
-                local default = FM.DEFAULTS[settingKey]
-                local function IsSelected(value) return (tonumber(FM.GetSettings()[settingKey]) or default) == value end
-                local function SetSelected(value)
-                    local changed = not IsSelected(value)
-                    FM.GetSettings()[settingKey] = value
-                    -- an input of the picks plan: plan again (only when there are numbers already)
-                    if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
-                    if FM.RefreshTable then FM.RefreshTable() end
-                end
-                for _, pct in ipairs(steps) do
-                    root:CreateRadio(pct .. "%" .. (pct == default and " (default)" or ""), IsSelected, SetSelected, pct)
-                end
-            end)
-        end
-        return dropdown
+        Make(label, text, settingKey)
+        y = y - 34
     end
-    panel.circShare = ShareDropdown("Picks: share of an item's C/24h one pick may plan", "tableCircPct", CIRC_SHARE_STEPS)
-    y = y - 34
-    -- FRV-71: a commodity without sales of yours plans a first batch of at most this share of its C/24h
-    panel.firstShare = ShareDropdown("Picks: first batch of a commodity without your sales, share of C/24h", "tableFirstPct",
-        FIRST_SHARE_STEPS)
-    y = y - 40
-    local saveButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    saveButton:SetSize(220, 24)
-    saveButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y)
-    saveButton:SetText("Save for Claude (reload UI)")
-    saveButton:SetScript("OnClick", function() FM.SaveForClaude() end)
+    InputRow("Market table: minimum profit per item", MoneyInput, "tableMinProfit")
+    InputRow("Picks: share of an item's C/24h one pick may plan", PercentInput, "tableCircPct")
+    InputRow("Picks: first batch of a commodity without your sales, share of C/24h", PercentInput, "tableFirstPct")
+    y = y - 6
 
     local tableButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     tableButton:SetSize(180, 24)
-    tableButton:SetPoint("LEFT", saveButton, "RIGHT", 12, 0)
+    tableButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y)
     tableButton:SetText("Open market table")
     tableButton:SetScript("OnClick", function() FM.OpenTable() end)
 
@@ -216,7 +268,7 @@ function FM.RegisterSettingsPanel()
     snipeButton:SetScript("OnClick", function() FM.ShowSnipe() end)
 
     infoText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", saveButton, "BOTTOMLEFT", 0, -14)
+    infoText:SetPoint("TOPLEFT", tableButton, "BOTTOMLEFT", 0, -14)
     infoText:SetJustifyH("LEFT")
 
     panel:SetScript("OnShow", Refresh)

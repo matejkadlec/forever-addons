@@ -4,7 +4,6 @@ local _, FM = ...
 --   * crafts: every recipe of the current character's professions, learned ones plus recipes that can be
 --     learned now (trainer, vendor pattern or a pattern on the AH, up to the current skill cap)
 --   * vendor offers: what vendors sell for gold (ForeverArtisan_Contacts), for reagent costs and resell
--- Claude's picks in data/Tracked.lua add notes to rows and hide rows.
 -- Missing AddOns or changed formats just leave a list empty.
 
 local type = type
@@ -291,13 +290,11 @@ function FM.BuildSources()
 
     local crafts, byKey = {}, {}
     local laterList, laterByKey = {}, {}
-    local tracked = FM.Tracked or {}
-    local hidden = type(tracked.hide) == "table" and tracked.hide or {}
     for _, entry in ipairs(charRecipes) do
         local prof, data = entry.prof, entry.data
         for recipeName, r in pairs(data.recipes) do
             local product = type(r) == "table" and r.itemId and tostring(r.itemId)
-            if product and not hidden[product] then
+            if product then
                 local learned = r.learned and true or false
                 local cap = profSkill[prof.name] or 0
                 -- every known way to learn it (learnAll), and those open up to your skill cap (learn)
@@ -412,18 +409,11 @@ function FM.CraftSeconds(craft)
     return seconds
 end
 
-function FM.TrackedNote(key)
-    local notes = FM.Tracked and FM.Tracked.notes
-    return type(notes) == "table" and notes[key] or nil
-end
-
 -- Items you excluded from the market table and the picks (right-click a row, /fm exclude): food you
--- eat yourself, things you keep. Account wide; data/Tracked.lua "hide" works the same way.
+-- eat yourself, things you keep. Account wide
 function FM.IsExcluded(key)
     local excluded = FM.GetSettings().excluded
-    if type(excluded) == "table" and excluded[key] then return true end
-    local hidden = FM.Tracked and FM.Tracked.hide
-    return type(hidden) == "table" and hidden[key] and true or false
+    return type(excluded) == "table" and excluded[key] and true or false
 end
 
 function FM.SetExcluded(key, on)

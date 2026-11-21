@@ -999,11 +999,10 @@ function FM.ComputeTrade(record, onDone)
         function(done)
             -- vendor resell: cheaper at a vendor than on the AH, with buyers in the last days
             local candidates = {}
-            local hidden = FM.Tracked and FM.Tracked.hide or {}
             for key, v in pairs(sources.vendors) do
                 local offer = v.best
                 local p = view.Get(key)
-                if offer and p and p.ladder[1] and not hidden[key] then
+                if offer and p and p.ladder[1] then
                     local floor = FM.MinListPrice(key, p)
                     local sell = math_max(floor, p.ladder[1][1] - 1)
                     local profit = sell * (1 - AH_CUT) - offer.unit
@@ -1043,11 +1042,10 @@ function FM.ComputeTrade(record, onDone)
             -- AH flips over every item of the scan (sliced)
             local keys = {}
             for key in pairs(r.last.fp) do keys[#keys + 1] = key end
-            local hidden = FM.Tracked and FM.Tracked.hide or {}
             local flips = {}
             FM.RunSliced(keys, 300, Safe(function(key)
                 -- random suffix items mix variants of different value; gear never checked counts as such
-                if hidden[key] or FM.HasVariants(key) or FM.SuffixUnknown(key) then return end
+                if FM.HasVariants(key) or FM.SuffixUnknown(key) then return end
                 local p = view.Get(key)
                 if not p or p.qty < FLIP_MIN_QTY or #p.ladder < 2 then return end
                 if not MaybeFlip(p.ladder, p.qty) then return end

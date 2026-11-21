@@ -34,11 +34,9 @@ FM.DEFAULTS = {
     rescanWhileOpen = true, -- and again every 15 min while the AH stays open
     feedAuctionator = true, -- write our prices into Auctionator's price database on every refresh of our data
     tooltip = true, -- the AH price line (where Auctionator leaves none) and the cost section on item tooltips
-    adviceLine = true, -- Claude's advice line on item tooltips
-    reloadPopup = true, -- offer a UI reload when the AH closes with unsaved snapshots
-    alerts = true, -- chat alerts: undercuts and advice buy prices
     chatSummary = true, -- one chat line after each processed scan
     tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
+    tableMinProfit = 1, -- market table and picks: rows earning less per item are hidden, in copper (settings panel)
     tableInvestPct = 90, -- picks: "Invest [X] %": the share of your gold the whole plan may use, in percent (at most 90 counts)
     tableInvestPicks = 3, -- picks: "across [Y] picks": the plan has up to this many picks
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
@@ -149,6 +147,29 @@ function FM.FormatCount(n)
     return formatted
 end
 
+-- The number inputs of the settings panel (FRV-86) and their whole number ranges: the minimum profit per item in
+-- copper (0g 0s 0c to 999g 99s 99c), the shares of C/24h in percent
+FM.SETTING_RANGE = {
+    tableMinProfit = { 0, 999 * 10000 + 9999 },
+    tableCircPct = { 1, 100 },
+    tableFirstPct = { 1, 100 },
+}
+
+-- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all
+function FM.SettingClamp(key, value)
+    local range = FM.SETTING_RANGE[key]
+    local n = tonumber(value)
+    if not range or not n or n ~= n then return nil end
+    n = math_floor(n)
+    if n < range[1] then n = range[1] end
+    if n > range[2] then n = range[2] end
+    return n
+end
+
+-- Settings of removed features: a tooltip line and the reload offer after the AH that fed price analysis outside the
+-- game (FRV-85), the chat alerts for undercuts and buy prices (FRV-87)
+local REMOVED_SETTINGS = { "adviceLine", "reloadPopup", "alerts" }
+
 -- Create or load the saved variables root and fill in missing settings
 function FM.InitializeSavedData()
     if type(ForeverMarketDB) ~= "table" then
@@ -166,7 +187,17 @@ function FM.InitializeSavedData()
     if db.settings.tableTab == "mats" then db.settings.tableTab = nil end
     if type(db.settings.tableSort) == "table" then db.settings.tableSort.mats = nil end
     FM.MigrateFilters(db.settings)
+    for _, key in ipairs(REMOVED_SETTINGS) do db.settings[key] = nil end
+    -- the dropdowns became inputs (1.32, FRV-86): a saved step stays, the old "Any" minimum profit (nothing saved)
+    -- got the default 1c above, a broken value gets the default
+    for key in pairs(FM.SETTING_RANGE) do
+        db.settings[key] = FM.SettingClamp(key, db.settings[key]) or FM.DEFAULTS[key]
+    end
     if type(db.realms) ~= "table" then db.realms = {} end
+    -- the bag and bank counts of watched items (R.inv) were written only for reading outside the game (FRV-85)
+    for _, r in pairs(db.realms) do
+        if type(r) == "table" then r.inv = nil end
+    end
     FM.db = db
 end
 
@@ -343,11 +374,11 @@ function FM.RealmKey()
     return (FM.RealmName() or "?") .. "-" .. Faction()
 end
 
-local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "inv", "chars", "farm",
+local REALM_TABLES = { "scans", "items", "names", "watch", "posts", "events", "invoices", "invSeen", "owned", "gold", "chars", "farm",
     "worth", "bank", "mailbox", "bags", "charInfo", "sent" }
 
 -- What a stray bucket must not hold to be dropped: market data and logs that nothing else can bring back
-local STRAY_MARKET = { "items", "scans", "posts", "events", "invoices", "owned", "inv", "sent", "crafts", "buys",
+local STRAY_MARKET = { "items", "scans", "posts", "events", "invoices", "owned", "sent", "crafts", "buys",
     "deposits", "track", "watch", "mailSeen" }
 
 local function HoldsMarketData(stray)

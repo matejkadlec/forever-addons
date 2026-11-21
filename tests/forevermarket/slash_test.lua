@@ -48,14 +48,29 @@ H.test("slash: on / off switches set exactly their setting", function()
     slash("autoscan off")
     slash("rescan off")
     slash("auctionator off")
-    slash("popup off")
-    slash("alerts off")
     H.eq(settings.autoDeepScan, false, "autoscan")
     H.eq(settings.rescanWhileOpen, false, "rescan")
     H.eq(settings.feedAuctionator, false, "auctionator")
-    H.eq(settings.reloadPopup, false, "popup")
-    H.eq(settings.alerts, false, "alerts")
     H.eq(settings.chatSummary, true, "other settings untouched")
+end)
+
+-- FRV-85, FRV-87: the commands of the removed features are gone, they show the help like any unknown command
+H.test("slash: save, popup and alerts are gone and show the help", function()
+    for _, command in ipairs({ "save", "popup off", "alerts off" }) do
+        local FM, env, slash = Load()
+        slash(command)
+        H.eq(env.printed[1]:find("Available commands:", 1, true) ~= nil, true, command .. ": help header")
+        H.eq(FM.GetSettings().chatSummary, true, command .. ": settings untouched")
+    end
+end)
+
+H.test("slash: the help lists no removed command", function()
+    local _, env, slash = Load()
+    slash("help")
+    local text = table.concat(env.printed, "\n")
+    for _, command in ipairs({ "/fm save", "/fm popup", "/fm alerts" }) do
+        H.eq(text:find(command, 1, true), nil, command .. " not in the help")
+    end
 end)
 
 H.test("slash: wipe deletes the realm's data only with confirm", function()

@@ -243,12 +243,12 @@ H.test("characters: /fm forget removes a character's records and readings, keeps
     r.chars.Tester, r.chars.Alt = "HUNTER", "MAGE"
     r.charInfo.Alt = { guid = "Player-1-C", full = "Alt Family" }
     r.bags.Alt, r.bank.Alt, r.mailbox.Alt = "x", "x", "x"
-    r.owned.Alt, r.inv.Alt = { t = 1, list = "" }, "x"
+    r.owned.Alt = { t = 1, list = "" }
     r.goldLast = { Alt = { t = 1, copper = 1 } }
     r.posts[1] = "1,Alt,2589,1,1,3,i"
     r.worth.Alt = { "1,1,1,h" }
     slash("forget alt family")
-    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "inv", "goldLast" }) do
+    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "goldLast" }) do
         H.eq(r[field].Alt, nil, field .. " removed")
     end
     H.eq(r.posts[1], "1,Alt,2589,1,1,3,i", "its posts stay")

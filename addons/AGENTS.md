@@ -88,4 +88,4 @@ The AddOn inventory is in the root guide. ForeverMarket has its own guide: [`For
   - `/fta`: bare command behaves like `help`; `on`, `off`, `help`
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
-  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `save`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `advice`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `popup`, `alerts`, `options`, `wipe confirm`
+  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `item`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `options`, `wipe confirm`

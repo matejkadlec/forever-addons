@@ -174,10 +174,9 @@ end
 
 ---------------------------------------------------------------- columns
 
--- Claude's note, favorite and ignored marks behind a name
+-- Favorite and ignored marks behind a name
 local function Marks(row)
     local text = ""
-    if FM.TrackedNote(row.key) then text = text .. BLUE .. " *|r" end
     if FM.IsFavorite(row.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
     if FM.IsExcluded and FM.IsExcluded(row.key) then text = text .. GREY .. " (ignored)|r" end
     return text
@@ -363,10 +362,9 @@ local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH 
 local EXPECTED_TIP = "Expected: the profit of one listing of all of the pick's units, for 8h or 24h, whichever pays better (grey behind it): what buyers take in that time, minus the deposit lost on what doesn't sell, at the pick's confidence. The row tooltip shows both."
 local CONF_TIP = "Conf.: how far the numbers can be trusted: where the buyer counts come from (your sales, measured, estimated), price swings, a falling price today, days of stock listed, estimated prices. The row tooltip says what lowered it."
 
--- A pick's icon and name in its quality color; favorite and Claude's note marks as everywhere
+-- A pick's icon and name in its quality color; the favorite mark as everywhere
 local function PickName(p)
     local text = IconText(p.key) .. QualityColor(p.key) .. Name(p.key) .. "|r"
-    if FM.TrackedNote(p.key) then text = text .. BLUE .. " *|r" end
     if FM.IsFavorite(p.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
     return text
 end
@@ -1151,11 +1149,6 @@ local function RowTooltipLines(tip, tab, row)
         TT:AddLine(" ")
         Line("You have", FM.FormatCount(have) .. GREY .. "  bags and bank" ..
             ((sellable or have) < have and string_format(", %s soulbound", FM.FormatCount(have - sellable)) or "") .. "|r")
-    end
-    local note = FM.TrackedNote(row.key)
-    if note then
-        TT:AddLine(" ")
-        TT:AddLine(BLUE .. "Claude:|r " .. note, 1, 1, 1, true)
     end
     TT = GameTooltip
 end

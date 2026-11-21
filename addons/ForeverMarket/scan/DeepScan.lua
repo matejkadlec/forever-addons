@@ -103,10 +103,6 @@ local function Finish(snap)
         FM.FinalizeSnapshot(snap, function()
             FM.deep.snap = nil
             SetState("idle")
-            if FM.popupAfterSave then
-                FM.popupAfterSave = nil
-                FM.ShowReloadPopup()
-            end
         end)
     end)
 end

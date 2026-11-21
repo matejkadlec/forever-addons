@@ -18,7 +18,6 @@ local _, FM = ...
 
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
-local math_max = math.max
 local string_sub = string.sub
 local string_match = string.match
 local table_concat = table.concat
@@ -28,7 +27,6 @@ local ipairs = ipairs
 local type = type
 local tostring = tostring
 
-FM.unsavedSnapshots = 0
 FM.dataVersion = 0
 
 local function E0(n)
@@ -280,55 +278,6 @@ local function LadderStats(sorted, minPrice, qty)
     return q5, q20, median
 end
 
-local function Alerts(deals, undercuts)
-    local settings = FM.GetSettings()
-    if not settings.alerts then return end
-    if #undercuts > 0 then
-        local parts = {}
-        for i = 1, math.min(#undercuts, 6) do
-            local u = undercuts[i]
-            parts[i] = string.format("%s (%s < %s)", FM.GetName(u.key), FM.FormatMoney(u.other), FM.FormatMoney(u.own))
-        end
-        FM.Print("Undercut:", table_concat(parts, ", ") .. (#undercuts > 6 and string.format(" +%d more", #undercuts - 6) or ""))
-    end
-    for i = 1, math.min(#deals, 8) do
-        local d = deals[i]
-        FM.Print(string.format("Deal: %s at %s (Claude: buy below %s), %d listed",
-            FM.GetName(d.key), FM.FormatMoney(d.min), FM.FormatMoney(d.limit), d.qty or 0))
-    end
-end
-
-local function AdviceBuyBelow(key)
-    local advice = FM.Advice
-    local entry = advice and type(advice.items) == "table" and advice.items[key]
-    return entry and type(entry.buyBelow) == "number" and entry.buyBelow or nil
-end
-
--- Snapshot of bag and bank counts of watched items (helps Claude size advice)
-function FM.SnapshotInventory()
-    if not (C_Item and C_Item.GetItemCount) then return end
-    local r = FM.R()
-    local parts = {}
-    local seen = {}
-    local function add(key)
-        if seen[key] then return end
-        seen[key] = true
-        local id = FM.ItemIDFromKey(key)
-        if not id then return end
-        local ok, bags = pcall(C_Item.GetItemCount, id, false)
-        local ok2, total = pcall(C_Item.GetItemCount, id, true)
-        if ok and ok2 and type(bags) == "number" and type(total) == "number" and total > 0 then
-            parts[#parts + 1] = key .. ":" .. Enc(bags) .. ":" .. Enc(math_max(0, total - bags))
-        end
-    end
-    for key in pairs(r.watch) do add(key) end
-    local advice = FM.Advice
-    if advice and type(advice.items) == "table" then
-        for key in pairs(advice.items) do add(key) end
-    end
-    r.inv[FM.PlayerName()] = FM.Stamp() .. "|" .. table_concat(parts, ",")
-end
-
 function FM.FinalizeSnapshot(snap, onDone)
     -- the Battle.net feed import replaces r.last and appends records: diff against what it leaves behind
     if FM.feedImporting then
@@ -354,7 +303,6 @@ function FM.FinalizeSnapshot(snap, onDone)
     local newFp = {}
     local stamp = "r" .. Enc(nowMinutes)
     local totals = { sold = 0, soldItems = 0, own = 0 }
-    local deals, undercuts = {}, {}
     local started = debugprofilestop and debugprofilestop() or 0
 
     FM.RunSliced(keys, 250, function(key)
@@ -378,17 +326,9 @@ function FM.FinalizeSnapshot(snap, onDone)
                 f[20] = Enc(agg.ownMin)
                 f[21] = Enc(agg.minOther)
                 totals.own = totals.own + agg.own
-                -- with suffix variants a cheaper "of Spirit" is no undercut of your "of the Eagle"
-                if agg.minOther and agg.ownMin and agg.minOther < agg.ownMin and not FM.HasVariants(key) then
-                    undercuts[#undercuts + 1] = { key = key, own = agg.ownMin, other = agg.minOther }
-                end
             end
             newFp[key] = table_concat(agg.fps, ",")
             FM.LearnName(key, agg.name)
-            local limit = AdviceBuyBelow(key)
-            if limit and agg.min <= limit then
-                deals[#deals + 1] = { key = key, min = agg.min, limit = limit, qty = agg.qty }
-            end
         else
             f[2], f[3], f[4] = "", "0", "0"
         end
@@ -430,9 +370,7 @@ function FM.FinalizeSnapshot(snap, onDone)
         FM.Log("scans", table_concat({ stamp, snap.source or "?", Enc(snap.nAuctions), Enc(#snap.order),
             Enc(ms), Enc(totals.own), Enc(GetMoney and GetMoney() or 0), FM.PlayerName(),
             Enc(totals.sold), gapMinutes and Enc(gapMinutes) or "" }, ","), FM.LIMITS.scansMax)
-        FM.unsavedSnapshots = FM.unsavedSnapshots + 1
         FM.dataVersion = FM.dataVersion + 1
-        FM.SnapshotInventory()
         if FM.RecordGold then FM.RecordGold(true) end
 
         if FM.GetSettings().chatSummary then
@@ -443,7 +381,6 @@ function FM.FinalizeSnapshot(snap, onDone)
             FM.Print(string.format("Deep scan saved: %s auctions, %s items%s%s.",
                 FM.FormatCount(snap.nAuctions), FM.FormatCount(#snap.order), sinceText, auctionatorText))
         end
-        Alerts(deals, undercuts)
         if FM.OnDeepScanSaved then
             local ok, err = pcall(FM.OnDeepScanSaved)
             if not ok and geterrorhandler then geterrorhandler()(err) end
@@ -479,23 +416,16 @@ function FM.ProcessBrowseScan(results, source)
         end
     end
 
-    local deals = {}
     FM.RunSliced(order, 400, function(key)
         local m = merged[key]
         FM.AppendDetail(key, stamp .. "," .. Enc(m.min) .. "," .. Enc(m.qty) .. (m.own and ",1" or ""), nowMinutes)
         FM.LearnName(key)
-        local limit = AdviceBuyBelow(key)
-        if limit and m.min <= limit then
-            deals[#deals + 1] = { key = key, min = m.min, limit = limit, qty = m.qty }
-        end
     end, function()
         FM.Log("scans", table_concat({ stamp, source or "aucb", "", Enc(#order), "", "",
             Enc(GetMoney and GetMoney() or 0), FM.PlayerName() }, ","), FM.LIMITS.scansMax)
-        FM.unsavedSnapshots = FM.unsavedSnapshots + 1
         FM.dataVersion = FM.dataVersion + 1
         if FM.GetSettings().chatSummary then
             FM.Print(string.format("Auctionator scan saved: %s items.", FM.FormatCount(#order)))
         end
-        Alerts(deals, {})
     end)
 end

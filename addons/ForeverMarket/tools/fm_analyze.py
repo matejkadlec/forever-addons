@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""ForeverMarket analyzer: Claude's side of the Auction House advisor.
+"""ForeverMarket analyzer: market questions answered from the saved data, outside the game.
 
-Reads the ForeverMarket saved variables (and optionally Auctionator / ForeverArtisan ones),
-answers market questions and writes Claude's advice back into the AddOn (data/Advice.lua).
-Standard library only, Python 3.8+.
+Reads the ForeverMarket saved variables (and optionally Auctionator / ForeverArtisan ones) and
+prints tables; it writes nothing. Standard library only, Python 3.8+.
 
 Usage (from anywhere):
   python3 fm_analyze.py summary
@@ -12,18 +11,15 @@ Usage (from anywhere):
   python3 fm_analyze.py movers
   python3 fm_analyze.py sales
   python3 fm_analyze.py craft --prof Leatherworking
-  python3 fm_analyze.py flips --budget 5g [--advise 5]
+  python3 fm_analyze.py flips --budget 5g
   python3 fm_analyze.py room [item ...] [--days 7] [--share 25]
-  python3 fm_analyze.py advice set "Camp Tent" --list 350 --conf "90% in 8h" --note "..."
-  python3 fm_analyze.py advice render
 
-Paths are found automatically (Windows layout or the Claude device mounts); override with
---sv <ForeverMarket.lua> and --addon <AddOns/ForeverMarket folder>.
+Paths are found automatically (the game's WTF folder next to the AddOns folder, or one mounted at
+~/mnt/WTF); override with --sv <ForeverMarket.lua> and --addon <AddOns/ForeverMarket folder>.
 """
 
 import argparse
 import glob
-import json
 import math
 import os
 import random
@@ -753,9 +749,6 @@ def cmd_summary(m, args):
         print('\nGold (last entries):')
         for g in gold[-6:]:
             print('  %s  %-12s %s' % (when(stamp_to_epoch(g[0])), g[1], money(b36(g[2]))))
-    adv = load_advice(args)
-    if adv.get('items'):
-        print('\nAdvice in the AddOn: %d items, written %s ago' % (len(adv['items']), ago(adv.get('generated'))))
 
 
 def cmd_item(m, args):
@@ -1158,96 +1151,7 @@ def cmd_craft(m, args):
     print('Crafting margins (product min price, 5% cut, reagents at vendor or AH min):')
     table([r[:-1] for r in rows[:args.top]], ['recipe', 'prof', 'cost', 'sells', 'profit', 'sold/day', 'listed', 'gray'])
 
-# --------------------------------------------------------------------------- advice
-
-
-def advice_paths(args):
-    addon, _ = find_paths(args) if not args.addon else (args.addon, None)
-    return os.path.join(addon, 'tools', 'advice.json'), os.path.join(addon, 'data', 'Advice.lua')
-
-
-def load_advice(args):
-    path, _ = advice_paths(args)
-    if os.path.exists(path):
-        with open(path, encoding='utf-8') as fh:
-            return json.load(fh)
-    return {'generated': 0, 'note': '', 'items': {}}
-
-
-def lua_str(s):
-    return '"' + str(s).replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') + '"'
-
-
-def render_advice(args, adv):
-    _, lua_path = advice_paths(args)
-    lines = ['local _, FM = ...', '',
-             '-- Written by Claude with tools/fm_analyze.py ("advice render"). Picked up on the next /reload.',
-             '-- Prices are in copper. Safe to delete the entries; the file must stay valid Lua.', '',
-             'FM.Advice = {',
-             '    generated = %d,' % int(adv.get('generated') or 0),
-             '    note = %s,' % lua_str(adv.get('note') or ''),
-             '    items = {']
-    for key in sorted(adv.get('items', {})):
-        e = adv['items'][key]
-        parts = []
-        for field in ('list', 'buyBelow'):
-            if e.get(field) is not None:
-                parts.append('%s = %d' % (field, int(e[field])))
-        for field in ('conf', 'note'):
-            if e.get(field):
-                parts.append('%s = %s' % (field, lua_str(e[field])))
-        lines.append('        [%s] = { %s }, -- %s' % (lua_str(key), ', '.join(parts), e.get('name', '')))
-    lines += ['    }', '}', '']
-    with open(lua_path, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write('\n'.join(lines))
-    return lua_path
-
-
-def cmd_advice(m, args):
-    path, _ = advice_paths(args)
-    adv = load_advice(args)
-    if args.action == 'show':
-        print('Advice (%s ago): %s' % (ago(adv.get('generated')), adv.get('note') or ''))
-        for key, e in sorted(adv.get('items', {}).items()):
-            print('  %-30s list %s %s  buy< %s  %s' % (e.get('name', key)[:30], money(e.get('list')), e.get('conf') or '',
-                  money(e.get('buyBelow')), e.get('note') or ''))
-        return
-    if args.action == 'set':
-        keys = m.find(args.query)
-        if not keys:
-            sys.exit('Item not found: %s' % args.query)
-        key = keys[0]
-        entry = adv['items'].get(key, {})
-        entry['name'] = m.name(key)
-        if args.list is not None:
-            entry['list'] = parse_money(args.list)
-        if args.buy_below is not None:
-            entry['buyBelow'] = parse_money(args.buy_below)
-        if args.conf is not None:
-            entry['conf'] = args.conf
-        if args.note is not None:
-            entry['note'] = args.note
-        adv['items'][key] = entry
-        print('Set %s [%s]: %s' % (entry['name'], key, entry))
-    elif args.action == 'remove':
-        for key in m.find(args.query)[:1]:
-            adv['items'].pop(key, None)
-            print('Removed', m.name(key))
-    elif args.action == 'clear':
-        adv['items'] = {}
-    elif args.action == 'note':
-        adv['note'] = args.query or ''
-    save_advice(args, adv)
-
-
-def save_advice(args, adv):
-    path, _ = advice_paths(args)
-    adv['generated'] = int(time.time())
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as fh:
-        json.dump(adv, fh, indent=1, ensure_ascii=False)
-    lua_path = render_advice(args, adv)
-    print('Wrote %s (reload the UI in game to see it)' % lua_path)
+# --------------------------------------------------------------------------- flips
 
 
 def latest_gold(m):
@@ -1366,19 +1270,7 @@ def cmd_flips(m, args):
     print('  usual = median daily lowest price of the last week; units = to buy / cheap ones listed (capped at')
     print('  the stock already waiting at the list price); ~ = ladder approximated')
     print('  cheap listings go fast: check with an AH search before buying; deposits are lost if it does not sell')
-    if args.advise:
-        adv = load_advice(args)
-        for r in rows[:args.advise]:
-            entry = adv['items'].get(r['key'], {})
-            entry.update({'name': m.name(r['key']), 'buyBelow': r['top'], 'list': r['sell'],
-                          'note': 'flip, usual %s' % money_plain(r['ref'])})
-            adv['items'][r['key']] = entry
-        save_advice(args, adv)
 
-
-def money_plain(c):
-    """12345 -> '1g23s45c' without spaces, for short notes"""
-    return money(c).replace(' ', '')
 
 # --------------------------------------------------------------------------- room (Picks' cap against your sales)
 
@@ -1612,32 +1504,17 @@ def main(argv=None):
     p.add_argument('--min-profit', dest='min_profit', type=int, default=500, help='expected profit at least (copper)')
     p.add_argument('--max-age', dest='max_age', type=float, default=6, help='market data at most this old (hours)')
     p.add_argument('--top', type=int, default=20)
-    p.add_argument('--advise', type=int, default=0, help='write buy alerts + list prices of the top N into the AddOn')
     p = sub.add_parser('room')
     p.add_argument('items', nargs='*', help='items to show (default: every item you listed in the window)')
     p.add_argument('--days', type=int, default=7, help='window for your sales and listings')
     p.add_argument('--share', type=float, help='share of C/24h in %% (default: your setting, else 25)')
-    p = sub.add_parser('advice')
-    p.add_argument('action', choices=['show', 'set', 'remove', 'clear', 'note', 'render'])
-    p.add_argument('query', nargs='?')
-    p.add_argument('--list')
-    p.add_argument('--buy-below', dest='buy_below')
-    p.add_argument('--conf')
-    p.add_argument('--note')
     args = ap.parse_args(argv)
 
     addon, sv = find_paths(args)
     args.addon, args.sv = addon, sv
-    if args.cmd == 'advice' and args.action in ('show', 'clear', 'note', 'render'):
-        if args.action == 'render':
-            print('Wrote', render_advice(args, load_advice(args)))
-            return
-        if args.action == 'show':
-            return cmd_advice(None, args)
-        return cmd_advice(None, args)
     market = Market(sv, args.realm)
     {'summary': cmd_summary, 'item': cmd_item, 'price': cmd_price, 'movers': cmd_movers, 'sales': cmd_sales,
-     'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room, 'advice': cmd_advice}[args.cmd](market, args)
+     'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room}[args.cmd](market, args)
 
 
 if __name__ == '__main__':
