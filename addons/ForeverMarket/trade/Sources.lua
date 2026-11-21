@@ -267,8 +267,9 @@ end
 -- While a merchant window is open, what it sells for gold without limit is kept per realm and faction:
 -- R.vendorSeen[key] = "<unit price>,<time>,<npc name>": copper per unit (a plain number, decimals for a stack of
 -- several), FM.Stamp(), the NPC's name (empty when it was secret). A visit replaces what it saw. Limited stock (a
--- numAvailable of 0 or more: Blizzard shows a stock above 0 and greys an item at 0), extended costs and currencies
--- are not recorded: they cannot supply a batch of crafts. Auctionator's own vendor cache was read until 1.32
+-- numAvailable of 0 or more: Blizzard shows a stock above 0 and greys an item at 0) and an extended cost (a price in
+-- items or a currency) are not recorded: they cannot supply a batch of crafts; nor is a currency the merchant sells
+-- (currencyID). Auctionator's own vendor cache was read until 1.32
 
 -- "12.5", "45": a unit price without trailing zeros
 local function UnitText(unit)

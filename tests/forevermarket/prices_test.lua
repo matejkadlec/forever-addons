@@ -5,7 +5,8 @@
 --     nothing in 60 days = no price. The table prices a craft's list price and a material from it (source "last")
 --   * Usual price: own scans and rollups only, whatever Auctionator holds
 --   * Vendor prices of its own: at an open merchant, what it sells for gold without limit (numAvailable < 0, no
---     extended cost, no currency) is kept as R.vendorSeen[key] = "<unit price>,<time>,<npc name>"; a secret NPC name
+--     extended cost = no price in items or a currency, no currencyID = not a currency it sells) is kept as
+--     R.vendorSeen[key] = "<unit price>,<time>,<npc name>"; a secret NPC name
 --     keeps the price without a name. FM.VendorUnit uses it where ForeverArtisan's Trade Contacts have no offer
 
 local H = require("harness")
@@ -118,21 +119,22 @@ local function Info(price, stack, available, extra)
     return info
 end
 
-H.test("vendor prices: a merchant's unlimited offers for gold are kept, limited stock and currencies are not", function()
+H.test("vendor prices: a merchant's unlimited offers for gold are kept, limited stock, extended costs and currencies are not", function()
     local FM, env, r = Load()
     Merchant(env, {
         { id = 2678, info = Info(10, 1, -1) },                        -- Mild Spices, 10c, unlimited
         { id = 4289, info = Info(25, 5, -1) },                        -- Salt, 25c for 5
         { id = 7005, info = Info(80, 1, 3) },                         -- limited: 3 left
         { id = 7006, info = Info(80, 1, 0) },                         -- sold out
-        { id = 7007, info = Info(0, 1, -1, { hasExtendedCost = true }) }, -- extended cost
-        { id = 7008, info = Info(50, 1, -1, { currencyID = 42 }) },   -- a currency
+        { id = 7007, info = Info(0, 1, -1, { hasExtendedCost = true }) }, -- paid in items or a currency only
+        { id = 7009, info = Info(30, 1, -1, { hasExtendedCost = true }) }, -- gold plus items or a currency
+        { id = 7008, info = Info(50, 1, -1, { currencyID = 42 }) },   -- a currency the merchant sells
     }, "Drac Roughcut")
     H.eq(FM.ReadMerchant(), 2, "two offers recorded")
     local stamp = B(NOW_MINUTES)
     H.eq(r.vendorSeen["2678"], "10," .. stamp .. ",Drac Roughcut", "Mild Spices: 10c, now, the NPC")
     H.eq(r.vendorSeen["4289"], "5," .. stamp .. ",Drac Roughcut", "Salt: 5c per unit")
-    for _, key in ipairs({ "7005", "7006", "7007", "7008" }) do
+    for _, key in ipairs({ "7005", "7006", "7007", "7008", "7009" }) do
         H.eq(r.vendorSeen[key], nil, key .. " not recorded")
     end
 end)
