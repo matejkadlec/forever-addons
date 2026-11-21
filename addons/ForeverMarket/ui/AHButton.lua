@@ -2,14 +2,14 @@ local _, FM = ...
 
 -- Small buttons on the Auction House title bar, right to left: "FM: snipe" opens the snipe window (sniping runs
 -- while it is open), "FM: scan" starts a deep scan (FRV-84; disabled while one runs or the server's 15 minutes are
--- not over, the tooltip says why), "FM: table" opens the market table. And the market table's search in Blizzard's
--- Buy list (FM.SearchAH, FRV-47).
+-- not over, the tooltip says why), "FM: table" opens the market table. And the market table's search at the AH
+-- (FM.SearchAH, FRV-47): Auctionator's shopping list when Auctionator is loaded, else Blizzard's Buy list.
 
 local button
 local scanButton
 local tableButton
 
----------------------------------------------------------------- search in Blizzard's Buy list (FRV-47)
+---------------------------------------------------------------- search at the AH (FRV-47)
 
 -- The sorts of Blizzard's Buy list (its saved g_auctionHouseSortsBySearchContext of the browse), copied; price, then
 -- name like Blizzard's browse default without them
@@ -38,7 +38,7 @@ end
 -- Blizzard's Buy list shows them and a click there opens the item's Buy page. Another page of the AH open (a Buy page,
 -- Sell, Auctions): the list is shown, the way Blizzard's favorites search does (AuctionHouseFrameMixin:QueryAll);
 -- already on the list, the frame is left alone. Returns how many items it searched, or nil and why not
-function FM.SearchAH(keys)
+local function SearchBlizzard(keys)
     local api = C_AuctionHouse
     if not (api and api.SearchForItemKeys and api.MakeItemKey) then return nil, "this client has no search by item" end
     local itemKeys, seen = {}, {}
@@ -59,6 +59,40 @@ function FM.SearchAH(keys)
         pcall(frame.SetDisplayMode, frame, modes.Buy)
     end
     return #itemKeys
+end
+
+-- Auctionator's search (Auctionator.API.v1.MultiSearchExact), nil while Auctionator is not loaded
+local function AuctionatorSearchAPI()
+    local api = _G.Auctionator and _G.Auctionator.API and _G.Auctionator.API.v1
+    if type(api) == "table" and type(api.MultiSearchExact) == "function" then return api end
+    return nil
+end
+
+-- Searches these items (keys) in Auctionator's Shopping tab: one temporary shopping list of their exact names, which
+-- stays listed while you buy one after another (as up to 1.32); each name once, an item whose name is not known yet
+-- (FM.GetName gives "item:...") is left out. Returns how many items it searched, or nil and why not
+local function SearchAuctionator(api, keys)
+    local names, seen = {}, {}
+    for _, key in ipairs(keys) do
+        local name = FM.GetName(key)
+        if type(name) == "string" and not seen[name] and not name:find("^item:") then
+            seen[name] = true
+            names[#names + 1] = name
+        end
+    end
+    if not names[1] then return 0 end
+    local ok, err = pcall(api.MultiSearchExact, "ForeverMarket", names)
+    if not ok then return nil, "Auctionator: " .. tostring(err) end
+    return #names
+end
+
+-- The market table's search at the AH (a row click, Favorites' "Search all at the AH"): Auctionator's shopping list
+-- when Auctionator is loaded, else Blizzard's Buy list by item ID (FRV-47; a shopping tab of ForeverMarket's own is
+-- FRV-97). Returns how many items it searched, or nil and why not
+function FM.SearchAH(keys)
+    local api = AuctionatorSearchAPI()
+    if api then return SearchAuctionator(api, keys) end
+    return SearchBlizzard(keys)
 end
 
 -- "FM: scan" is enabled only when a click would start a deep scan

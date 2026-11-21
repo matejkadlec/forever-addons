@@ -304,9 +304,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
   latest record. An item you also ignored shows only in Ignored, with its star. "Search all at the AH" (1.33,
   FRV-47, right of the search box where the other tabs have their filters): one search of every favorite the tab
-  shows in Blizzard's Buy list (`FM.SearchAH`, below), with a chat line of how many; the ones on the AH are listed
-  there. It takes the place of a shopping list: the list is your favorites, the buying is Blizzard's Buy page or the
-  sniper. Away from the AH it says to open it.
+  shows (`FM.SearchAH`, below: Auctionator's Shopping tab when Auctionator is loaded, else Blizzard's Buy list), with
+  a chat line of how many; the ones on the AH are listed there. Away from the AH it says to open it.
 * **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
@@ -558,24 +557,29 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   saved value) and plans the picks again as the dropdowns did, Esc shows the saved value again. The ranges are
   `FM.SETTING_RANGE` in core/Core.lua; at load a saved dropdown step stays, the old "Any" (no value saved) becomes
   the default 1c, a broken value its default.
-* Click a row at the open AH: Blizzard's own Buy list shows only what you would buy there (1.33, FRV-47; an
-  Auctionator shopping list from 1.27 to 1.32, which needed Auctionator: without it the click printed "Searching
-  needs Auctionator."). `FM.SearchAH` (ui/AHButton.lua) sends one `C_AuctionHouse.SearchForItemKeys` with one item key
-  of the bare item ID per item (`C_AuctionHouse.MakeItemKey(itemID)`) and the Buy list's own saved sorts (price, then
-  name without them); the results arrive like any browse, so Blizzard's list shows them and a click there opens the
-  item's Buy page. With another page of the AH open (a Buy page, Sell, Auctions) it switches to the list
-  (`AuctionHouseFrame:SetDisplayMode(AuctionHouseFrameDisplayMode.Buy)`, as Blizzard's favorites search does); on
-  the list it leaves the frame alone. Away from the AH: "Open the Auction House to search it." The list is
-  `FM.ShoppingList` in trade/Picks.lua (1.27, FRV-79): a craft (Craft, Learn, a
-  favorite whose best use is a craft) its AH materials, an intermediate the table crafts replaced by its materials
-  (two levels deep), never vendor materials and never the item itself, the pattern first when the cheapest way to
-  learn the recipe is the AH; a pick exactly the AH purchases of its plan (`pick.shopping`: the pattern it buys on
-  the AH, `pick.buys`, a tool it buys there); Flip, vendor resells and items without a craft the item itself. With
-  nothing to buy on the AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level
-  materials. Shift+click: link to chat (at the AH:
-  snipe what it buys there, a pick every AH purchase of its plan; see Sniper). Right-click: the menu above, with
-  Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the row's tooltip as a sticky
-  window (below).
+* Click a row at the open AH to search only what you would buy there (`FM.SearchAH`, ui/AHButton.lua); away from the
+  AH: "Open the Auction House to search it."
+  * Auctionator loaded: one shopping list in Auctionator's Shopping tab (`Auctionator.API.v1.MultiSearchExact`, the
+    exact names, each once; an item whose name is not known yet is left out). Its list stays while you buy one item
+    after another, which Blizzard's Buy list cannot do (a search for each). A shopping tab of ForeverMarket's own, to
+    replace Auctionator's, is FRV-97
+  * Without Auctionator (1.33, FRV-47; up to 1.32 the click printed "Searching needs Auctionator."): Blizzard's own
+    Buy list. `FM.SearchAH` sends one `C_AuctionHouse.SearchForItemKeys` with one item key of the bare item ID per
+    item (`C_AuctionHouse.MakeItemKey(itemID)`) and the Buy list's own saved sorts (price, then name without them);
+    the results arrive like any browse, so Blizzard's list shows them and a click there opens the item's Buy page.
+    With another page of the AH open (a Buy page, Sell, Auctions) it switches to the list
+    (`AuctionHouseFrame:SetDisplayMode(AuctionHouseFrameDisplayMode.Buy)`, as Blizzard's favorites search does); on
+    the list it leaves the frame alone
+  * The list is `FM.ShoppingList` in trade/Picks.lua (1.27, FRV-79): a craft (Craft, Learn, a favorite whose best use
+    is a craft) its AH materials, an intermediate the table crafts replaced by its materials (two levels deep), never
+    vendor materials and never the item itself, the pattern first when the cheapest way to learn the recipe is the
+    AH; a pick exactly the AH purchases of its plan (`pick.shopping`: the pattern it buys on the AH, `pick.buys`, a
+    tool it buys there); Flip, vendor resells and items without a craft the item itself. With nothing to buy on the
+    AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level materials
+
+  Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan; see Sniper).
+  Right-click: the menu above, with Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the
+  row's tooltip as a sticky window (below).
 * The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
   AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ..."),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH

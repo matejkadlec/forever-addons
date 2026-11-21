@@ -1237,8 +1237,8 @@ local function ShoppingList(row)
     return FM.ShoppingList("item", src)
 end
 
--- Searches the keys in Blizzard's Buy list (FRV-47, FM.SearchAH in ui/AHButton.lua; Auctionator's shopping list
--- until 1.32); away from the AH it says to open it. Returns how many items it searched
+-- Searches the keys at the AH (FRV-47, FM.SearchAH in ui/AHButton.lua): Auctionator's shopping list when Auctionator is
+-- loaded, else Blizzard's Buy list; away from the AH it says to open it. Returns how many items it searched
 local function SearchKeys(keys)
     if not FM.ahOpen then
         FM.Print("Open the Auction House to search it.")
@@ -2015,12 +2015,13 @@ local function CreateTable()
         FM.TableFiltersChanged(view.tab)
     end)
     FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.")
-    -- Favorites: "Search all at the AH" (FRV-47), every favorite in one search of Blizzard's Buy list
+    -- Favorites: "Search all at the AH" (FRV-47), every favorite in one search (Auctionator's shopping list, else
+    -- Blizzard's Buy list)
     f.searchAll = Button(f, "Search all at the AH", 150, SearchFavorites)
     f.searchAll:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("Search all at the AH")
-        GameTooltip:AddLine("Searches every favorite at once in Blizzard's Buy list (the Auction House must be open): the ones on the AH are listed there, a click on one opens its Buy page. Buy there, or snipe them (Shift+click a row here).", 1, 1, 1, true)
+        GameTooltip:AddLine("Searches every favorite at once (the Auction House must be open): with Auctionator in its Shopping tab, where the list stays while you buy, else in Blizzard's Buy list, where a click on one opens its Buy page. Or snipe them (Shift+click a row here).", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
