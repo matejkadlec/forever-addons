@@ -34,6 +34,19 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.tableFirstPct, 2, "first batch of a commodity: 2")
     H.eq(s.tableTimePct, 2, "buy or craft rate: 2% per second (FRV-69)")
     H.eq(s.tableMinProfit, 1, "minimum profit per item: 0g 0s 1c")
+    -- the sniper (FRV-45, FRV-94): sounds on, the second wheel step off, the budget refreshed at every opening, no
+    -- manual amount
+    H.eq(s.snipeSound, true, "sniper sounds: on")
+    H.eq(s.snipeConfirmClick, false, "second wheel step: off")
+    H.eq(s.snipeAutoRefresh, true, "Automatically refresh budget: on")
+    H.eq(s.snipeManual, false, "Set budget manually: off")
+    H.eq(s.snipeManualAmount, 0, "manual amount: 0")
+end)
+
+H.test("settings: the sniper's manual budget loads as a whole number of copper in range", function()
+    H.eq(Load({ settings = { snipeManualAmount = 50000.7 } }).GetSettings().snipeManualAmount, 50000, "5g, the fraction dropped")
+    H.eq(Load({ settings = { snipeManualAmount = -5 } }).GetSettings().snipeManualAmount, 0, "negative: 0")
+    H.eq(Load({ settings = { snipeManualAmount = "x" } }).GetSettings().snipeManualAmount, 0, "no number: the default")
 end)
 
 -- FRV-85, FRV-87: the settings of the removed tooltip line, reload offer and chat alerts go at load, the rest stays

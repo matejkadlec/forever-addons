@@ -110,7 +110,9 @@ end
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
     GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market Sniper")
-    GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step anywhere on screen buys the newest offer at or under their price. Also /fm snipe.", 1, 1, 1, true)
+    local key = GetBindingKey("FOREVERMARKET_SNIPE")
+    GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step anywhere on screen buys the newest offer at or under their price. Also /fm snipe"
+        .. (key and (" or the key " .. GetBindingText(key)) or "") .. ".", 1, 1, 1, true)
     GameTooltip:Show()
 end
 

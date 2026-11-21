@@ -136,10 +136,12 @@ have no marks, so its records stay as they were).
   items `inv`) and the chat alerts for undercuts and buy prices (`/fm popup`, `/fm alerts`); their saved keys go at
   load
 * `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
-* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and sniper. The market
-  table gets `U` once per binding set (account, or a character with its own bindings), replacing what `U` did
-  (the chat says what); after that a rebind or a cleared key stays as the player set it (`settings.keyGiven`)
-* `/fm snipe` or "FM: snipe" at the AH opens the sniper (below)
+* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and "toggle sniper
+  window". The market table gets `U` and the sniper window `Z` (1.34, FRV-94; Z also when the game's
+  Sheathe/Unsheathe Weapon has it) once per binding set (account, or a character with its own bindings), replacing
+  what the key did (the chat says what); after that a rebind or a cleared key stays as the player set it
+  (`settings.keyGiven`, `settings.snipeKeyGiven`), and a binding that already has a key is left alone
+* `/fm snipe`, the key `Z` or "FM: snipe" at the AH opens and closes the sniper (below)
 * AH title bar buttons, right to left (ui/AHButton.lua): "FM: snipe", "FM: scan" (1.30, FRV-84, back where it was
   until 1.7: a click starts the same deep scan as the automatic one, `FM.StartDeepScan(true)`; disabled while a
   scan waits, reads or saves, while Auctionator runs its own full scan and until the server's 15 minutes are over,
@@ -763,18 +765,62 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
   rollups kept a year (`FM.LIMITS.monthlyDays`, `items[key].m`, about 2 MB once full). Others' prices apart from
   yours in a daily rollup add bytes only on days with your auctions (18 items in the 72 hours measured).
 
-## Sniper (`/fm snipe`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
+## Sniper (`/fm snipe`, key `Z`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
 
-Buys commodities the moment someone lists them at or under your price, one mouse wheel step per purchase.
+Buys commodities the moment someone lists them at or under your price, one mouse wheel step (or a click on Buy)
+per purchase.
 
-* Window (DIALOG strata, opaque: always above the market table, which is HIGH): the sniped items on the left
-  (`Name · price`, with a number also `37 / 144` and `done`; click = load into the form, X = stop sniping it, its
-  price and number stay saved), the form on the right: item search (up to 20 suggestions from `r.names`), max
-  price per unit in g / s / c and "Buy at most [ ] units" (1.25, FRV-43, empty = no limit), and at the bottom
-  today's budget in one line (1.25, FRV-42): "Budget today [50] %", a bar with what is spent of it ("1g 2s 0c
-  of 6g 17s 0c", yellow from 75%, red once spent; before sniping first started today "starts when sniping starts
-  at the AH") and Reset. Hovering the line explains where the budget comes from, what it keeps and when it starts
-  again. The `?` explains the rules. Both parts move together.
+* Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, DIALOG strata, opaque: always above
+  the market table, which is HIGH; the whole window drags), top to bottom:
+  * The banner (FRV-40), as wide as the window and colored by what sniping does: an offer to buy in large green with
+    a short pulse and the sound ("Scroll or click Buy: 12 Heavy Leather for 25s 20c (2s 10c each)", a price per unit
+    that spans several prices "(2s 10c to 2s 20c each)"), "Buying ..." blue, paused orange (combat, a deep scan,
+    Blizzard's Sell page or another item's Buy page, a late answer awaited, offers at your price but too little budget
+    for one unit), stopped red (the budget spent, your gold down to what it keeps, or sniping stopped by itself: then
+    with a "Try again" button that starts it again without closing the window), "Bought 12 Heavy Leather for 25s 20c"
+    for 3 seconds after a purchase (the chat line stays), else "Watching 4 items · a round takes about 3 s" (the
+    length of the last full round over the items searched in turn)
+  * The add row (FRV-41): the item box (Blizzard's `SearchBoxTemplate` with "Add an item" and its own clear button),
+    the price per unit (Blizzard's `MoneyInputFrameTemplate`: gold, silver and copper boxes, two digits for silver
+    and copper), "max units" (buy at most, empty = no limit) and Add (Save for an item already sniped). Typing shows
+    8 suggestions with icon, name and the cheapest price now (items known to be sold per auction left out, sniped
+    ones marked "sniped"); the empty box with the focus shows the earlier snipes (`saved` without `list`) with their
+    saved price. Up / Down mark a suggestion, Enter picks it (the first without a mark) and the focus goes to the
+    price; Tab runs item, gold, silver, copper, max units and back (Shift+Tab the other way); Enter in a price box
+    or in max units adds or saves. After adding, the row empties and the focus is back in the item box for the next
+    one; after saving an edit it empties too. Shift+click an item (bags, a chat link, a row of the AH) while the
+    item box has the focus, or drag one onto the window: it lands in the row, also an item never scanned (its item
+    ID is the key; the bag item stays where it is). With the AH open Blizzard also writes the name into the AH's
+    search box, as for any Shift+click
+  * Under the add row, for the picked item: "Cheapest now 2s 10c · usual price 2s 80c" (`FM.FreshUnitPrice`,
+    `FM.FairPrice`; "no AH data yet" without either) and in orange "a vendor sells it for 50c" when an unlimited
+    vendor offer is not dearer than the typed price. The price is never filled in from the market. The form's
+    messages show there for 5 seconds or until the next input
+  * The list (Blizzard's `WowScrollBoxList` + `MinimalScrollBar`, 8 rows, the bar shows with more): Item (icon, name
+    in its quality color), Max price, Cheapest now (the cheapest unit of others from the last search, with the units
+    at or under your price in green, "none listed", "-" before the first search), Bought today (the sniper's units
+    of the item today; with a number also "37/144" since the number was set) and the state in words: "at your
+    price" (green row), "buying" (blue), "confirm", "budget spent", "over budget", "not stackable", "done" (greyed).
+    A row with an offer has a Buy button (Confirm while its quote waits for a second step, see below). Click a row =
+    load it into the add row, x = stop sniping it (its price and number stay saved). The row tooltip: your price,
+    "buy at most" progress, cheapest now, units at or under your price, when it was searched, the offer, "Bought
+    today: 37 for 1g 2s". While sniping the list and its bar take no wheel step (it scrolls by the bar), away from
+    the AH they scroll with the wheel
+  * The budget (FRV-94): "Automatically refresh budget [x]" (on by default: every opening of the window starts the
+    budget again from your gold), "Budget [50] % [bar] [refresh icon]" (the bar: spent since the budget was last
+    refreshed, of the budget; yellow from 75%, red once spent; before the budget first started today "starts when
+    sniping starts at the AH"), "Set budget manually [ ] [g] [s] [c]" (off by default; while off its boxes are
+    greyed out, while on the % box is; the boxes apply on Enter or a lost focus, Esc shows the saved amount again).
+    Hovering the budget row shows three lines: "50% of your gold at 13:06" (or "Set manually: 5g"), "Spent by the
+    sniper today" and "Left" (the budget minus what the sniper spent since its last refresh)
+  * The `?`: five lines of help
+* Where it opens: a dragged position (`snipePos`, also one saved by an older version: the window is clamped to the
+  screen), else at the AH's right edge while the AH is open, else the screen's center. It follows the AH: when the AH
+  closes the window hides and it comes back when the AH opens again in the same session (sniping resumes); closed by
+  hand (x, Esc, the key) it stays closed. Opened away from the AH it is a window for editing the list
+* Settings panel (FRV-45): "Sniper: sounds for an offer and a purchase" (`snipeSound`, on) and "Sniper: confirm every
+  purchase with a second wheel step" (`snipeConfirmClick`, off; the game may switch it on itself, see below, and the
+  chat line then names this option)
 * Runs only while the window is open at the AH: the sniped items are searched round robin with
   `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
   AH throttle; pauses in combat, while a deep scan runs, on Blizzard's commodity Sell page and on the Buy page of
@@ -795,7 +841,12 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   an override binding that clicks a hidden button (it fired only where no window took the wheel); when the game
   blocks a purchase call from a wheel step on the frame (not a hardware event there), the frame goes until
   `/reload`, the chat says so, and the binding buys again. One step = `StartCommoditiesPurchase(itemID, qty)` for
-  the newest hit (at most 8 s old; shrunk to the budget and the units left when another purchase came since). The quote (`COMMODITY_PRICE_UPDATED`) is confirmed
+  the newest hit (a hit lives until the next search result of its item replaces or clears it, at most 30 s, FRV-40;
+  8 s before 1.34, which let a list of 13+ items drop a hit before its item was searched again; shrunk to the budget
+  and the units left when another purchase came since). A row's Buy button (1.34, FRV-40) does the same for that
+  row's hit (`FM.SnipeBuyRow`), with every check of a wheel step; a click on it is a hardware event like the click the
+  binding sends to the hidden button (not yet verified in game). When the game blocks a purchase call from it, the
+  buttons go until `/reload`, the chat says so and the wheel buys as before. The quote (`COMMODITY_PRICE_UPDATED`) is confirmed
   only when its total is not above what the search showed for those units and not under what the hit's cheapest
   units cost (else it is another purchase's quote), its unit price not above your price, its units not more than
   the item still has to buy, and it fits the budget and your gold; else it is cancelled. One purchase at a time, a
@@ -804,21 +855,29 @@ Buys commodities the moment someone lists them at or under your price, one mouse
   after a purchase cancelled before its quote came (until that quote comes, at most 30 s), after a confirm
   without answer in 15 s (60 s), and while Blizzard's buy window is open (answers while it is open are
   Blizzard's). A confirm without answer stays counted (gold and units); the next answer within 5 minutes is
-  matched to it (answers come in order), and a late failure still keeps them counted. Reset waits for it.
+  matched to it (answers come in order), and a late failure still keeps them counted. A refresh of the budget waits
+  for it.
 * The documented `COMMODITY_PURCHASED(itemID, quantity)` and `ITEM_PURCHASED(itemID)` would name the bought item,
   but they do not fire on Forever (FRV-54: logged from 1.25 to 1.29 next to every purchase event, about 30
   commodity purchases and one item purchase without either; `docs/forever-api-notes.md`), so the matching by
   order stays.
-* If the game blocks the automatic confirm, the next wheel step confirms (`snipeConfirmClick`). A blocked or
-  forbidden start, a confirm blocked even from a wheel step, 2 purchases in a row without a quote or 2
-  confirms in a row without answer stop sniping with one message until the window or the AH is opened again.
-* Budget per character `r.snipe.budget[name]`, one for all items together: `base` = gold when the window first
-  opened after the daily reset (or Reset), `total` / `spent[key]` = gold spent since. All items share
-  `snipeUniversalPct`% of `base`, and sniping never takes your gold under `base` minus that (the floor, which
-  also catches gold spent elsewhere or anything the bookkeeping missed). Gold is counted when a purchase is
-  confirmed and only given back on `COMMODITY_PURCHASE_FAILED`. Until 1.25 the universal threshold could be
-  switched off for a % per item (`snipeUniversal`, `saved.pct`): that mode is gone (FRV-42), both are left unused
-  in the saved data, and items saved with their own % snipe under the one budget.
+* If the game blocks the automatic confirm, the next wheel step (or the row's Confirm button) confirms
+  (`snipeConfirmClick`, which the settings panel also switches on and off). A blocked or forbidden start, a confirm
+  blocked even from a wheel step, 2 purchases in a row without a quote or 2 confirms in a row without answer stop
+  sniping with one message, until "Try again" in the banner or the window or the AH is opened again.
+* Budget per character `r.snipe.budget[name]`, one for all items together (FRV-42, FRV-94): `base` = your gold when
+  the budget was last refreshed: the first sniping after the daily reset, the refresh icon, and every opening of the
+  window while "Automatically refresh budget" is on; `total` = gold the sniper spent since (what counts against the
+  budget); `day`, `spent[key]` and `units[key]` = gold and units the sniper spent and bought today. A refresh keeps
+  the day's numbers; only the daily reset zeroes them (until 1.34 Reset dropped them with the budget, so "Spent
+  today" could show 0c after a Reset; gold spent outside the sniper, at Blizzard's buy window or in Auctionator, was
+  never the sniper's). All items share `snipeUniversalPct`% of `base`, or with "Set budget manually"
+  (`snipeManual`) the amount typed in (`snipeManualAmount`, copper); a refresh starts that amount again too. Sniping
+  never takes your gold under `base` minus the budget (the floor, which also catches gold spent elsewhere or
+  anything the bookkeeping missed). Gold and units are counted when a purchase is confirmed and only given back on
+  `COMMODITY_PURCHASE_FAILED`; a refresh waits while a purchase waits for its answer. Until 1.25 the universal
+  threshold could be switched off for a % per item (`snipeUniversal`, `saved.pct`): that mode is gone (FRV-42), both
+  are left unused in the saved data, and items saved with their own % snipe under the one budget.
 * Buy at most N units (1.25, FRV-43): `saved.n` = N, `saved.got` = units bought since N was set, `saved.paid` =
   what they cost. A hit takes no more than N - got, so the last purchase stops at exactly N; at N the item is done
   (grey row, "144 / 144 done", not searched, never bought) and stays in the list until you remove it or give it a
@@ -908,7 +967,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid }` (kept after removal;
   `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; a `pct` from
-  before 1.25 is left unused), `budget[character] = { base, since, reset, total, spent[key] }`
+  before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
+  (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
+  conversion)
 
 ## Analysis outside the game
 
