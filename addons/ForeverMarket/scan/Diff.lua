@@ -41,6 +41,15 @@ local function ParseId(id)
     return tag, count, buyout
 end
 
+-- The identity of an auction across two scans: "@" (yours) and "?" (unknown) are one seller class (FRV-72). Your
+-- mark is a best fit of your running auctions and posts against the auctions of unknown sellers (FM.MatchOwnAuctions,
+-- FRV-58): from one scan to the next it can move to another auction of the same quantity and price, or go when your
+-- posts leave the pool after 24h, while the auction stays. Returns the identity and whether the id was marked yours
+local function Identity(id)
+    if string_byte(id, 1) == 64 then return "?" .. string_sub(id, 2), true end -- "@"
+    return id, false
+end
+
 local function UnitPrice(count, buyout)
     if count <= 0 then return 0 end
     return math_floor(buyout / count + 0.5)
@@ -86,47 +95,62 @@ function FM.DiffFingerprints(prevStr, curFps, gapSeconds, detailed)
     local stats = { sold = 0, soldN = 0, soldVal = 0, amb = 0, rep = 0, new = 0, newMin = nil, soldLow = 0 }
     local prevFps = FM.Split(prevStr or "", ",")
 
-    local prevBands = {}
+    -- by identity (an auction whose own mark changed is the same auction): its auctions' bands and own marks
+    local prevBands, prevOwn = {}, {}
     for _, fp in ipairs(prevFps) do
         local id, band = SplitFingerprint(fp)
-        local bands = prevBands[id]
-        if not bands then
-            bands = {}
-            prevBands[id] = bands
+        local ident, own = Identity(id)
+        local list = prevBands[ident]
+        if not list then
+            list = {}
+            prevBands[ident] = list
         end
-        bands[#bands + 1] = band
+        list[#list + 1] = { band = band, own = own }
+        if own then prevOwn[ident] = (prevOwn[ident] or 0) + 1 end
     end
-    local curCount = {}
+    local curCount, curOwn = {}, {}
     for _, fp in ipairs(curFps) do
-        local id = SplitFingerprint(fp)
-        curCount[id] = (curCount[id] or 0) + 1
+        local ident, own = Identity((SplitFingerprint(fp)))
+        curCount[ident] = (curCount[ident] or 0) + 1
+        if own then curOwn[ident] = (curOwn[ident] or 0) + 1 end
     end
 
-    -- multiset difference; the cheapest previous auction still listed tells cancels from buys below
+    -- multiset difference; the cheapest previous auction still listed tells cancels from buys below. Of the
+    -- auctions gone (or new) of an identity, as many as its own marks fell (rose) are yours ("@")
     local gone, new = {}, {}
     local minSurvivor
-    for id, bands in pairs(prevBands) do
-        local extra = #bands - (curCount[id] or 0)
-        if extra < #bands then
-            local _, count, buyout = ParseId(id)
+    for ident, list in pairs(prevBands) do
+        local extra = #list - (curCount[ident] or 0)
+        if extra < #list then
+            local _, count, buyout = ParseId(ident)
             local unit = UnitPrice(count, buyout)
             if not minSurvivor or unit < minSurvivor then minSurvivor = unit end
         end
         if extra > 0 then
-            table_sort(bands) -- lowest band first: the oldest listings vanish first
-            local tag, count, buyout = ParseId(id)
-            for i = 1, extra do
-                gone[#gone + 1] = { tag = tag, count = count, buyout = buyout, band = bands[i] }
+            -- lowest band first: the oldest listings vanish first
+            table_sort(list, function(a, b) return a.band < b.band end)
+            local tag, count, buyout = ParseId(ident)
+            local ownGone = math.min(extra, math.max(0, (prevOwn[ident] or 0) - (curOwn[ident] or 0)))
+            local own, other = 0, 0
+            for _, e in ipairs(list) do
+                if e.own and own < ownGone then
+                    own = own + 1
+                    gone[#gone + 1] = { tag = "@", count = count, buyout = buyout, band = e.band }
+                elseif not e.own and other < extra - ownGone then
+                    other = other + 1
+                    gone[#gone + 1] = { tag = tag, count = count, buyout = buyout, band = e.band }
+                end
             end
         end
     end
-    for id, count in pairs(curCount) do
-        local bands = prevBands[id]
-        local extra = count - (bands and #bands or 0)
+    for ident, count in pairs(curCount) do
+        local list = prevBands[ident]
+        local extra = count - (list and #list or 0)
         if extra > 0 then
-            local tag, c, buyout = ParseId(id)
-            for _ = 1, extra do
-                new[#new + 1] = { tag = tag, count = c, buyout = buyout }
+            local tag, c, buyout = ParseId(ident)
+            local ownNew = math.min(extra, math.max(0, (curOwn[ident] or 0) - (prevOwn[ident] or 0)))
+            for i = 1, extra do
+                new[#new + 1] = { tag = i <= ownNew and "@" or tag, count = c, buyout = buyout }
             end
         end
     end

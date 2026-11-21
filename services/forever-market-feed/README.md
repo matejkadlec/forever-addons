@@ -17,7 +17,8 @@ Two ways to run it:
 2. A new snapshot (items and commodities of your auction house) becomes ForeverMarket fingerprints
    (`?:count:buyout:band` per auction, sellers are unknown like in the game's own scan)
 3. It is compared with the previous snapshot with a port of `scan/Diff.lua` and `FM.FinalizeSnapshot`: bought,
-   reposted, new, sold at the lowest price, per item one record. With `FEED_RECORD_HOURS=0` the records are byte for
+   reposted, new, sold at the lowest price, per item one record (the port compares "@" and "?" as one seller class
+   like the game since FRV-72; the feed's snapshots have no "@", so its records do not change). With `FEED_RECORD_HOURS=0` the records are byte for
    byte what the game would write (tested against the AddOn's Lua code); by default (4) an item only gets a record
    when something happened or its market changed, else an unchanged record every 4 hours, so the game has far fewer
    lines to import

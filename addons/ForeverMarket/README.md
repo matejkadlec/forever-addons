@@ -39,6 +39,16 @@ use up their running auctions and posts before the best fit marks anything else.
 recognized (your records are keyed by the first name alone): your auctions counted as another seller's (a hash
 of the name in `last.fp`) and the "@" went to someone else's auctions at your price or 1c above it.
 
+Since 1.31 (FRV-72) the diff treats "@" and "?" as one seller class: the mark is a best fit, so between two scans it
+can move to another auction of the same quantity and price, or go when your posts leave the pool after 24h, while
+the auction stays. An auction whose only change is its mark is the same auction, neither gone nor new; of the
+auctions of one quantity and price that did go (or come), as many as the marks of it fell (rose) keep the "@" for
+the rules above (a gone auction of yours with a new one of yours is still a repost). Before, a mark that changed
+counted the auction as bought (or "sold or expired") and listed again: in the maintainer's records of 11/17 to
+11/20, 637 units in 16 scans of items you listed had that trace, 554 of them counted as buyers (about 8% of the
+buyers of those items). The feed's Python port does the same (`services/forever-market-feed`; its own snapshots
+have no marks, so its records stay as they were).
+
 ## In game
 
 * Tooltip (1.16: the own "Market ..." line is gone, the hover only prices now): the AH price is Auctionator's own
@@ -137,7 +147,10 @@ of the name in `last.fp`) and the "@" went to someone else's auctions at your pr
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
   auction list, inventory reading and last gold, so it counts nowhere any more (its posts, invoices, events,
   purchases and Profit readings stay; the logged-in character is refused). Each character's bags are saved at
-  logout and a few minutes after bag changes (`bags[char]`), the account bank once for the realm bucket while the
+  logout and a few minutes after bag changes (`bags[char]`); a read at login (before the bags have loaded, read
+  afresh) or at logout (the containers may be gone) that finds no item is not saved and keeps the last reading,
+  `/fm chars` then adds "(bags read empty at logout 2h ago, not saved)" (1.31, FRV-73: an empty `"t|"` was seen
+  after a logout; an empty set read during play is saved), the account bank once for the realm bucket while the
   bank is open and Blizzard lets you view it, when it opens and after every item move (`accountBank`;
   `C_Bank.CanViewBank`, not yet verified in game; never read as the bank closes).
   `FM.StockElsewhere(key)` is the one reader of what your other characters hold (bags, bank, mailbox, account bank,
@@ -309,6 +322,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
     sold out, your pace was capped by what you listed, so half the buyers counts when it is more; before 1.22 that
     rule held while you still had units listed too (Barbaric Bracers: "make 14" next to 10 listed).
+    That holds for items sold per auction. A commodity (an item that stacks, `FM.ItemStacks`; 1.31, FRV-71) plans
+    with your pace whenever you have the 3 sales, listed or sold out: Forever hides sellers, so every cancel and
+    relist of its cheapest stacks looks like a purchase, and its buyers ran 4 to 900 times anyone's sales in
+    FRV-56's data (your best was 4% of C/24h a day listed); the tooltip notes "A commodity: your own pace is the
+    rate (its buyers are mostly relists).". Without 3 sales of yours a commodity plans a **first batch** only (Room
+    on the AH below), and its tooltip says "No sales of your own yet: a first batch (a commodity's buyers are
+    mostly relists).".
     Time to sell = your listings + the pick's units (the new ones and what you hold of it) over that rate; the queue
     of others at the same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
@@ -348,7 +368,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, but out of scope", and it
     is an input of the plan: the gold a smaller pick leaves goes to the next ones. The buyers' limit (half of the
     buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
-    cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from.
+    cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from. A commodity's first batch (1.31,
+    FRV-71) has the smaller cap of the settings panel's "first batch of a commodity without your sales" share of
+    C/24h (1 / 2 / 3 / 5 / 10%, default 2, `tableFirstPct`) and what one 8h listing at the market rate (half the
+    buyers) sells: "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6"; too small for
+    one craft or one unit: "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the
+    market rate 6)".
   * Your listings (1.19, `FM.OwnListings` in scan/Ledger.lua): per character its last auction list (`owned`: active
     auctions whose time has not run out; one the client gave no time left for counts for 24h) plus what it posted
     after that list and can still be running (2h / 8h / 24h). The client hands the auction list out only when
@@ -486,7 +511,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
   (settings panel dropdown: any, 10c, 1s, 5s, 20s, 1g; `tableMinProfit`) hides rows that earn less per item; on
   Picks the plan leaves them out instead (1.17). Below it the Picks' share of an item's C/24h one pick may plan (1.19,
-  default 25%, `tableCircPct`; see Picks, Room on the AH).
+  default 25%, `tableCircPct`) and the first batch of a commodity without your sales (1.31, FRV-71, default 2%,
+  `tableFirstPct`; see Picks, Room on the AH).
 * Click a row at the open AH: an Auctionator shopping list of only what you would buy there (1.27, FRV-79,
   `FM.ShoppingList` in trade/Picks.lua; FRV-47 will search the same list in Blizzard's AH): a craft (Craft, Learn, a
   favorite whose best use is a craft) its AH materials, an intermediate the table crafts replaced by its materials
@@ -564,6 +590,31 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   overpaying, selling under cost, the AH cut and lost deposits do, and so does the usual price of what you hold. An
   item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
   bought there and crafted leave the line until the product sells.
+* Every won auction is a purchase (1.31, FRV-75): a mail of a won auction is left out only when it is the mail of a
+  commodity purchase of the purchase log (same item and quantity, within 12 hours). Before 1.31 the second of two
+  won auctions of the same item and quantity within 12 hours took the first one's place as "its logged purchase"
+  and was left out: it was missing in Bought and in what was spent on the AH, and its money was not taken off. The
+  stored history changes for such auctions: the AH result of those days falls by the auctions that were left out.
+* **Own gear** (1.31, FRV-93, scan/Worth.lua): an item bought on the AH that one of your characters equips (head to
+  tabard, `GetInventoryItemID` / `GetInventoryItemLink`) is your own gear, not a trade, and its purchase leaves the
+  tab: out of its day's Bought list, out of the AH's money (the day and the "+X since" total rise by its price), out
+  of what was spent on the AH and of what you hold. Until it is equipped it counts as before; equipping binds it,
+  so taking it off again brings nothing back. Matched by item ID (a won auction of a variant with a suffix, "of the
+  Monkey", has no key: by the equipped item's name) against the purchases of all your characters that are not sold
+  or own gear yet, the oldest first, one unit per equipped item: a character that wears 2 of an item and has 1 mark
+  of it gets 1 more, so swapping gear in and out marks nothing twice; gear bought on one character and worn by
+  another counts too. Checked 5 s after login (gear equipped before 1.31 as well) and a second after every
+  `PLAYER_EQUIPMENT_CHANGED`. The readings of what you held counted the item from its arrival (the purchase, or the
+  won auction's mail read) until it was equipped: both steps are taken back where they landed (the first reading
+  after each, or the reading of right now) at the value it counted for when it was equipped, so neither the day it
+  arrived nor the day it was equipped moves; that is exact for gear the same character equips while ForeverMarket
+  runs, and gear mailed to another character leaves "This character" of the buyer at the mailing (as before), so
+  there the step back lands at the equipping. Gear the login check finds worn (equipped while ForeverMarket did not
+  watch, e.g. before 1.31; also what an equipment change before that check finds) was equipped at a moment nobody
+  saw: none of its steps is taken back, they stay where they landed (bought and worn the same day: the day rises by
+  its price; bought one day and worn another: the first shows its usual price gained, the second the same lost;
+  bought and worn before your first reading: nothing moves). Item IDs match whatever you wear: an item looted and
+  worn while you hold a bought one of the same ID for resale marks the bought one.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
   since (oldest first). What the lists saw change (`osold`, also an auction still shown sold, `opart`, `ocancel`,
   `ogone`) is matched to the mails you read of the item (sent after the list before it and by the list that saw
@@ -774,7 +825,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   (`buyout` holds the quantity for commodity sales)
 * `mailSeen`, `gold`, `owned`, `inv`, `scans`, `names`, `watch`
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
-  seen, since }` the character behind a key (1.23; `since` = when a full-name key began); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
+  seen, since, bagsEmpty }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
+  `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw` (about one per hour, the first that saw something new kept
   apart; `seen` = `h` + `b` bank and / or `m` mailbox; `all`, `saw` from 1.24 on, older lines end after `seen`:
@@ -783,6 +835,11 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
+* `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
+  per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
+  item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
+  purchase (`b<t>,<char>` a `buys` line, `i<sent>,<char>` a won auction's mail), item = its key or the mail's name,
+  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it)
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the

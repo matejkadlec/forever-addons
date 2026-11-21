@@ -31,6 +31,7 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.tableInvestPct, 90, "Invest [X] %: 90")
     H.eq(s.tableInvestPicks, 3, "across [Y] picks: 3")
     H.eq(s.tableCircPct, 25, "share of C/24h: 25")
+    H.eq(s.tableFirstPct, 2, "first batch of a commodity: 2")
 end)
 
 H.test("settings: Lock plan after refresh is on for a new install and for existing settings, a saved off stays", function()

@@ -89,6 +89,8 @@ local MIN_PROFIT_STEPS = { { false, "Any" }, { 10, "10c" }, { 100, "1s" }, { 500
 
 -- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
 local CIRC_SHARE_STEPS = { 10, 15, 20, 25, 33, 50, 100 }
+-- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
+local FIRST_SHARE_STEPS = { 1, 2, 3, 5, 10 }
 
 local function Refresh()
     if not panel then return end
@@ -98,6 +100,7 @@ local function Refresh()
     end
     if panel.minProfit and panel.minProfit.GenerateMenu then panel.minProfit:GenerateMenu() end
     if panel.circShare and panel.circShare.GenerateMenu then panel.circShare:GenerateMenu() end
+    if panel.firstShare and panel.firstShare.GenerateMenu then panel.firstShare:GenerateMenu() end
     if infoText and FM.realm then
         local r = FM.realm
         local items = 0
@@ -162,29 +165,37 @@ function FM.RegisterSettingsPanel()
     end
     panel.minProfit = minProfit
     y = y - 34
-    local circLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-    circLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
-    circLabel:SetText("Picks: share of an item's C/24h one pick may plan")
-    local circShare = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-    circShare:SetWidth(120)
-    circShare:SetPoint("LEFT", circLabel, "RIGHT", 12, 0)
-    if circShare.SetupMenu then
-        circShare:SetupMenu(function(_, root)
-            local default = FM.DEFAULTS.tableCircPct
-            local function IsSelected(value) return (tonumber(FM.GetSettings().tableCircPct) or default) == value end
-            local function SetSelected(value)
-                local changed = not IsSelected(value)
-                FM.GetSettings().tableCircPct = value
-                -- an input of the picks plan: plan again (only when there are numbers already)
-                if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
-                if FM.RefreshTable then FM.RefreshTable() end
-            end
-            for _, pct in ipairs(CIRC_SHARE_STEPS) do
-                root:CreateRadio(pct .. "%" .. (pct == default and " (default)" or ""), IsSelected, SetSelected, pct)
-            end
-        end)
+    -- a percent setting of the picks plan as a dropdown at y: an input of the plan, a change plans again
+    local function ShareDropdown(text, settingKey, steps)
+        local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        label:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
+        label:SetText(text)
+        local dropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+        dropdown:SetWidth(120)
+        dropdown:SetPoint("LEFT", label, "RIGHT", 12, 0)
+        if dropdown.SetupMenu then
+            dropdown:SetupMenu(function(_, root)
+                local default = FM.DEFAULTS[settingKey]
+                local function IsSelected(value) return (tonumber(FM.GetSettings()[settingKey]) or default) == value end
+                local function SetSelected(value)
+                    local changed = not IsSelected(value)
+                    FM.GetSettings()[settingKey] = value
+                    -- an input of the picks plan: plan again (only when there are numbers already)
+                    if changed and FM.trade and FM.PlanPicks then FM.PlanPicks() end
+                    if FM.RefreshTable then FM.RefreshTable() end
+                end
+                for _, pct in ipairs(steps) do
+                    root:CreateRadio(pct .. "%" .. (pct == default and " (default)" or ""), IsSelected, SetSelected, pct)
+                end
+            end)
+        end
+        return dropdown
     end
-    panel.circShare = circShare
+    panel.circShare = ShareDropdown("Picks: share of an item's C/24h one pick may plan", "tableCircPct", CIRC_SHARE_STEPS)
+    y = y - 34
+    -- FRV-71: a commodity without sales of yours plans a first batch of at most this share of its C/24h
+    panel.firstShare = ShareDropdown("Picks: first batch of a commodity without your sales, share of C/24h", "tableFirstPct",
+        FIRST_SHARE_STEPS)
     y = y - 40
     local saveButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     saveButton:SetSize(220, 24)

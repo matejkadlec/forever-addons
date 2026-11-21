@@ -117,40 +117,63 @@ def parse_id(fid):
     return tag, dec(count) or 1, dec(buyout) or 0
 
 
+def identity(fid):
+    """Diff.lua Identity: "@" (yours) and "?" (unknown) are one seller class (FRV-72), your mark is a best fit that
+    can move between auctions of the same quantity and price; returns the identity and whether it was marked yours"""
+    if fid.startswith("@"):
+        return "?" + fid[1:], True
+    return fid, False
+
+
 def diff_fingerprints(prev_str, cur_fps, gap_seconds):
     """FM.DiffFingerprints without the watched-item details"""
     stats = {"sold": 0, "soldN": 0, "soldVal": 0, "amb": 0, "rep": 0, "new": 0, "newMin": None, "soldLow": 0}
     prev_fps = prev_str.split(",") if prev_str else []
-    prev_bands = {}
+    # by identity (an auction whose own mark changed is the same auction): its auctions' bands and own marks
+    prev_bands, prev_own = {}, {}
     for fp in prev_fps:
         fid, band = split_fingerprint(fp)
-        prev_bands.setdefault(fid, []).append(band)
-    cur_count = {}
+        ident, own = identity(fid)
+        prev_bands.setdefault(ident, []).append((band, own))
+        if own:
+            prev_own[ident] = prev_own.get(ident, 0) + 1
+    cur_count, cur_own = {}, {}
     for fp in cur_fps:
-        fid, _ = split_fingerprint(fp)
-        cur_count[fid] = cur_count.get(fid, 0) + 1
+        ident, own = identity(split_fingerprint(fp)[0])
+        cur_count[ident] = cur_count.get(ident, 0) + 1
+        if own:
+            cur_own[ident] = cur_own.get(ident, 0) + 1
 
-    # multiset difference; the cheapest previous auction still listed tells cancels from buys below
+    # multiset difference; the cheapest previous auction still listed tells cancels from buys below. Of the
+    # auctions gone (or new) of an identity, as many as its own marks fell (rose) are yours ("@")
     gone, new = [], []
     min_survivor = None
-    for fid, bands in prev_bands.items():
-        extra = len(bands) - cur_count.get(fid, 0)
-        if extra < len(bands):
-            _, count, buyout = parse_id(fid)
+    for ident, entries in prev_bands.items():
+        extra = len(entries) - cur_count.get(ident, 0)
+        if extra < len(entries):
+            _, count, buyout = parse_id(ident)
             unit = unit_price(count, buyout)
             if min_survivor is None or unit < min_survivor:
                 min_survivor = unit
         if extra > 0:
-            bands.sort()  # lowest band first: the oldest listings vanish first
-            tag, count, buyout = parse_id(fid)
-            for i in range(extra):
-                gone.append({"tag": tag, "count": count, "buyout": buyout, "band": bands[i]})
-    for fid, count in cur_count.items():
-        extra = count - len(prev_bands.get(fid, ()))
+            entries.sort(key=lambda e: e[0])  # lowest band first: the oldest listings vanish first
+            tag, count, buyout = parse_id(ident)
+            own_gone = min(extra, max(0, prev_own.get(ident, 0) - cur_own.get(ident, 0)))
+            own_n, other_n = 0, 0
+            for band, own in entries:
+                if own and own_n < own_gone:
+                    own_n += 1
+                    gone.append({"tag": "@", "count": count, "buyout": buyout, "band": band})
+                elif not own and other_n < extra - own_gone:
+                    other_n += 1
+                    gone.append({"tag": tag, "count": count, "buyout": buyout, "band": band})
+    for ident, count in cur_count.items():
+        extra = count - len(prev_bands.get(ident, ()))
         if extra > 0:
-            tag, c, buyout = parse_id(fid)
-            for _ in range(extra):
-                new.append({"tag": tag, "count": c, "buyout": buyout})
+            tag, c, buyout = parse_id(ident)
+            own_new = min(extra, max(0, cur_own.get(ident, 0) - prev_own.get(ident, 0)))
+            for i in range(extra):
+                new.append({"tag": "@" if i < own_new else tag, "count": c, "buyout": buyout})
 
     if gone and new:
         # partial buys of commodity style auctions: same owner and unit price, smaller count now

@@ -42,6 +42,7 @@ FM.DEFAULTS = {
     tableInvestPct = 90, -- picks: "Invest [X] %": the share of your gold the whole plan may use, in percent (at most 90 counts)
     tableInvestPicks = 3, -- picks: "across [Y] picks": the plan has up to this many picks
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
+    tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold at the day's first sniping that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (set by itself if the game asks for it)

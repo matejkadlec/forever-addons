@@ -80,16 +80,30 @@ local function Touch()
 end
 
 local lastBagsAt = 0
-local function SaveBags()
+local bagsLoaded = false -- a BAG_UPDATE_DELAYED came this session: the bags are loaded for sure
+
+-- Saves the bags. At login and logout (when = "login" / "logout") a reading without any item is not saved: at
+-- login the bags may not be loaded yet (an index read before them), at logout the containers may be gone already,
+-- and an empty reading would replace the last good one (FRV-73: "t|" seen at a logout). The skipped read is noted
+-- for /fm chars (info.bagsEmpty = "login" / "logout" and when). During play every reading is the truth, an empty
+-- one too; at login too once the bags have loaded.
+local function SaveBags(when)
     local info, key = Info()
     if not (info and FM.BagIndex) then return end
-    FM.R().bags[key] = Encode(FM.BagIndex())
+    -- at login a fresh read: an index cached before the bags were loaded would stay empty until they change
+    local index = FM.BagIndex(when == "login")
+    if next(index) == nil and (when == "logout" or (when == "login" and not bagsLoaded)) then
+        info.bagsEmpty = when .. "," .. FM.Stamp()
+        return
+    end
+    FM.R().bags[key] = Encode(index)
     info.seen = FM.Now()
     lastBagsAt = FM.Now()
 end
 
 local bagsPending = false
 FM.On("BAG_UPDATE_DELAYED", function()
+    bagsLoaded = true
     if bagsPending or not FM.loginAt then return end
     bagsPending = true
     -- one save a few minutes after the first change: a crash or a disconnect loses little
@@ -104,14 +118,14 @@ FM.On("PLAYER_LOGIN", function()
     C_Timer.After(10, function()
         local ok, err = pcall(function()
             Touch()
-            SaveBags()
+            SaveBags("login")
         end)
         if not ok and geterrorhandler then geterrorhandler()(err) end
     end)
 end)
 FM.On("PLAYER_LOGOUT", function()
     pcall(Touch)
-    pcall(SaveBags)
+    pcall(SaveBags, "logout")
 end)
 
 ---------------------------------------------------------------- the account bank
@@ -293,8 +307,11 @@ function FM.Characters()
             end
             if gold and gold.t and (not seen or gold.t > seen) then seen = gold.t end
         end
+        -- the last read of its bags that came back empty at login or logout and was not saved (FRV-73)
+        local emptyWhen, emptyStamp = (type(info.bagsEmpty) == "string" and info.bagsEmpty or ""):match("^(%a+),(%w+)$")
         list[#list + 1] = { key = key, name = info.full or key, class = class, gold = gold and gold.copper,
-            goldT = gold and gold.t, seen = seen, readings = readings, current = key == me }
+            goldT = gold and gold.t, seen = seen, readings = readings, current = key == me,
+            bagsEmpty = emptyWhen and { when = emptyWhen, t = FM.Unstamp(emptyStamp) } or nil }
     end
     table_sort(list, function(a, b)
         if (a.seen or 0) ~= (b.seen or 0) then return (a.seen or 0) > (b.seen or 0) end

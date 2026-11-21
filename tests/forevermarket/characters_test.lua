@@ -91,6 +91,72 @@ H.test("characters: bags are saved at login in the bank's format, as the logged-
     H.eq(r.charInfo.Tester.seen, NOW, "last seen")
 end)
 
+-- Rule (FRV-73): a read of the bags at login (before they have loaded) or at logout that finds no item is not saved,
+-- the last reading stays and /fm chars names the skipped read; at login the bags are read afresh
+H.test("characters: an empty read at login or logout keeps the last reading", function()
+    local FM, env = Load("Player-1-A", "Tester", "Surname")
+    FM.InitializeSavedData()
+    FM.RegisterSlashCommands()
+    local r = FM.R()
+    FM.PlayerName()
+    local before = Reading(60, { { 2589, 5, 3 } })
+    r.bags.Tester = before
+    local index, fresh = {}, nil
+    FM.BagIndex = function(again)
+        fresh = again
+        return index
+    end
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
+    H.eq(fresh, true, "read afresh at login")
+    H.eq(r.bags.Tester, before, "an empty read at login is not saved")
+    H.eq(r.charInfo.Tester.bagsEmpty, "login," .. FM.Stamp(NOW), "the skipped read is noted")
+    -- the bags load and change during play: that reading is saved
+    FM.loginAt = NOW
+    index = { [4306] = { all = 20, free = 20 } }
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FlushTimers()
+    local played = FM.Stamp(NOW) .. "|" .. B(4306) .. ":k:k"
+    H.eq(r.bags.Tester, played, "the reading during play")
+    -- logout: the containers are gone
+    index = {}
+    env.clock = NOW + 600
+    env.FireEvent("PLAYER_LOGOUT")
+    H.eq(r.bags.Tester, played, "an empty read at logout keeps the reading of play")
+    H.eq(r.charInfo.Tester.bagsEmpty, "logout," .. FM.Stamp(NOW + 600), "the skipped read is noted")
+    env.SlashCmdList.FOREVERMARKET("chars")
+    local line = env.printed[#env.printed]
+    H.eq(line:find("bags read empty at logout", 1, true) ~= nil, true, "/fm chars names it: " .. line)
+    -- a logout read that finds items is saved
+    index = { [4306] = { all = 19, free = 19 } }
+    env.FireEvent("PLAYER_LOGOUT")
+    H.eq(r.bags.Tester, FM.Stamp(NOW + 600) .. "|" .. B(4306) .. ":j:j", "saved at logout")
+end)
+
+H.test("characters: a truly empty bag set is saved when it is read during play, and at login once the bags loaded", function()
+    local FM, env = Load("Player-1-A", "Tester", "Surname")
+    FM.InitializeSavedData()
+    local r = FM.R()
+    FM.PlayerName()
+    r.bags.Tester = Reading(60, { { 2589, 5, 3 } })
+    FM.BagIndex = function() return {} end
+    FM.loginAt = NOW
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FlushTimers()
+    H.eq(r.bags.Tester, FM.Stamp(NOW) .. "|", "emptied during play")
+    -- a new session whose bags have loaded (BAG_UPDATE_DELAYED while loading) before the login save
+    local saved = FM.db
+    FM, env = Load("Player-1-A", "Tester", "Surname")
+    FM.db = saved
+    r = FM.R()
+    r.bags.Tester = Reading(60, { { 2589, 5, 3 } })
+    FM.BagIndex = function() return {} end
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
+    H.eq(r.bags.Tester, FM.Stamp(NOW) .. "|", "empty at login after the bags loaded")
+end)
+
 H.test("characters: the account bank is saved once per realm bucket while you may view it, else nothing", function()
     for _, canView in ipairs({ true, false }) do
         local FM, env = Load("Player-1-A", "Tester", "Surname")

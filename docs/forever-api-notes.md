@@ -141,6 +141,16 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-10. In game ForeverMar
   - ForeverMarket (1.23, FRV-35) reads it while the bank is open: `C_Bank.CanViewBank(Enum.BankType.Account)`, then the containers of `C_Bank.FetchPurchasedBankTabIDs(Enum.BankType.Account)` through `C_Container`, when the bank opens, after every `BAG_UPDATE_DELAYED` while it is open (items moving in the bank fire `BAG_UPDATE`, which the bank panel refreshes on: `Mainline/BankFrameTemplates.lua`) and on `BANK_TABS_CHANGED`; never as it closes; every call in `pcall` (not yet verified in game)
   - `PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED(slot)` is about the bags in the account bank's slots (Camelot's `BankItemButtonBagMixin` refreshes `Enum.BagIndex.Accountbanktab` on it), not about the items in them
 - `C_Item.GetItemCount(itemInfo, includeBank, includeUses, includeReagentBank, includeAccountBank)`: the account bank is a flag of its own (the fifth argument), every flag defaults to false
+- An empty bags reading was seen in game (FRV-73, 2026-11-20): ForeverMarket 1.23.5 saved `"t|"` (no item) for a character at a logout after a short session, while Bagnon's `BagBrother.lua`, written at the same logout, held items in bags 0 to 4. Its stamp was the logout's, so the read at `PLAYER_LOGOUT` found nothing: either the containers are gone by then, or the bag index was cached before the bags had loaded at login (no `BAG_UPDATE_DELAYED` after it). Which of the two is not known yet: since 1.31 ForeverMarket keeps the last reading instead, reads the bags afresh at login, and notes every skipped read (`charInfo[key].bagsEmpty` = `login,<t>` or `logout,<t>`, shown by `/fm chars`); a `bagsEmpty` of `logout` next to bags that did hold items settles it
+
+## Equipment
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-93, not yet verified in game. ForeverMarket 1.31 reads what the logged-in character wears to find AH purchases equipped as own gear (`scan/Worth.lua`).
+
+- `PLAYER_EQUIPMENT_CHANGED(equipmentSlot, hasCurrent)` (`PaperDollInfoDocumentation.lua`, synchronous, no secret flag); Camelot's paper doll (`Blizzard_UIPanels_Game/Camelot/PaperDollFrame.lua`) registers it
+- `GetInventoryItemID("player", slot)` and `GetInventoryItemLink("player", slot)` are not in `Blizzard_APIDocumentationGenerated/`, but Camelot's `PaperDollFrame.lua` and `PaperDollFrameStats.lua` use both, so they exist; the link names the item with its suffix ("... of the Monkey")
+- Slots: `INVSLOT_FIRST_EQUIPPED` (1, head) to `INVSLOT_LAST_EQUIPPED` (19, tabard) in `Blizzard_FrameXMLBase/Constants.lua`; 0 is ammo, the bag slots come after 19
+- ForeverMarket reads slots 1 to 19 five seconds after `PLAYER_LOGIN` and a second after every `PLAYER_EQUIPMENT_CHANGED` (it counts all slots again, the payload is not used); every call in `pcall`
 
 ## Mail
 

@@ -540,7 +540,10 @@ end
 -- no auction of a non-stacking item is ever under 1s. p (parsed listings) helps while item info loads.
 local MIN_ITEM_PRICE = 100
 local stackCache = {}
-function FM.MinListPrice(key, p)
+
+-- Whether an item stacks, i.e. trades as a commodity (true), or sells per auction (false); nil while its item info
+-- is not loaded and no listing (p = parsed listings) holds more than one unit
+function FM.ItemStacks(key, p)
     local stack = stackCache[key]
     if stack == nil then
         local id = tonumber(key)
@@ -555,11 +558,13 @@ function FM.MinListPrice(key, p)
         end
         if stack ~= nil then stackCache[key] = stack end
     end
-    if stack == nil then
-        -- not loaded yet: listings of more than one unit mean it stacks; otherwise the safe floor
-        return (p and p.stacked) and 1 or MIN_ITEM_PRICE
-    end
-    return stack > 1 and 1 or MIN_ITEM_PRICE
+    if stack == nil then return (p and p.stacked) and true or nil end
+    return stack > 1
+end
+
+function FM.MinListPrice(key, p)
+    -- not loaded yet and no stack listed: the safe floor
+    return FM.ItemStacks(key, p) and 1 or MIN_ITEM_PRICE
 end
 
 ---------------------------------------------------------------- what you own
@@ -642,8 +647,9 @@ local function BankIDs()
     return list
 end
 
-local function BagIndex()
-    if not bagIndex then bagIndex = Scan(BagIDs()) end
+-- fresh: read the bags again even when a reading of them is cached (scan/Characters.lua at login, FRV-73)
+local function BagIndex(fresh)
+    if fresh or not bagIndex then bagIndex = Scan(BagIDs()) end
     return bagIndex
 end
 FM.BagIndex = BagIndex -- [itemID] = { all, free } of your bags (trade/Cost.lua measures deposits of them)

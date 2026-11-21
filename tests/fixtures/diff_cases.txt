@@ -106,3 +106,43 @@ cur ? 5 500 3
 cur ? 2 260 3
 cur ? 3 270 3
 expect sold=7 soldN=2 soldVal=860 amb=0 rep=0 new=3 newMin=90 soldLow=2
+
+case own-mark-lost-is-no-change
+# FRV-72: your mark ("@", a best fit of your auctions and posts) left an auction that stayed, e.g. your posts left
+# the pool after 24h: "@" and "?" are one seller class, the same auction, nothing happened
+gap 60
+prev @ 10 1000 3
+cur ? 10 1000 3
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=0 new=0 newMin=none soldLow=0
+
+case own-mark-gained-is-no-change
+# FRV-72: the best fit marked an auction that was unknown before: the same auction
+gap 60
+prev ? 10 1000 3
+cur @ 10 1000 3
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=0 new=0 newMin=none soldLow=0
+
+case own-mark-moves-to-a-twin
+# FRV-72: of two auctions of the same quantity and price the mark moved from one to the other: nothing happened
+gap 60
+prev @ 5 500 3
+prev ? 5 500 2
+cur ? 5 500 3
+cur @ 5 500 2
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=0 new=0 newMin=none soldLow=0
+
+case own-auction-gone-its-twin-stays
+# FRV-72: one of two auctions of the same quantity and price went and your mark with it: yours was bought
+# (the twin stays at that price, so it was the cheapest)
+gap 60
+prev @ 5 500 3
+prev ? 5 500 3
+cur ? 5 500 3
+expect sold=5 soldN=1 soldVal=500 amb=0 rep=0 new=0 newMin=none soldLow=5
+
+case own-repost-stays-a-repost
+# you undercut yourself: your auction went and a new one of yours came, a repost as before FRV-72
+gap 60
+prev @ 10 1000 3
+cur @ 8 720 3
+expect sold=0 soldN=0 soldVal=0 amb=0 rep=10 new=8 newMin=90 soldLow=0

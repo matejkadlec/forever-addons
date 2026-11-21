@@ -264,7 +264,7 @@ local function Signature(r, char, mode, lastStart)
         table_sort(names)
         for _, who in ipairs(names) do parts[#parts + 1] = who .. "=" .. Tail(worth[who]) end
     end
-    for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts" }) do parts[#parts + 1] = Tail(r[name]) end
+    for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts", "gear" }) do parts[#parts + 1] = Tail(r[name]) end
     return table.concat(parts, "|")
 end
 
@@ -337,9 +337,25 @@ local function Build(r, char, mode, now)
         local sent = FM.Unstamp(f[1])
         local t = FM.Unstamp(f[11]) or sent
         if f[2] and (all or f[2] == char) and t and t >= cover then
-            invoices[#invoices + 1] = { t = t, sent = sent, who = f[2], kind = f[3], name = f[4] or "?", qty = Dec(f[6]) or 1,
-                money = Dec(f[7]) or 0, deposit = Dec(f[9]) or 0, cut = Dec(f[10]) or 0 }
+            invoices[#invoices + 1] = { t = t, sent = sent, stamp = f[1], who = f[2], kind = f[3], name = f[4] or "?",
+                qty = Dec(f[6]) or 1, money = Dec(f[7]) or 0, deposit = Dec(f[9]) or 0, cut = Dec(f[10]) or 0 }
         end
+    end
+    -- own gear (FRV-93, scan/Worth.lua): the units of a purchase one of your characters equipped leave the tab (its
+    -- money, Bought, the capital, the cost of a later sale); Own takes them off a purchase of qty units, fixes keeps
+    -- their marks for what you held (below). Purchases with the same ref share its marks in order
+    local gear = FM.OwnGear and FM.OwnGear(r) or {}
+    local fixes = {}
+    local function Own(ref, item, qty, arrival, who)
+        local e = gear[ref .. "|" .. item]
+        if not e or e.units <= 0 then return 0 end
+        local n = math_min(qty, e.units)
+        e.units = e.units - n
+        if not e.fixed then
+            e.fixed = true
+            fixes[#fixes + 1] = { arrival = arrival, who = who, marks = e.list }
+        end
+        return n
     end
     -- won auctions from your mail; a commodity purchase is in the purchase log already (its mail is skipped)
     for _, inv in ipairs(invoices) do
@@ -353,21 +369,37 @@ local function Build(r, char, mode, now)
                     break
                 end
             end
-            if not logged then
+            local own = not logged and inv.stamp and Own(FM.GearRef("i", inv.stamp, inv.who), inv.name, inv.qty, inv.t, inv.who) or 0
+            if own > 0 then
+                inv.money = inv.money * (inv.qty - own) / inv.qty
+                inv.qty = inv.qty - own
+            end
+            if not logged and inv.qty > 0 then
                 inv.won = true
                 if inv.t >= ReadStart(inv.who) then flows[#flows + 1] = { inv.t, -inv.money } end
                 if key then
-                    -- also the cost of a later sale of the item
+                    -- also the cost of a later sale of the item; taken (mailed), so the next won auction's mail of
+                    -- the item can't take it for a logged purchase and drop out (FRV-75)
                     buysByKey[key] = buysByKey[key] or {}
-                    table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money, who = inv.who })
+                    table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money, who = inv.who, mailed = true })
                 end
             end
+        end
+    end
+    -- own gear of the purchase log (after the mails found their purchases: they match its full quantity)
+    for _, b in ipairs(buys) do
+        local own = Own(FM.GearRef("b", b.t, b.who), b.key, b.qty, b.t, b.who)
+        if own > 0 then
+            b.total = b.total * (b.qty - own) / b.qty
+            b.qty = b.qty - own
         end
     end
     for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
     -- what you spent on the AH (purchases, won auctions, deposits) over time: the capital the percentages start from
     local spends = {}
-    for _, b in ipairs(buys) do spends[#spends + 1] = { b.t, b.total } end
+    for _, b in ipairs(buys) do
+        if b.qty > 0 then spends[#spends + 1] = { b.t, b.total } end
+    end
     for _, inv in ipairs(invoices) do
         if inv.won then spends[#spends + 1] = { inv.t, inv.money } end
     end
@@ -399,7 +431,7 @@ local function Build(r, char, mode, now)
         end
     end
     for _, b in ipairs(buys) do
-        if b.t >= ReadStart(b.who) then flows[#flows + 1] = { b.t, -b.total } end
+        if b.qty > 0 and b.t >= ReadStart(b.who) then flows[#flows + 1] = { b.t, -b.total } end
     end
     table_sort(flows, function(a, b) return a[1] < b[1] end)
     local sum = 0
@@ -471,6 +503,56 @@ local function Build(r, char, mode, now)
         if reading then series.lastHeld, series.lastSaw = reading[3], reading[4] end
     end
 
+    -- own gear in what you held (FRV-93): the readings counted its units from when they reached you (the purchase, a
+    -- won auction's mail read) until they were equipped. Both steps are taken back where they landed (the first
+    -- reading of the line at or after the moment, or the reading of right now: series.liveFix), the arrival's with
+    -- the mark's value off, the equipping's with it back; none when no reading lies between them. A step that counted
+    -- nothing (the line's first reading, a change of what it saw) is not taken back either. All characters: the
+    -- joint line from its first reading on, before it the buyer's own. Gear the login check found worn (m.login) was
+    -- equipped at a moment nobody saw, so no step is taken back for it: its steps stay where they landed (its arrival's
+    -- gain and its equipping's drop add up to nothing), and a step back can neither move one into the wrong period nor
+    -- take back a drop no reading had (bought and equipped before the line's first reading)
+    series.liveFix = 0
+    local liveLine = all and joint or lists[char]
+    local function LineAt(who, t)
+        if all and jointStart and t >= jointStart then return joint, true end
+        return lists[all and who or char], false
+    end
+    local function FirstFrom(list, t)
+        local lo, hi = 1, #list + 1
+        while lo < hi do
+            local mid = math_floor((lo + hi) / 2)
+            if list[mid][1] >= t then hi = mid else lo = mid + 1 end
+        end
+        return lo
+    end
+    local function Fix(list, isJoint, k, delta)
+        if k > #list then
+            if list == liveLine then series.liveFix = series.liveFix + delta end
+            return
+        end
+        if k < 2 then return end
+        local a, b = list[k - 1], list[k]
+        local counts
+        if isJoint then counts = a[7] == b[7] else counts = a[4] == b[4] and not (all and b[6]) end
+        local p = counts and PeriodOf(b[1])
+        if p then p.heldDelta = p.heldDelta + delta end
+    end
+    for _, fix in ipairs(fixes) do
+        for _, m in ipairs(fix.marks) do
+            local value = m.value * m.units
+            local lineA, jointA = LineAt(fix.who, fix.arrival)
+            local lineM, jointM = LineAt(fix.who, m.t)
+            if value > 0 and lineA and lineM and not m.login then
+                local kA, kM = FirstFrom(lineA, fix.arrival), FirstFrom(lineM, m.t)
+                if not (lineA == lineM and kA == kM) then
+                    Fix(lineA, jointA, kA, -value)
+                    Fix(lineM, jointM, kM, value)
+                end
+            end
+        end
+    end
+
     for _, inv in ipairs(invoices) do
         local p = PeriodOf(inv.t)
         if p and inv.won then
@@ -486,7 +568,7 @@ local function Build(r, char, mode, now)
     end
     -- commodity purchases, judged against the usual price before them
     for _, b in ipairs(buys) do
-        local p = PeriodOf(b.t)
+        local p = b.qty > 0 and PeriodOf(b.t)
         if p then
             local name = FM.GetName and FM.GetName(b.key) or b.key
             Add(p.bought, name, b.qty, b.total)
@@ -585,7 +667,9 @@ function FM.PerfSeries(modeId, now, scope)
     local liveGold, liveHeld, liveSeen, liveAll, liveSaw
     if FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw = FM.WorthNow() end
     if all then liveHeld, liveSeen = liveAll, liveSaw end
-    local liveStep = (liveGold and series.lastSaw and series.lastSaw == liveSeen) and (liveHeld - series.lastHeld) or 0
+    -- own gear equipped since the last reading: its drop in the live step is taken back (series.liveFix, FRV-93)
+    local liveStep = (liveGold and series.lastSaw and series.lastSaw == liveSeen)
+        and (liveHeld - series.lastHeld + (series.liveFix or 0)) or 0
     if all then
         -- your gold: this character's right now, the others' as last recorded
         local gold = liveGold

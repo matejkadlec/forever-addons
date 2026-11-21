@@ -137,8 +137,12 @@ local function ListCharacters()
     for _, c in ipairs(list) do
         local gold = c.gold and FM.FormatMoney(c.gold) or "?"
         local seen = c.current and "logged in" or ("seen " .. FM.ReadingAge(c.seen))
-        print(string_format("  %s%s  %s%s, %s; bags %s, bank %s, mailbox %s|r", FM.CharacterLabel(c), YELLOW, gold,
-            YELLOW, seen, FM.ReadingAge(c.readings.bags), FM.ReadingAge(c.readings.bank), FM.ReadingAge(c.readings.mailbox)))
+        -- a read of its bags at login or logout that found nothing and was not saved (FRV-73)
+        local empty = c.bagsEmpty and string_format(" (bags read empty at %s %s, not saved)", c.bagsEmpty.when,
+            FM.ReadingAge(c.bagsEmpty.t)) or ""
+        print(string_format("  %s%s  %s%s, %s; bags %s, bank %s, mailbox %s%s|r", FM.CharacterLabel(c), YELLOW, gold,
+            YELLOW, seen, FM.ReadingAge(c.readings.bags), FM.ReadingAge(c.readings.bank), FM.ReadingAge(c.readings.mailbox),
+            empty))
     end
 end
 

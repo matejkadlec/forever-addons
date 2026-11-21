@@ -61,6 +61,7 @@ local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
 local MAX_UNITS = 100           -- per pick and day
 local CIRC_PCT = 25             -- default share of an item's C/24h one pick may add to the AH (tableCircPct)
+local FIRST_PCT = 2             -- default share of a commodity's C/24h a first batch may plan (tableFirstPct, FRV-71)
 local LONGEST_LISTING = 86400   -- a 24h auction: an auction list older than this holds nothing still running
 local SNAPSHOT_LAG = 600        -- what you listed up to 10 min before a deep scan's time may be missing in it
 local FEED_LAG = 7200           -- a feed snapshot: 2h (it carries the newer time of the API's item and commodity
@@ -225,28 +226,37 @@ end
 
 -- Room for new units of an item on the AH: a share of what circulates of it in 24h (the table's C/24h =
 -- sold12 x 2; the share is the settings panel's "share of C/24h"), less what you list already. Units you hold take
--- their room as the pick's own (they are listed with it). need = one craft's units, or 1.
--- Returns { circ, cap, listed, room, pct }, or nil and why the item is no pick
-local function Room(row, need)
+-- their room as the pick's own (they are listed with it). need = one craft's units, or 1. first = the market rate
+-- of a commodity without sales of yours (FRV-71, d.firstBatch): a first batch only, at most the settings panel's
+-- first batch share of C/24h and what one 8h listing at that rate sells.
+-- Returns { circ, cap, listed, room, pct, first, batch8 }, or nil and why the item is no pick
+local function Room(row, need, first)
     if type(row.sold12) ~= "number" then return nil, "circulation not known yet (C/24h)" end
     local circ = row.sold12 * 2
-    local pct = math_floor(P.circShare * 100 + 0.5)
-    local share = circ * P.circShare
+    local pct = math_floor((first and P.firstShare or P.circShare) * 100 + 0.5)
+    local share = circ * (first and P.firstShare or P.circShare)
+    local batch8 = first and first * 8 / 24 or nil
+    if batch8 and batch8 < share then share = batch8 end
     local cap = math_floor(share + 0.5)
     local craft = need > 1 and string_format(", one craft makes %d", need) or ""
     -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
     if share < need then
         -- not rounded: "is 5, one craft makes 5" would contradict itself
         local shown = share < 1 and "<1" or (string_format("%.1f", math_floor(share * 10) / 10):gsub("%.0$", ""))
+        if first then
+            return nil, string_format("no sales of your own yet: a first batch is %s (%d%% of C/24h %s, one 8h listing at "
+                .. "the market rate %s)%s", shown, pct, Count(circ), Count(batch8), craft)
+        end
         return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown, craft)
     end
     local listed = Yours(row.key)
     if cap - listed < need then
         -- with how fresh that number is: what sold since it was last seen still counts
-        return nil, string_format("you list %s already (%s): the cap is %s (%d%% of C/24h %s)%s", Count(listed),
-            ListingSeen(row.key, listed), Count(cap), pct, Count(circ), craft)
+        return nil, string_format("you list %s already (%s): the cap is %s (%s%d%% of C/24h %s)%s", Count(listed),
+            ListingSeen(row.key, listed), Count(cap), first and "a first batch, " or "", pct, Count(circ), craft)
     end
-    return { circ = circ, cap = cap, listed = listed, room = cap - listed, pct = pct }
+    return { circ = circ, cap = cap, listed = listed, room = cap - listed, pct = pct, first = first and true or nil,
+        batch8 = batch8 }
 end
 
 -- How "you list" is known, never a silent 0: the auction lists (as old as the last look at the AH's Auctions
@@ -281,8 +291,11 @@ end
 -- The tooltip's account of the room: "C/24h 43, cap 11 (25%), you list 0 -> make 11", then how "you list" is known
 local function RoomLines(list, row, room, verb, n)
     list[#list + 1] = { "h", "Room on the AH" }
-    list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%d%%), you list %s -> %s %s", Count(room.circ),
-        row.soldWide and " (3 day rate)" or "", Count(room.cap), room.pct, Count(room.listed), verb, Count(n)), WHITE }
+    -- a commodity's first batch (FRV-71): the smaller of its share of C/24h and one 8h listing at the market rate
+    local batch = room.first and string_format("first batch: %d%%, one 8h listing %s", room.pct, Count(room.batch8))
+    list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%s), you list %s -> %s %s", Count(room.circ),
+        row.soldWide and " (3 day rate)" or "", Count(room.cap), batch or (room.pct .. "%"), Count(room.listed), verb,
+        Count(n)), WHITE }
     list[#list + 1] = { "n", ListingNote(row.key, room.listed) }
 end
 
@@ -363,16 +376,25 @@ end
 -- Units per day you can expect to sell: your own record, or half the buyers of a well documented market.
 -- With 3+ sales of yours in the window and units of yours still listed, nothing cut your sales short: your pace is
 -- what buyers take at your price, so it is the rate (FRV-66; d.paceListed). Once you sold out, your pace was capped
--- by what you listed, so the market share counts when it is more.
+-- by what you listed, so the market share counts when it is more: for items sold per auction. A commodity (FRV-71,
+-- d.commodity: it stacks) plans with your pace whenever you have that record, listed or sold out: Forever hides
+-- sellers, so every cancel and relist of its cheapest stacks looks like a purchase and its buyers run far above
+-- anyone's sales (4 to 900 times your pace in FRV-56's data). Without a record of yours a commodity plans a first
+-- batch only (d.firstBatch, Room).
 local function SellRate(key)
     local d = Demand(key)
     local market = (d.perDay and d.trusted) and SHARE_OF_BUYERS * d.perDay or nil
+    d.commodity = (FM.ItemStacks and FM.ItemStacks(key, P.view.Get(key))) and true or false
+    d.firstBatch = nil
     if d.own and d.own.units >= 3 then
         d.paceListed = Yours(key) > 0
-        if not d.paceListed and market and market > d.own.perDay then return market, d.source, d end
+        if not d.commodity and not d.paceListed and market and market > d.own.perDay then return market, d.source, d end
         return d.own.perDay, "your sales", d
     end
-    if market then return market, d.source, d end
+    if market then
+        d.firstBatch = d.commodity or nil
+        return market, d.source, d
+    end
     return nil, nil, d
 end
 
@@ -391,12 +413,18 @@ local function Covered(d, yours, V)
     return "you already list what buyers take in a day"
 end
 
--- The tooltip's account of your own sales: how many, your pace, and whether it is the plan's rate
+-- The tooltip's account of your own sales: how many, your pace, and which rate the plan uses and why
 local function OwnSalesLines(list, d)
+    if d.firstBatch then
+        list[#list + 1] = { "n", "No sales of your own yet: a first batch (a commodity's buyers are mostly relists).", GREY }
+        return
+    end
     if not d.own then return end
     list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days, %s a day", Count(d.own.units), PerDay(d.own.perDay)) }
     if d.paceListed then
         list[#list + 1] = { "n", "Yours are still listed: your own pace is the rate.", GREY }
+    elseif d.commodity and d.own.units >= 3 then
+        list[#list + 1] = { "n", "A commodity: your own pace is the rate (its buyers are mostly relists).", GREY }
     end
 end
 
@@ -967,7 +995,7 @@ local function EvaluateCraft(c)
     local V, vSource, d = SellRate(row.key)
     if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     local others = row.qty - (row.own or 0)
-    local room, noRoom = Room(row, makes)
+    local room, noRoom = Room(row, makes, d.firstBatch and V)
     if not room then return nil, noRoom end
     local listed = Yours(row.key)
     local vLeft = V - listed
@@ -1137,7 +1165,7 @@ local function EvaluateVendor(c)
     local V, vSource, d = SellRate(row.key)
     if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
     local others = row.qty - (row.own or 0)
-    local room, noRoom = Room(row, 1)
+    local room, noRoom = Room(row, 1, d.firstBatch and V)
     if not room then return nil, noRoom end
     local listed = Yours(row.key)
     local vLeft = V - listed
@@ -1216,7 +1244,7 @@ local function EvaluateFlip(c)
     -- the usual price must still hold today: no falling price, no flood of new listings
     if d.todayMedian and d.todayMedian < 0.8 * row.usual then return nil, "price falling today" end
     if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
-    local room, noRoom = Room(row, 1)
+    local room, noRoom = Room(row, 1, d.firstBatch and V)
     if not room then return nil, noRoom end
     -- what you hold first: the flip buys only the rest of the room
     local held = math_min(HeldOf(row.key), math_floor(room.room))
@@ -1522,6 +1550,9 @@ function FM.ComputePicks(out, ctx, done)
     -- "share of C/24h" (settings panel): the most of an item's daily circulation one pick may add to the AH
     local circPct = tonumber(s.tableCircPct)
     P.circShare = (circPct and math_max(1, math_min(100, circPct)) or CIRC_PCT) / 100
+    -- "first batch" (settings panel, FRV-71): the most of a commodity's C/24h a pick plans without sales of yours
+    local firstPct = tonumber(s.tableFirstPct)
+    P.firstShare = (firstPct and math_max(1, math_min(100, firstPct)) or FIRST_PCT) / 100
     out.pickGold = gold
 
     local why = {}
