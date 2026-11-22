@@ -11,14 +11,19 @@ local _, FM = ...
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
---                     buyout is the unit price for commodities, the auction's buyout for items
+--                     buyout is the unit price for commodities, the auction's buyout for items (an osold line
+--                     written from a sold row before 1.38 holds the sale's total instead, FRV-106)
 --              mail:  mexpired | mcancelled ,itemName
 -- R.invoices "t,char,type,itemName,player,qty,bid,buyout,deposit,ahCut,read"  (t = when the mail was sent,
 --            read = when you read it, from 1.15.13; the Profit tab books the money then)
 --            on Forever "bid" is the money of the sale (total) and "buyout" holds the quantity for
 --            commodity sales, so readers should use bid as the sale total
 -- R.gold     "t,char,copper"
--- R.owned[char] = { t = seconds, list = "aid:key:qty:buyout:status:secondsLeft,..." }
+-- R.owned[char] = { t = seconds, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2 }
+--            status "s" = sold, its mail not sent yet (secondsLeft = until it is): the client gives such a row the
+--            sale's units and its total, and a stack sold in parts one row per part, all with the auction's ID (seen
+--            in the maintainer's lists of 2026-11-22). v = 2 (1.38, FRV-106): a sold row's buyout is stored per
+--            unit like a running one's; lists without v hold the total there
 
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
@@ -117,10 +122,17 @@ local function SnapshotOwned()
             if key then
                 local aid = Enc(info.auctionID)
                 local status = (info.status == OWNED_SOLD) and "s" or "a"
+                local quantity = info.quantity or 1
+                local buyout = info.buyoutAmount or info.bidAmount or 0
+                -- a sold row holds the sale's total: per unit, as a running row and the events have it (FRV-106)
+                if status == "s" and type(quantity) == "number" and type(buyout) == "number"
+                    and not FM.IsSecret(quantity) and not FM.IsSecret(buyout) and quantity > 1 then
+                    buyout = math_floor(buyout / quantity + 0.5)
+                end
                 local entry = {
                     key = key,
-                    qty = Enc(info.quantity or 1),
-                    buyout = Enc(info.buyoutAmount or info.bidAmount or 0),
+                    qty = Enc(quantity),
+                    buyout = Enc(buyout),
                     status = status,
                     left = info.timeLeftSeconds or 0
                 }
@@ -168,7 +180,7 @@ local function SnapshotOwned()
             end
         end
     end
-    r.owned[char] = { t = now, list = table_concat(entries, ",") }
+    r.owned[char] = { t = now, list = table_concat(entries, ","), v = 2 }
     FM.listingsVersion = (FM.listingsVersion or 0) + 1 -- the picks plan again (FM.EnsureTrade)
 end
 
@@ -462,10 +474,13 @@ local MAIL_DAYS = 30 -- AH mail lives 30 days, so daysLeft tells when it was sen
 
 local MAIL_MATCH_MINUTES = 10 -- the sent time derived from daysLeft wobbles a little between reads
 
--- Mail already logged: R.mailSeen[char|kind|item|player|qty|bid|buyout] = "sentMinutes36,..." (one entry per
--- mail, so several identical mails, e.g. three pants sold at the same price, are all counted)
-local function MailBase(char, kind, itemName, player, count, bid, buyout)
-    return table_concat({ char, kind, itemName, player or "", count or "", bid or "", buyout or "" }, "|")
+-- Mail already logged: R.mailSeen[char|kind|item||qty|bid|buyout] = "sentMinutes36,..." (one entry per
+-- mail, so several identical mails, e.g. three pants sold at the same price, are all counted). The other player's
+-- name is not part of the key (the empty field; until 1.37 it was): the client gives an AH mail's name only a moment
+-- after the mail is first listed, so the same mail read again seconds later had another key and was logged a second
+-- time (FRV-106: 425 of the maintainer's 1149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log
+local function MailBase(char, kind, itemName, count, bid, buyout)
+    return table_concat({ char, kind, itemName, "", count or "", bid or "", buyout or "" }, "|")
 end
 
 local function SeedMailSeen(r)
@@ -475,13 +490,93 @@ local function SeedMailSeen(r)
     end
     for _, record in ipairs(r.invoices) do
         local f = FM.Split(record, ",")
-        if f[10] then add(MailBase(f[2], f[3], f[4], f[5], f[6], f[7], f[8]), f[1]) end
+        if f[10] then add(MailBase(f[2], f[3], f[4], f[6], f[7], f[8]), f[1]) end
     end
     for _, record in ipairs(r.events) do
         local f = FM.Split(record, ",")
         if (f[3] == "mexpired" or f[3] == "mcancelled") and f[4] then add(MailBase(f[2], f[3], f[4]), f[1]) end
     end
     r.invSeen = {} -- the old time bucket keys merged identical mails of the same two hours
+end
+
+-- Once per realm bucket (r.mailRepair = 1, FRV-106): the AH mail log as it was until 1.37, where a mail whose other
+-- player's name arrived after its first reading was logged twice (see MailBase):
+--   * of two lines of the same character, kind, item, units and money, one without the name and one with it, sent
+--     at most a minute apart, the one without the name logged first: the second goes, the first gets its name (the
+--     Profit tab booked the mail's money when it was first read)
+--   * R.mailSeen is keyed without the name, so a mail still in your mailbox is not logged again
+-- r.mailRepaired = { t, dropped, sales = their money after the cut, with the deposits }; a chat line too
+local MAIL_REPAIR = 1
+local TWIN_MINUTES = 1
+
+function FM.RepairMailLog(r)
+    if type(r) ~= "table" or r.mailRepair == MAIL_REPAIR then return nil end
+    r.mailRepair = MAIL_REPAIR
+    local invoices = type(r.invoices) == "table" and r.invoices or {}
+    local blanks = {} -- base -> the lines without a name, in log order: { index, minutes }
+    local drop, names = {}, {}
+    local dropped, sales = 0, 0
+    for i, line in ipairs(invoices) do
+        local f = type(line) == "string" and FM.Split(line, ",") or {}
+        local minutes = Dec(f[1])
+        if f[10] and minutes then
+            local base = MailBase(f[2], f[3], f[4], f[6], f[7], f[8])
+            if f[5] == "" then
+                blanks[base] = blanks[base] or {}
+                table.insert(blanks[base], { index = i, minutes = minutes })
+            else
+                -- the nearest line without a name before it that no named line took yet
+                local best, gap
+                for _, b in ipairs(blanks[base] or {}) do
+                    local d = math.abs(b.minutes - minutes)
+                    if not b.taken and d <= TWIN_MINUTES and (not gap or d < gap) then best, gap = b, d end
+                end
+                if best then
+                    best.taken = true
+                    drop[i], names[best.index] = true, f[5]
+                    dropped = dropped + 1
+                    if f[3] == "seller" then sales = sales + (Dec(f[7]) or 0) - (Dec(f[10]) or 0) + (Dec(f[9]) or 0) end
+                end
+            end
+        end
+    end
+    if dropped > 0 then
+        local out = {}
+        for i, line in ipairs(invoices) do
+            if not drop[i] then
+                if names[i] then
+                    local f = FM.Split(line, ",")
+                    f[5] = names[i]
+                    line = table_concat(f, ",")
+                end
+                out[#out + 1] = line
+            end
+        end
+        for i = 1, math.max(#invoices, #out) do invoices[i] = out[i] end
+    end
+    -- the mails already logged, keyed without the name
+    if type(r.mailSeen) == "table" then
+        local seen = {}
+        for base, stamps in pairs(r.mailSeen) do
+            local f = type(base) == "string" and FM.Split(base, "|") or {}
+            if f[1] and type(stamps) == "string" then
+                f[4] = ""
+                for n = #f + 1, 7 do f[n] = "" end
+                local key = table_concat(f, "|")
+                seen[key] = seen[key] and (seen[key] .. "," .. stamps) or stamps
+            end
+        end
+        r.mailSeen = seen
+    end
+    local result = { t = FM.Now(), dropped = dropped, sales = sales }
+    r.mailRepaired = result
+    if dropped > 0 and C_Timer and FM.Print then
+        C_Timer.After(6, function()
+            FM.Print(string.format("AH mail log repaired (FRV-106): %d mails that were logged twice removed, %s of sales the Profit tab had counted twice.",
+                dropped, FM.FormatMoney(sales)))
+        end)
+    end
+    return result
 end
 
 local function ScanInbox()
@@ -521,7 +616,7 @@ local function ScanInbox()
             if type(invoiceType) == "string" and type(itemName) == "string" and not FM.IsSecret(itemName) then
                 local fields = { char, invoiceType, Clean(itemName), Clean(player), Enc(count or 1), Enc(bid or 0),
                     Enc(buyout or 0), Enc(deposit or 0), Enc(cut or 0) }
-                add(MailBase(fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7]), sent, "invoices", fields)
+                add(MailBase(fields[1], fields[2], fields[3], fields[5], fields[6], fields[7]), sent, "invoices", fields)
             elseif type(subject) == "string" and not FM.IsSecret(subject) then
                 local kind, itemName
                 if expiredPattern then itemName = subject:match(expiredPattern) kind = "mexpired" end
@@ -596,13 +691,15 @@ end)
 
 ---------------------------------------------------------------- gold
 
--- force: record even when unchanged (scan moments); otherwise only changes, at most every 10 minutes
-function FM.RecordGold(force)
+-- force: record even when unchanged (scan moments); otherwise only changes, at most every 10 minutes; atLogout =
+-- the record at logout
+function FM.RecordGold(force, atLogout)
     if not GetMoney then return end
     local money = GetMoney()
     if type(money) ~= "number" or FM.IsSecret(money) then return end
-    -- right after login GetMoney() can still answer 0
-    if money == 0 and FM.loginAt and FM.Now() - FM.loginAt < 30 then return end
+    -- right after login GetMoney() can still answer 0, and at logout it does (the maintainer's gold log ended every
+    -- session with a 0, FRV-106): the gold recorded before stays
+    if money == 0 and (atLogout or (FM.loginAt and FM.Now() - FM.loginAt < 30)) then return end
     local r = FM.R()
     r.goldLast = type(r.goldLast) == "table" and r.goldLast or {}
     local char = FM.PlayerName()
@@ -615,7 +712,7 @@ end
 
 FM.On("MAIL_CLOSED", function() FM.RecordGold(false) end)
 FM.On("AUCTION_HOUSE_CLOSED", function() FM.RecordGold(false) end)
-FM.On("PLAYER_LOGOUT", function() FM.RecordGold(false) end)
+FM.On("PLAYER_LOGOUT", function() FM.RecordGold(false, true) end)
 
 FM.On("PLAYER_LOGIN", function()
     local r = FM.R()

@@ -2,18 +2,25 @@ local _, FM = ...
 
 -- Numbers of the Profit tab (ui/Performance.lua): your AH result at the end of each day, week or month and
 -- what happened in it. AH result = the AH's money (sales after the cut and their deposit back, less purchases,
--- won auctions and deposits paid) + what you hold from the AH (scan/Worth.lua: items bought there at the usual
--- price, running auctions' deposits). So buying and posting don't move it, overpaying, selling under cost, the
--- cut and lost deposits do; loot, quests, vendors and trainers never count. The line starts at 0 at the first
--- dot shown. What happened: what sold, what you bought, what expired unsold and the real losses (sold under
--- what you paid, paid over the usual price, lost deposits).
+-- won auctions and deposits paid) + what you hold from the AH at what it cost you (FRV-106, trade/Basis.lua: the
+-- units you bought there, the units you crafted from them at their materials' cost, your running auctions'
+-- deposits, the money of sold auctions on its way). So buying, crafting and posting don't move it; a sale moves it
+-- by its money less what its units cost, a lost deposit and bought units that left without a sale by what they
+-- cost; loot, quests, vendors and trainers never count. The line starts at 0 at the first dot shown. What happened:
+-- what sold, what you bought, what expired unsold and the real losses (sold under what it cost, paid over the usual
+-- price, lost deposits).
+--
+-- What you held, over time: from the first reading of 1.38 on (a "c" in what it saw, scan/Worth.lua) the readings
+-- of what you really hold, step by step; before it the logs alone (the cost of the lots and the deposits out,
+-- FM.BasisBook's HeldAt): the readings of 1.15 to 1.37 counted units at the usual AH price and a sold stack's
+-- money several times over, and what your bags held then is not saved, so they no longer count. The step from the
+-- logs onto the first reading counts nothing.
 --
 -- One character or all of them (1.24, FRV-37): with more than one character with AH logs the tab counts all your
 -- characters of this realm and faction together ("All characters", the default) or the logged-in one alone ("This
 -- character", as before 1.24). Together: the AH's money of all of them, and what they hold together from the
 -- readings' joint part (scan/Worth.lua: bought by any, held by any), so an item one character buys and another
--- sells counts as that sale against that purchase. Readings from before 1.24 have no joint part: there each
--- character's own steps are added up, and the step onto the first joint reading counts nothing.
+-- sells counts as that sale against that purchase.
 
 local Dec = FM.Dec
 local type = type
@@ -96,9 +103,11 @@ local function GoldPoints(r, char, readings)
     return points
 end
 
--- Readings of what a character holds from the AH since from: { { t, gold, held, seen, order, all, saw }, ... }
--- oldest first (1.15.0-1.15.1 readings of all items, without the "h", are left out); all, saw = what all your
--- characters held together and what that saw (1.24 on, nil before)
+-- Readings of what a character holds from the AH since from: { { t, gold, held, seen, order, all, saw, n, counts,
+-- reset }, ... } oldest first (1.15.0-1.15.1 readings of all items, without the "h", are left out); all, saw = what
+-- all your characters held together and what that saw (1.24 on, nil before); counts = a reading of what you hold at
+-- cost (FRV-106: a "c" in what it saw) that is not left out ("x": it rose without a purchase to match, scan/Worth.lua);
+-- reset ("r") = the step onto it counts nothing. The others still tell your gold
 local function Readings(r, char, from)
     local points = {}
     local list = type(r.worth) == "table" and r.worth[char]
@@ -107,7 +116,8 @@ local function Readings(r, char, from)
         local t, gold, held = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
         if t and t >= from and gold and held and (f[4] or ""):sub(1, 1) == "h" then
             local saw = f[6] ~= "" and f[6] or nil
-            points[#points + 1] = { t, gold, held, f[4], #points, saw and Dec(f[5]) or nil, saw }
+            local counts = f[4]:find("c", 1, true) ~= nil and f[7] ~= "x"
+            points[#points + 1] = { t, gold, held, f[4], #points, saw and Dec(f[5]) or nil, saw, 0, counts, f[7] == "r" }
         end
     end
     -- minute stamps can tie (an anchor and the next reading): the order they were saved in decides
@@ -181,21 +191,6 @@ local function Purchases(r, char, from)
     return byKey, all
 end
 
--- What qty units of an item cost you per unit, from your latest purchases before t (nil = not bought)
-local function CostBefore(list, qty, t)
-    if not list then return nil end
-    local q, total = 0, 0
-    for i = #list, 1, -1 do
-        local b = list[i]
-        if b.t < t then
-            q, total = q + b.qty, total + b.total
-            if q >= qty then break end
-        end
-    end
-    if q == 0 then return nil end
-    return total / q
-end
-
 -- Your posts since from, of char or without one of all your characters, by character and item:
 -- who -> key -> { { t, qty, duration }, ... } (an expired mail belongs to a post of its own character)
 local function Posts(r, char, from)
@@ -264,71 +259,19 @@ local function Signature(r, char, mode, lastStart)
         table_sort(names)
         for _, who in ipairs(names) do parts[#parts + 1] = who .. "=" .. Tail(worth[who]) end
     end
-    for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts", "gear" }) do parts[#parts + 1] = Tail(r[name]) end
+    for _, name in ipairs({ "gold", "invoices", "buys", "events", "posts", "gear", "crafts" }) do parts[#parts + 1] = Tail(r[name]) end
     return table.concat(parts, "|")
 end
 
--- Periods with the AH's money, the steps of what you held (the reading of right now is added per call), and what
--- happened in them, of char or (char = nil) of all your characters together
-local function Build(r, char, mode, now)
+-- What the tab counts of your AH logs since cover, of char or (char = nil) of all your characters together: the
+-- purchases (R.buys; own gear, FRV-93, taken out), your AH mails (a won auction that is no logged purchase's mail is
+-- a purchase too: won), your posts with their deposits, and the own-gear marks to take back in what you held (fixes).
+-- trade/Basis.lua works out what your units cost from the same lists
+local function Intake(r, char, cover)
     local all = char == nil
-    -- only the span all logs cover: a dropped sale or deposit would show as a loss
-    local cover = FM.CoveredFrom and FM.CoveredFrom(r, char, now) or 0
-    -- the readings of the character, or of every character that has any
-    local lists = {}
-    if all then
-        for who, list in pairs(type(r.worth) == "table" and r.worth or {}) do
-            if type(list) == "table" then lists[who] = Readings(r, who, cover) end
-        end
-    else
-        lists[char] = Readings(r, char, cover)
-    end
-    -- all characters: the readings of what they held together (1.24 on) in one line, oldest first; readings of
-    -- the same minute keep the characters' order, then the order they were saved in
-    local joint = {}
-    if all then
-        local names = {}
-        for who in pairs(lists) do names[#names + 1] = who end
-        table_sort(names)
-        for n, who in ipairs(names) do
-            for _, reading in ipairs(lists[who]) do
-                if reading[6] then
-                    reading[8] = n
-                    joint[#joint + 1] = reading
-                end
-            end
-        end
-        table_sort(joint, function(a, b)
-            if a[1] ~= b[1] then return a[1] < b[1] end
-            if a[8] ~= b[8] then return a[8] < b[8] end
-            return a[5] < b[5]
-        end)
-    end
-    local jointStart = joint[1] and joint[1][1]
-    local earliest -- the first reading of any of them
-    local golds = {}
-    for who, list in pairs(lists) do
-        local t = list[1] and list[1][1]
-        if t and (not earliest or t < earliest) then earliest = t end
-        golds[who] = GoldPoints(r, who, list)
-    end
-    local series = { mode = mode, all = all, periods = {}, heldSince = earliest, golds = golds }
     local nameKeys = FM.NameKeys(r)
     local buysByKey, buys = Purchases(r, char, cover)
     local posts = Posts(r, char, cover)
-    local flows = {} -- { t, copper } of the AH's money
-    -- before a character's first reading of what it holds, its purchases can't be set against held items: they
-    -- count as neutral then, and a sale of bought units counts its profit over what they cost. All characters: a
-    -- character without a reading by then counts from the first joint reading on (that one holds its items too);
-    -- a purchase without a character (before 1.15.5) counts from the first reading of any of them
-    local function ReadStart(who)
-        local list = lists[who]
-        local t = list and list[1] and list[1][1]
-        if who == "" then t = earliest end
-        if jointStart and (not t or jointStart < t) then t = jointStart end
-        return t or now
-    end
-
     -- mail money counts when you read the mail (before 1.15.13: when it was sent): until then the readings still
     -- hold the auction or its sold money, and a won item isn't in your bags yet
     local invoices = {}
@@ -343,7 +286,7 @@ local function Build(r, char, mode, now)
     end
     -- own gear (FRV-93, scan/Worth.lua): the units of a purchase one of your characters equipped leave the tab (its
     -- money, Bought, the capital, the cost of a later sale); Own takes them off a purchase of qty units, fixes keeps
-    -- their marks for what you held (below). Purchases with the same ref share its marks in order
+    -- their marks for what you held (Build). Purchases with the same ref share its marks in order
     local gear = FM.OwnGear and FM.OwnGear(r) or {}
     local fixes = {}
     local function Own(ref, item, qty, arrival, who)
@@ -376,10 +319,9 @@ local function Build(r, char, mode, now)
             end
             if not logged and inv.qty > 0 then
                 inv.won = true
-                if inv.t >= ReadStart(inv.who) then flows[#flows + 1] = { inv.t, -inv.money } end
                 if key then
-                    -- also the cost of a later sale of the item; taken (mailed), so the next won auction's mail of
-                    -- the item can't take it for a logged purchase and drop out (FRV-75)
+                    -- taken (mailed), so the next won auction's mail of the item can't take it for a logged purchase
+                    -- and drop out (FRV-75)
                     buysByKey[key] = buysByKey[key] or {}
                     table_insert(buysByKey[key], { t = inv.sent, qty = inv.qty, total = inv.money, who = inv.who, mailed = true })
                 end
@@ -394,7 +336,72 @@ local function Build(r, char, mode, now)
             b.qty = b.qty - own
         end
     end
-    for _, list in pairs(buysByKey) do table_sort(list, function(a, b) return a.t < b.t end) end
+    -- the deposit paid at each post (it comes back with the sale)
+    for _, byKey in pairs(posts) do
+        for key, list in pairs(byKey) do
+            for _, post in ipairs(list) do
+                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0
+            end
+        end
+    end
+    return { cover = cover, nameKeys = nameKeys, buys = buys, posts = posts, invoices = invoices, fixes = fixes }
+end
+FM.PerfIntake = Intake
+
+-- Periods with the AH's money, the steps of what you held (the reading of right now is added per call), and what
+-- happened in them, of char or (char = nil) of all your characters together
+local function Build(r, char, mode, now)
+    local all = char == nil
+    -- only the span all logs cover: a dropped sale or deposit would show as a loss
+    local cover = FM.CoveredFrom and FM.CoveredFrom(r, char, now) or 0
+    -- the readings of the character, or of every character that has any (their gold; what they held below)
+    local lists = {}
+    if all then
+        for who, list in pairs(type(r.worth) == "table" and r.worth or {}) do
+            if type(list) == "table" then lists[who] = Readings(r, who, cover) end
+        end
+    else
+        lists[char] = Readings(r, char, cover)
+    end
+    -- the readings that count for what you held, oldest first: { t, held, saw, reset }. One character: its own;
+    -- all characters: what they held together, in one line (readings of the same minute keep the characters' order,
+    -- then the order they were saved in)
+    local counted = {}
+    do
+        local names = {}
+        for who in pairs(lists) do names[#names + 1] = who end
+        table_sort(names)
+        for n, who in ipairs(names) do
+            for _, reading in ipairs(lists[who]) do
+                if reading[9] and (not all or reading[6]) then
+                    counted[#counted + 1] = { t = reading[1], held = all and reading[6] or reading[3],
+                        saw = all and reading[7] or reading[4], reset = reading[10], n = n, order = reading[5] }
+                end
+            end
+        end
+        table_sort(counted, function(a, b)
+            if a.t ~= b.t then return a.t < b.t end
+            if a.n ~= b.n then return a.n < b.n end
+            return a.order < b.order
+        end)
+    end
+    local earliest -- the first reading of any of them
+    local golds = {}
+    for who, list in pairs(lists) do
+        local t = list[1] and list[1][1]
+        if t and (not earliest or t < earliest) then earliest = t end
+        golds[who] = GoldPoints(r, who, list)
+    end
+    local series = { mode = mode, all = all, periods = {}, heldSince = earliest, golds = golds }
+    local intake = Intake(r, char, cover)
+    local nameKeys, buys, posts, invoices = intake.nameKeys, intake.buys, intake.posts, intake.invoices
+    -- what your units cost and what the logs say you held (trade/Basis.lua; without the file, after a /reload that
+    -- did not load it yet, nothing is held)
+    local book = FM.BasisBook and FM.BasisBook(r, char, intake) or { cost = {}, HeldAt = function() return 0 end }
+    local flows = {} -- { t, copper } of the AH's money
+    for _, inv in ipairs(invoices) do
+        if inv.won then flows[#flows + 1] = { inv.t, -inv.money } end
+    end
     -- what you spent on the AH (purchases, won auctions, deposits) over time: the capital the percentages start from
     local spends = {}
     for _, b in ipairs(buys) do
@@ -404,10 +411,9 @@ local function Build(r, char, mode, now)
         if inv.won then spends[#spends + 1] = { inv.t, inv.money } end
     end
     for _, byKey in pairs(posts) do
-        for key, list in pairs(byKey) do
+        for _, list in pairs(byKey) do
             for _, post in ipairs(list) do
                 -- the deposit paid at posting: capital, and the AH's money (it comes back with the sale)
-                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0
                 spends[#spends + 1] = { post.t, post.deposit }
                 if post.deposit > 0 then flows[#flows + 1] = { post.t, -post.deposit } end
             end
@@ -421,17 +427,11 @@ local function Build(r, char, mode, now)
     end
     series.spends = spends
     for _, inv in ipairs(invoices) do
-        if inv.kind == "seller" then
-            -- the sale and its deposit back (before the first reading: less what the units cost you)
-            local cost = 0
-            local key = inv.t < ReadStart(inv.who) and nameKeys[inv.name]
-            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.sent)
-            if unit then cost = unit * inv.qty end
-            flows[#flows + 1] = { inv.t, inv.money - inv.cut + inv.deposit - cost }
-        end
+        -- the sale and its deposit back
+        if inv.kind == "seller" then flows[#flows + 1] = { inv.t, inv.money - inv.cut + inv.deposit } end
     end
     for _, b in ipairs(buys) do
-        if b.qty > 0 and b.t >= ReadStart(b.who) then flows[#flows + 1] = { b.t, -b.total } end
+        if b.qty > 0 then flows[#flows + 1] = { b.t, -b.total } end
     end
     table_sort(flows, function(a, b) return a[1] < b[1] end)
     local sum = 0
@@ -476,78 +476,60 @@ local function Build(r, char, mode, now)
         return periods[lo]
     end
 
-    -- what you hold from the AH, step by step between readings that saw the same (h, bank, mailbox): each step
-    -- counts in the period of its later reading, the first reading is the baseline, a step across a change of
-    -- what they saw (the first look at the bank) counts nothing. All characters: each character's own steps up
-    -- to its last reading without a joint part, then the steps of the joint line (its first reading is the
-    -- baseline again: the step onto it counts nothing, and so does one across a change of what all of them saw,
-    -- e.g. the first look at another character's bank)
-    for _, list in pairs(lists) do
-        for k = 2, #list do
-            local a, b = list[k - 1], list[k]
-            local p = PeriodOf(b[1])
-            if p and a[4] == b[4] and not (all and b[6]) then p.heldDelta = p.heldDelta + (b[3] - a[3]) end
-        end
+    -- what you held from the AH. Up to the first reading that counts (or until now without one): what the logs say,
+    -- the cost of your lots and the deposits out (the readings of 1.15 to 1.37 no longer count, see the top). From it
+    -- on: step by step between readings that saw the same (h, bank, mailbox; all characters: every one's), each step
+    -- in the period of its later reading; that first reading is the baseline, and a step across a change of what
+    -- they saw (the first look at the bank, or at another character's) or onto a reset reading counts nothing
+    local switch = counted[1] and counted[1].t or now
+    for _, p in ipairs(periods) do
+        if p.from < switch then p.heldDelta = book.HeldAt(math_min(p.to, switch)) - book.HeldAt(p.from) end
     end
-    for k = 2, #joint do
-        local a, b = joint[k - 1], joint[k]
-        local p = PeriodOf(b[1])
-        if p and a[7] == b[7] then p.heldDelta = p.heldDelta + (b[6] - a[6]) end
+    for k = 2, #counted do
+        local a, b = counted[k - 1], counted[k]
+        local p = PeriodOf(b.t)
+        if p and a.saw == b.saw and not b.reset then p.heldDelta = p.heldDelta + (b.held - a.held) end
     end
     -- the reading a live one is set against: its value and what it saw
-    if all then
-        local reading = joint[#joint]
-        if reading then series.lastHeld, series.lastSaw = reading[6], reading[7] end
-    else
-        local reading = lists[char][#lists[char]]
-        if reading then series.lastHeld, series.lastSaw = reading[3], reading[4] end
-    end
+    local reading = counted[#counted]
+    if reading then series.lastHeld, series.lastSaw, series.lastT = reading.held, reading.saw, reading.t end
 
-    -- own gear in what you held (FRV-93): the readings counted its units from when they reached you (the purchase, a
-    -- won auction's mail read) until they were equipped. Both steps are taken back where they landed (the first
-    -- reading of the line at or after the moment, or the reading of right now: series.liveFix), the arrival's with
-    -- the mark's value off, the equipping's with it back; none when no reading lies between them. A step that counted
-    -- nothing (the line's first reading, a change of what it saw) is not taken back either. All characters: the
-    -- joint line from its first reading on, before it the buyer's own. Gear the login check found worn (m.login) was
-    -- equipped at a moment nobody saw, so no step is taken back for it: its steps stay where they landed (its arrival's
-    -- gain and its equipping's drop add up to nothing), and a step back can neither move one into the wrong period nor
-    -- take back a drop no reading had (bought and equipped before the line's first reading)
+    -- own gear in what you held (FRV-93): the readings counted its units, at what they cost, from when they reached
+    -- you (the purchase, a won auction's mail read) until they were equipped. Both steps are taken back where they
+    -- landed (the first reading at or after the moment, or the reading of right now: series.liveFix), the arrival's
+    -- with the mark's value off, the equipping's with it back; none when no reading lies between them. A step that
+    -- counted nothing (the first reading, a change of what it saw, a reset) is not taken back either: before the
+    -- first reading the logs counted what you held, and they leave own gear out from the start. Gear the login check
+    -- found worn (m.login) was equipped at a moment nobody saw, so no step is taken back for it: its steps stay where
+    -- they landed (its arrival's gain and its equipping's drop add up to nothing), and a step back can neither move
+    -- one into the wrong period nor take back a drop no reading had (bought and equipped before the first reading)
     series.liveFix = 0
-    local liveLine = all and joint or lists[char]
-    local function LineAt(who, t)
-        if all and jointStart and t >= jointStart then return joint, true end
-        return lists[all and who or char], false
-    end
-    local function FirstFrom(list, t)
-        local lo, hi = 1, #list + 1
+    local function FirstFrom(t)
+        local lo, hi = 1, #counted + 1
         while lo < hi do
             local mid = math_floor((lo + hi) / 2)
-            if list[mid][1] >= t then hi = mid else lo = mid + 1 end
+            if counted[mid].t >= t then hi = mid else lo = mid + 1 end
         end
         return lo
     end
-    local function Fix(list, isJoint, k, delta)
-        if k > #list then
-            if list == liveLine then series.liveFix = series.liveFix + delta end
+    local function Fix(k, delta)
+        if k > #counted then
+            series.liveFix = series.liveFix + delta
             return
         end
         if k < 2 then return end
-        local a, b = list[k - 1], list[k]
-        local counts
-        if isJoint then counts = a[7] == b[7] else counts = a[4] == b[4] and not (all and b[6]) end
-        local p = counts and PeriodOf(b[1])
+        local a, b = counted[k - 1], counted[k]
+        local p = a.saw == b.saw and not b.reset and PeriodOf(b.t)
         if p then p.heldDelta = p.heldDelta + delta end
     end
-    for _, fix in ipairs(fixes) do
+    for _, fix in ipairs(intake.fixes) do
         for _, m in ipairs(fix.marks) do
             local value = m.value * m.units
-            local lineA, jointA = LineAt(fix.who, fix.arrival)
-            local lineM, jointM = LineAt(fix.who, m.t)
-            if value > 0 and lineA and lineM and not m.login then
-                local kA, kM = FirstFrom(lineA, fix.arrival), FirstFrom(lineM, m.t)
-                if not (lineA == lineM and kA == kM) then
-                    Fix(lineA, jointA, kA, -value)
-                    Fix(lineM, jointM, kM, value)
+            if value > 0 and not m.login then
+                local kA, kM = FirstFrom(fix.arrival), FirstFrom(m.t)
+                if kA ~= kM then
+                    Fix(kA, -value)
+                    Fix(kM, value)
                 end
             end
         end
@@ -558,12 +540,11 @@ local function Build(r, char, mode, now)
         if p and inv.won then
             Add(p.bought, inv.name, inv.qty, inv.money)
         elseif p and inv.kind == "seller" then
-            -- sales, and the ones under what you paid
+            -- sales, and the ones under what their units cost you (bought, or crafted from bought materials)
             local net = inv.money - inv.cut
             Add(p.sold, inv.name, inv.qty, net)
-            local key = nameKeys[inv.name]
-            local unit = key and CostBefore(buysByKey[key], inv.qty, inv.sent)
-            if unit and unit * inv.qty - net >= 1 then AddLoss(p, "under", inv.name, inv.qty, unit * inv.qty - net) end
+            local cost = book.cost[inv]
+            if cost and cost - net >= 1 then AddLoss(p, "under", inv.name, inv.qty, cost - net) end
         end
     end
     -- commodity purchases, judged against the usual price before them
@@ -664,12 +645,22 @@ function FM.PerfSeries(modeId, now, scope)
     local last = periods[#periods]
     -- the last period: the AH's money until now, and a reading of right now as one more step after the last one
     last.flow = FlowAt(series.flows, now + 1)
-    local liveGold, liveHeld, liveSeen, liveAll, liveSaw
-    if FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw = FM.WorthNow() end
+    local liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts
+    if FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts = FM.WorthNow(true) end
     if all then liveHeld, liveSeen = liveAll, liveSaw end
     -- own gear equipped since the last reading: its drop in the live step is taken back (series.liveFix, FRV-93)
     local liveStep = (liveGold and series.lastSaw and series.lastSaw == liveSeen)
         and (liveHeld - series.lastHeld + (series.liveFix or 0)) or 0
+    -- a live reading that rose by more than your purchases explain is a mistake, never a gain (FRV-106): no step
+    if liveStep > 0 and liveParts and FM.HeldJump then
+        local sold = 0
+        for _, e in ipairs(liveParts.own.sold) do sold = sold + e.money end
+        if FM.HeldJump(r, char, series.lastT, series.lastHeld, liveHeld, sold, all and liveParts.all.others or 0) > 0 then
+            liveStep, series.liveLeftOut = 0, true
+        else
+            series.liveLeftOut = nil
+        end
+    end
     if all then
         -- your gold: this character's right now, the others' as last recorded
         local gold = liveGold

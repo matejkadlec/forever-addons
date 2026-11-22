@@ -294,7 +294,8 @@ H.test("characters: a new full-name key does not log the mail it logged under it
         local sentMinutes = math.floor((NOW - 86400 - FM.EPOCH) / 60)
         r.mailSeen = {}
         if loggedUnderFirstName then
-            r.mailSeen[table.concat({ "Tester", "seller", "Silk Cloth", "Buyer", B(1), B(1000), B(1000) }, "|")] = B(sentMinutes)
+            -- the key of a logged mail has no player's name (FRV-106): its field stays empty
+            r.mailSeen[table.concat({ "Tester", "seller", "Silk Cloth", "", B(1), B(1000), B(1000) }, "|")] = B(sentMinutes)
         end
         env.GetInboxNumItems = function() return 1 end
         env.GetInboxHeaderInfo = function() return nil, nil, nil, "Auction successful", nil, nil, 29 end
@@ -320,7 +321,7 @@ H.test("characters: mail the other same-name character logs after the switch is 
     r.charInfo.Tester = { guid = "Player-1-A" }
     r.charInfo["Tester Second"] = { guid = "Player-1-B", since = NOW - 3 * 86400 } -- the key began 3 days ago
     H.eq(FM.PlayerName(), "Tester Second", "the full-name key")
-    local base = table.concat({ "seller", "Silk Cloth", "Buyer", B(1), B(1000), B(1000) }, "|")
+    local base = table.concat({ "seller", "Silk Cloth", "", B(1), B(1000), B(1000) }, "|")
     local minutes = function(daysAgo) return math.floor((NOW - daysAgo * 86400 - FM.EPOCH) / 60) end
     -- the first-name character logged an identical sale a day ago (after the switch) and one 10 days ago
     r.mailSeen = { ["Tester|" .. base] = B(minutes(1)) .. "," .. B(minutes(10)) }

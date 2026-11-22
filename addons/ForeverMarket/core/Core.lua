@@ -410,20 +410,104 @@ local function HoldsMarketData(stray)
     return false
 end
 
+-- Whether every character a stray bucket knows by GUID is the realm bucket's character of the same key: then the
+-- sessions behind it were this realm's own (FRV-106)
+local function SameCharacters(stray, r)
+    local any = false
+    for key, info in pairs(type(stray.charInfo) == "table" and stray.charInfo or {}) do
+        if type(info) == "table" and type(info.guid) == "string" then
+            local own = type(r.charInfo) == "table" and r.charInfo[key]
+            if type(own) ~= "table" or own.guid ~= info.guid then return false end
+            any = true
+        end
+    end
+    return any
+end
+
+-- The logs of a realm bucket and the moment a line of each belongs to (an AH mail: when it was read, as the log is
+-- written)
+local STRAY_LOGS = {
+    invoices = function(line)
+        local f = FM.Split(line, ",")
+        return FM.Unstamp(f[11]) or FM.Unstamp(f[1])
+    end,
+    posts = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    events = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    gold = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    buys = function(line) return tonumber(line:match("^(%d+),")) end,
+    crafts = function(line) return tonumber(line:match("^(%d+),")) end,
+}
+
+-- The logs of a stray bucket into the realm's, each line at its moment (a line the realm's log holds already is not
+-- taken twice). Returns how many lines came over
+local function MergeStrayLogs(r, stray)
+    local moved = 0
+    for name, timeOf in pairs(STRAY_LOGS) do
+        local from = type(stray[name]) == "table" and stray[name] or {}
+        if #from > 0 then
+            if type(r[name]) ~= "table" then r[name] = {} end
+            local list, have, rows = r[name], {}, {}
+            for i, line in ipairs(list) do
+                have[line] = true
+                rows[i] = { line = line, t = type(line) == "string" and timeOf(line) or 0, n = i }
+            end
+            for _, line in ipairs(from) do
+                if type(line) == "string" and not have[line] then
+                    rows[#rows + 1] = { line = line, t = timeOf(line) or 0, n = #rows + 1 }
+                    moved = moved + 1
+                end
+            end
+            table.sort(rows, function(a, b)
+                if a.t ~= b.t then return a.t < b.t end
+                return a.n < b.n
+            end)
+            for i, row in ipairs(rows) do list[i] = row.line end
+        end
+    end
+    -- the mails those sessions logged stay known as logged; deposits, names and watched items only where the realm
+    -- has none
+    if type(stray.mailSeen) == "table" then
+        if type(r.mailSeen) ~= "table" then r.mailSeen = {} end
+        for base, stamps in pairs(stray.mailSeen) do
+            if type(stamps) == "string" then
+                local known = r.mailSeen[base]
+                r.mailSeen[base] = (type(known) == "string" and known ~= "") and (known .. "," .. stamps) or stamps
+            end
+        end
+    end
+    for _, name in ipairs({ "deposits", "names", "watch" }) do
+        if type(stray[name]) == "table" then
+            if type(r[name]) ~= "table" then r[name] = {} end
+            for key, value in pairs(stray[name]) do
+                if r[name][key] == nil then r[name][key] = value end
+            end
+        end
+    end
+    return moved
+end
+
 -- Buckets an unreadable realm name made ("-Alliance", "?-Alliance"; FRV-92): the sessions behind them saw none of
 -- the real data, so their per-character readings (bags, Profit readings with nothing held) are wrong; their gold
--- lines are real and join the realm's own bucket, the rest goes. One with market data stays, and the chat says so
+-- lines are real and join the realm's own bucket, the rest goes. One with market data: when its characters are this
+-- realm's own (the same keys with the same GUIDs), its logs join the realm's too (FRV-106: the sales, purchases,
+-- posts and crafts of those sessions were missing from the Profit tab; in the maintainer's data 69 sale mails worth
+-- 54g of the night of 2026-11-21), and it goes as well (its item searches of those sessions with it: the realm's
+-- records of the same items are newer). Else it stays, and the chat says so
 local function FoldStrayBuckets(r, faction)
     for _, realm in ipairs({ "", "?" }) do
         local key = realm .. "-" .. faction
         local stray = FM.db.realms[key]
         if type(stray) == "table" and stray ~= r then
-            if HoldsMarketData(stray) then
-                FM.PrintError("Failed to fold the saved data under \"" .. key .. "\" into " .. FM.realmKey
-                    .. ": it holds market data. It stays saved apart, nothing is lost.")
-            else
+            if not HoldsMarketData(stray) then
                 for _, line in ipairs(type(stray.gold) == "table" and stray.gold or {}) do r.gold[#r.gold + 1] = line end
                 FM.db.realms[key] = nil
+            elseif SameCharacters(stray, r) then
+                local moved = MergeStrayLogs(r, stray)
+                FM.db.realms[key] = nil
+                FM.Print("Folded the saved data under \"" .. key .. "\" into " .. FM.realmKey .. ": lines of its logs (AH mail, posts, purchases, crafts, gold) moved over:", tostring(moved))
+            else
+                FM.PrintError("Failed to fold the saved data under \"" .. key .. "\" into " .. FM.realmKey
+                    .. ": it holds market data. It stays saved apart, nothing is lost.")
             end
         end
     end
@@ -452,6 +536,7 @@ function FM.R()
     FoldStrayBuckets(r, faction)
     if FM.MigrateRealm then FM.MigrateRealm(r) end
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, trade/Cost.lua)
+    if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
     return r
 end
 

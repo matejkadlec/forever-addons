@@ -7,7 +7,10 @@
 --     only realm saved for this faction, else "Server <id>"; while none of that decides it, the session keeps nothing
 --     and looks again on the next call
 --   * a bucket an unreadable realm made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and
---     goes, unless it holds market data: then it stays and the chat says so; nothing of the realm's bucket changes
+--     goes. One that holds market data gives its logs too (AH mail, posts, purchases, crafts, each line at its
+--     moment) when its characters are the realm's own, the same keys with the same GUIDs (FRV-106); else it stays
+--     and the chat says so, and nothing of the realm's bucket changes
+--   * the crafts ForeverArtisan counted of a recipe add up over the character's entries (FRV-106)
 --   * ForeverArtisan (keys "Name-Realm-GUIDPART") then writes a second entry "Name--GUIDPART": both are the
 --     character's; recipes come from the one read last, the skill is the highest
 
@@ -132,6 +135,65 @@ H.test("realm: a stray bucket with market data stays and the chat says so", func
     local FM2, env2 = Load({ ["Old Realm-Alliance"] = Bucket(GUID), ["-Alliance"] = killed }, "", GUID)
     FM2.R()
     H.eq(env2.ForeverMarketDB.realms["-Alliance"], killed, "farm kills are data too")
+end)
+
+-- Rule (FRV-106): the sessions of 2026-11-20/21 wrote a night of sales under "-Alliance". Such a bucket's character is
+-- the realm's own (the same key and GUID), so its logs join the realm's, each line where its moment puts it
+H.test("realm: a stray bucket of the realm's own character gives its logs to the realm and goes", function()
+    local main = Bucket(GUID)
+    main.invoices = { "a05z,Tester,seller,Silk Cloth,,5,2s,5,0,5,a060", "a09z,Tester,seller,Silk Cloth,,5,2s,5,0,5,a0a0" }
+    main.buys = { "1795230000,4306,5,100,Tester", "1795240000,4306,5,100,Tester" }
+    main.mailSeen = { ["Tester|seller|Silk Cloth||5|2s|5"] = "a05z" }
+    main.deposits = { ["4306"] = { t = 1 } }
+    local stray = { charInfo = { Tester = { guid = GUID } },
+        invoices = { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z" },
+        posts = { "a082,Tester,8174,a,b71,2,i,37emut" },
+        buys = { "1795236907,8150,102,31037,Tester" },
+        crafts = { "1795236947,8172,1,1,Tester,10482,8169:1::102/8150:1:304:102" },
+        gold = { "a074,Tester,1orl" },
+        mailSeen = { ["Tester|seller|Tasty Lion Steak||r|8b9|r"] = "a07z", ["Tester|seller|Silk Cloth||5|2s|5"] = "a07a" },
+        deposits = { ["4306"] = { t = 2 }, ["8174"] = { t = 3 } },
+        worth = { Tester = { "a07y,211f,0,h,0,c64s" } } }
+    local FM, env = Load({ ["Old Realm-Alliance"] = main, ["-Alliance"] = stray }, "", GUID)
+    local r = FM.R()
+    H.eq(env.ForeverMarketDB.realms["-Alliance"], nil, "the stray bucket is gone")
+    H.same(r.invoices, { main.invoices[1], "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z",
+        "a09z,Tester,seller,Silk Cloth,,5,2s,5,0,5,a0a0" }, "its sale mail between the realm's, by when it was read")
+    H.same(r.buys, { "1795230000,4306,5,100,Tester", "1795236907,8150,102,31037,Tester", "1795240000,4306,5,100,Tester" },
+        "its purchase between the realm's")
+    H.same(r.posts, { "p1", "a082,Tester,8174,a,b71,2,i,37emut" }, "its post")
+    H.same(r.crafts, { "1795236947,8172,1,1,Tester,10482,8169:1::102/8150:1:304:102" }, "its craft")
+    H.same(r.gold, { "a0,Tester,1", "a1,Tester,2", "a074,Tester,1orl" }, "its gold line")
+    H.same(r.mailSeen, { ["Tester|seller|Silk Cloth||5|2s|5"] = "a05z,a07a", ["Tester|seller|Tasty Lion Steak||r|8b9|r"] = "a07z" },
+        "the mails it logged stay known as logged")
+    H.same(r.deposits, { ["4306"] = { t = 1 }, ["8174"] = { t = 3 } }, "a measured deposit only where the realm has none")
+    H.eq(r.worth.Tester, nil, "its Profit reading is not taken")
+    H.eq(env.printed[#env.printed]:find("Folded the saved data", 1, true) ~= nil, true, "the chat says so")
+    -- the same bucket under another character's GUID is not this realm's to take
+    local other = { charInfo = { Tester = { guid = "Player-99-0001" } }, invoices = { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z" } }
+    local FM2, env2 = Load({ ["Old Realm-Alliance"] = Bucket(GUID), ["-Alliance"] = other }, "", GUID)
+    FM2.R()
+    H.eq(env2.ForeverMarketDB.realms["-Alliance"], other, "another character's bucket stays")
+    H.eq(env2.printed[#env2.printed]:find("holds market data", 1, true) ~= nil, true, "and the chat says so")
+end)
+
+-- Rule (FRV-106): a learned recipe alone does not say that you craft the item; ForeverArtisan's count of your crafts
+-- of it does, added up over the character's entries (the one from before the realm name went missing and the new one)
+H.test("realm: the crafts ForeverArtisan counted of a recipe add up over the character's entries", function()
+    local FM, env = Load({ ["Old Realm-Alliance"] = Bucket(GUID) }, "", GUID)
+    env.UnitName = function() return "Tester" end
+    local function Recipes()
+        return { ["Comfortable Leather Hat"] = { itemId = 8174, learned = true, reagents = { { id = 4234, n = 12 } } },
+            ["Heavy Leather"] = { itemId = 4234, learned = true, reagents = { { id = 2319, n = 5 } } } }
+    end
+    env.ForeverArtisanLeatherworkingDB = { chars = {
+        ["Tester-Old Realm-00CB83C3"] = { skill = 215, skillMax = 225, scanned = 500, recipes = Recipes(),
+            log = { ["Comfortable Leather Hat"] = { n = 65, lastSeen = "2026-11-20" } } },
+        ["Tester--00CB83C3"] = { skill = 225, skillMax = 225, scanned = 900, recipes = Recipes(),
+            log = { ["Comfortable Leather Hat"] = { n = 6, lastSeen = "2026-11-22" } } } } }
+    local sources = FM.BuildSources()
+    H.eq(sources.byKey["8174"].made, 71, "65 crafts under the old entry and 6 under the new one")
+    H.eq(sources.byKey["4234"].made, 0, "a learned recipe nobody saw crafted")
 end)
 
 H.test("realm: ForeverArtisan's two entries of a character: recipes of the one read last, the highest skill", function()

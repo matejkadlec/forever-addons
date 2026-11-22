@@ -208,8 +208,8 @@ local function Render()
     p.title:SetText(series.all and "AH result, all characters" or "AH result")
     p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%s%s|r",
         series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY,
-        series.all and "items your characters bought there (usual price) and their auctions' deposits"
-            or "items bought there (usual price) and your auctions' deposits"))
+        series.all and "items your characters bought there or crafted from them (at cost) and their auctions' deposits"
+            or "items bought there or crafted from them (at cost) and your auctions' deposits"))
     p.empty:Hide()
 
     -- the line from 0 at the plot's left edge (green when the range went up, red when down), dots colored by their
@@ -248,7 +248,7 @@ function FM.PerfFooter()
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
     if series and series.all then parts[#parts + 1] = "all your characters together" end
-    parts[#parts + 1] = "AH only: sales after the cut, less overpaying, selling under cost and lost deposits; buying and posting move gold into items"
+    parts[#parts + 1] = "AH only: sales after the cut, less what the sold units cost you and lost deposits; buying, crafting and posting move gold into items"
     parts[#parts + 1] = "% of what you had spent on the AH by the dot plus the result before"
     if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end
     parts[#parts + 1] = "hover a dot"

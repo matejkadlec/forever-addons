@@ -93,6 +93,7 @@ local function ParseCraft(line)
     if #c.mats == 0 then c.total = nil end
     return c
 end
+FM.ParseCraft = ParseCraft -- trade/Basis.lua replays the crafts for the Profit tab
 
 -- The lots you still hold of an item after a craft took `used` of the `held` units you had (oldest first, lots
 -- are { qty, unit|nil, src, craft }): the newest lots covering `held` were yours, older ones had already left; units

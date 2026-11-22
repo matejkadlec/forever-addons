@@ -30,6 +30,7 @@ local function PrintHelp()
     PrintHelpLine("chars", "Your characters on this realm and faction: gold, last seen, saved bags, bank and mailbox")
     PrintHelpLine("forget <name>", "Forget a deleted, renamed or moved character (its logs stay)")
     PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it) and its history window")
+    PrintHelpLine("held", "What the Profit tab's \"Held from the AH\" is made of, now and in its last readings")
     PrintHelpLine("tooltip <on|off>", "AH price, cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
@@ -198,6 +199,8 @@ local function HandleSlash(msg)
         Forget(rest)
     elseif command == "item" then
         ItemSummary(rest)
+    elseif command == "held" then
+        FM.PrintHeld()
     elseif command == "tooltip" then
         Toggle("tooltip", arg, "Tooltip AH price, cost and sell prices")
     elseif command == "autoscan" then
