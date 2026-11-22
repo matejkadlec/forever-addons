@@ -384,8 +384,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
     Flip / Stock), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
     explains), and since 1.35 (FRV-67) **On AH** (yours grey in brackets), **C/8h** and **C/24h**: the same cells, header
-    tips and sorting as on Craft, the numbers of the pick's own market row (the product of a craft or a recipe to
-    learn, the item of a vendor resell or a flip; `pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
+    tips and sorting as on Craft, the numbers of the pick's item (the product of a craft or a recipe to learn, the item
+    of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a locked
+    plan keeps its picks (`MarketRow` in ui/Table.lua); an item no tab holds now keeps the numbers the pick was made with
+    (`pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
     snapshot's own units; the tooltip's "you list" (Room on the AH) also counts your posts since, so the two can differ
     (the On AH header tip says so). The Pick column gave up width for them (420 to 278 px). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
     behind it (`pick.expected`, `pick.listHours`, a tie goes to 8h; sorting uses the shown value): what buyers take

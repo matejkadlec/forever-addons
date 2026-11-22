@@ -381,8 +381,25 @@ local function ExpectedCell(p)
     return P1g(p.expected) .. GREY .. string_format(" %dh", p.listHours or 8) .. "|r"
 end
 
+-- A pick's item in the pass shown (FRV-67): a locked plan keeps its pick objects through later passes, but On AH, C/8h
+-- and C/24h are the latest snapshot's as on Craft, Vendor and Flip. Any row of the item has the same numbers (its
+-- listings and circulation); an item no tab holds now keeps the numbers the pick was made with (trade/Picks.lua)
+local marketTrade, marketRows
+local function MarketRow(p)
+    local trade = FM.trade
+    if trade ~= marketTrade then
+        marketTrade, marketRows = trade, {}
+        for _, list in ipairs({ trade and trade.crafts, trade and trade.learn, trade and trade.vendor, trade and trade.flips }) do
+            for _, row in ipairs(list or {}) do
+                if marketRows[row.key] == nil and row.qty ~= nil then marketRows[row.key] = row end
+            end
+        end
+    end
+    return marketRows[p.key] or p
+end
+
 -- 9 columns in 932 px (FRV-67): the steps line under a pick spans the whole row, so the Pick column gave up its width
--- to On AH, C/8h and C/24h, the numbers of the pick's own market row (trade/Picks.lua copies them)
+-- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow)
 local PICK_COLUMNS = {
     { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
         sort = function(p) return p.rank end },
@@ -394,9 +411,16 @@ local PICK_COLUMNS = {
     { title = "Conf.", tip = CONF_TIP, width = 70, text = function(p)
         return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
     end, sort = function(p) return p.conf end },
-    { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = OnAH, sort = function(p) return p.qty end },
-    { title = "C/8h", tip = C8_TIP, width = 62, text = function(p) return Sold(p.sold12, p.soldWide, 8) end, sort = function(p) return p.sold12 end },
-    { title = "C/24h", tip = C24_TIP, width = 62, text = function(p) return Sold(p.sold12, p.soldWide, 24) end, sort = function(p) return p.sold12 end }
+    { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = function(p) return OnAH(MarketRow(p)) end,
+        sort = function(p) return MarketRow(p).qty end },
+    { title = "C/8h", tip = C8_TIP, width = 62, text = function(p)
+        local r = MarketRow(p)
+        return Sold(r.sold12, r.soldWide, 8)
+    end, sort = function(p) return MarketRow(p).sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 62, text = function(p)
+        local r = MarketRow(p)
+        return Sold(r.sold12, r.soldWide, 24)
+    end, sort = function(p) return MarketRow(p).sold12 end }
 }
 
 -- Favorites: one row per item, its best use among the tabs (highest PPG), the market numbers of that row
