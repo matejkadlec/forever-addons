@@ -157,23 +157,31 @@ end)
 --      never logged (its quote was over 20 s old), added as a line at the mail's time
 --   3. a line without a mail (not read yet, or gone) of an item the sniper buys, above its sniper price per unit: that
 --      price (an upper bound: the sniper never pays more)
--- r.buysRepaired = { t, fixed, added, capped } says what it did; a chat line too
+-- A line without a character (before 1.15.5) takes a mail of any character, as the Profit tab matches it. Then the
+-- craft log follows (FM.RepairCraftBasis, trade/Crafts.lua). r.buysRepaired = { t, fixed, added, capped, crafts } says
+-- what it did; a chat line too
 local BUYS_REPAIR = 1
 local REPAIR_MATCH = 15 * 60
 
+-- The buyer mails by "char|item name|units", and the same mails by "item name|units" for a line without a character
+-- (before 1.15.5: it counts for every character, as trade/Performance.lua matches it): { { sent, money }, ... }
 local function MailsOf(r)
-    local out = {} -- "char|item name|units" -> { { sent, money }, ... }
+    local out, anyChar = {}, {}
     for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
         local f = FM.Split(line, ",")
         local sent = f[3] == "buyer" and f[2] and f[4] and FM.Unstamp(f[1])
         local qty, money = FM.Dec(f[6]), FM.Dec(f[7])
         if sent and qty and money and money > 0 then
+            local m = { sent = sent, money = money }
             local k = f[2] .. "|" .. f[4] .. "|" .. qty
             out[k] = out[k] or {}
-            table.insert(out[k], { sent = sent, money = money })
+            table.insert(out[k], m)
+            local any = f[4] .. "|" .. qty
+            anyChar[any] = anyChar[any] or {}
+            table.insert(anyChar[any], m)
         end
     end
-    return out
+    return out, anyChar
 end
 
 function FM.RepairBuys(r)
@@ -182,7 +190,7 @@ function FM.RepairBuys(r)
     local buys = type(r.buys) == "table" and r.buys or nil
     if not buys or #buys == 0 then return nil end
     local names = type(r.names) == "table" and r.names or {}
-    local mails = MailsOf(r)
+    local mails, anyChar = MailsOf(r)
     local saved = type(r.snipe) == "table" and type(r.snipe.saved) == "table" and r.snipe.saved or {}
     local lines, hasLines, first = {}, {}, nil
     for _, line in ipairs(buys) do
@@ -200,7 +208,7 @@ function FM.RepairBuys(r)
     -- 1. each line its purchase's mail
     for _, l in ipairs(lines) do
         local name = l.key and names[l.key]
-        local list = name and l.who ~= "" and mails[l.who .. "|" .. name .. "|" .. l.qty]
+        local list = name and (l.who ~= "" and mails[l.who .. "|" .. name .. "|" .. l.qty] or (l.who == "" and anyChar[name .. "|" .. l.qty]))
         local best, gap
         for _, m in ipairs(list or {}) do
             local d = math.abs(m.sent - l.t)
@@ -249,16 +257,21 @@ function FM.RepairBuys(r)
         if ta ~= tb then return ta < tb end
         return a < b
     end)
+    local old = {}
+    for i, line in ipairs(buys) do old[i] = line end
     for i, index in ipairs(order) do
         local l = lines[index]
         buys[i] = l.raw or string.format("%d,%s,%d,%d,%s", l.t, l.key, l.qty, math_floor(l.total + 0.5), l.who or "")
     end
-    local result = { t = FM.Now(), fixed = fixed, added = added, capped = capped }
+    -- the crafts made from those purchases recorded their materials' basis from the old log (trade/Crafts.lua)
+    local crafts = 0
+    if fixed + added + capped > 0 and FM.RepairCraftBasis then crafts = FM.RepairCraftBasis(r, old) or 0 end
+    local result = { t = FM.Now(), fixed = fixed, added = added, capped = capped, crafts = crafts }
     r.buysRepaired = result
     if fixed + added + capped > 0 and C_Timer and FM.Print then
         C_Timer.After(5, function()
-            FM.Print(string.format("Purchase log repaired (FRV-102): %d totals from your AH mail, %d purchases added that were never logged, %d capped at your sniper price.",
-                fixed, added, capped))
+            FM.Print(string.format("Purchase log repaired (FRV-102): %d totals from your AH mail, %d purchases added that were never logged, %d capped at your sniper price, %d crafts' material cost worked out again.",
+                fixed, added, capped, crafts))
         end)
     end
     return result

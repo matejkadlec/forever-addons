@@ -7,14 +7,18 @@
 --     the same item and units, also when the confirm comes before the quote; a quote of another purchase never does
 --   * the repair: a line gets the total of its purchase's buyer mail (the same character, item, units, sent within
 --     15 minutes); a mail of an item the log holds, with no line, after the first line, is added at its time; a line
---     without a mail of a sniped item above the sniper price gets that price; everything else stays; once per bucket
+--     without a mail of a sniped item above the sniper price gets that price; everything else stays; once per bucket;
+--     a line without a character (before 1.15.5) takes a mail of any character, so its mail is never added again
+--   * then the craft log: a craft's material basis moves by what the mended purchases change (replayed in time order
+--     with the log before and after), its unrecorded units keep the price recorded for them, a craft's product passes
+--     its new basis on; a material the old replay does not reproduce stays as it was
 -- The server's answers are faked here; the in-game test checks a real purchase.
 
 local H = require("harness")
 local F = require("fixtures")
 
 local B = F.Base36
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua", "trade/Cost.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua", "trade/Crafts.lua", "trade/Cost.lua" }
 local LEATHER, THICK = 2319, 4304
 local GOLD = 1000000
 
@@ -130,4 +134,52 @@ H.test("purchases: the repair takes each line's total from its mail, adds the pu
         string.format("%d,%d,2,150,Tester", t0 + 1000, LEATHER),
     }, "the mended log in time order")
     H.eq(FM.RepairBuys(r), nil, "once per bucket")
+end)
+
+H.test("purchases: a line without a character takes the mail of any character, and its mail is not added again", function()
+    local FM = Load()
+    local r = FM.R()
+    local t0 = FM.EPOCH + 10000 * 60 + 37
+    r.names = { [tostring(LEATHER)] = "Medium Leather" }
+    r.snipe = { saved = { [tostring(LEATHER)] = { p = 50 } } }
+    r.buys = {
+        string.format("%d,%d,1,55,Tester", t0 - 600, LEATHER),
+        string.format("%d,%d,20,9999", t0, LEATHER), -- before 1.15.5: no character; its mail is Tester's
+    }
+    r.invoices = { Mail(FM, t0 - 600, "Medium Leather", 1, 55), Mail(FM, t0 + 10, "Medium Leather", 20, 2000) }
+    r.buysRepair = nil
+    local result = FM.RepairBuys(r)
+    H.same({ result.fixed, result.added, result.capped }, { 1, 0, 0 }, "its total from the mail, nothing added or capped")
+    H.same(r.buys, {
+        string.format("%d,%d,1,55,Tester", t0 - 600, LEATHER),
+        string.format("%d,%d,20,2000,", t0, LEATHER),
+    }, "one line for the purchase, still without a character")
+end)
+
+H.test("purchases: the repair moves the crafts' material basis with the mended purchases, also through an intermediate", function()
+    local FM = Load()
+    local r = FM.R()
+    local t0 = FM.EPOCH + 10000 * 60 + 37
+    r.names = { [tostring(LEATHER)] = "Medium Leather" }
+    r.snipe = { saved = {} }
+    -- 40 bought, logged at the quote before (400 a unit); the mail says 4040 (101 a unit)
+    r.buys = { string.format("%d,%d,40,16000,Tester", t0, LEATHER) }
+    r.invoices = { Mail(FM, t0 + 10, "Medium Leather", 40, 4040) }
+    r.crafts = {
+        -- held 50: the purchase covers 40, 10 are unrecorded (the oldest, used first, 50c each when it was made):
+        -- 20 used = 10 x 50 + 10 x 400 = 4500 then, 10 x 50 + 10 x 101 = 1510 now
+        string.format("%d,5000,1,1,Tester,1,%d:20:4500:50", t0 + 60, LEATHER),
+        -- that product as the material of a later craft: its basis follows
+        string.format("%d,6000,1,1,Tester,2,5000:1:4500:1", t0 + 120),
+        -- a material the old replay does not reproduce (no unrecorded units, another total): kept
+        string.format("%d,7000,1,1,Tester,3,%d:5:9999:30", t0 + 180, LEATHER),
+    }
+    r.buysRepair = nil
+    local result = FM.RepairBuys(r)
+    H.eq(result.crafts, 2, "two craft lines worked out again")
+    H.same(r.crafts, {
+        string.format("%d,5000,1,1,Tester,1,%d:20:1510:50", t0 + 60, LEATHER),
+        string.format("%d,6000,1,1,Tester,2,5000:1:1510:1", t0 + 120),
+        string.format("%d,7000,1,1,Tester,3,%d:5:9999:30", t0 + 180, LEATHER),
+    }, "the mended craft log")
 end)

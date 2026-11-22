@@ -1051,13 +1051,18 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
-  bucket (1.36.3, FRV-102, `buysRepair` = 1, the counts in `buysRepaired` = { t, fixed, added, capped }, a chat line
-  says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a line
-  takes the total of its purchase's mail (the same character, item and units, sent within 15 minutes, the nearest
-  one); a mail of an item the log has lines of, sent after its first line, with no line is a purchase never logged
-  and is added at its time; a line without a mail of an item the sniper buys, above its sniper price per unit, gets
-  that price (an upper bound). On the maintainer's saved variables of 2026-11-22: 115 of 273 lines got their mail's
-  total, 49 purchases were added, 5 lines capped; today's sums then match the sniper's own records (Thick Leather 456
+  bucket (1.36.3, FRV-102, `buysRepair` = 1, the counts in `buysRepaired` = { t, fixed, added, capped, crafts }, a
+  chat line says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a
+  line takes the total of its purchase's mail (the same character, item and units, sent within 15 minutes, the
+  nearest one; a line without a character takes one of any character, as the Profit tab matches it); a mail of an
+  item the log has lines of, sent after its first line, with no line is a purchase never logged and is added at its
+  time; a line without a mail of an item the sniper buys, above its sniper price per unit, gets that price (an upper
+  bound). Then the craft log (`crafts`, 1.36.4): every craft's material basis was worked out from the log as it was,
+  so each character's crafts are replayed in time order with the old and the mended log (`FM.RepairCraftBasis`); a
+  material's copper moves by what the mended purchases change, its unrecorded units keep the price recorded for them,
+  a craft's product passes its new basis on, and a material the old replay does not reproduce stays as it was. On the
+  maintainer's saved variables of 2026-11-22: 117 of 273 lines got their mail's total, 35 purchases were added, 4
+  lines capped, 40 craft lines worked out again; today's sums then match the sniper's own records (Thick Leather 456
   units for 28g 60s 41c, Tender Crocolisk Meat 128 for 1g 19s 48c, Medium Leather 204 for about 96c a unit)
 * `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
