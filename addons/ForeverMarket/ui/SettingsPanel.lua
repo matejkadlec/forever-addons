@@ -83,7 +83,11 @@ local OPTIONS = {
     { key = "feedAuctionator", label = "Keep Auctionator's prices fed from our data (no Auctionator full scan needed)" },
     { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
-    { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" }
+    { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" },
+    -- the sniper (FRV-45): its two sounds, and a second wheel step (or Confirm click) for every purchase, which the game
+    -- may also switch on by itself when it blocks the automatic confirm
+    { key = "snipeSound", label = "Sniper: sounds for an offer and a purchase" },
+    { key = "snipeConfirmClick", label = "Sniper: confirm every purchase with a second wheel step" }
 }
 
 -- The number inputs (FRV-86); the ranges are FM.SETTING_RANGE in core/Core.lua

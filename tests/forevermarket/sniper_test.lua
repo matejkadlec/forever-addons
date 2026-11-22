@@ -9,6 +9,12 @@
 --   * a new number starts the count again, a new price alone keeps it; an item without a number buys what the
 --     budget allows, as before
 --   * a pick sends every AH purchase with its units; items sold per auction are skipped and named in one chat line
+--   * FRV-94: a refresh starts the budget again from your gold now (or the manual amount) and keeps what the sniper
+--     spent and bought today; only the daily reset zeroes that; not while a purchase waits for the server's answer
+--   * FRV-40: a row's Buy buys that row's hit through the same checks; a blocked call from it turns the buttons off and
+--     sniping goes on; a hit lives until its item's next result, at most 30 s; the banner names a purchase for 3 s;
+--     "Try again" after a stop starts sniping again
+--   * FRV-45: the sounds follow their setting
 -- The server's answers are faked here; whether the live client sends them like this is the in-game test's job.
 
 local H = require("harness")
@@ -92,7 +98,9 @@ H.test("sniper: a done item gets no hit, is not bought and the status says why",
     local started = #ah.started
     FM.SnipeBuyClick()
     H.eq(#ah.started, started, "nothing bought")
-    H.eq((FM.SnipeStatus()):find("Every item is done", 1, true) ~= nil, true, "the status names it")
+    H.eq((FM.SnipeStatus()):find("Bought 10", 1, true) ~= nil, true, "the banner names the purchase first (FRV-40)")
+    env.clock = env.clock + 4
+    H.eq((FM.SnipeStatus()):find("Every item is done", 1, true) ~= nil, true, "then the status names it")
 end)
 
 H.test("sniper: a purchase that fails gives its units back, one without an answer keeps them", function()
@@ -287,4 +295,230 @@ H.test("sniper: a click confirm the game blocks from the catcher counts nothing,
     H.eq(FM.SnipeBudgetInfo().total, 450, "its gold counted once")
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     H.eq(FM.SnipeItemState(tostring(LEATHER)).got, 5, "its units counted once")
+end)
+
+-- FRV-94: "Spent today" counts every sniper purchase of the day; a refresh (the window's button, or every opening
+-- with "Automatically refresh budget") starts the budget again from your gold now and keeps the day's gold and units
+H.test("sniper: a refresh starts the budget from your gold now and keeps what the sniper spent and bought today", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeSet(key, 100)
+    Offer(env, ah, LEATHER, 90, 10)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    env.money = GOLD - 900 -- the purchase took its gold
+    local info = FM.SnipeBudgetInfo()
+    H.eq(info.total, 900, "spent since the budget started")
+    H.eq(info.day, 900, "spent by the sniper today")
+    env.clock = env.clock + 60
+    H.eq(FM.SnipeRefreshBudget(), true, "refreshed")
+    info = FM.SnipeBudgetInfo()
+    H.eq(info.base, GOLD - 900, "the base is your gold now")
+    H.eq(info.total, 0, "nothing spent of the new budget")
+    H.eq(info.remaining, math.floor((GOLD - 900) / 2), "the whole new budget is left")
+    H.eq(info.day, 900, "the day's spending stays")
+    H.eq(info.since, env.clock, "since the refresh")
+    local state = FM.SnipeItemState(key)
+    H.eq(state.units, 10, "the day's units of the item stay")
+    H.eq(state.spent, 900, "and its gold")
+end)
+
+H.test("sniper: only the daily reset zeroes what the sniper spent today", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 10)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    env.clock = env.clock + 2 * 86400 -- past the daily reset
+    H.eq(FM.SnipeBudgetInfo(), nil, "yesterday's budget is gone")
+    FM.SnipeRefreshBudget()
+    local info = FM.SnipeBudgetInfo()
+    H.eq(info.day, 0, "nothing spent today")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).units, 0, "nothing bought today")
+end)
+
+H.test("sniper: no refresh while a purchase waits for the server's answer", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 10)
+    Buy(FM, env, ah, 90) -- confirmed, no answer yet
+    env.printed = {}
+    H.eq(FM.SnipeRefreshBudget(), false, "refused")
+    H.eq(FM.SnipeBudgetInfo().total, 900, "its gold stays in the budget it was confirmed in")
+    H.eq(env.printed[1]:find("Failed to refresh the budget", 1, true) ~= nil, true, "the chat says why")
+    env.printed = {}
+    H.eq(FM.SnipeRefreshBudget(true), false, "the window's automatic refresh is refused too")
+    H.eq(#env.printed, 0, "quietly")
+end)
+
+H.test("sniper: a budget saved before 1.34 counts its spending as the day's", function()
+    local FM = Load()
+    local s = FM.SnipeData()
+    s.budget.Tester = { base = GOLD, since = 1795100000, reset = 1795100000 + 3600, total = 1234, spent = { ["2318"] = 1234 } }
+    local info = FM.SnipeBudgetInfo()
+    H.eq(info.day, 1234, "the day's spending")
+    H.eq(info.total, 1234, "and the budget's")
+    H.eq(FM.SnipeItemState("2318").units, 0, "no units known")
+end)
+
+-- FRV-94: "Set budget manually": the budget is the amount typed in, a refresh starts it again from that amount
+H.test("sniper: a manual budget is the amount typed in, a refresh starts it again", function()
+    local FM, env, ah = Load()
+    local settings = FM.GetSettings()
+    settings.snipeManual = true
+    settings.snipeManualAmount = 5000 -- 50s
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 100, 1000)
+    H.eq(Hit(FM, LEATHER), 50, "50 units of 1s fit into 50s")
+    local info = FM.SnipeBudgetInfo()
+    H.eq(info.cap, 5000, "the cap is the amount")
+    H.eq(info.manual, true, "set manually")
+    H.eq(info.pct, nil, "no %")
+    Buy(FM, env, ah, 100)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.eq(FM.SnipeBudgetInfo().remaining, 0, "spent")
+    FM.SnipeRefreshBudget()
+    H.eq(FM.SnipeBudgetInfo().remaining, 5000, "a refresh starts it again from the amount")
+    H.eq(FM.SnipeBudgetInfo().day, 5000, "the day's spending stays")
+    settings.snipeManual = false
+    H.eq(FM.SnipeBudgetInfo().cap, GOLD * 0.5, "unchecked: the % again")
+end)
+
+-- FRV-40: a row's Buy buys that row's hit, the wheel the newest one
+H.test("sniper: Buy in a row buys that row's hit, the wheel still buys the newest", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(THICK), 500)
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, THICK, 400, 3)
+    env.clock = env.clock + 1
+    Offer(env, ah, LEATHER, 90, 5) -- the newest hit
+    FM.SnipeBuyRow(tostring(THICK))
+    H.same(ah.started, { { THICK, 3 } }, "the row's hit")
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 400, 1200)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    FM.SnipeBuyClick() -- a wheel step
+    H.same(ah.started[2], { LEATHER, 5 }, "the wheel buys the newest hit")
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 90, 450)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    FM.SnipeBuyRow(tostring(LEATHER))
+    H.eq(#ah.started, 2, "a row without a hit buys nothing")
+end)
+
+H.test("sniper: Buy in a row goes through the same checks: above your price is cancelled", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    FM.SnipeBuyRow(tostring(LEATHER))
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 150, 750) -- the server's price is dearer
+    H.eq(#ah.confirmed, 0, "not confirmed")
+    H.eq(FM.SnipeBudgetInfo().total, 0, "no gold counted")
+end)
+
+H.test("sniper: in click-confirm mode a row's Confirm confirms only its own waiting quote", function()
+    local FM, env, ah = Load()
+    FM.GetSettings().snipeConfirmClick = true
+    FM.SnipeSet(tostring(LEATHER), 100)
+    FM.SnipeSet(tostring(THICK), 500)
+    Offer(env, ah, LEATHER, 90, 5)
+    FM.SnipeBuyRow(tostring(LEATHER))
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 90, 450)
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).confirm, true, "its quote waits for a confirm")
+    FM.SnipeBuyRow(tostring(THICK))
+    H.eq(#ah.confirmed, 0, "another row's button confirms nothing")
+    FM.SnipeBuyRow(tostring(LEATHER))
+    H.same(ah.confirmed, { { LEATHER, 5 } }, "its own Confirm does")
+end)
+
+H.test("sniper: a purchase the game blocks from a Buy button turns the buttons off, sniping goes on", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    local start = ah.StartCommoditiesPurchase
+    ah.StartCommoditiesPurchase = function()
+        env.FireEvent("ADDON_ACTION_BLOCKED", "ForeverMarket", "C_AuctionHouse.StartCommoditiesPurchase")
+    end
+    FM.SnipeBuyRow(tostring(LEATHER))
+    H.eq(FM.SnipeButtonsOff(), true, "the buttons are off")
+    H.eq(FM.SnipeIsActive(), true, "sniping goes on")
+    H.eq(FM.SnipeHalted(), false, "not stopped")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).buying, false, "no purchase waits")
+    H.eq(env.printed[#env.printed]:find("Failed to buy with the Buy button", 1, true) ~= nil, true, "the chat says so")
+    ah.StartCommoditiesPurchase = start
+    Offer(env, ah, LEATHER, 90, 5)
+    FM.SnipeBuyRow(tostring(LEATHER))
+    H.eq(#ah.started, 0, "the button buys nothing any more")
+    H.eq((FM.SnipeStatus()):find("Scroll to buy", 1, true) ~= nil, true, "the banner names only the wheel")
+    FM.SnipeBuyClick()
+    H.same(ah.started, { { LEATHER, 5 } }, "the wheel buys")
+end)
+
+-- FRV-40: a hit lives until its item's next search result, at most 30 s (8 s before)
+H.test("sniper: a hit stays buyable up to 30 s, the next result of its item replaces it", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    env.clock = env.clock + 20
+    H.eq(Hit(FM, LEATHER), 5, "still there after 20 s")
+    env.clock = env.clock + 11
+    H.eq(Hit(FM, LEATHER), 0, "gone after 30 s")
+    Offer(env, ah, LEATHER, 90, 5)
+    ah.results[LEATHER] = {}
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", LEATHER) -- the offer is gone
+    H.eq(Hit(FM, LEATHER), 0, "the next result clears it")
+end)
+
+H.test("sniper: the banner shows a hit with its price per unit, then the purchase for 3 s", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 300)
+    Offer(env, ah, LEATHER, 210, 12)
+    local text, kind = FM.SnipeStatus()
+    H.eq(kind, "hit", "a hit")
+    H.eq(text:find("Scroll or click Buy: 12 ", 1, true) ~= nil, true, "the units")
+    H.eq(text:find("each)", 1, true) ~= nil, true, "the price per unit")
+    Buy(FM, env, ah, 210)
+    H.eq(select(2, FM.SnipeStatus()), "buying", "buying")
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    text, kind = FM.SnipeStatus()
+    H.eq(kind, "bought", "bought")
+    H.eq(text:find("Bought 12 ", 1, true) ~= nil, true, "names the purchase")
+    env.clock = env.clock + 4
+    H.eq(select(2, FM.SnipeStatus()), "watching", "then back to watching")
+end)
+
+H.test("sniper: after a stop, Try again starts sniping again without closing the window", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    ah.StartCommoditiesPurchase = function()
+        env.FireEvent("ADDON_ACTION_FORBIDDEN", "ForeverMarket", "C_AuctionHouse.StartCommoditiesPurchase")
+    end
+    FM.SnipeBuyClick()
+    H.eq(FM.SnipeHalted(), true, "stopped")
+    H.eq(FM.SnipeIsActive(), false, "not sniping")
+    H.eq(select(2, FM.SnipeStatus()), "stopped", "the banner is red")
+    H.eq(env.printed[#env.printed]:find("close and open", 1, true), nil, "the chat no longer says to close the window")
+    FM.SnipeStart() -- Try again
+    H.eq(FM.SnipeHalted(), false, "no longer stopped")
+    H.eq(FM.SnipeIsActive(), true, "sniping again")
+end)
+
+-- FRV-45: the two sounds follow their setting
+H.test("sniper: with the sounds off neither the hit nor the purchase plays one", function()
+    local FM, env, ah = Load()
+    local played = {}
+    env.SOUNDKIT = { MAP_PING = 1, LOOT_WINDOW_COIN_SOUND = 2 }
+    env.PlaySound = function(kit) played[#played + 1] = kit end
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.same(played, { 1, 2 }, "on: a ping for the hit, coins for the purchase")
+    FM.GetSettings().snipeSound = false
+    played = {}
+    env.PlaySound = function(kit) played[#played + 1] = kit end
+    Offer(env, ah, LEATHER, 90, 5)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.same(played, {}, "off: none")
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).units, 10, "the purchase is booked all the same")
 end)
