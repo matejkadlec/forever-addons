@@ -1,9 +1,10 @@
 local _, FM = ...
 
--- The line chart of the Profit tab (ui/Performance.lua) and of the price graph (ui/PriceGraph.lua), FRV-76: a y
--- scale with 4 grid lines and their labels, one dot per period joined by a line, date labels under it, an optional
--- dashed horizontal line with its label, and the dot nearest to the cursor reported to its owner for a tooltip. A
--- hollow dot (a ring) marks a period that carries an earlier value. Also shared: the Daily / Weekly / Monthly
+-- The line chart of the Profit tab (ui/Performance.lua) and of the item history (ui/PriceGraph.lua), FRV-76: a y
+-- scale with 4 grid lines and their labels, one dot per period joined by a line, date labels under it, optional
+-- horizontal lines with their labels (dashed or solid), and the dot nearest to the cursor reported to its owner for
+-- a tooltip. A hollow dot (a ring) marks a period that carries an earlier value. The item history adds (FRV-52) bars
+-- under the line on a scale of their own and small marks above a dot. Also shared: the Daily / Weekly / Monthly
 -- buttons, the coin format, the period titles and a tooltip with a small grey text in its top right corner.
 
 local type = type
@@ -20,6 +21,8 @@ local DOT, DOT_HOVER = 8, 13
 local HOLE = 2 -- a hollow dot's ring is this thick
 local INSET = 14 -- first and last dot from the plot's edges
 local DASH, DASH_GAP = 6, 4 -- the dashed line's pieces
+local BAR_SHARE = 0.3 -- the highest bar reaches this share of the plot's height
+local MARK = 5 -- a mark's size; marks stack above their dot
 local HOLE_RGB = { 0.05, 0.05, 0.05 } -- the inside of a hollow dot: the dark of the frames' inset
 local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
@@ -152,6 +155,12 @@ function FM.CreateChart(parent, geo, onHover)
         t:SetHeight(1)
         return t
     end)
+    c.bars = Pool(function() return f:CreateTexture(nil, "BORDER") end)
+    c.marks = Pool(function()
+        local t = f:CreateTexture(nil, "OVERLAY", nil, 2)
+        t:SetSize(MARK, MARK)
+        return t
+    end)
     -- a dot: a colored circle, and for a hollow one a dark circle inside it
     c.dots = Pool(function()
         local d = CreateFrame("Frame", nil, f)
@@ -215,9 +224,13 @@ end
 --   lineColor = { r, g, b }; yText(v) -> a grid label
 --   startValue = the line starts at the plot's left edge at this value (Profit: 0), nil = at the first dot
 --   withZero = 0 stays in the y range, minSpan = the smallest range shown (copper)
---   ref = { value, text, color = { r, g, b } } a dashed horizontal line with its label, nil = none }
+--   ref = { value, text, color = { r, g, b } } a dashed horizontal line with its label, nil = none
+--   refs = { { value, text, color, solid } } more of them (solid: a thin solid line)
+--   bars = { values = { v or nil per dot }, color = { r, g, b } } bars from the bottom on their own scale
+--   marks(i) -> { { r, g, b }, ... } small squares above dot i }
 function Chart:Draw(spec)
-    for _, pool in ipairs({ self.grid, self.labels, self.lines, self.dots, self.dashes }) do pool.used = 0 end
+    local pools = { self.grid, self.labels, self.lines, self.dots, self.dashes, self.bars, self.marks }
+    for _, pool in ipairs(pools) do pool.used = 0 end
     self.dotX = {}
     if self.hover then self:Hover(nil) end
     local values = spec.values or {}
@@ -229,7 +242,10 @@ function Chart:Draw(spec)
     for _, v in ipairs(values) do
         lo, hi = lo and math_min(lo, v) or v, hi and math_max(hi, v) or v
     end
-    if spec.ref then lo, hi = lo and math_min(lo, spec.ref.value) or spec.ref.value, hi and math_max(hi, spec.ref.value) or spec.ref.value end
+    local refs = {}
+    if spec.ref then refs[1] = spec.ref end
+    for _, ref in ipairs(spec.refs or {}) do refs[#refs + 1] = ref end
+    for _, ref in ipairs(refs) do lo, hi = lo and math_min(lo, ref.value) or ref.value, hi and math_max(hi, ref.value) or ref.value end
     if not lo then lo, hi = 0, 0 end
     local span = math_max(hi - lo, spec.minSpan or 100)
     if spec.withZero then
@@ -241,7 +257,7 @@ function Chart:Draw(spec)
     if hi <= lo then hi = lo + 1 end
     local plotBottom, plotTop = self.plotBottom, self.plotTop
     local function Y(v) return plotBottom + (v - lo) / (hi - lo) * (plotTop - plotBottom) end
-    if n > 0 or spec.ref or spec.withZero then
+    if n > 0 or refs[1] or spec.withZero then
         for k = 0, 3 do
             local v = lo + (hi - lo) * k / 3
             local y = Y(v)
@@ -253,20 +269,22 @@ function Chart:Draw(spec)
         end
     end
 
-    -- the dashed line, its label above its right end
-    if spec.ref then
-        local y = Y(spec.ref.value)
-        local rc = spec.ref.color or { 1, 0.6, 0.2 }
+    -- the horizontal lines, each label above its right end (a second one at its left end, so two labels never meet)
+    for k, ref in ipairs(refs) do
+        local y = Y(ref.value)
+        local rc = ref.color or { 1, 0.6, 0.2 }
         local x = self.plotLeft
         while x < self.plotRight do
             local t = Take(self.dashes)
-            t:SetColorTexture(rc[1], rc[2], rc[3], 0.85)
+            t:SetColorTexture(rc[1], rc[2], rc[3], ref.solid and 0.7 or 0.85)
             t:ClearAllPoints()
             t:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", x, y)
-            t:SetWidth(math_min(DASH, self.plotRight - x))
-            x = x + DASH + DASH_GAP
+            local piece = ref.solid and (self.plotRight - x) or math_min(DASH, self.plotRight - x)
+            t:SetWidth(piece)
+            x = x + piece + (ref.solid and 0 or DASH_GAP)
         end
-        local fs = self:Label(spec.ref.text or "", self.plotRight, y + 3, "BOTTOMRIGHT")
+        local fs = k == 1 and self:Label(ref.text or "", self.plotRight, y + 3, "BOTTOMRIGHT")
+            or self:Label(ref.text or "", self.plotLeft + 4, y + 3, "BOTTOMLEFT")
         fs:SetTextColor(rc[1], rc[2], rc[3])
     end
 
@@ -274,6 +292,15 @@ function Chart:Draw(spec)
     local width = self.plotRight - self.plotLeft - 2 * INSET
     local function X(i) return n == 1 and (self.plotLeft + self.plotRight) / 2 or self.plotLeft + INSET + (i - 1) * width / (n - 1) end
     local lc = spec.lineColor or { 1, 0.82, 0 }
+    -- the bars under the line: the highest reaches BAR_SHARE of the plot
+    local barValues = spec.bars and spec.bars.values or {}
+    local barMax = 0
+    for i = 1, n do
+        local v = barValues[i]
+        if type(v) == "number" and v > barMax then barMax = v end
+    end
+    local barW = math_max(2, math_min(10, (n > 1 and width / (n - 1) or 20) * 0.5))
+    local bc = spec.bars and spec.bars.color or { 0.6, 0.6, 0.6 }
     local prevX, prevY
     if spec.startValue then prevX, prevY = self.plotLeft, Y(spec.startValue) end
     local step = math_max(1, math_ceil(n / 7))
@@ -287,6 +314,20 @@ function Chart:Draw(spec)
             l:SetStartPoint("BOTTOMLEFT", self.frame, prevX, prevY)
             l:SetEndPoint("BOTTOMLEFT", self.frame, x, y)
         end
+        local bar = barValues[i]
+        if barMax > 0 and type(bar) == "number" and bar > 0 then
+            local t = Take(self.bars)
+            t:SetColorTexture(bc[1], bc[2], bc[3], 0.35)
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", x - barW / 2, plotBottom)
+            t:SetSize(barW, math_max(1, bar / barMax * (plotTop - plotBottom) * BAR_SHARE))
+        end
+        for k, mc in ipairs(spec.marks and spec.marks(i) or {}) do
+            local m = Take(self.marks)
+            m:SetColorTexture(mc[1], mc[2], mc[3], 1)
+            m:ClearAllPoints()
+            m:SetPoint("BOTTOM", self.frame, "BOTTOMLEFT", x, y + DOT / 2 + 3 + (k - 1) * (MARK + 2))
+        end
         local dot = Take(self.dots)
         local dc = spec.dotColor and spec.dotColor(i) or lc
         dot.fill:SetVertexColor(dc[1], dc[2], dc[3], 1)
@@ -296,5 +337,5 @@ function Chart:Draw(spec)
         dot:SetPoint("CENTER", self.frame, "BOTTOMLEFT", x, y)
         prevX, prevY = x, y
     end
-    for _, pool in ipairs({ self.grid, self.labels, self.lines, self.dots, self.dashes }) do HideRest(pool) end
+    for _, pool in ipairs(pools) do HideRest(pool) end
 end

@@ -322,7 +322,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
   unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). Last,
-  **Show price graph** (1.26, FRV-76) on every row of an item (all tabs but Farm and Profit): see Price graph.
+  **Show history** (1.26, FRV-76, "Show price graph" until 1.36) on every row of an item (all tabs but Farm and Profit):
+  see Item history.
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
 * **Favorites** = one row per favorite: its best use among Craft / Vendor / Flip / Learn (highest PPG), list at, on
   AH, circulating, and the tabs it is in; tooltip and clicks act on the row of its best use. Items in no tab show the
@@ -817,11 +818,15 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   and what happened in them are cached until a log changes; gold or bag changes redraw at most every 2 seconds.
   1.15.0-1.15.1 kept an hourly money log (`R.money`, removed at login) and readings of all items (left out).
 
-## Price graph (1.26, FRV-76: trade/PriceHistory.lua, ui/PriceGraph.lua, ui/Chart.lua)
+## Item history (1.26 the price graph, FRV-76; 1.37 the history, FRV-52: trade/PriceHistory.lua, ui/PriceGraph.lua, ui/Chart.lua)
 
-Right-click an item row of the market table > **Show price graph**: the item's price over time in its own window
-(movable, closes with its X or Escape, above the market table, which stays usable; another item replaces the one
-shown; the item's icon and name in the title, the position is saved in `priceGraphPos`).
+Right-click an item row of the market table > **Show history** (until 1.36 "Show price graph"), or `/fm item <link or
+ID>` (after its chat summary, the first item given): the item's price over time and your trading of it in its own
+window (760 × 620, movable, closes with its X or Escape, above the market table, which stays usable; another item
+replaces the one shown; the item's icon and name in the title, the position is saved in `priceGraphPos`). One window
+for both: FRV-52 asked for a history window before FRV-76 built the price graph, and builds on it; FRV-76's price
+(the average of a day's cheapest prices, carried days as hollow dots, never 0) and its Daily / Weekly / Monthly stay
+in place of FRV-52's median and 30 / 60 days.
 
 * **The price** is the cheapest unit price of others in each scan, what "List at" starts from: a deep record's
   othersMin once yours were among them, else its minimum (`FM.OthersMin`); a record with only your auctions says
@@ -855,6 +860,23 @@ shown; the item's icon and name in the title, the position is saved in `priceGra
 * Header: the latest dot's price and the change over the dots shown, when the item was seen first and last, and the
   break-even. The chart is the Profit tab's (`ui/Chart.lua`, shared since 1.26), the dots green when the price rose
   against the dot before, red when it fell.
+* **Bars** (1.37, FRV-52): the units that left the AH in each period (bought or taken down: Forever hides sellers,
+  as C/8h and C/24h count them), grey under the line on a scale of their own (the highest bar a third of the
+  chart's height): a deep or feed record's sold units (field 10) since the scan before, a daily rollup's (field 7);
+  an unchanged record adds none; a period without any record or rollup has no bar (not known), one whose scans saw
+  none leave has none either. The hover says "Left the AH 50 for 48s 10c" (their listed value, fields 12 and 8).
+* **The usual price** (1.37): a thin light blue solid line at the item's usual price now (`FM.UsualPrice`, the median
+  daily low of the last 7 days, the market table's tooltips' "Usual price"), labeled at its left end.
+* **Your trading** (1.37, `FM.ItemActivity`): your posts (`posts`), sales (the AH's sale mails, `invoices` "seller",
+  by the item's name) and purchases (the purchase log `buys`; for an item it has no line of, one sold per auction,
+  won auctions' mails, "buyer") of every character, as small squares above the period's dot (blue post, green sale,
+  orange purchase) and in the hover ("Posted 20 at 1s 05c", the units and the average price of the period).
+* **Under the chart** (1.37): Now (others' cheapest in the latest record and the units it listed), Usual, 3 days (the
+  lowest and highest cheapest price of others in the per-scan records of the last 72 hours, `FM.PriceRange3d`, with
+  the scans), C/8h and C/24h (the item's row in the market table's pass, else its own records, `FM.SoldPerDay`); then
+  your last 10 posts, sales and purchases of it, newest first (date, what, units, price per unit, and the character
+  when more than one appears), or "None in the logs: ...". The window draws again on new data, a new break-even or
+  new activity of the item.
 * Data range (measured on the maintainer's saved variables, 11/20/2026: about 6,850 items listed per day, a daily
   rollup line about 31 bytes): 365 days of daily rollups would be about 75 MB (the whole file is 23 MB today), so the
   daily rollups stay 60 days (`FM.LIMITS.rollupDays`, about 12.7 MB once full) and older days fold into monthly

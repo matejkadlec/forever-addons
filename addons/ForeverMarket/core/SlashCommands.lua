@@ -29,7 +29,7 @@ local function PrintHelp()
     PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("chars", "Your characters on this realm and faction: gold, last seen, saved bags, bank and mailbox")
     PrintHelpLine("forget <name>", "Forget a deleted, renamed or moved character (its logs stay)")
-    PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it)")
+    PrintHelpLine("item <item link or ID>", "Market summary of one item (and your crafts of it) and its history window")
     PrintHelpLine("tooltip <on|off>", "AH price, cost and sell prices on tooltips")
     PrintHelpLine("autoscan <on|off>", "Deep scan when the AH opens")
     PrintHelpLine("rescan <on|off>", "Deep scan again every 15 min while the AH is open")
@@ -102,6 +102,8 @@ local function ItemSummary(rest)
                 FM.FormatCount(bags or 0), FM.FormatCount((all or 0) - (bags or 0)), source))
         end
     end
+    -- and its history window (FRV-52, ui/PriceGraph.lua): the first item given
+    if FM.ShowPriceGraph then FM.ShowPriceGraph(keys[1]) end
 end
 
 -- /fm chars: name in class color, gold as last recorded, last seen, the saved readings and their age
