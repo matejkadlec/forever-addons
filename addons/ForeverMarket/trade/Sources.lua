@@ -886,15 +886,21 @@ local function StockSignature()
     return table.concat(parts, ",")
 end
 
--- The settled look: a change counts, and the plan follows when it is not locked and something shows it
+-- The settled look: a change counts, and the plan follows when it is not locked and something shows it. While a pass
+-- runs, it started with the stock before the change: a pass is queued behind it (FM.ComputeTrade queues, FM.EnsureTrade
+-- would return), else a sticky window alone, which has no tick, would stay one change behind
 function FM.CheckStock()
     local ok, sig = pcall(StockSignature)
     if not ok or sig == stockSig then return false end
     stockSig = sig
     FM.stockVersion = FM.stockVersion + 1
     local shown = (FM.TableShown and FM.TableShown()) or (FM.StickyShown and FM.StickyShown())
-    if FM.trade and not FM.trade.empty and FM.PicksLocked and not FM.PicksLocked() and shown and FM.EnsureTrade then
-        FM.EnsureTrade()
+    if FM.trade and not FM.trade.empty and FM.PicksLocked and not FM.PicksLocked() and shown then
+        if FM.TradeBusy and FM.TradeBusy() then
+            if FM.ComputeTrade then FM.ComputeTrade(false) end
+        elseif FM.EnsureTrade then
+            FM.EnsureTrade()
+        end
     end
     return true
 end

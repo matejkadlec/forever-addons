@@ -8,8 +8,9 @@
 --   * a change of what you hold counts once, 2 s after the last BAG_UPDATE_DELAYED (or bank slot change): several
 --     events in a row are one change, a move that changes no unit (sorting) none (FM.stockVersion)
 --   * "Lock plan after refresh" off: a change plans again at once while the table or a sticky window shows, else when
---     the table opens next (FM.EnsureTrade); on: nothing is computed, the plan keeps the version it was made with
---     (Refresh's tooltip compares them)
+--     the table opens next (FM.EnsureTrade); a change while a pass runs queues one more behind it (that pass started
+--     with the stock before); on: nothing is computed, the plan keeps the version it was made with (Refresh's tooltip
+--     compares them)
 
 local H = require("harness")
 local F = require("fixtures")
@@ -156,4 +157,28 @@ H.test("stock: lock on, a change of your bags or bank computes nothing, the plan
     H.eq(computes.n, 0, "the table's tick or opening computes nothing either")
     H.eq(FM.trade.pickStock, planned, "made with the stock before")
     H.eq(FM.stockVersion ~= planned, true, "Refresh's tooltip sees the change")
+end)
+
+H.test("stock: lock off, a change while a pass runs queues a pass behind it, with only a sticky window open", function()
+    local state = { bags = 5, bank = 0, api = 0 }
+    local FM, env = Load(state)
+    FM.GetSettings().tablePicksLock = false
+    FM.TableShown = function() return false end
+    FM.StickyShown = function() return true end
+    Moves(env, 1)
+    local computes = { n = 0 }
+    Planned(FM, computes)
+    local busy = true -- a pass started before the change (a deep scan's, the table's tick)
+    FM.TradeBusy = function() return busy end
+    -- FM.EnsureTrade returns while a pass runs: asking it then would drop the change
+    local ensures = 0
+    FM.EnsureTrade = function() ensures = ensures + 1 end
+    state.bags = 45
+    Moves(env, 1)
+    H.eq(computes.n, 1, "a pass is asked for while one runs: FM.ComputeTrade queues it behind the running one")
+    H.eq(ensures, 0, "not through FM.EnsureTrade, which would return")
+    busy = false
+    state.bags = 50
+    Moves(env, 1)
+    H.eq(ensures, 1, "not busy: FM.EnsureTrade plans when the stock changed")
 end)
