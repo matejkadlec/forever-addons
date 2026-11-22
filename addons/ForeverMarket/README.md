@@ -353,7 +353,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     hold and how the bank was counted.
   * Your bags and bank are an input of the plan (1.35, FRV-98): 2 s after the last bag event (`BAG_UPDATE_DELAYED`,
     a bank slot change) their units are compared with the last look, and a change (moving items between bags and bank,
-    crafting, looting, buying, mail taken out; not sorting) counts once (`FM.stockVersion`). With "Lock plan after
+    crafting, looting, buying, mail taken out; not sorting) counts once (`FM.stockVersion`); in combat (arrows,
+    reagents, potions used) the look waits for the end of the fight, which counts as one change. With "Lock plan after
     refresh" off the open table or a sticky window plans again at once (a pass that is running started with the stock
     before: one more is queued behind it), else the table when it opens next; locked, the
     plan stays and Refresh's tooltip says your bags or bank changed. Why the maintainer's pick read "48 from your

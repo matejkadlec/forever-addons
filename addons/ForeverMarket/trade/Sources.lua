@@ -860,7 +860,8 @@ end
 ---------------------------------------------------------------- changes of what you hold (FRV-98)
 -- FM.stockVersion counts the changes of your bags and bank (what FM.Owned reads): STOCK_SETTLE seconds after the
 -- last BAG_UPDATE_DELAYED or bank slot change, their units are compared with the last look, and a change counts
--- once (moving items within your bags does not). The plan stores the version it was made with (trade/Calc.lua):
+-- once (moving items within your bags does not); in combat the look waits for its end. The plan stores the version
+-- it was made with (trade/Calc.lua):
 -- with "Lock plan after refresh" off the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
 -- else when the table opens next); locked, the plan stays and Refresh's tooltip says your bags or bank changed.
 local STOCK_SETTLE = 2
@@ -905,12 +906,25 @@ function FM.CheckStock()
     return true
 end
 
+-- In combat every arrow, reagent or potion used changes your bags: the look waits for the end of the fight, which
+-- counts as one change (else a Hunter's Auto Shot would start a pass every shot or two)
+local stockAfterCombat = false
 local function StockMoved()
     stockWait = stockWait + 1
     local mine = stockWait
     C_Timer.After(STOCK_SETTLE, function()
-        if mine == stockWait then FM.CheckStock() end -- a later event waits for its own
+        if mine ~= stockWait then return end -- a later event waits for its own
+        if InCombatLockdown and InCombatLockdown() then
+            stockAfterCombat = true
+            return
+        end
+        FM.CheckStock()
     end)
 end
 FM.On("BAG_UPDATE_DELAYED", StockMoved)
 FM.On("PLAYERBANKSLOTS_CHANGED", StockMoved)
+FM.On("PLAYER_REGEN_ENABLED", function()
+    if not stockAfterCombat then return end
+    stockAfterCombat = false
+    StockMoved()
+end)

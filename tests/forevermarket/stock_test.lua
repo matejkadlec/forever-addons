@@ -6,7 +6,8 @@
 --     in it), else the last reading (this session's, or R.bank as saved when the bank last closed: after a relog);
 --     with no reading at all the client's count
 --   * a change of what you hold counts once, 2 s after the last BAG_UPDATE_DELAYED (or bank slot change): several
---     events in a row are one change, a move that changes no unit (sorting) none (FM.stockVersion)
+--     events in a row are one change, a move that changes no unit (sorting) none (FM.stockVersion); in combat (arrows,
+--     reagents) the look waits for its end: the fight is one change
 --   * "Lock plan after refresh" off: a change plans again at once while the table or a sticky window shows, else when
 --     the table opens next (FM.EnsureTrade); a change while a pass runs queues one more behind it (that pass started
 --     with the stock before); on: nothing is computed, the plan keeps the version it was made with (Refresh's tooltip
@@ -181,4 +182,31 @@ H.test("stock: lock off, a change while a pass runs queues a pass behind it, wit
     state.bags = 50
     Moves(env, 1)
     H.eq(ensures, 1, "not busy: FM.EnsureTrade plans when the stock changed")
+end)
+
+H.test("stock: in combat the look waits for the end of the fight, which counts as one change", function()
+    local state = { bags = 200, bank = 0, api = 0 }
+    local FM, env = Load(state)
+    FM.GetSettings().tablePicksLock = false
+    FM.TableShown = function() return true end
+    Moves(env, 1)
+    local computes = { n = 0 }
+    Planned(FM, computes)
+    local version = FM.stockVersion
+    local fighting = true
+    env.InCombatLockdown = function() return fighting end
+    for _ = 1, 5 do -- Auto Shot: an arrow at a time, the 2 s settle between shots
+        state.bags = state.bags - 1
+        Moves(env, 1)
+    end
+    H.eq(computes.n, 0, "no pass during the fight")
+    H.eq(FM.stockVersion, version, "no change counted yet")
+    fighting = false
+    env.FireEvent("PLAYER_REGEN_ENABLED")
+    env.FlushTimers()
+    H.eq(FM.stockVersion, version + 1, "the fight is one change")
+    H.eq(computes.n, 1, "planned once after it")
+    env.FireEvent("PLAYER_REGEN_ENABLED")
+    env.FlushTimers()
+    H.eq(computes.n, 1, "a fight without a change of your bags plans nothing")
 end)
