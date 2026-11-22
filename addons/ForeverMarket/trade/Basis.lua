@@ -131,8 +131,10 @@ function FM.LotsHeld(lots, Recipe, held)
 end
 
 -- The first reading of what a character (id "*": all of them together) really held: R.heldBase[id] =
--- "t|key=units;..." (scan/Worth.lua writes it once) -> t, { [key] = units }; nil without one
+-- "t|key=units;..." (scan/Worth.lua writes it once per rule, R.heldRule) -> t, { [key] = units }; nil without one
 function FM.HeldBase(r, id)
+    -- one taken under another rule of what a reading counts is not this one's (scan/Worth.lua takes it again)
+    if r.heldRule ~= FM.HELD_RULE then return nil end
     local text = type(r.heldBase) == "table" and r.heldBase[id]
     if type(text) ~= "string" then return nil end
     local stamp, list = text:match("^(%w+)|(.*)$")

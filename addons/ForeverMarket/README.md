@@ -830,9 +830,12 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   look held again. Units bought before that and still held leave what you hold when it passes them.
 * From the first reading at cost on, what you hold counts step by step between consecutive readings (the stored
   ones and one of right now), each step in the period of its later reading; that first reading is the baseline, and
-  a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + `c` counted at cost,
-  e.g. the first look at the bank) or onto a reading marked `r` counts nothing; such a reading doesn't replace the
-  earlier one of its hour. A reading marked `x` is skipped.
+  a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + the rule the reading
+  was made by, `c2`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
+  such a reading doesn't replace the earlier one of its hour, and neither does one that holds less than it (the
+  line keeps the level before a fall). A reading marked `x` is skipped. Only readings of the current rule count:
+  when what a reading counts changes, the rule's number does, the readings before tell their gold alone and the
+  base and the readings' parts are taken again (`heldRule`).
 * **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
   left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
   rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it
@@ -1134,12 +1137,12 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
-  apart; `seen` = `h` + `b` bank and / or `m` mailbox + `c` counted at cost (1.38: only such readings count for what
-  you held); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c2` = counted at cost (1.38: only readings of the
+  current rule count for what you held; 1.38.0 wrote `c`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
   hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
   baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
-  character and of all of them (sold auctions' units with them); `heldLog[char]` (1.38) the last 8 readings' parts
+  character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
   per place, joined by `.`: `b` bags, `k` bank, `m` mail, `a` auctions, `o` other characters; `b9.k4t` = 9 in the
   bags, 173 in the bank)

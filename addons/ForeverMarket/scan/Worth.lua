@@ -12,9 +12,10 @@ local _, FM = ...
 --   held = of each item with lots (bought on the AH or crafted from what you bought, not sold since: FM.BasisBook)
 --   the units you still hold (bags, bank, mailbox, purchases still in the mail, your auctions) at what they cost,
 --   plus the deposits of your running auctions and the money of sold ones still on its way by mail;
---   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + "c" (counted at cost, 1.38: only such readings count
---   for what you held): held counts in a change only between readings that saw the same, so the first look at the
---   bank is no gain (readings without "h" are from 1.15.0-1.15.1);
+--   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + the rule the reading was made by (FM.HELD_RULE, "c2":
+--   counted at cost, 1.38; only readings of the current rule count for what you held): held counts in a change only
+--   between readings that saw the same, so the first look at the bank is no gain (readings without "h" are from
+--   1.15.0-1.15.1);
 --   all, saw (1.24, FRV-37; older lines have neither) = the same of all your characters of this realm and faction
 --   together, as known at that moment: the lots of all of them, still held by any of them (this character live; the
 --   others from their saved bags, bank and mailbox, mail on its way between them, the account bank), plus the
@@ -25,6 +26,7 @@ local _, FM = ...
 --   new baseline (the step onto it counts nothing)
 -- R.heldBase[char], R.heldBase["*"] = "t|key=units;..."  the units of the first reading at cost, of the character and
 --   of all of them: what it did not find of your lots was gone by then (trade/Basis.lua)
+-- R.heldRule = the rule R.heldBase and R.heldLog were made by: under another rule both start again
 -- R.heldLog[char] = { "t|mark|scope|total|deposits|sold|key:units:value:places:made;...", ... }  the parts of the
 --   last readings, for /fm held
 -- R.bank[char]    = "t|id:all:free,..."     your bank as last seen
@@ -45,6 +47,13 @@ local string_sub = string.sub
 local string_find = string.find
 local table_concat = table.concat
 local table_sort = table.sort
+
+-- The rule a reading is made by: "c" (counted at cost, FRV-106) and its number. Only readings of the current rule count
+-- for what you held, and R.heldBase / R.heldLog start again under a new one. Bump the number whenever what a reading
+-- counts changes after a build ran on real saved variables: 1.38.0, a build of this pull request that was synced into
+-- the maintainer's game, wrote "c" (an auction gone from a list still counted as sold there)
+local RULE = "c2"
+FM.HELD_RULE = RULE
 
 local FAIR_HOURS = 72 -- the usual price looks at the snapshots of this many hours before a moment
 local FAIR_MIN = 3 -- snapshots needed to judge a purchase
@@ -284,11 +293,18 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 local shown = kind == "osold" and (f[9] == "s" or (stack and qty > 1 and unit == post.unit * qty)) or false
                 -- a commodity sells at its post's unit price
                 if stack then unit = post.unit end
-                -- left out: an auction that is running in the list after all (its units and the line's are more than
-                -- were posted, or no post tells), and the same line written twice by two lists around a broken one (a
-                -- count that fell, opart, is never written twice: the same line again is another sale)
+                -- left out: an auction that is in the list after all, running or shown sold (its units there and the
+                -- line's are more than were posted, or no post tells), and the same line written twice by two lists
+                -- around a broken one (a count that fell, opart, is never written twice: the same line again is
+                -- another sale)
                 local id = table_concat({ kind, aid or "", qty, unit }, ":")
                 local runs = (kind == "osold" or kind == "ogone") and aid and runningAid[aid]
+                -- for a line of an auction that was merely gone, the sales the list shows of it count as there too:
+                -- its sold rows are those units
+                if kind == "ogone" or (kind == "osold" and not shown) then
+                    local rows = aid and soldAid[aid]
+                    if rows then runs = (runs or 0) + rows end
+                end
                 local again = runs and (not post or qty + runs > post.qty)
                 local twice = kind ~= "opart" and aid and aid ~= "" and logged[id]
                 logged[id] = true
@@ -757,10 +773,10 @@ function FM.WorthNow(detail)
     place = "mail"
     local mailT, read = AddMailbox(type(r.mailbox) == "table" and r.mailbox[char], add)
     if read then seen = seen .. "m" end
-    -- what all characters saw is told without the "c": the others' records carry none, and the hash must be the same
-    -- whoever is logged in
+    -- what all characters saw is told without the rule: the others' records carry none, and the hash must be the
+    -- same whoever is logged in
     local places = seen
-    seen = seen .. "c"
+    seen = seen .. RULE
     InTransit(r, char, mailT or FM.loginAt or now, add)
     local notes = detail and { deposits = 0, sold = {} } or nil
     local money = Auctions(r, char, now, mailT, add, nil, notes)
@@ -855,7 +871,7 @@ local HELD_LOG_ITEMS = 12 -- items kept of each
 local PLACES = { { "bags", "b" }, { "bank", "k" }, { "mail", "m" }, { "auctions", "a" }, { "others", "o" } }
 FM.HELD_PLACES = PLACES
 
--- What a reading line saw: this character's "hbmc" and the hash of all of them together ("" before 1.24)
+-- What a reading line saw: this character's "hbmc2" and the hash of all of them together ("" before 1.24)
 local function Saw(line)
     local f = FM.Split(line, ",")
     return (f[4] or "") .. "," .. (f[6] or "")
@@ -984,7 +1000,8 @@ function FM.RecordWorth(force, atLogout)
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
     -- the first reading of what you really hold, of this character and of all of them: what it did not find of your
-    -- lots is gone (trade/Basis.lua)
+    -- lots is gone (trade/Basis.lua). Under a new rule it is taken again, and the readings' parts start again
+    if r.heldRule ~= RULE then r.heldBase, r.heldLog, r.heldRule = {}, {}, RULE end
     if type(r.heldBase) ~= "table" then r.heldBase = {} end
     do
         local wrote = false
@@ -1053,11 +1070,15 @@ function FM.RecordWorth(force, atLogout)
     local log = r.heldLog[char]
     -- one line per hour: a later reading of the same hour replaces it when it and the one before it saw the same
     -- (this character and all of them together) and carry the same mark; the first reading that saw something new
-    -- (e.g. the first look at the mailbox, or at another character's bank) is kept as the anchor of the steps after it
+    -- (e.g. the first look at the mailbox, or at another character's bank) is kept as the anchor of the steps after
+    -- it. A reading that holds less than the line of its hour never replaces it: the line keeps the level before the
+    -- fall, which a reading that comes back from it is set against (FM.HeldFall)
     local last, prev = list[#list], list[#list - 1]
     local lastT = last and FM.Unstamp(last:match("^(%w+),"))
+    local lastFields = last and FM.Split(last, ",") or {}
+    local fell = held < (Dec(lastFields[3]) or 0) or all < (Dec(lastFields[5]) or 0)
     if lastT and math_floor(lastT / 3600) == math_floor(now / 3600) and Saw(last) == what
-        and (not prev or Saw(prev) == what) and Mark(last) == mark and mark ~= "r" then
+        and (not prev or Saw(prev) == what) and Mark(last) == mark and mark ~= "r" and not fell then
         list[#list] = line
         if log[#log] and log[#log]:match("^(%w+)|") == last:match("^(%w+),") then log[#log] = detail else log[#log + 1] = detail end
     else

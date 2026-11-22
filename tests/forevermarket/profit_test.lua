@@ -7,13 +7,14 @@
 --     together = the units bought by any of them, less the sales of any of them, still held by any of them: the
 --     logged-in one live, the others from their saved bags, bank and mailbox, mail on its way between them, and the
 --     account bank
---   * a reading line is "t,gold,held,seen,all,saw": seen ends in "c" (counted at cost), saw changes when a reading
+--   * a reading line is "t,gold,held,seen,all,saw": seen ends in the rule it was made by ("c2": counted at cost),
+--     saw changes when a reading
 --     of any character appears (the first look at another character's bank); such a reading stays as its own line
 --     and its step counts nothing
 --   * AH result = the AH's money (sales after the cut and their deposit back, less purchases and deposits) + what you
 --     hold; "All characters" adds the money of all characters and uses what they hold together, "This character"
 --     counts the logged-in one alone
---   * the readings of 1.15 to 1.37 (no "c") no longer count: before the first reading at cost, what you held is
+--   * the readings of 1.15 to 1.37 (no rule) no longer count: before the first reading at cost, what you held is
 --     what the logs say (the cost of the units bought and not sold), and the step onto that reading counts nothing
 --   * the tab offers the choice only with more than one character with AH logs (posts, purchases, AH mail)
 --   * a mail with items to another character of yours is logged when the server confirms it, and counts as on its
@@ -100,7 +101,7 @@ H.test("profit: units one character bought and another holds count for all of th
     local gold, held, seen, all, saw = FM.WorthNow()
     H.eq(gold, 50000, "gold")
     H.eq(held, 0, "this character bought none of them")
-    H.eq(seen, "hc", "it saw its bags, counted at cost")
+    H.eq(seen, "hc2", "it saw its bags, counted at cost")
     H.eq(all, 10 * 100, "bought by one, held by another: 10 units at the 100 each cost")
     H.eq(type(saw) == "string" and saw ~= "", true, "what all of them saw")
     -- a sale by any character takes the units off again: 4 sold by this one leave 6 bought
@@ -122,7 +123,7 @@ H.test("profit: all characters hold the others' saved bags, bank and mailbox, ma
     state.bags[CLOTH] = 1
     local _, held, seen, all = FM.WorthNow()
     H.eq(held, 1 * 90, "this character: the 1 unit in its bags, at the 90 it cost")
-    H.eq(seen, "hmc", "it saw its bags and its mailbox")
+    H.eq(seen, "hmc2", "it saw its bags and its mailbox")
     H.eq(all, (1 + 5 + 10 + 2 + 3 + 7) * 90, "all of them: every place")
     -- only what was bought counts: with 20 bought, 20 of the 28 units held
     r.buys = nil
@@ -147,7 +148,7 @@ H.test("profit: a reading line holds this character and all of them; the first l
     local line = r.worth.Ada[1]
     local f = FM.Split(line, ",")
     H.eq(#f, 6, "six fields: " .. line)
-    H.eq(table.concat(f, ",", 1, 5), table.concat({ FM.Stamp(NOW - 3 * 3600), B(50000), B(400), "hmc", B(400) }, ","),
+    H.eq(table.concat(f, ",", 1, 5), table.concat({ FM.Stamp(NOW - 3 * 3600), B(50000), B(400), "hmc2", B(400) }, ","),
         "t, gold, held, seen, all: Ada's 5 units at the 80 each cost")
     local sawBefore = f[6]
     -- the other character's bank is seen for the first time, with 10 units of the item: not a gain
@@ -291,18 +292,18 @@ H.test("profit: readings from before 1.38 no longer count, the days before the f
     H.eq(alone.change, 600 - 30 - 4 * 100, "this character: the sale less what its units cost, nothing of the old readings")
     H.eq(together.change, 600 - 30 - 4 * 100, "all characters the same")
     -- a first reading at cost that holds less than the logs say (5 units, not 6): the step onto it counts nothing
-    r.worth.Ada[6] = Line(5, 500, "hbmc", 500, "x2")
+    r.worth.Ada[6] = Line(5, 500, "hbmc2", 500, "x2")
     H.eq(FM.PerfSeries("day", NOW, "char").change, 600 - 30 - 4 * 100, "the step from the logs onto the reading")
     H.eq(FM.PerfSeries("day", NOW, "char").heldNow, 500, "held now: the reading")
     -- from it on the readings count: 1 more unit gone
-    r.worth.Ada[7] = Line(4, 400, "hbmc", 400, "x2")
+    r.worth.Ada[7] = Line(4, 400, "hbmc2", 400, "x2")
     H.eq(FM.PerfSeries("day", NOW, "char").change, 600 - 30 - 4 * 100 - 100, "a step between two readings at cost")
     H.eq(FM.PerfSeries("day", NOW, "all").change, 600 - 30 - 4 * 100 - 100, "and of all characters")
     -- a reading left out ("x": it rose without a purchase) is skipped, one marked "r" is a new baseline
-    r.worth.Ada[8] = Line(3, 90400, "hbmc", 90400, "x2") .. ",x"
-    r.worth.Ada[9] = Line(2, 400, "hbmc", 400, "x2")
+    r.worth.Ada[8] = Line(3, 90400, "hbmc2", 90400, "x2") .. ",x"
+    r.worth.Ada[9] = Line(2, 400, "hbmc2", 400, "x2")
     H.eq(FM.PerfSeries("day", NOW, "char").change, 600 - 30 - 4 * 100 - 100, "a reading left out moves nothing, up or down")
-    r.worth.Ada[10] = Line(1, 2400, "hbmc", 2400, "x2") .. ",r"
+    r.worth.Ada[10] = Line(1, 2400, "hbmc2", 2400, "x2") .. ",r"
     H.eq(FM.PerfSeries("day", NOW, "char").change, 600 - 30 - 4 * 100 - 100, "the step onto a new baseline counts nothing")
 end)
 
@@ -310,7 +311,7 @@ H.test("profit: this character alone counts only its own money and readings", fu
     local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
     env.GetMoney = nil
     local function Line(hoursAgo, held)
-        return FM.Stamp(NOW - hoursAgo * 3600) .. "," .. B(1) .. "," .. B(held) .. ",hbmc," .. B(held) .. ",x1"
+        return FM.Stamp(NOW - hoursAgo * 3600) .. "," .. B(1) .. "," .. B(held) .. ",hbmc2," .. B(held) .. ",x1"
     end
     r.worth.Ada = { Line(30, 500), Line(20, 800) }
     r.worth.Bee = { Line(30, 500), Line(20, 800) }
@@ -338,7 +339,7 @@ H.test("profit: two won auctions of the same item within 12 hours are two purcha
     local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
     env.GetMoney = nil
     r.names["2488"] = "Fine Sword"
-    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbmc" }
+    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbmc2" }
     for _, hoursAgo in ipairs({ 5, 4 }) do
         r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(NOW - hoursAgo * 3600), "Ada", "buyer", "Fine Sword", "Seller", B(1),
             B(500), B(500), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")
@@ -357,7 +358,7 @@ end)
 H.test("profit: a logged commodity purchase and its mail count once", function()
     local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
     env.GetMoney = nil
-    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbmc" }
+    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbmc2" }
     Buy(r, NOW - 5 * 3600, CLOTH, 20, 2000, "Ada")
     r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(NOW - 5 * 3600), "Ada", "buyer", CLOTH_NAME, "Seller", B(20),
         B(2000), B(2000), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")

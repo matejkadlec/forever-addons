@@ -190,6 +190,17 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     H.eq(#parts.own.sold, 1, "one sale")
     H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the 10 units, once")
     H.eq(held, Round(80 * 700 + 10 * 994 * 0.95), "the running 80 at cost and the sale's money")
+    -- a list that was still loading missed the auction of 10 (a line without the mark), the next one shows it sold
+    -- in two parts: the rows are those units, the line adds none
+    r.events = {}
+    Gone(120, "x9", 10)
+    r.owned.Ada = { t = listT, list = table.concat({
+        table.concat({ "r1", "8172", B(80), B(994), "a", B(60000) }, ":"),
+        table.concat({ "x9", "8172", B(6), B(994), "s", B(1800) }, ":"),
+        table.concat({ "x9", "8172", B(4), B(994), "s", B(1700) }, ":") }, ","), v = 2 }
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(#parts.own.sold, 2, "the two sold rows")
+    H.eq(held, Round(80 * 700 + 10 * 994 * 0.95), "the 10 units once: as the sale's money, not held as well")
 end)
 
 -- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two
@@ -503,6 +514,61 @@ H.test("held: a reading that rises without a purchase to match is left out and s
     Reading(23.5, 57)
     H.eq(Mark(), "r", "after 12 hours: the new baseline")
     H.eq(Today(FM, env), sold, "the step onto it counts nothing")
+end)
+
+-- Rule: a reading that holds less than the line of its hour does not replace it, so the level before a fall stays
+-- saved and the reading that comes back is set against it
+H.test("held: a reading that misses units within the hour of the one before still heals at the next", function()
+    local FM, env, state, r = Session(nil, DAY1 + 9 * 3600 + 50 * 60)
+    local key = C.bracers.leather.key
+    r.mailbox.Ada = FM.Stamp(DAY1) .. "|0|"
+    Buy(r, DAY1 + 3600, key, 40, 20000)
+    state.bags[key] = 40
+    FM.RecordWorth(true) -- 09:50: 40 held
+    -- 37 more bought and taken out of the mail; 10:05 a reading with all 77
+    Buy(r, DAY1 + 10 * 3600, key, 37, 18833)
+    r.mailbox.Ada = FM.Stamp(DAY1 + 10 * 3600 + 120) .. "|0|"
+    env.clock = DAY1 + 10 * 3600 + 5 * 60
+    state.bags[key] = 77
+    FM.RecordWorth(true)
+    local lines = #r.worth.Ada
+    -- 10:20 a reading misses 50 of them: its own line, the one of 10:05 stays
+    env.clock = DAY1 + 10 * 3600 + 20 * 60
+    state.bags[key] = 27
+    FM.RecordWorth(true)
+    H.eq(#r.worth.Ada, lines + 1, "the lower reading does not replace the line of its hour")
+    H.eq(Today(FM, env) < 0, true, "a fall")
+    -- 10:35 all 77 again: back where it was
+    env.clock = DAY1 + 10 * 3600 + 35 * 60
+    state.bags[key] = 77
+    FM.RecordWorth(true)
+    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], nil, "a reading like any other")
+    H.eq(Today(FM, env), 0, "healed: bought and held, nothing moved")
+end)
+
+-- Rule: a reading counts only under the rule it was made by. 1.38.0, a build of this pull request that ran in the
+-- maintainer's game, wrote readings with "c", a base and readings' parts; what a reading counts changed after it
+H.test("held: readings, the base and the parts of an earlier rule do not count, the first reading takes them again", function()
+    local FM, env, state, r = Session(nil, DAY2 + 12 * 3600)
+    local key = C.bracers.leather.key
+    Buy(r, DAY1 + 3600, key, 77, 38833)
+    r.mailbox.Ada = FM.Stamp(DAY2) .. "|0|"
+    state.bags[key] = 77
+    -- as 1.38.0 left the bucket: two readings (the first far too high), a base that found none of the units, parts
+    -- in its own format
+    r.worth.Ada = { FM.Stamp(DAY2 + 3600) .. "," .. B(1) .. "," .. B(900000) .. ",hbmc," .. B(900000) .. ",x1",
+        FM.Stamp(DAY2 + 7200) .. "," .. B(1) .. "," .. B(38833) .. ",hbmc," .. B(38833) .. ",x1" }
+    r.heldBase = { Ada = FM.Stamp(DAY2 + 3600) .. "|", ["*"] = FM.Stamp(DAY2 + 3600) .. "|" }
+    r.heldLog = { Ada = { FM.Stamp(DAY2 + 3600) .. "||own|" .. B(900000) .. "|0|0|" .. key .. ":" .. B(77) .. ":" .. B(38833) .. ":b9k4t:" } }
+    env.GetMoney = nil
+    H.same(Days(FM, env), { { 0, 0 }, 0 }, "neither its readings nor its base count: the logs hold the 77 at cost")
+    env.GetMoney = function() return state.gold end
+    FM.RecordWorth(true)
+    H.eq(r.heldRule, FM.HELD_RULE, "the bucket's rule")
+    H.eq(r.heldBase.Ada, FM.Stamp(env.clock) .. "|" .. key .. "=" .. B(77) .. ";6948=1", "the base, taken again")
+    H.eq(#r.heldLog.Ada, 1, "the parts start again")
+    H.eq(FM.Split(r.worth.Ada[3], ",")[4], "hm" .. FM.HELD_RULE, "the new reading (bags and mailbox seen) carries the rule")
+    H.same(Days(FM, env), { { 0, 0 }, 0 }, "and nothing moved")
 end)
 
 ---------------------------------------------------------------- the gold at logout

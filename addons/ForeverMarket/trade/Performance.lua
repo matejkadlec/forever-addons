@@ -10,7 +10,7 @@ local _, FM = ...
 -- what sold, what you bought, what expired unsold and the real losses (sold under what it cost, paid over the usual
 -- price, lost deposits).
 --
--- What you held, over time: from the first reading of 1.38 on (a "c" in what it saw, scan/Worth.lua) the readings
+-- What you held, over time: from the first reading of 1.38 on (what it saw ends in the rule, scan/Worth.lua) the readings
 -- of what you really hold, step by step; before it the logs alone (the cost of the lots and the deposits out,
 -- FM.BasisBook's HeldAt): the readings of 1.15 to 1.37 counted units at the usual AH price and a sold stack's
 -- money several times over, and what your bags held then is not saved, so they no longer count. The step from the
@@ -106,7 +106,8 @@ end
 -- Readings of what a character holds from the AH since from: { { t, gold, held, seen, order, all, saw, n, counts,
 -- reset }, ... } oldest first (1.15.0-1.15.1 readings of all items, without the "h", are left out); all, saw = what
 -- all your characters held together and what that saw (1.24 on, nil before); counts = a reading of what you hold at
--- cost (FRV-106: a "c" in what it saw) that is not left out ("x": it rose without a purchase to match, scan/Worth.lua);
+-- cost by the current rule (FRV-106: what it saw ends in FM.HELD_RULE) that is not left out ("x": it rose without a
+-- purchase to match, scan/Worth.lua);
 -- reset ("r") = the step onto it counts nothing. The others still tell your gold
 local function Readings(r, char, from)
     local points = {}
@@ -116,7 +117,8 @@ local function Readings(r, char, from)
         local t, gold, held = FM.Unstamp(f[1]), Dec(f[2]), Dec(f[3])
         if t and t >= from and gold and held and (f[4] or ""):sub(1, 1) == "h" then
             local saw = f[6] ~= "" and f[6] or nil
-            local counts = f[4]:find("c", 1, true) ~= nil and f[7] ~= "x"
+            local rule = FM.HELD_RULE
+            local counts = rule ~= nil and f[4]:sub(-#rule) == rule and f[7] ~= "x"
             points[#points + 1] = { t, gold, held, f[4], #points, saw and Dec(f[5]) or nil, saw, 0, counts, f[7] == "r" }
         end
     end
