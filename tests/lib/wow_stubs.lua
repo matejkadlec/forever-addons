@@ -65,7 +65,14 @@ function Stubs.NewEnvironment()
             if was and self.scripts.OnHide then self.scripts.OnHide(self) end
         end
         function frame:IsShown() return self.shown == true end
+        function frame:SetShown(on) if on then self:Show() else self:Hide() end end
         function frame:CreateFontString() return env.CreateFrame() end
+        -- textures and lines are stub frames too (the charts draw with them); a text set is kept for GetText
+        function frame:CreateTexture() return env.CreateFrame() end
+        function frame:CreateLine() return env.CreateFrame() end
+        function frame:CreateMaskTexture() return env.CreateFrame() end
+        function frame:SetText(text) self.text = text end
+        function frame:GetText() return self.text end
         function frame:GetUnboundedStringWidth() return 0 end
         function frame:GetStringWidth() return 0 end
         function frame:GetStringHeight() return 0 end

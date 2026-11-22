@@ -1,7 +1,9 @@
 local _, FM = ...
 
--- Numbers of the price graph (ui/PriceGraph.lua, FRV-76): the cheapest unit price of others in each scan of one
--- item, the price "List at" starts from, as one dot per day, week or month.
+-- Numbers of the item history (ui/PriceGraph.lua; FRV-76 the price graph, FRV-52 the history): the cheapest unit
+-- price of others in each scan of one item, the price "List at" starts from, as one dot per day, week or month; the
+-- units that left the AH per period (bars: bought or taken down, Forever hides sellers), your posts, sales and
+-- purchases of the item (FM.ItemActivity) and its range of the last 3 days (FM.PriceRange3d).
 --
 -- Where the prices come from: the item's per-scan records (item.d, the last 72 hours), its daily rollups (item.r,
 -- then 60 days), its monthly rollups (item.m, then a year; Monthly only) and your AH searches of it (item.s, with
@@ -69,7 +71,7 @@ local function DayOf(days, t)
     local from = FM.PerfStart("day", t)
     local d = days[from]
     if not d then
-        d = { from = from, n = 0, sum = 0, searches = 0, car = 0, carSum = 0, qty = 0, qn = 0 }
+        d = { from = from, n = 0, sum = 0, searches = 0, car = 0, carSum = 0, qty = 0, qn = 0, gone = 0, goneVal = 0 }
         days[from] = d
     end
     return d
@@ -110,6 +112,10 @@ local function Collect(r, item, key)
                 c.last = math_max(c.last or noon, noon)
             end
             d.qty, d.qn = d.qty + (Dec(f[6]) or 0), d.qn + (Dec(f[2]) or 0)
+            -- the units that left the AH that day and what they were listed at (FRV-52); known only where a deep diff
+            -- measured it (its gap, field 10: an Auctionator browse scan alone measures nothing)
+            d.gone, d.goneVal = d.gone + (Dec(f[7]) or 0), d.goneVal + (Dec(f[8]) or 0)
+            if (Dec(f[10]) or 0) > 0 then d.goneKnown = true end
         end
     end
 
@@ -134,6 +140,13 @@ local function Collect(r, item, key)
             if p then st = true elseif listed == false then st = false end
             state[f[1]] = st
             recs[#recs + 1] = { t = t, p = p, st = st, qty = Dec(f[3]) or 0, stamp = f[1] }
+            -- a deep or feed record knows the units gone since the scan before (an unchanged one: none), when there was
+            -- a scan before (its gap, field 9)
+            if string_sub(f[1], 1, 1) == "r" then
+                local d = DayOf(days, t)
+                d.gone, d.goneVal = d.gone + (Dec(f[10]) or 0), d.goneVal + (Dec(f[12]) or 0)
+                if (Dec(f[9]) or 0) > 0 then d.goneKnown = true end
+            end
         end
     end
     local firstDetail = recs[1] and recs[1].t
@@ -248,15 +261,18 @@ end
 -- A period of the series (day, week or month) starting at from
 local function NewPeriod(mode, from)
     return { from = from, to = FM.PerfNextStart(mode, from), sum = 0, days = 0, seenDays = 0, n = 0, searches = 0,
-        car = 0, qty = 0, qn = 0 }
+        car = 0, qty = 0, qn = 0, gone = 0, goneVal = 0 }
 end
 
--- { mode, periods = { { from, to, value, carried, low, n, searches, car, units, change, pct } }, first, last,
+-- { mode, periods = { { from, to, value, carried, low, n, searches, car, units, change, pct, gone, goneVal, goneKnown } },
+--   first, last,
 --   notListed } for one item: value = the period's average price; carried = no scan in it had the item (its value
 --   is the price before); low = its lowest price; n = scans that had the item, searches = your AH searches among
 --   them, car = scans without it that carried the price before; units = units listed on average; change and pct
 --   against the dot before. last = the last price of others seen (lastPrecision "time", "day" or "month": a scan or
---   search, a daily rollup, a monthly one); notListed = that moment when a later scan had none
+--   search, a daily rollup, a monthly one); notListed = that moment when a later scan had none; gone / goneVal = the
+--   units that left the AH in the period and their value (goneKnown: a record or rollup says so; a month only the
+--   monthly rollups cover does not)
 function FM.PriceSeries(key, modeId)
     local mode = FM.PERF_MODES[modeId] and modeId or "day"
     local series = { mode = mode, periods = {} }
@@ -299,6 +315,7 @@ function FM.PriceSeries(key, modeId)
                 if d then p.car = p.car + d.car end
             end
             if d then p.qty, p.qn = p.qty + d.qty, p.qn + d.qn end
+            if d and d.goneKnown then p.gone, p.goneVal, p.goneKnown = p.gone + d.gone, p.goneVal + d.goneVal, true end
             p.last = lastPrice
             day = FM.PerfNextStart("day", day)
         end
@@ -363,4 +380,62 @@ function FM.PriceBreakEven(key)
     if type(paid) == "number" and paid > 0 then return paid, "Paid" end
     if other then return other, "Min. price" end
     return nil
+end
+
+-- Your posts, sales and purchases of an item, newest first: { t, kind = "post" | "sale" | "buy", qty, unit, char }.
+-- Posts from R.posts, sales from the AH's sale mails (R.invoices "seller", by the item's name), purchases from the
+-- purchase log (R.buys) and, for an item it has no line of (one sold per auction), from won auctions' mails
+-- ("buyer"). Every character of the realm bucket
+function FM.ItemActivity(key)
+    local r = FM.R()
+    local out = {}
+    if not (r and type(key) == "string") then return out end
+    for _, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
+        local f = FM.Split(line, ",")
+        if f[3] == key then
+            local t, qty, unit = FM.Unstamp(f[1]), Dec(f[4]), Dec(f[5])
+            if t and qty and qty > 0 then out[#out + 1] = { t = t, kind = "post", qty = qty, unit = unit, char = f[2] } end
+        end
+    end
+    local bought = false
+    for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
+        local t, k, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        qty = tonumber(qty)
+        if k == key and qty and qty > 0 then
+            bought = true
+            out[#out + 1] = { t = tonumber(t), kind = "buy", qty = qty, unit = tonumber(total) / qty, char = who }
+        end
+    end
+    local name = type(r.names) == "table" and r.names[key] or nil
+    if name then
+        for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+            local f = FM.Split(line, ",")
+            if f[4] == name and (f[3] == "seller" or (f[3] == "buyer" and not bought)) then
+                local t, qty, total = FM.Unstamp(f[1]), Dec(f[6]) or 1, Dec(f[7])
+                if t and qty > 0 and total then
+                    out[#out + 1] = { t = t, kind = f[3] == "seller" and "sale" or "buy", qty = qty, unit = total / qty, char = f[2] }
+                end
+            end
+        end
+    end
+    table_sort(out, function(a, b) return a.t > b.t end)
+    return out
+end
+
+-- The cheapest price of others over the last 3 days (the per-scan records): lowest, highest and how many records had
+-- one; nil without any
+function FM.PriceRange3d(key, now)
+    local r = FM.R()
+    local item = r and r.items and r.items[key]
+    if not item then return nil end
+    local since = (now or FM.Now()) - 72 * 3600
+    local lo, hi, n
+    for _, f in ipairs(FM.DetailRecords(item)) do
+        local t = FM.Unstamp(string_sub(f[1] or "", 2))
+        local p = t and t >= since and FM.OthersMin(f, key)
+        if p then
+            lo, hi, n = Min(lo, p), math_max(hi or p, p), (n or 0) + 1
+        end
+    end
+    return lo, hi, n
 end

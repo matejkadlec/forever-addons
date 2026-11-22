@@ -9,8 +9,8 @@ local _, FM = ...
 -- materials, a pick's AH purchases, a flip's item), Shift+click =
 -- link it in chat (or snipe at the AH: a pick all its AH purchases), Alt+click = the tooltip as a sticky window
 -- (ui/StickyTooltip.lua), right-click = menu: Favorize, Ignore, Snipe (where Shift+click snipes, also away from the
--- AH), Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one), Show price graph
--- (ui/PriceGraph.lua). Column headers sort. The hints at the bottom of a row tooltip say so, one per line.
+-- AH), Track <NPC> (TomTom arrow to its vendor or teacher, only where there is one), Show history
+-- (ui/PriceGraph.lua: the item's price over time and your posts, sales and purchases of it, FRV-52). Column headers sort. The hints at the bottom of a row tooltip say so, one per line.
 
 local type = type
 local ipairs = ipairs
@@ -1342,7 +1342,7 @@ end
 
 -- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
 -- in the sniper); Track only where there is an NPC to go to (a vendor that sells it, a trainer or vendor that
--- teaches it), disabled without TomTom; last, Show price graph (its own window, FRV-76)
+-- teaches it), disabled without TomTom; last, Show history (its own window: FRV-76's price graph, FRV-52's history)
 local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
@@ -1392,7 +1392,7 @@ local function ShowRowMenu(button, row)
             root:CreateTitle("Recipe on AH", INFO_COLOR)
         end
         if FM.ShowPriceGraph then
-            root:CreateButton("Show price graph", function() FM.ShowPriceGraph(key) end)
+            root:CreateButton("Show history", function() FM.ShowPriceGraph(key) end)
         end
     end)
 end
