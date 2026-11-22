@@ -41,6 +41,24 @@ H.test("settings: missing settings get their defaults, saved ones stay", functio
     H.eq(s.snipeAutoRefresh, true, "Automatically refresh budget: on")
     H.eq(s.snipeManual, false, "Set budget manually: off")
     H.eq(s.snipeManualAmount, 0, "manual amount: 0")
+    -- the Picks budget row (FRV-95): the % checked, no amount set, the option over your gold off
+    H.eq(s.tableInvestManual, false, "Invest (set manually): off, the % is the budget")
+    H.eq(s.tableInvestAmount, 0, "the amount set: 0")
+    H.eq(s.tablePicksOverGold, false, "Allow picks budget over current gold: off")
+end)
+
+-- FRV-95: an existing X keeps its value at load (one above 90 from before counts as 90 in the plan), only a broken one
+-- gets the default; the amount set loads as whole copper in range
+H.test("settings: the Picks budget's % and amount load as saved, in range", function()
+    H.eq(Load({ settings = { tableInvestPct = 75 } }).GetSettings().tableInvestPct, 75, "75 stays")
+    H.eq(Load({ settings = { tableInvestPct = 100 } }).GetSettings().tableInvestPct, 100, "100 from the old box stays")
+    H.eq(Load({ settings = { tableInvestPct = 5000 } }).GetSettings().tableInvestPct, 999, "over 999: 999")
+    H.eq(Load({ settings = { tableInvestPct = "x" } }).GetSettings().tableInvestPct, 90, "no number: the default")
+    H.eq(Load({ settings = { tableInvestAmount = 123456.9 } }).GetSettings().tableInvestAmount, 123456, "whole copper")
+    H.eq(Load({ settings = { tableInvestAmount = -1 } }).GetSettings().tableInvestAmount, 0, "negative: 0")
+    -- the gold box takes 6 digits: 999999g 99s 99c at most
+    H.eq(Load({ settings = { tableInvestAmount = 10000000 * 10000 } }).GetSettings().tableInvestAmount, 999999 * 10000 + 9999,
+        "over 999999g 99s 99c: clamped")
 end)
 
 H.test("settings: the sniper's manual budget loads as a whole number of copper in range", function()
@@ -124,9 +142,9 @@ end)
 -- global filters"; today's values carry over into each tab's own set where the meaning is the same ("Not learned" ->
 -- Include not learned recipes on Picks and Craft, "Ignore vendor" -> Exclude vendor flips on Picks, "Above current
 -- skill" / "Max. above current skill" -> Over skill level and its cap on all three); "Ignore stock" and the new
--- options start at their defaults, so does the global set; the old keys go
+-- options start at their defaults (Gold of all characters, FRV-36: off), so does the global set; the old keys go
 local DEFAULTS = { learn = true, overLevel = false, overLevelCap = 5, overSkill = true, overSkillCap = 10, noVendor = false,
-    noListed = false, listedCount = 1, listedValue = 1, noStock = false }
+    noListed = false, listedCount = 1, listedValue = 1, noStock = false, allGold = false }
 
 local function With(changes)
     local set = {}

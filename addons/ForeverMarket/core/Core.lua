@@ -37,8 +37,12 @@ FM.DEFAULTS = {
     chatSummary = true, -- one chat line after each processed scan
     tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
     tableMinProfit = 1, -- market table and picks: rows earning less per item are hidden, in copper (settings panel)
-    tableInvestPct = 90, -- picks: "Invest [X] %": the share of your gold the whole plan may use, in percent (at most 90 counts)
-    tableInvestPicks = 3, -- picks: "across [Y] picks": the plan has up to this many picks
+    tableInvestPct = 90, -- picks: "[X] %": the share of your gold the whole plan may use, in percent (at most 90 counts
+                         -- unless tablePicksOverGold, then 999)
+    tableInvestPicks = 3, -- picks: "Picks [Y]": the plan has up to this many picks
+    tableInvestManual = false, -- picks: "| [g] [s] [c] [x]" checked: the budget is tableInvestAmount, not the % (FRV-95)
+    tableInvestAmount = 0, -- picks: the budget set by hand, in copper (capped at 90% of your gold unless tablePicksOverGold)
+    tablePicksOverGold = false, -- picks: "Allow picks budget over current gold" (settings panel, FRV-95)
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
@@ -161,6 +165,10 @@ FM.SETTING_RANGE = {
     tableFirstPct = { 1, 10 },
     tableTimePct = { 0, 20 }, -- 0 = always the cheaper route
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
+    -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
+    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
+    tableInvestPct = { 1, 999 },
+    tableInvestAmount = { 0, 999999 * 10000 + 9999 },
 }
 
 -- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all
@@ -229,6 +237,7 @@ FM.FILTER_DEFAULTS = {
     listedCount = 1,      -- ... at least this many units listed
     listedValue = 1,      -- ... worth at least this much (copper) at your listing prices
     noStock = false,      -- Exclude stock for crafting (Picks, FRV-90)
+    allGold = false,      -- Gold of all characters (Picks, FRV-36): the budget counts your other characters' gold too
 }
 FM.FILTER_SETS = { "picks", "latest", "learn", "global" }
 
@@ -238,7 +247,7 @@ FM.FILTER_TABS = {
     learn = { picks = true, latest = true },
     overLevel = ALL_TABS, overLevelCap = ALL_TABS, overSkill = ALL_TABS, overSkillCap = ALL_TABS,
     noVendor = { picks = true }, noListed = { picks = true }, listedCount = { picks = true }, listedValue = { picks = true },
-    noStock = { picks = true },
+    noStock = { picks = true }, allGold = { picks = true },
 }
 
 -- Whole numbers within each box's range: the caps from 0, the thresholds from 1 (0 or empty becomes 1)

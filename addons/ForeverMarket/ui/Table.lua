@@ -30,7 +30,9 @@ local FRAME_NAME = "ForeverMarketTable"
 local W, ROW_H, ROWS = 960, 22, 20
 local TOP = -148 -- first row
 local FILTER_Y = -88 -- search box, checkboxes and filter buttons
-local MAX_COLUMNS = 8 -- per tab, in W - 28 = 932 px
+local LINE_Y = TOP + 24 - ROW_H / 2 -- the line above the header: Picks' budget row (FRV-95), Flip's age line
+local SUMMARY_Y = LINE_Y - ROW_H -- Picks: the plan's summary, under its budget row
+local MAX_COLUMNS = 9 -- per tab, in W - 28 = 932 px (Picks has 9 since FRV-67, the other tabs up to 8)
 local H = -TOP + ROWS * ROW_H + 44
 local FLIP_STALE = 3600 -- Flip: from this age of the latest snapshot on, a line above the rows warns
 
@@ -95,6 +97,8 @@ local PPG_TIP = "PPG: profit per 1g invested (materials, or what you buy to rese
 local PPH_TIP = "PPH: profit per hour of crafting = profit per craft / craft time (cast time + 0.5s between crafts). Gold is the limited input, crafting time isn't."
 local MIN_TIP = "Min. price: the lowest price per unit that still pays, after the 5% AH cut and one lost deposit for a stack (8h when 100+ circulate in 24h, else 24h)."
 local ON_AH_TIP = "On AH: units listed in the latest snapshot or deep scan (yours in brackets)."
+-- Picks: the row tooltip's "you list" (Room on the AH) also counts your posts since the snapshot (FRV-67)
+local PICK_ON_AH_TIP = ON_AH_TIP .. " The row tooltip's \"you list\" (Room on the AH) also counts your posts since the snapshot, so the two can differ."
 local C8_TIP = "C/8h: units that leave the AH in about 8 hours, bought or taken down (Forever hides sellers). From the measured circulation rate, so it says whether an 8h listing sells. Grey = from the 3 day window."
 local C24_TIP = "C/24h: the same over about 24 hours, so it says whether a 24h listing sells. Grey = from the 3 day window."
 local LIST_TIP = "List at: the price per unit to list at now. The row tooltip says how it was worked out."
@@ -377,17 +381,46 @@ local function ExpectedCell(p)
     return P1g(p.expected) .. GREY .. string_format(" %dh", p.listHours or 8) .. "|r"
 end
 
+-- A pick's item in the pass shown (FRV-67): a locked plan keeps its pick objects through later passes, but On AH, C/8h
+-- and C/24h are the latest snapshot's as on Craft, Vendor and Flip. Any row of the item has the same numbers (its
+-- listings and circulation); an item no tab holds now keeps the numbers the pick was made with (trade/Picks.lua)
+local marketTrade, marketRows
+local function MarketRow(p)
+    local trade = FM.trade
+    if trade ~= marketTrade then
+        marketTrade, marketRows = trade, {}
+        for _, list in ipairs({ trade and trade.crafts, trade and trade.learn, trade and trade.vendor, trade and trade.flips }) do
+            for _, row in ipairs(list or {}) do
+                if marketRows[row.key] == nil and row.qty ~= nil then marketRows[row.key] = row end
+            end
+        end
+    end
+    return marketRows[p.key] or p
+end
+
+-- 9 columns in 932 px (FRV-67): the steps line under a pick spans the whole row, so the Pick column gave up its width
+-- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow)
 local PICK_COLUMNS = {
     { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
         sort = function(p) return p.rank end },
-    { title = "Pick", width = 420, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
-    { title = "Type", width = 92, align = "LEFT", text = function(p) return KIND_LABEL[p.kind] or p.kind end,
+    { title = "Pick", width = 278, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
+    { title = "Type", width = 80, align = "LEFT", text = function(p) return KIND_LABEL[p.kind] or p.kind end,
         sort = function(p) return KIND_NAME[p.kind] or p.kind end },
-    { title = "Invest", tip = INVEST_TIP, width = 120, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
-    { title = "Expected", tip = EXPECTED_TIP, width = 160, text = ExpectedCell, sort = function(p) return p.expected end },
-    { title = "Conf.", tip = CONF_TIP, width = 100, text = function(p)
+    { title = "Invest", tip = INVEST_TIP, width = 110, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
+    { title = "Expected", tip = EXPECTED_TIP, width = 140, text = ExpectedCell, sort = function(p) return p.expected end },
+    { title = "Conf.", tip = CONF_TIP, width = 70, text = function(p)
         return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
-    end, sort = function(p) return p.conf end }
+    end, sort = function(p) return p.conf end },
+    { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = function(p) return OnAH(MarketRow(p)) end,
+        sort = function(p) return MarketRow(p).qty end },
+    { title = "C/8h", tip = C8_TIP, width = 62, text = function(p)
+        local r = MarketRow(p)
+        return Sold(r.sold12, r.soldWide, 8)
+    end, sort = function(p) return MarketRow(p).sold12 end },
+    { title = "C/24h", tip = C24_TIP, width = 62, text = function(p)
+        local r = MarketRow(p)
+        return Sold(r.sold12, r.soldWide, 24)
+    end, sort = function(p) return MarketRow(p).sold12 end }
 }
 
 -- Favorites: one row per item, its best use among the tabs (highest PPG), the market numbers of that row
@@ -1423,21 +1456,9 @@ local function LayoutFilters(f)
     f.searchAll:SetPoint("LEFT", f.search, "RIGHT", 12, 0)
     f.useGlobal.label:ClearAllPoints()
     f.useGlobal.label:SetPoint("LEFT", f.globalButton, "RIGHT", 12, 0)
-    local anchor = f.refresh
     if f.prof:IsShown() then
         f.prof:ClearAllPoints()
-        f.prof:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
-        anchor = f.prof
-    end
-    -- Picks: "Invest [X] % across [Y] picks" reads from the left and is laid out from the right; each box's label
-    -- sits left of it
-    if f.invest:IsShown() then
-        f.slots.suffix:ClearAllPoints()
-        f.slots.suffix:SetPoint("RIGHT", anchor, "LEFT", -12, 0)
-        f.slots:ClearAllPoints()
-        f.slots:SetPoint("RIGHT", f.slots.suffix, "LEFT", -6, 0)
-        f.invest:ClearAllPoints()
-        f.invest:SetPoint("RIGHT", f.slots.label, "LEFT", -8, 0)
+        f.prof:SetPoint("RIGHT", f.refresh, "LEFT", -10, 0)
     end
 end
 
@@ -1449,10 +1470,11 @@ local function ColumnX(columns, index)
     return x
 end
 
--- Picks: its summary line takes the header's place, the header and the list move down one row
--- (Flip: its age line when the prices are old, view.stale)
+-- Picks: its budget row (FRV-95) and its summary line take the header's place, the header and the list move down two
+-- rows (Flip: its age line when the prices are old, view.stale: one row)
 local function ListShift(tab)
-    return (tab.picks or (tab.id == "flips" and view.stale)) and ROW_H or 0
+    if tab.picks then return 2 * ROW_H end
+    return (tab.id == "flips" and view.stale) and ROW_H or 0
 end
 
 -- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes
@@ -1621,17 +1643,68 @@ local function FooterText(total)
     return GREY .. text .. "|r"
 end
 
--- Picks, above the header: "Plan for your 10g 22s:   3 picks  ·  needs 9g 80s  ·  expected +1g 64s"
+-- The plan's budget (FRV-95): "75% of your gold = 12g 40s", "20g (set manually)", "14g 88s (20g set manually, capped
+-- at 90% of your gold)"; short (the summary line): "14g 88s (capped at 90% of your gold)"
+local function BudgetText(funds, short)
+    if funds.mode == "manual" then
+        if funds.capped then
+            if short then return Money(funds.budget) .. " (capped at 90% of your gold)" end
+            return Money(funds.budget) .. " (" .. Money(funds.amount) .. " set manually, capped at 90% of your gold)"
+        end
+        return Money(funds.budget) .. " (set manually)"
+    end
+    return string_format("%d%% of your gold = %s", funds.pct or 0, Money(funds.budget))
+end
+
+-- Whose gold the plan counts (FRV-36): "16g 53s", "412g (3 characters)"
+local function GoldText(funds)
+    local n = funds.chars and #funds.chars or 1
+    return Money(funds.gold) .. ((funds.all and n > 1) and string_format(" (%d characters)", n) or "")
+end
+
+-- Picks, above the header: "Gold: 16g 53s  ·  Budget: 75% of your gold = 12g 40s:   3 picks  ·  needs 9g 80s  ·
+-- expected +1g 64s" (a plan made before 1.35 has no budget: "Plan for your 10g 22s")
 local function PickSummary()
     local trade = FM.trade
     if not (trade and trade.picks and trade.pickGold) then return "" end
     local n = trade.pickPlan or 0
     local held = FM.PicksLocked() and trade.pickAt and (GREY .. " (locked " .. date("%H:%M", trade.pickAt) .. ")|r") or ""
-    local text = "Plan for your " .. Money(trade.pickGold) .. held .. ":   "
-    if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     local sep = GREY .. "  ·  |r"
+    local funds = trade.pickFunds
+    local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. BudgetText(funds, true))
+        or ("Plan for your " .. Money(trade.pickGold))) .. held .. ":   "
+    if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     return text .. string_format("%d pick%s", n, n == 1 and "" or "s") .. sep .. "needs " .. Money(trade.pickNeed)
         .. sep .. "expected " .. P1g(trade.pickExpected)
+end
+
+-- The budget in a tooltip (the summary line and the budget row): which budget, whose gold, each character's with
+-- the age of its reading (FRV-36, FRV-95). funds: the plan's (nil: what a plan would use now)
+local function BudgetTooltip(funds, title)
+    if not funds and FM.PicksGold and FM.PicksBudget then
+        local gold, chars = FM.PicksGold(FM.TableFilters("picks").allGold)
+        funds = FM.PicksBudget(gold, Settings())
+        funds.chars, funds.all = chars, FM.TableFilters("picks").allGold and true or false
+    end
+    if title then GameTooltip:AddLine(title) end
+    if not funds then return end
+    GameTooltip:AddDoubleLine("Budget", BudgetText(funds), 1, 0.82, 0, 1, 1, 1)
+    if funds.capped then
+        GameTooltip:AddLine("The amount set is more than 90% of your gold: the plan uses 90% (the rest pays deposits). Allow picks budget over current gold (settings panel) lifts the cap.", 1, 0.6, 0.2, true)
+    elseif funds.over and funds.budget > funds.cap then
+        GameTooltip:AddLine("Allow picks budget over current gold is on: the plan is sized as if you had this gold.", 1, 0.6, 0.2, true)
+    end
+    GameTooltip:AddDoubleLine(funds.all and "Gold of all characters" or "Your gold", Money(funds.gold), 1, 0.82, 0, 1, 1, 1)
+    if funds.all then
+        for _, c in ipairs(funds.chars or {}) do
+            local when = c.current and "now" or (FM.ReadingAge and FM.ReadingAge(c.t) or "?")
+            local name = FM.CharacterLabel and FM.CharacterLabel(c) or c.name or c.key
+            GameTooltip:AddDoubleLine("  " .. name .. GREY .. "  " .. when .. "|r", Money(c.copper), 1, 1, 1, 1, 1, 1)
+        end
+        if #(funds.chars or {}) > 1 then
+            GameTooltip:AddLine("Gold of another character has to be mailed to this one before you can spend it.", 0.6, 0.6, 0.6, true)
+        end
+    end
 end
 
 -- What came after the plan, for Refresh's tooltip: "A newer snapshot and 2 posts", nil when nothing did
@@ -1654,6 +1727,8 @@ local function SincePlan()
             break
         end
     end
+    -- your bags or bank changed since (FRV-98, FM.stockVersion in trade/Sources.lua): Refresh plans with them
+    if trade.pickStock and (FM.stockVersion or 0) ~= trade.pickStock then bits[#bits + 1] = "a change in your bags or bank" end
     if #bits == 0 then return nil end
     local text = #bits == 1 and bits[1] or (table.concat(bits, ", ", 1, #bits - 1) .. " and " .. bits[#bits])
     return string.upper(text:sub(1, 1)) .. text:sub(2)
@@ -1679,8 +1754,7 @@ local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
-        frame.invest, frame.invest.label, frame.slots, frame.slots.label, frame.slots.suffix,
-        frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll }) do
+        frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll }) do
         w:Hide()
     end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
@@ -1728,8 +1802,12 @@ Render = function()
         end
     end
     LayoutColumns()
-    -- the line above the header: the plan's summary on Picks, the age of the prices on Flip once they are old
+    -- above the header: the budget row and the plan's summary on Picks, the age of the prices on Flip once they are old
     frame.summary:SetShown((tab.picks or view.stale) and true or false)
+    frame.summary:ClearAllPoints()
+    frame.summary:SetPoint("LEFT", frame, "TOPLEFT", 18, tab.picks and SUMMARY_Y or LINE_Y)
+    frame.summary:SetPoint("RIGHT", frame, "TOPRIGHT", -18, tab.picks and SUMMARY_Y or LINE_Y) -- never past the edge
+    frame.summaryZone:SetShown(tab.picks and true or false)
     if tab.picks then frame.summary:SetText(PickSummary()) elseif view.stale then frame.summary:SetText(view.stale) end
     -- the steps line under a pick starts where the pick's name does (after its icon)
     local stepsX = tab.picks and (ColumnX(tab.columns, 2) - 14 + 22) or 24
@@ -1781,13 +1859,24 @@ Render = function()
     frame.lock:SetShown(tab.picks and true or false)
     frame.lock.label:SetShown(tab.picks and true or false)
     frame.lock:SetChecked(FM.PicksLocked())
-    frame.invest:SetShown(tab.picks and true or false)
-    frame.invest.label:SetShown(tab.picks and true or false)
-    if not frame.invest:HasFocus() then frame.invest:SetText(tostring(Settings().tableInvestPct or 90)) end
-    frame.slots:SetShown(tab.picks and true or false)
-    frame.slots.label:SetShown(tab.picks and true or false)
-    frame.slots.suffix:SetShown(tab.picks and true or false)
-    if not frame.slots:HasFocus() then frame.slots:SetText(tostring(Settings().tableInvestPicks or 3)) end
+    -- the budget row (FRV-95): the saved values (not in a box you type in), the chosen budget's boxes on, the other's
+    -- greyed out
+    frame.budget:SetShown(tab.picks and true or false)
+    if tab.picks then
+        local s = Settings()
+        local manual = s.tableInvestManual == true
+        if not frame.invest:HasFocus() then frame.invest:SetText(tostring(s.tableInvestPct or 90)) end
+        if not frame.slots:HasFocus() then frame.slots:SetText(tostring(s.tableInvestPicks or 3)) end
+        local money = FM.MoneyInput
+        local amount = tonumber(s.tableInvestAmount) or 0
+        if money and not money.Focused(frame.manual) and money.Read(frame.manual) ~= amount then money.Write(frame.manual, amount) end
+        frame.pctCheck:SetChecked(not manual)
+        frame.manualCheck:SetChecked(manual)
+        frame.invest:SetEnabled(not manual)
+        frame.invest:SetAlpha(manual and 0.45 or 1)
+        frame.pctSign:SetAlpha(manual and 0.45 or 1)
+        if money then money.Enabled(frame.manual, manual) end
+    end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
     LayoutFilters(frame)
     frame.status:SetText(StatusText())
@@ -1853,6 +1942,11 @@ function FM.StickyContent(tabId, id)
         if RowId(tab, row) == id then return RowLines(tab, row) end
     end
     return nil
+end
+
+-- The table is open (trade/Sources.lua: a change of your bags or bank plans again while it shows, FRV-98)
+function FM.TableShown()
+    return frame ~= nil and frame:IsShown() and true or false
 end
 
 -- The table is open on Picks or Learn: a pass without a plan yet plans then (trade/Calc.lua)
@@ -2027,65 +2121,143 @@ local function CreateTable()
         GameTooltip:Show()
     end)
     f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (whole percent, 1-100),
-    -- Y = the picks the plan has at most
-    local invest = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    invest:SetSize(28, 22) -- three digits
-    invest:SetAutoFocus(false)
-    invest:SetNumeric(true)
-    invest:SetMaxLetters(3)
-    invest.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, invest, "LEFT")
-    invest.label:SetText("Invest")
-    invest:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    invest:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    invest:HookScript("OnEditFocusLost", function(self)
-        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPct or 90)
-        n = math_max(1, math_min(100, n))
-        self:SetText(tostring(n))
-        if n == Settings().tableInvestPct then return end
-        Settings().tableInvestPct = n
+    -- Picks' budget row (FRV-95), on the line above the summary: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]";
+    -- Y = the picks the plan has at most, the budget X % of your gold or the amount set (the two checkboxes are one
+    -- choice, always one of them checked; the other's boxes greyed out). Every box applies on Enter or a lost focus,
+    -- Esc shows the saved value again, a change plans again
+    local budget = CreateFrame("Frame", nil, f)
+    budget:SetPoint("LEFT", f, "TOPLEFT", 14, LINE_Y)
+    budget:SetPoint("RIGHT", f, "TOPRIGHT", -14, LINE_Y)
+    budget:SetHeight(ROW_H)
+    budget:Hide()
+    f.budget = budget
+    local function BudgetTip(widget, title, text)
+        widget:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(title)
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            GameTooltip:AddLine(" ")
+            BudgetTooltip(FM.trade and FM.trade.pickFunds or nil, FM.trade and FM.trade.pickFunds and "The plan shown" or "A plan now")
+            GameTooltip:Show()
+        end)
+        widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        if widget.SetMotionScriptsWhileDisabled then widget:SetMotionScriptsWhileDisabled(true) end
+    end
+    local function Replan()
         view.offset = 0
         FM.PlanPicks() -- the picks plan again
         FM.RefreshTable()
-    end)
-    invest:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Invest % of your gold")
-        GameTooltip:AddLine("The share of your gold the whole plan may use (default 90; 10% always stay for deposits, so above 90 changes nothing). The box right of it says across how many picks. Enter or click elsewhere to apply.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    invest:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    f.invest = invest
+    end
     local slotsMax = FM.PICKS_MAX or 12
-    local slots = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    slots:SetSize(20, 22) -- two digits
-    slots:SetAutoFocus(false)
-    slots:SetNumeric(true)
-    slots:SetMaxLetters(2)
-    slots.label = Text(f, "GameFontHighlight", "RIGHT", -8, 0, slots, "LEFT")
-    slots.label:SetText("% across")
-    slots.suffix = Text(f, "GameFontHighlight", "TOPRIGHT", -200, FILTER_Y - 4) -- placed by LayoutFilters
-    slots.suffix:SetText("picks")
-    slots:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    slots:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local slotsLabel = Text(budget, "GameFontHighlight", "LEFT", 4, 0)
+    slotsLabel:SetText("Picks")
+    local slots = FM.NumberBox(budget, 2)
+    slots:SetPoint("LEFT", slotsLabel, "RIGHT", 10, 0)
     slots:HookScript("OnEditFocusLost", function(self)
+        if self.restore then
+            self.restore = nil
+            self:SetText(tostring(Settings().tableInvestPicks or 3))
+            return
+        end
         local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPicks or 3)
         n = math_max(1, math_min(slotsMax, n))
         self:SetText(tostring(n))
         if n == Settings().tableInvestPicks then return end
         Settings().tableInvestPicks = n
-        view.offset = 0
-        FM.PlanPicks() -- the picks plan again
-        FM.RefreshTable()
+        Replan()
     end)
-    slots:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Across picks")
-        GameTooltip:AddLine(string_format("The plan has up to this many picks (default 3, 1 to %d). Each pick gets a fair share of the gold that is left; what one does not use goes to the later ones. 1 = everything into the best pick. The picks out of scope are sized with one pick's share. Enter or click elsewhere to apply.", slotsMax), 1, 1, 1, true)
-        GameTooltip:Show()
+    slots:SetScript("OnEscapePressed", function(self)
+        self.restore = true
+        self:ClearFocus()
     end)
-    slots:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    BudgetTip(slots, "Picks", string_format("The plan has up to this many picks (default 3, 1 to %d). Each pick gets a fair share of the budget that is left; what one does not use goes to the later ones. 1 = everything into the best pick. The picks out of scope are sized with one pick's share. Enter or click elsewhere to apply.", slotsMax))
     f.slots = slots
+    -- "Invest [X] %": the % right after the picks, the money boxes behind the one separator (the maintainer, 2026-11-22)
+    local investLabel = Text(budget, "GameFontHighlight", "LEFT", 16, 0, slots, "RIGHT")
+    investLabel:SetText("Invest")
+    local invest = FM.NumberBox(budget, 3)
+    invest:SetPoint("LEFT", investLabel, "RIGHT", 10, 0)
+    invest:HookScript("OnEditFocusLost", function(self)
+        if self.restore then
+            self.restore = nil
+            self:SetText(tostring(Settings().tableInvestPct or 90))
+            return
+        end
+        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPct or 90)
+        n = math_max(1, math_min(FM.PicksPctMax and FM.PicksPctMax() or 90, n))
+        self:SetText(tostring(n))
+        if n == Settings().tableInvestPct then return end
+        Settings().tableInvestPct = n
+        Replan()
+    end)
+    invest:SetScript("OnEscapePressed", function(self)
+        self.restore = true
+        self:ClearFocus()
+    end)
+    local pctTip = "The budget is this share of your gold (checked, the default): 1 to 90 (default 90; the rest of your gold pays deposits), 1 to 999 with Allow picks budget over current gold (settings panel). With Gold of all characters (Filters) your gold is that of all your characters. Enter or click elsewhere to apply."
+    BudgetTip(invest, "Budget: % of your gold", pctTip)
+    f.invest = invest
+    local pctSign = Text(budget, "GameFontHighlight", "LEFT", 4, 0, invest, "RIGHT")
+    pctSign:SetText("%")
+    f.pctSign = pctSign
+    local pctCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
+    pctCheck:SetSize(22, 22)
+    pctCheck:SetPoint("LEFT", pctSign, "RIGHT", 2, 0)
+    BudgetTip(pctCheck, "Budget: % of your gold", pctTip)
+    f.pctCheck = pctCheck
+    local sep2 = Text(budget, "GameFontDisable", "LEFT", 12, 0, pctCheck, "RIGHT")
+    sep2:SetText("|")
+    -- the sniper's money boxes (MoneyInputFrameTemplate, FM.MoneyInput in ui/SniperPanel.lua): the same inputs, narrower
+    -- (the template's 70 / 48 / 48 px fit 7 digits of gold and leave silver and copper half empty): gold up to 999999
+    -- (6 digits, FM.SETTING_RANGE), silver and copper 2 digits each, every box with its coin at the right
+    local manual = CreateFrame("Frame", "ForeverMarketPicksInvest", budget, "MoneyInputFrameTemplate")
+    manual:SetPoint("LEFT", sep2, "RIGHT", 16, 0)
+    if manual.gold and manual.silver and manual.copper then
+        manual.gold:SetWidth(60)
+        manual.gold:SetMaxLetters(6)
+        manual.silver:SetWidth(34)
+        manual.copper:SetWidth(34)
+        manual:SetWidth(60 + 10 + 34 + 10 + 34)
+    end
+    local manualTip = "The budget is this amount (checked): the plan is sized for it whatever your gold. Without Allow picks budget over current gold (settings panel) an amount over 90% of your gold is capped there, and this tooltip says so. Enter or click elsewhere to apply, Esc keeps the saved amount."
+    local money = FM.MoneyInput
+    for _, box in ipairs(money and money.Boxes(manual) or {}) do
+        box:HookScript("OnEditFocusLost", function()
+            if manual.restore then
+                manual.restore = nil
+            elseif not money.Empty(manual) then
+                local value = FM.SettingClamp("tableInvestAmount", money.Read(manual))
+                if value and value ~= Settings().tableInvestAmount then
+                    Settings().tableInvestAmount = value
+                    if Settings().tableInvestManual then Replan() end
+                end
+            end
+            local amount = tonumber(Settings().tableInvestAmount) or 0
+            if not money.Focused(manual) and money.Read(manual) ~= amount then money.Write(manual, amount) end
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            manual.restore = true
+            self:ClearFocus()
+        end)
+        BudgetTip(box, "Budget: set manually", manualTip)
+    end
+    f.manual = manual
+    local manualCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
+    manualCheck:SetSize(22, 22)
+    manualCheck:SetPoint("LEFT", manual.copper or manual, "RIGHT", 6, 0)
+    BudgetTip(manualCheck, "Budget: set manually", manualTip)
+    f.manualCheck = manualCheck
+    -- one choice: a click checks its box and unchecks the other (a click on the checked one keeps it)
+    local function Choose(manualOn)
+        if (Settings().tableInvestManual == true) ~= manualOn then
+            Settings().tableInvestManual = manualOn
+            Replan()
+        else
+            Render()
+        end
+    end
+    pctCheck:SetScript("OnClick", function() Choose(false) end)
+    manualCheck:SetScript("OnClick", function() Choose(true) end)
     -- profession filter: Blizzard's dropdown with every profession of this character
     local prof = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
     prof:SetWidth(130)
@@ -2121,7 +2293,7 @@ local function CreateTable()
             local since = SincePlan()
             if since then GameTooltip:AddLine(since .. " since the plan.", 1, 0.82, 0, true) end
         else
-            GameTooltip:AddLine("The numbers, Picks too, also refresh by themselves after every deep scan, post and read of your auctions.", 1, 1, 1, true)
+            GameTooltip:AddLine("The numbers, Picks too, also refresh by themselves after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
         end
         GameTooltip:Show()
     end)
@@ -2160,15 +2332,35 @@ local function CreateTable()
     line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, TOP + 1)
     line:SetHeight(1)
     f.headerLine = line
-    -- Picks: the plan's summary in the header's place (the header and the list move down one row there)
+    -- Picks: the plan's summary under its budget row, Flip: its age line (the header and the list move down there);
+    -- hovering Picks' summary shows the budget and whose gold (FRV-36, FRV-95)
     f.summary = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.summary:SetPoint("LEFT", f, "TOPLEFT", 18, TOP + 24 - ROW_H / 2)
+    f.summary:SetPoint("LEFT", f, "TOPLEFT", 18, LINE_Y)
     f.summary:SetJustifyH("LEFT")
     f.summary:SetWordWrap(false)
     f.summary:Hide()
-    -- Picks: "Lock plan after refresh" on the summary's line, at the right (FRV-63), its text first (FRV-89)
+    local summaryZone = CreateFrame("Frame", nil, f)
+    summaryZone:SetPoint("LEFT", f, "TOPLEFT", 14, SUMMARY_Y)
+    summaryZone:SetPoint("RIGHT", f, "TOPRIGHT", -14, SUMMARY_Y)
+    summaryZone:SetHeight(ROW_H)
+    summaryZone:EnableMouse(true)
+    summaryZone:SetScript("OnEnter", function(self)
+        local funds = FM.trade and FM.trade.pickFunds
+        if not funds then return end
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        BudgetTooltip(funds, "The plan's budget")
+        if FM.PicksLocked() and FM.trade.pickAt then
+            GameTooltip:AddLine(string_format("Locked at %s: the plan keeps this gold and budget until you refresh it.", date("%H:%M", FM.trade.pickAt)), 0.6, 0.6, 0.6, true)
+        end
+        GameTooltip:Show()
+    end)
+    summaryZone:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    summaryZone:Hide()
+    f.summaryZone = summaryZone
+    -- Picks: "Lock plan after refresh" at the right of its budget row (FRV-63; the summary's line before FRV-95), its
+    -- text first (FRV-89)
     f.lock = FM.TextCheck(f, "Lock plan after refresh")
-    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, TOP + 24 - ROW_H / 2)
+    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, LINE_Y)
     f.lock:SetScript("OnClick", function(self)
         Settings().tablePicksLock = self:GetChecked() and true or false
         -- off: Picks plans by itself again, from now on; on: the plan shown now is held
@@ -2178,7 +2370,7 @@ local function CreateTable()
     f.lock:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Lock plan after refresh")
-        GameTooltip:AddLine("On (default): Picks keeps its plan while you buy, craft and post it. Only Refresh or a change of a Picks setting makes a new plan; deep scans, posts and your auction lists leave it as it was. The other tabs keep refreshing. Off: Picks plans again by itself after every deep scan, post and read of your auctions.", 1, 1, 1, true)
+        GameTooltip:AddLine("On (default): Picks keeps its plan while you buy, craft and post it. Only Refresh or a change of a Picks setting makes a new plan; deep scans, posts, your auction lists and changes of your bags or bank leave it as it was (Refresh's tooltip says what came since). The other tabs keep refreshing. Off: Picks plans again by itself after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     f.lock:SetScript("OnLeave", function() GameTooltip:Hide() end)

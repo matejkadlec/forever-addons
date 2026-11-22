@@ -6,9 +6,12 @@ local _, FM = ...
 --     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales: with 3+
 --     of them your pace is the rate while units of yours are still listed (1.22, FRV-66), the market share counts
 --     only once you sold out
---   * one plan for your gold: "Invest [X] % across [Y] picks" (1.20; X = the share of your gold the plan may use,
---     default and at most 90, Y = its picks at most, default 3). Picks are chosen greedily, each gets a fair share
---     of the gold that is left (left / picks still open), so what one does not use goes to the later ones; each buys
+--   * one plan for a budget: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]" (1.20; 1.35, FRV-95: Y = its picks at most,
+--     default 3; the budget X % of your gold, default and at most 90, or an amount set by hand, capped at 90% of your
+--     gold unless "Allow picks budget over current gold" (settings panel; % up to 999 then); with "Gold of all
+--     characters" (FRV-36) your gold counts your other characters' as last recorded). Picks are chosen greedily, each
+--     gets a fair share of the budget that is left (left / picks still open), so what one does not use goes to the
+--     later ones; each buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
 --     dearer), crafting stops where a craft no longer earns its margin
 --   * your position first: units you already list count against the buyers; units of the pick's item you hold are
@@ -48,6 +51,8 @@ local table_concat = table.concat
 
 local AH_CUT = 0.05
 local GOLD_SHARE = 0.9          -- of your gold goes into the plan (the rest pays deposits)
+local PCT_MAX = 90              -- the highest "[X] %" (GOLD_SHARE)...
+local OVER_PCT_MAX = 999        -- ...and with "Allow picks budget over current gold" (FRV-95)
 local PICK_SLOTS = 3            -- default "across [Y] picks": the plan has up to this many picks
 local SHARE_OF_BUYERS = 0.5     -- of the buyers you get while you are the cheapest only part of the time
 local OLD_RECORD_FACTOR = 0.3   -- records from before soldLow: share of early-gone units that were bought
@@ -785,14 +790,32 @@ local function BuyReason(part, trial)
     return nil
 end
 
+-- What the earlier picks of the plan take of your units of an item (FRV-98): "pick #1 uses 155", nil when none does
+local function TakenText(key)
+    local taken = P.taken[key]
+    if not taken then return nil end
+    local parts = {}
+    for i, t in ipairs(taken) do
+        parts[i] = string_format("pick #%d %s%s", t.rank, i == 1 and "uses " or "", Count(t.n))
+    end
+    return table_concat(parts, ", ")
+end
+
 -- A pick's material lines: what the plan does with each ("4 from your bags, AH 10 up to 14s 50c, craft 20"), why it
--- buys one it could craft, and under a crafted one the materials of its crafts
+-- buys one it could craft, and under a crafted one the materials of its crafts. Units of yours an earlier pick uses
+-- are named, so the number does not read as all you hold: "48 from your bank (of your 203, pick #1 uses 155)"
 local function MaterialLines(row, trial, reasons)
     local function describe(key, bits)
         local fromStock = (trial.stock[key] or 0) - (trial.fromMade[key] or 0)
         local used = trial.used[key] or 0
         local vendor = trial.vendor[key] or 0
-        if fromStock > 0 then bits[#bits + 1] = Count(fromStock) .. " from " .. StockWhere(fromStock, OwnedOf(key)[4]) end
+        local taken = TakenText(key)
+        if fromStock > 0 then
+            bits[#bits + 1] = Count(fromStock) .. " from " .. StockWhere(fromStock, OwnedOf(key)[4])
+                .. (taken and string_format(" (of your %s, %s)", Count(StockOf(key)), taken) or "")
+        elseif taken and StockOf(key) > 0 then
+            bits[#bits + 1] = string_format("none of your %s (%s)", Count(StockOf(key)), taken)
+        end
         if used > 0 then bits[#bits + 1] = string_format("AH %s up to %s", Count(used), M(trial.top[key])) end
         if vendor > 0 then bits[#bits + 1] = string_format("vendor %s at %s", Count(vendor), M(FM.VendorUnit(key, false))) end
         return used + vendor > 0
@@ -953,7 +976,7 @@ end
 -- (the reasons are kept from the first pass, where nothing is spent yet)
 local function NoGold()
     if P.slots > 1 then
-        return string_format("one pick's share (%s) does not pay for it: fewer picks or a higher %% in the Picks row", M(P.perPick))
+        return string_format("one pick's share (%s) does not pay for it: fewer picks or a bigger budget in the Picks row", M(P.perPick))
     end
     return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
 end
@@ -1521,14 +1544,28 @@ local function Evaluate(c)
     return pick, reason
 end
 
-local function Commit(pick)
+-- rank: the pick's place in the plan (what it takes of your units is named in later picks' material lines)
+local function Commit(pick, rank)
     local trial = pick.trial
+    local before = {}
+    local function Left(key)
+        local left = P.stockLeft[key] or StockOf(key)
+        if before[key] == nil then before[key] = left end
+        return left
+    end
     for key, n in pairs(trial.used) do P.used[key] = (P.used[key] or 0) + n end
-    for key, n in pairs(trial.stock) do P.stockLeft[key] = (P.stockLeft[key] or StockOf(key)) - n end
-    for key, n in pairs(trial.made) do P.stockLeft[key] = (P.stockLeft[key] or StockOf(key)) + n end
+    for key, n in pairs(trial.stock) do P.stockLeft[key] = Left(key) - n end
+    for key, n in pairs(trial.made) do P.stockLeft[key] = Left(key) + n end
     -- what you hold of its item goes to the AH with it: no later pick uses it as material
     if (pick.held or 0) > 0 and not P.noStock then
-        P.stockLeft[pick.key] = math_max(0, (P.stockLeft[pick.key] or StockOf(pick.key)) - pick.held)
+        P.stockLeft[pick.key] = math_max(0, Left(pick.key) - pick.held)
+    end
+    for key, was in pairs(before) do
+        local n = was - (P.stockLeft[key] or was)
+        if n > 0 then
+            P.taken[key] = P.taken[key] or {}
+            P.taken[key][#P.taken[key] + 1] = { rank = rank, n = n }
+        end
     end
     P.budgetLeft = P.budgetLeft - pick.invest
     if (pick.toolCost or 0) > 0 then
@@ -1536,25 +1573,77 @@ local function Commit(pick)
     end
 end
 
+-- The gold the plan counts (FRV-36): yours now, and with "Gold of all characters" (a Picks filter) also your other
+-- characters' of this realm and faction as last recorded (R.goldLast through FM.Characters: /fm forget drops one).
+-- Returns the copper and the characters counted, yours first: { key, name, class, copper, t (nil = now), current }
+function FM.PicksGold(all)
+    local now = GetMoney and GetMoney() or 0
+    if type(now) ~= "number" or FM.IsSecret(now) then now = 0 end
+    local me = { key = FM.PlayerName(), copper = now, current = true }
+    me.name = me.key
+    local chars, total = { me }, now
+    for _, c in ipairs(FM.Characters and FM.Characters() or EMPTY) do
+        if c.current then
+            me.name, me.class = c.name, c.class
+        elseif all and type(c.gold) == "number" then
+            chars[#chars + 1] = { key = c.key, name = c.name, class = c.class, copper = c.gold, t = c.goldT }
+            total = total + c.gold
+        end
+    end
+    return total, chars
+end
+
+-- The highest "[X] %" of the Picks row (FRV-95): 90 (the rest of your gold pays deposits), 999 with "Allow picks
+-- budget over current gold" (settings panel)
+function FM.PicksPctMax(s)
+    s = s or FM.GetSettings()
+    return s.tablePicksOverGold == true and OVER_PCT_MAX or PCT_MAX
+end
+
+-- The plan's budget of this gold (FRV-95): X % of it ("%" checked, default: tableInvestPct, at most FM.PicksPctMax,
+-- an older X above it counts as the most) or the amount set by hand ("Invest" checked: tableInvestManual,
+-- tableInvestAmount in copper), which without "Allow picks budget over current gold" is capped at 90% of the gold.
+-- Returns { budget, gold, mode = "pct" | "manual", pct, amount, capped, cap = 90% of the gold, over }
+function FM.PicksBudget(gold, s)
+    s = s or FM.GetSettings()
+    gold = math_max(0, tonumber(gold) or 0)
+    local over = s.tablePicksOverGold == true
+    local b = { gold = gold, over = over, cap = gold * GOLD_SHARE }
+    if s.tableInvestManual == true then
+        local amount = math_max(0, math_floor(tonumber(s.tableInvestAmount) or 0))
+        b.mode, b.amount = "manual", amount
+        if not over and amount > b.cap then
+            b.budget, b.capped = b.cap, true
+        else
+            b.budget = amount
+        end
+    else
+        local pct = math_floor(tonumber(s.tableInvestPct) or PCT_MAX)
+        b.mode, b.pct = "pct", Clamp(pct, 1, FM.PicksPctMax(s))
+        b.budget = gold * b.pct / 100
+    end
+    return b
+end
+
 function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
-    local gold = GetMoney and GetMoney() or 0
     local s = FM.GetSettings()
     -- your auctions seen before the latest snapshot are checked against it (Yours)
     local lag = ctx.view.source == "api" and FEED_LAG or SNAPSHOT_LAG
     local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - lag or nil)
     -- the Picks filters (its own or the global ones) are inputs of the plan: a change plans again (FM.PlanPicks)
     local filters = FM.TableFilters("picks")
+    local gold, chars = FM.PicksGold(filters.allGold)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
-        demand = {}, owned = {}, stockLeft = {}, used = {}, toolsBought = {}, listings = listings, listInfo = listInfo, yours = {},
-        ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
+        demand = {}, owned = {}, stockLeft = {}, taken = {}, used = {}, toolsBought = {}, listings = listings,
+        listInfo = listInfo, yours = {}, ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit > 0 and s.tableMinProfit or nil }
-    -- "Invest [X] % across [Y] picks": X = the share of your gold the whole plan may use (at most 90%, the rest
-    -- pays deposits), Y = the picks it has at most; Step gives each pick its share of what is left
-    local share = tonumber(s.tableInvestPct)
-    share = share and math_max(1, math_min(100, share)) / 100 or GOLD_SHARE
-    P.budget = gold * math_min(share, GOLD_SHARE)
+    -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
+    -- is left
+    local funds = FM.PicksBudget(gold, s)
+    funds.chars, funds.all = chars, filters.allGold and true or false
+    P.budget = funds.budget
     P.budgetLeft = P.budget
     local slots = tonumber(s.tableInvestPicks)
     P.slots = slots and math_max(1, math_min(MAX_PICKS, math_floor(slots))) or PICK_SLOTS
@@ -1567,6 +1656,7 @@ function FM.ComputePicks(out, ctx, done)
     local firstPct = tonumber(s.tableFirstPct)
     P.firstShare = (firstPct and math_max(1, math_min(100, firstPct)) or FIRST_PCT) / 100
     out.pickGold = gold
+    out.pickFunds = funds -- the summary line and its tooltip: which budget, whose gold
 
     local why = {}
     local candidates = Candidates(out, why)
@@ -1607,7 +1697,7 @@ function FM.ComputePicks(out, ctx, done)
             for i, c in ipairs(candidates) do
                 if c.row.key == candidates[best].row.key then taken[i] = true end
             end
-            Commit(cache[best])
+            Commit(cache[best], #chosen + 1)
             chosen[#chosen + 1] = cache[best]
             if #chosen < P.slots and P.budgetLeft > 0 then
                 C_Timer.After(0, Step)
@@ -1659,11 +1749,18 @@ function FM.ComputePicks(out, ctx, done)
             expected = expected + (p.expected or 0)
         end
         out.pickPlan, out.pickNeed, out.pickExpected = #chosen, need, expected
-        for i, p in ipairs(picks) do
-            p.rank = i
+        -- the market numbers of the row the pick was made from (FRV-67: On AH with yours, C/8h, C/24h): the product of a
+        -- craft or a recipe to learn, the item of a vendor resell or a flip
+        local function Done(p)
+            local row = p.cand and p.cand.row
+            if row then p.qty, p.own, p.sold12, p.soldWide = row.qty, row.own, row.sold12, row.soldWide end
             p.trial, p.cand = nil, nil
         end
-        for _, p in ipairs(levels) do p.trial, p.cand = nil, nil end
+        for i, p in ipairs(picks) do
+            p.rank = i
+            Done(p)
+        end
+        for _, p in ipairs(levels) do Done(p) end
         out.picks = picks
         out.pickLevels = levels
         out.pickBudget = P.budget
