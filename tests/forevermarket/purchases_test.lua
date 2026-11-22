@@ -12,6 +12,8 @@
 --   * then the craft log: a craft's material basis moves by what the mended purchases change (replayed in time order
 --     with the log before and after), its unrecorded units keep the price recorded for them, a craft's product passes
 --     its new basis on; a material the old replay does not reproduce stays as it was
+--   * a bucket the first version (1.36.3) already mended: a line without a character takes its mail's total and the copy
+--     of it that version added (the mail's exact minute, character and total) goes; the craft log stays
 -- The server's answers are faked here; the in-game test checks a real purchase.
 
 local H = require("harness")
@@ -182,4 +184,29 @@ H.test("purchases: the repair moves the crafts' material basis with the mended p
         string.format("%d,6000,1,1,Tester,2,5000:1:1510:1", t0 + 120),
         string.format("%d,7000,1,1,Tester,3,%d:5:9999:30", t0 + 180, LEATHER),
     }, "the mended craft log")
+end)
+
+H.test("purchases: a bucket the first repair (1.36.3) mended loses the copies it added, its old lines get their mails", function()
+    local FM = Load()
+    local r = FM.R()
+    local t0 = FM.EPOCH + 10000 * 60 + 37
+    local minute = FM.EPOCH + 10000 * 60 -- the mail's minute
+    r.names = { ["769"] = "Chunk of Boar Meat", [tostring(LEATHER)] = "Medium Leather" }
+    r.invoices = { Mail(FM, t0 + 5, "Chunk of Boar Meat", 20, 1400), Mail(FM, t0 + 300, "Medium Leather", 5, 500) }
+    r.buys = {
+        string.format("%d,769,20,1500,", t0),                     -- before 1.15.5: no character, its old total
+        string.format("%d,769,20,1400,Tester", minute),           -- the copy 1.36.3 added from its mail
+        string.format("%d,%d,5,500,Tester", t0 + 300, LEATHER),   -- mended by 1.36.3 already
+    }
+    r.crafts = { string.format("%d,5000,1,1,Tester,1,769:20:9999:20", t0 + 600) }
+    r.buysRepair = 1
+    local result = FM.RepairBuys(r)
+    H.same({ result.fixed, result.dropped, result.after }, { 1, 1, 1 }, "1 old line priced, 1 copy removed")
+    H.same(r.buys, {
+        string.format("%d,769,20,1400,", t0),
+        string.format("%d,%d,5,500,Tester", t0 + 300, LEATHER),
+    }, "one line per purchase at its mail's total")
+    H.eq(r.crafts[1], string.format("%d,5000,1,1,Tester,1,769:20:9999:20", t0 + 600), "the craft log stays")
+    H.eq(r.buysRepair, 2, "marked as the second version")
+    H.eq(FM.RepairBuys(r), nil, "and not again")
 end)

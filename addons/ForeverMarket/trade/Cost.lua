@@ -149,7 +149,7 @@ FM.On("COMMODITY_PURCHASE_FAILED", function()
 end)
 
 ---------------------------------------------------------------- the repair of the log (FRV-102)
--- Once per realm bucket (r.buysRepair): the log as it was until 1.36 (see the top of this file) is mended from your AH
+-- Once per realm bucket (r.buysRepair = 2): the log as it was until 1.36 (see the top of this file) is mended from your AH
 -- mail. Every commodity purchase sends one "buyer" mail with its units and the real total (R.invoices, scan/Ledger.lua):
 --   1. a line gets the total of its purchase's mail: the same character, item, units, sent within 15 minutes of the
 --      line (the nearest one not taken yet)
@@ -160,7 +160,9 @@ end)
 -- A line without a character (before 1.15.5) takes a mail of any character, as the Profit tab matches it. Then the
 -- craft log follows (FM.RepairCraftBasis, trade/Crafts.lua). r.buysRepaired = { t, fixed, added, capped, crafts } says
 -- what it did; a chat line too
-local BUYS_REPAIR = 1
+-- 2 since 1.36.5: a bucket the first version (1.36.3, a build of the same pull request in the maintainer's game) left
+-- at 1 gets what that version missed (RepairAfterFirst)
+local BUYS_REPAIR = 2
 local REPAIR_MATCH = 15 * 60
 
 -- The buyer mails by "char|item name|units", and the same mails by "item name|units" for a line without a character
@@ -172,7 +174,7 @@ local function MailsOf(r)
         local sent = f[3] == "buyer" and f[2] and f[4] and FM.Unstamp(f[1])
         local qty, money = FM.Dec(f[6]), FM.Dec(f[7])
         if sent and qty and money and money > 0 then
-            local m = { sent = sent, money = money }
+            local m = { sent = sent, money = money, char = f[2] }
             local k = f[2] .. "|" .. f[4] .. "|" .. qty
             out[k] = out[k] or {}
             table.insert(out[k], m)
@@ -184,8 +186,77 @@ local function MailsOf(r)
     return out, anyChar
 end
 
+-- The nearest mail not taken yet within REPAIR_MATCH of t, or nil
+local function NearestMail(list, t)
+    local best, gap
+    for _, m in ipairs(list or {}) do
+        local d = math.abs(m.sent - t)
+        if not m.taken and d <= REPAIR_MATCH and (not gap or d < gap) then best, gap = m, d end
+    end
+    return best
+end
+
+-- A bucket the first version of the repair (1.36.3) already mended: it matched only lines with a character, so a line
+-- without one (before 1.15.5) kept its total and its mail was added as a second line, at the mail's exact minute and
+-- total under the mail's character. Now such a line takes that mail's total and the added copy goes. The craft log
+-- stays as it is (the totals it was worked out from are gone); a backup from before 1.36.3 gets the whole repair
+local function RepairAfterFirst(r)
+    r.buysRepair = BUYS_REPAIR
+    local buys = type(r.buys) == "table" and r.buys or nil
+    if not buys or #buys == 0 then return nil end
+    local names = type(r.names) == "table" and r.names or {}
+    local _, anyChar = MailsOf(r)
+    local lines, exact = {}, {}
+    for i, line in ipairs(buys) do
+        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        local l = { raw = line, t = tonumber(t), key = key, qty = tonumber(qty), total = tonumber(total), who = who }
+        lines[i] = l
+        if l.t and l.who ~= "" then
+            local k = l.t .. "|" .. key .. "|" .. qty .. "|" .. who
+            exact[k] = exact[k] or {}
+            table.insert(exact[k], l)
+        end
+    end
+    local fixed, dropped = 0, 0
+    for _, l in ipairs(lines) do
+        local name = l.t and l.who == "" and names[l.key]
+        local m = name and NearestMail(anyChar[name .. "|" .. l.qty], l.t)
+        if m then
+            m.taken = true
+            if m.money ~= l.total then
+                l.total, l.changed = m.money, true
+                fixed = fixed + 1
+            end
+            for _, d in ipairs(exact[m.sent .. "|" .. l.key .. "|" .. l.qty .. "|" .. m.char] or {}) do
+                if not d.drop and d.total == m.money then
+                    d.drop = true
+                    dropped = dropped + 1
+                    break
+                end
+            end
+        end
+    end
+    local out = {}
+    for _, l in ipairs(lines) do
+        if not l.drop then
+            out[#out + 1] = l.changed and string.format("%d,%s,%d,%d,", l.t, l.key, l.qty, math_floor(l.total + 0.5)) or l.raw
+        end
+    end
+    for i = 1, math.max(#buys, #out) do buys[i] = out[i] end
+    local result = { t = FM.Now(), fixed = fixed, dropped = dropped, after = 1 }
+    r.buysRepaired = result
+    if fixed + dropped > 0 and C_Timer and FM.Print then
+        C_Timer.After(5, function()
+            FM.Print(string.format("Purchase log repaired again (FRV-102): %d old purchases priced from your AH mail, %d copies of them removed. The material cost of your crafts stays as 1.36.3 left it.",
+                fixed, dropped))
+        end)
+    end
+    return result
+end
+
 function FM.RepairBuys(r)
     if type(r) ~= "table" or r.buysRepair == BUYS_REPAIR then return nil end
+    if r.buysRepair == 1 then return RepairAfterFirst(r) end
     r.buysRepair = BUYS_REPAIR
     local buys = type(r.buys) == "table" and r.buys or nil
     if not buys or #buys == 0 then return nil end
@@ -209,11 +280,7 @@ function FM.RepairBuys(r)
     for _, l in ipairs(lines) do
         local name = l.key and names[l.key]
         local list = name and (l.who ~= "" and mails[l.who .. "|" .. name .. "|" .. l.qty] or (l.who == "" and anyChar[name .. "|" .. l.qty]))
-        local best, gap
-        for _, m in ipairs(list or {}) do
-            local d = math.abs(m.sent - l.t)
-            if not m.taken and d <= REPAIR_MATCH and (not gap or d < gap) then best, gap = m, d end
-        end
+        local best = list and NearestMail(list, l.t)
         if best then
             best.taken = true
             l.mailed = true

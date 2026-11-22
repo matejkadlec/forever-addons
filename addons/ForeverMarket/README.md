@@ -1051,8 +1051,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
-  bucket (1.36.3, FRV-102, `buysRepair` = 1, the counts in `buysRepaired` = { t, fixed, added, capped, crafts }, a
-  chat line says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a
+  bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
+  a chat line says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a
   line takes the total of its purchase's mail (the same character, item and units, sent within 15 minutes, the
   nearest one; a line without a character takes one of any character, as the Profit tab matches it); a mail of an
   item the log has lines of, sent after its first line, with no line is a purchase never logged and is added at its
@@ -1063,7 +1063,13 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   a craft's product passes its new basis on, and a material the old replay does not reproduce stays as it was. On the
   maintainer's saved variables of 2026-11-22: 117 of 273 lines got their mail's total, 35 purchases were added, 4
   lines capped, 40 craft lines worked out again; today's sums then match the sniper's own records (Thick Leather 456
-  units for 28g 60s 41c, Tender Crocolisk Meat 128 for 1g 19s 48c, Medium Leather 204 for about 96c a unit)
+  units for 28g 60s 41c, Tender Crocolisk Meat 128 for 1g 19s 48c, Medium Leather 204 for about 96c a unit).
+  A bucket at `buysRepair` = 1 was mended by the first version (1.36.3, a build of the same pull request that ran in
+  the maintainer's game): it matched only lines with a character, so a line without one kept its total and its mail
+  was added as a second line. 1.36.5 gives such a line its mail's total and drops that copy (the mail's exact minute,
+  character and total; `buysRepaired` = { t, fixed, dropped, after = 1 }); the craft log stays as it was, because the
+  totals it was worked out from are gone (a backup from before 1.36.3 gets the whole repair). On the maintainer's
+  data both ways end in the same purchase log
 * `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
   item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
