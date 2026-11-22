@@ -493,6 +493,12 @@ local function Build(r, char, mode, now)
     -- the reading a live one is set against: its value and what it saw
     local reading = counted[#counted]
     if reading then series.lastHeld, series.lastSaw, series.lastT = reading.held, reading.saw, reading.t end
+    -- and the one before it, when the step between the two counted: a live reading may rise back by a fall without
+    -- a sale (FM.HeldFall)
+    local earlier = counted[#counted - 1]
+    if earlier and earlier.saw == reading.saw and not reading.reset then
+        series.prevHeld, series.prevT = earlier.held, earlier.t
+    end
 
     -- own gear in what you held (FRV-93): the readings counted its units, at what they cost, from when they reached
     -- you (the purchase, a won auction's mail read) until they were equipped. Both steps are taken back where they
@@ -655,7 +661,8 @@ function FM.PerfSeries(modeId, now, scope)
     if liveStep > 0 and liveParts and FM.HeldJump then
         local sold = 0
         for _, e in ipairs(liveParts.own.sold) do sold = sold + e.money end
-        if FM.HeldJump(r, char, series.lastT, series.lastHeld, liveHeld, sold, all and liveParts.all.others or 0) > 0 then
+        local back = FM.HeldFall(r, char, series.prevT, series.lastT, series.prevHeld, series.lastHeld)
+        if FM.HeldJump(r, char, series.lastT, series.lastHeld, liveHeld, sold, all and liveParts.all.others or 0, back) > 0 then
             liveStep, series.liveLeftOut = 0, true
         else
             series.liveLeftOut = nil

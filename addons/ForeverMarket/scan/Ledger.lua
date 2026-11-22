@@ -7,7 +7,9 @@ local _, FM = ...
 -- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID]"    kind: i item, c commodity, b bid only
 -- R.events   "t,char,kind,..."
 --              chat:  sold | expired | removed | won | outbid  ,itemName
---              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev  (prev = the list before, 1.15.14 on)
+--              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s]  (prev = the list before, 1.15.14
+--                     on; "s" (1.38) = an osold line of a row the list showed sold, without it the auction was gone
+--                     from the list and could not have run out)
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
@@ -107,6 +109,9 @@ end
 local function SnapshotOwned()
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumOwnedAuctions and ah.GetOwnedAuctionInfo) then return end
+    -- only while the AH is open: an update that arrives as it closes hands out an empty list (seen in the maintainer's
+    -- saved variables of 2026-11-22 18:41, FRV-106: the list had no row and 95 running auctions were logged as sold)
+    if not FM.ahOpen then return end
     local n = ah.GetNumOwnedAuctions()
     if type(n) ~= "number" or FM.IsSecret(n) then return end
     local r = FM.R()
@@ -149,15 +154,16 @@ local function SnapshotOwned()
         -- the previous list was read during this AH visit: you were watching, so a vanished auction
         -- was cancelled (sold ones stay in the list with the sold status until their mail goes out)
         local watching = FM.ahOpen and FM.ahOpenedAt and previous.t >= FM.ahOpenedAt
-        local function log(kind, aid, e, qty)
-            -- prev: the list before this one, the change happened between the two
-            FM.Log("events", table_concat({ stamp, char, kind, e.key, qty or e.qty, e.buyout, aid, FM.Stamp(previous.t) }, ","),
-                FM.LIMITS.eventsMax)
+        local function log(kind, aid, e, qty, shown)
+            -- prev: the list before this one, the change happened between the two; shown: the list shows the sale
+            local fields = { stamp, char, kind, e.key, qty or e.qty, e.buyout, aid, FM.Stamp(previous.t) }
+            if shown then fields[9] = "s" end
+            FM.Log("events", table_concat(fields, ","), FM.LIMITS.eventsMax)
         end
         for aid, e in pairs(current) do
             local old = before[aid]
             if e.status == "s" and (not old or old.status ~= "s") then
-                log("osold", aid, e)
+                log("osold", aid, e, nil, true)
             elseif old and old.status ~= "s" then
                 local was, left = Dec(old.qty) or 0, Dec(e.qty) or 0
                 if left < was then log("opart", aid, e, Enc(was - left)) end
@@ -478,7 +484,7 @@ local MAIL_MATCH_MINUTES = 10 -- the sent time derived from daysLeft wobbles a l
 -- mail, so several identical mails, e.g. three pants sold at the same price, are all counted). The other player's
 -- name is not part of the key (the empty field; until 1.37 it was): the client gives an AH mail's name only a moment
 -- after the mail is first listed, so the same mail read again seconds later had another key and was logged a second
--- time (FRV-106: 425 of the maintainer's 1149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log
+-- time (FRV-106: 413 of the maintainer's 1,149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log
 local function MailBase(char, kind, itemName, count, bid, buyout)
     return table_concat({ char, kind, itemName, "", count or "", bid or "", buyout or "" }, "|")
 end
@@ -499,43 +505,56 @@ local function SeedMailSeen(r)
     r.invSeen = {} -- the old time bucket keys merged identical mails of the same two hours
 end
 
--- Once per realm bucket (r.mailRepair = 1, FRV-106): the AH mail log as it was until 1.37, where a mail whose other
+-- Once per realm bucket (r.mailRepair, FRV-106): the AH mail log as it was until 1.37, where a mail whose other
 -- player's name arrived after its first reading was logged twice (see MailBase):
---   * of two lines of the same character, kind, item, units and money, one without the name and one with it, sent
---     at most a minute apart, the one without the name logged first: the second goes, the first gets its name (the
---     Profit tab booked the mail's money when it was first read)
+--   * of two lines of the same character, kind, item, units and money, one without the name and one with it, the
+--     one without the name logged first: the second goes, the first gets its name (the Profit tab booked the mail's
+--     money when it was first read). Two lines sent in the same minute pair first, then two a minute apart (the
+--     sent time is worked out from the days the mail has left and moves by a minute between two readings)
 --   * R.mailSeen is keyed without the name, so a mail still in your mailbox is not logged again
--- r.mailRepaired = { t, dropped, sales = their money after the cut, with the deposits }; a chat line too
-local MAIL_REPAIR = 1
+-- r.mailRepaired = { t, dropped, sales = their money after the cut, with the deposits }; a chat line too.
+-- 2 since 1.38.1: equal minutes pair first. A bucket the first version (1.38.0, a build of the same pull request
+-- that was synced into the maintainer's game) mended keeps what that did: its second lines are gone, and what is
+-- left are mails of their own, which a second pass would pair again
+local MAIL_REPAIR = 2
 local TWIN_MINUTES = 1
 
 function FM.RepairMailLog(r)
     if type(r) ~= "table" or r.mailRepair == MAIL_REPAIR then return nil end
+    local mended = r.mailRepair == 1
     r.mailRepair = MAIL_REPAIR
+    if mended then return nil end
     local invoices = type(r.invoices) == "table" and r.invoices or {}
-    local blanks = {} -- base -> the lines without a name, in log order: { index, minutes }
-    local drop, names = {}, {}
-    local dropped, sales = 0, 0
+    local blanks, named = {}, {} -- base -> its lines without a name, in log order; the lines with one
     for i, line in ipairs(invoices) do
         local f = type(line) == "string" and FM.Split(line, ",") or {}
         local minutes = Dec(f[1])
         if f[10] and minutes then
             local base = MailBase(f[2], f[3], f[4], f[6], f[7], f[8])
+            local entry = { index = i, minutes = minutes, base = base, name = f[5], kind = f[3],
+                money = (Dec(f[7]) or 0) - (Dec(f[10]) or 0) + (Dec(f[9]) or 0) }
             if f[5] == "" then
                 blanks[base] = blanks[base] or {}
-                table.insert(blanks[base], { index = i, minutes = minutes })
+                table.insert(blanks[base], entry)
             else
-                -- the nearest line without a name before it that no named line took yet
-                local best, gap
-                for _, b in ipairs(blanks[base] or {}) do
-                    local d = math.abs(b.minutes - minutes)
-                    if not b.taken and d <= TWIN_MINUTES and (not gap or d < gap) then best, gap = b, d end
-                end
-                if best then
-                    best.taken = true
-                    drop[i], names[best.index] = true, f[5]
-                    dropped = dropped + 1
-                    if f[3] == "seller" then sales = sales + (Dec(f[7]) or 0) - (Dec(f[10]) or 0) + (Dec(f[9]) or 0) end
+                named[#named + 1] = entry
+            end
+        end
+    end
+    local drop, names = {}, {}
+    local dropped, sales = 0, 0
+    for gap = 0, TWIN_MINUTES do
+        for _, n in ipairs(named) do
+            if not n.taken then
+                -- the first line without a name before it, that far from it, that no named line took yet
+                for _, b in ipairs(blanks[n.base] or {}) do
+                    if not b.taken and b.index < n.index and math.abs(b.minutes - n.minutes) == gap then
+                        b.taken, n.taken = true, true
+                        drop[n.index], names[b.index] = true, n.name
+                        dropped = dropped + 1
+                        if n.kind == "seller" then sales = sales + n.money end
+                        break
+                    end
                 end
             end
         end

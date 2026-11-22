@@ -5,7 +5,10 @@
 -- Rules:
 --   * a sold row of the list of your auctions is one sale: its money counts once, at the row's total less the cut
 --     (the client gives a sold row the sale's units and total; a stack sold in parts has a row per part)
---   * an auction a list missed and a later list shows running again was not sold; a line logged twice counts once
+--   * an auction that is gone from a list is a sale only when a list showed it sold (its row) or its count fell;
+--     else its units stay counted, like an ended one's, until the mail tells. One that runs again in a later list
+--     was not sold; a line logged twice counts once, a count that fell twice is two sales
+--   * the list of your auctions is taken only while the AH is open
 --   * an AH mail is logged once, whether or not its buyer's name has arrived
 --   * what you hold counts at what it cost you: bought units at their price, crafted units at the cost of the bought
 --     materials they used. So buying, crafting and posting move nothing; a sale moves the AH result by its money
@@ -13,7 +16,8 @@
 --   * a craft the craft log did not record: the product counts at its recipe's materials while you hold it, and its
 --     sale takes them, when ForeverArtisan counted crafts of the recipe
 --   * bought units the first reading of what you hold does not find are gone from the day they were bought
---   * a reading that rises by more than the purchases since the reading before explain is left out, said once
+--   * a reading that rises by more than the purchases since the reading before explain is left out, said once; a
+--     rise back to the level before a fall without a sale is no gain and counts: it heals the fall
 --   * at logout the client's gold reads 0: the gold recorded before stays
 -- A post's deposit is 10c a unit here (FM.Deposit is set by the tests).
 
@@ -30,7 +34,7 @@ local DAY2 = os.time({ year = 2026, month = 11, day = 22, hour = 0 })
 -- A session of the character "Ada" on saved variables (nil: a new install); state.bags is what its bags hold
 local function Session(saved, clock)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
-    local state = { bags = {}, gold = 100000 }
+    local state = { bags = { ["6948"] = 1 }, gold = 100000 } -- a hearthstone: bags that read empty give no reading
     env.clock = clock
     env.ForeverMarketDB = saved
     env.UnitName = function() return "Ada" end
@@ -142,6 +146,11 @@ H.test("held: the list of your auctions stores a sold row per unit and marks its
         { auctionID = 103, itemKey = { itemID = 8198 }, status = 1, quantity = 1, buyoutAmount = 14488, timeLeftSeconds = 3054 },
     }
     env.C_AuctionHouse = { GetNumOwnedAuctions = function() return #infos end, GetOwnedAuctionInfo = function(i) return infos[i] end }
+    -- an update while the AH is closed is not a list
+    env.FireEvent("OWNED_AUCTIONS_UPDATED")
+    env.FlushTimers()
+    H.eq(r.owned.Ada, nil, "nothing taken while the AH is closed")
+    FM.ahOpen = true
     env.FireEvent("OWNED_AUCTIONS_UPDATED")
     env.FlushTimers()
     H.eq(r.owned.Ada.v, 2, "the list's mark")
@@ -152,23 +161,67 @@ H.test("held: the list of your auctions stores a sold row per unit and marks its
         "the sold stack at 61s 68c / 12 a unit, a running row and a single item as the client gives them")
 end)
 
-H.test("held: an auction that is running again was not sold, a line logged twice counts once", function()
+H.test("held: an auction gone from a list holds its units until a list showed it sold; running again it was never gone", function()
     local listT = DAY1 + 11 * 3600 + 18 * 60
     local FM, _, _, r = Session(nil, listT + 60)
     FM.Deposit = function() return 0 end
     r.mailbox.Ada = FM.Stamp(listT - 3600) .. "|0|"
+    Buy(r, listT - 86400, "8172", 90, 90 * 700) -- 90 cured hides that cost 7s each
     Post(FM, r, listT - 7200, "8172", 80, 994, 3, "c", "r1")
     Post(FM, r, listT - 7200, "8172", 10, 994, 3, "c", "x9")
     -- a list read while it was still loading (two minutes before) missed both auctions; r1 runs in the next list, x9
     -- is gone, and its line was written by both lists
-    for _, e in ipairs({ { 120, "r1", 80 }, { 120, "x9", 10 }, { 0, "x9", 10 } }) do
-        r.events[#r.events + 1] = table.concat({ FM.Stamp(listT - e[1]), "Ada", "osold", "8172", B(e[3]), B(994), e[2],
-            FM.Stamp(listT - 3000) }, ",")
+    local function Gone(ago, aid, qty, shown)
+        r.events[#r.events + 1] = table.concat({ FM.Stamp(listT - ago), "Ada", "osold", "8172", B(qty), B(994), aid,
+            FM.Stamp(listT - 3000), shown }, ",")
     end
+    Gone(120, "r1", 80)
+    Gone(120, "x9", 10)
+    Gone(0, "x9", 10)
     r.owned.Ada = { t = listT, list = table.concat({ "r1", "8172", B(80), B(994), "a", B(60000) }, ":"), v = 2 }
-    local _, _, _, _, _, parts = FM.WorthNow(true)
+    local _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(#parts.own.sold, 0, "no money on its way: nothing was seen sold")
+    H.eq(held, 90 * 700, "the 80 running and the 10 that are gone, at what they cost")
+    -- the same lines of a list that showed the 10 sold (marked "s"): their money, once
+    r.events = {}
+    Gone(120, "x9", 10, "s")
+    Gone(0, "x9", 10, "s")
+    _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(#parts.own.sold, 1, "one sale")
-    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the 10 units that are gone, once")
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the 10 units, once")
+    H.eq(held, Round(80 * 700 + 10 * 994 * 0.95), "the running 80 at cost and the sale's money")
+end)
+
+-- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two
+-- sales of 51 and 54 as sold rows of the same auction
+H.test("held: a count that fell and the sold rows of the same sales count once; the same fall twice is two sales", function()
+    local listT = DAY1 + 17 * 3600 + 41 * 60
+    local FM, _, _, r = Session(nil, listT + 60)
+    FM.Deposit = function() return 0 end
+    r.mailbox.Ada = FM.Stamp(listT - 3600) .. "|0|"
+    local post = C.cure.post
+    Post(FM, r, listT - 5400, C.cure.made.key, post.qty, post.unit, 2, "c", "c1")
+    local function Fell(ago, aid, qty)
+        r.events[#r.events + 1] = table.concat({ FM.Stamp(listT - ago), "Ada", "opart", C.cure.made.key, B(qty), B(post.unit), aid,
+            FM.Stamp(listT - ago - 600) }, ",")
+    end
+    Fell(0, "c1", 105)
+    local rows = {}
+    for i, sale in ipairs(C.cure.sales) do
+        rows[i] = table.concat({ "c1", C.cure.made.key, B(sale.qty), B(post.unit), "s", B(1800) }, ":")
+    end
+    rows[3] = table.concat({ "c1", C.cure.made.key, B(15), B(post.unit), "a", B(20000) }, ":")
+    r.owned.Ada = { t = listT, list = table.concat(rows, ","), v = 2 }
+    local _, _, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(105 * post.unit * 0.95), "105 units sold, once")
+    -- three falls of 10 units of another auction, logged by three lists: three sales
+    Post(FM, r, listT - 5400, C.cure.made.key, 30, 1098, 2, "c", "c2")
+    for _, ago in ipairs({ 900, 600, 300 }) do
+        r.events[#r.events + 1] = table.concat({ FM.Stamp(listT - ago), "Ada", "opart", C.cure.made.key, B(10), B(1098), "c2",
+            FM.Stamp(listT - ago - 300) }, ",")
+    end
+    _, _, _, _, _, parts = FM.WorthNow(true)
+    H.eq(math.abs(SoldMoney(parts) - (105 * post.unit + 30 * 1098) * 0.95) < 1, true, "and the 30 units of the three falls")
 end)
 
 ---------------------------------------------------------------- cause 3: AH mail logged twice
@@ -217,8 +270,32 @@ H.test("held: the saved AH mail log loses the second line of a mail logged twice
     H.same(r.mailSeen, { [base:format("")] = FM.Stamp(sent) .. "," .. FM.Stamp(sent + 60) .. "," .. FM.Stamp(sent + 60) },
         "the mails already logged are keyed without the name")
     H.eq(FM.RepairMailLog(r), nil, "once per bucket")
+    H.eq(r.mailRepair, 2, "the bucket's mark")
+    -- a bucket the first version (1.38.0) mended keeps what that did: its lines are mails of their own now
+    r.mailRepair = 1
+    SaleMail(FM, r, C.cloak.name, 1, C.cloak.money, C.cloak.deposit, C.cloak.cut, sent + 600, read, "Buyer 6")
+    H.eq(FM.RepairMailLog(r), nil, "no second pass")
+    H.eq(#r.invoices, 7, "the named line next to a nameless one of the same minute stays")
+    H.eq(r.mailRepair, 2, "marked")
     -- the Profit tab books each sale once
-    H.eq(Days(FM, { clock = read + 600 })[2], 6 * (C.cloak.money - C.cloak.cut + C.cloak.deposit), "six sales")
+    H.eq(Days(FM, { clock = read + 600 })[2], 7 * (C.cloak.money - C.cloak.cut + C.cloak.deposit), "seven sales")
+end)
+
+-- Rule: twins have the same sent minute, or one a minute off; lines of the same minute pair first, so a named line
+-- does not take the nameless line of another mail a minute away while its own twin is there
+H.test("held: the repair pairs lines of the same minute before lines a minute apart", function()
+    local sent, read = DAY1 + 15 * 3600, DAY1 + 16 * 3600
+    local FM, _, _, r = Session(nil, read + 600)
+    local c = C.cloak
+    -- two mails: one sent at minute 0 (read without a name, then with it) and one at minute 1 that was read once,
+    -- without a name. Logged in this order: nameless 1, nameless 0, named 0
+    SaleMail(FM, r, c.name, 1, c.money, c.deposit, c.cut, sent + 60, read, "")
+    SaleMail(FM, r, c.name, 1, c.money, c.deposit, c.cut, sent, read, "")
+    SaleMail(FM, r, c.name, 1, c.money, c.deposit, c.cut, sent, read, "Buyer 1")
+    r.mailRepair = nil
+    H.eq(FM.RepairMailLog(r).dropped, 1, "one second line")
+    H.same({ FM.Split(r.invoices[1], ",")[5], FM.Split(r.invoices[2], ",")[5] }, { "", "Buyer 1" },
+        "the name went to the line of its own minute, the other mail stays as it was")
 end)
 
 ---------------------------------------------------------------- cause 5: what you hold counts at what it cost
@@ -363,56 +440,69 @@ end)
 H.test("held: a reading that rises without a purchase to match is left out and said once", function()
     local FM, env, state, r = Session(nil, DAY1 + 1800)
     local key = C.bracers.leather.key
+    local fall = -Round(40 * 38833 / 77) -- what 40 of the 77 units cost
     Buy(r, DAY1 - 86400, key, 77, 38833)
     r.mailbox.Ada = FM.Stamp(DAY1) .. "|0|"
     state.bags[key] = 77
     FM.RecordWorth(true) -- the first reading: all 77 held
-    -- 40 of them leave your bags without a sale (mailed to a friend): a loss of what they cost
-    env.clock = DAY1 + 2 * 3600
-    state.bags[key] = 37
-    FM.RecordWorth(true)
-    local drop = -Round(40 * 38833 / 77)
-    H.eq(Today(FM, env), drop, "units gone: their cost")
-    -- they are back an hour later: what you hold rises by 2g without any purchase
+    local function Mark() return FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7] end
+    local function Said()
+        local n = 0
+        for _, line in ipairs(env.printed) do
+            if line:find("more than your purchases explain", 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    local function Reading(hour, units)
+        env.clock = DAY1 + hour * 3600
+        state.bags[key] = units
+        FM.RecordWorth(true)
+    end
+    -- a reading that misses 40 of them (a bank not read, a list of your auctions still loading): a fall
+    Reading(2, 37)
+    H.eq(Today(FM, env), fall, "units not seen: their cost")
+    -- they are back at the next reading: no gain, the fall is healed
     env.clock = DAY1 + 3 * 3600
     state.bags[key] = 77
-    H.eq(Today(FM, env), drop, "the reading of right now is no gain")
+    H.eq(Today(FM, env), 0, "the reading of right now: back where it was")
     FM.RecordWorth(true)
-    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], "x", "the saved reading is marked as left out")
-    H.eq(Today(FM, env), drop, "and moves nothing")
-    local said = 0
-    for _, line in ipairs(env.printed) do
-        if line:find("more than your purchases explain", 1, true) then said = said + 1 end
-    end
-    H.eq(said, 1, "the chat says so")
-    env.clock = DAY1 + 4 * 3600
+    H.eq(Mark(), nil, "a reading like any other")
+    H.eq(Today(FM, env), 0, "healed")
+    H.eq(Said(), 0, "nothing to say")
+    -- gone again, and still gone a reading later: that is the level now. Back after that, without a purchase: what
+    -- you hold rises by 2g that nothing explains
+    Reading(4, 37)
+    Reading(5, 37)
+    env.clock = DAY1 + 6 * 3600
+    state.bags[key] = 77
+    H.eq(Today(FM, env), fall, "the reading of right now is no gain")
     FM.RecordWorth(true)
-    said = 0
-    for _, line in ipairs(env.printed) do
-        if line:find("more than your purchases explain", 1, true) then said = said + 1 end
-    end
-    H.eq(said, 1, "once per session")
-    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], "x", "the next reading at that level is left out too")
+    H.eq(Mark(), "x", "the saved reading is marked as left out")
+    H.eq(Today(FM, env), fall, "and moves nothing")
+    H.eq(Said(), 1, "the chat says so")
+    Reading(7, 77)
+    H.eq(Mark(), "x", "the next reading at that level is left out too")
+    H.eq(Said(), 1, "said once per session")
+    -- back to what is explained: counted again
+    Reading(8, 37)
+    H.eq(Mark(), nil, "a reading like any other")
     -- a purchase explains a rise: 20 more bought for 1g and in the bags
-    env.clock = DAY1 + 5 * 3600
-    state.bags[key] = 37
-    FM.RecordWorth(true)
     Buy(r, env.clock + 60, key, 20, 10000)
     r.mailbox.Ada = FM.Stamp(env.clock + 120) .. "|0|"
-    state.bags[key] = 57
-    env.clock = DAY1 + 6 * 3600
-    FM.RecordWorth(true)
-    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], nil, "a rise by what was bought is a reading like any other")
-    H.eq(Today(FM, env), drop, "and moves nothing either: gold became items")
+    Reading(9, 57)
+    H.eq(Mark(), nil, "a rise by what was bought")
+    H.eq(Today(FM, env), fall, "and moves nothing: gold became items")
+    -- a fall with a sale's mail in it is the sale: nothing comes back from it
+    SaleMail(FM, r, C.names[key], 40, 40000, 0, 2000, env.clock + 600, env.clock + 1200)
+    Reading(10, 17)
+    local sold = Today(FM, env)
+    Reading(11, 57)
+    H.eq(Mark(), "x", "units back after a sale took them are no recovery")
+    H.eq(Today(FM, env), sold, "and move nothing")
     -- left out for more than 12 hours, the level is taken as it is: a new baseline, no gain
-    env.clock = DAY1 + 7 * 3600
-    state.bags[key] = 97
-    FM.RecordWorth(true)
-    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], "x", "left out")
-    env.clock = DAY1 + 20 * 3600
-    FM.RecordWorth(true)
-    H.eq(FM.Split(r.worth.Ada[#r.worth.Ada], ",")[7], "r", "after 12 hours: the new baseline")
-    H.eq(Today(FM, env), drop, "the step onto it counts nothing")
+    Reading(23.5, 57)
+    H.eq(Mark(), "r", "after 12 hours: the new baseline")
+    H.eq(Today(FM, env), sold, "the step onto it counts nothing")
 end)
 
 ---------------------------------------------------------------- the gold at logout
@@ -439,8 +529,10 @@ H.test("held: /fm held lists what held is made of, now and in the last readings"
     local b = C.bracers
     local FM, env, state, r = Session(nil, DAY1 + 12 * 3600)
     Buy(r, DAY1 + 3600, b.leather.key, b.leather.qty, b.leather.total)
+    Buy(r, DAY1 + 3600, "8172", 182, 182 * 648) -- 9 of them in the bags, 173 in the bank
     r.mailbox.Ada = FM.Stamp(DAY1 + 7200) .. "|0|"
-    state.bags[b.leather.key] = b.leather.qty
+    r.bank.Ada = FM.Stamp(DAY1 + 7200) .. "|" .. B(8172) .. ":" .. B(173) .. ":" .. B(173)
+    state.bags[b.leather.key], state.bags["8172"] = b.leather.qty, 9
     FM.RecordWorth(true)
     env.printed = {}
     FM.PrintHeld()
@@ -452,5 +544,10 @@ H.test("held: /fm held lists what held is made of, now and in the last readings"
     H.eq(text:find("3g 88s 33c", 1, true) ~= nil, true, "its value")
     H.eq(text:find("bags 77", 1, true) ~= nil, true, "where it is")
     H.eq(text:find("The last readings", 1, true) ~= nil, true, "the saved readings")
+    -- an item in two places: now, and read back from the saved reading (place letters are base36 digits too)
+    local readings = text:sub((text:find("The last readings", 1, true)))
+    H.eq(text:find("x182 at 6s 48c", 1, true) ~= nil, true, "the hides now")
+    H.eq(readings:find("Cured Thick Hide x182 11g 79s 36c (bags 9, bank 173)", 1, true) ~= nil, true,
+        "the saved reading's places: " .. readings)
     H.eq(#r.heldLog.Ada, 1, "one saved reading with its parts")
 end)

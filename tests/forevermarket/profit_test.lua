@@ -33,7 +33,8 @@ local CLOTH, CLOTH_NAME = 2592, "Wool Cloth"
 -- what its bags hold right now ([itemID] = units), state.gold its gold, state.inbox its mailbox
 local function Session(saved, first, guid, clock)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
-    local state = { bags = {}, gold = 50000, inbox = {} }
+    -- the bags always hold something (a hearthstone): bags that read empty give no reading (FRV-73, FRV-106)
+    local state = { bags = { [6948] = 1 }, gold = 50000, inbox = {} }
     env.clock = clock
     env.ForeverMarketDB = saved
     env.UnitName = function() return first end
@@ -373,8 +374,11 @@ end)
 -- Rule (FRV-73): no reading at logout while the bags read empty (their containers may be gone already)
 H.test("profit: no reading at logout while the bags read empty", function()
     local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
+    state.bags = {}
     env.FireEvent("PLAYER_LOGOUT")
     H.eq(r.worth.Ada, nil, "left out")
+    FM.RecordWorth(true)
+    H.eq(r.worth.Ada, nil, "nor at any other moment (FRV-106): a reading that misses the bags would count as a fall")
     state.bags[CLOTH] = 3
     env.FireEvent("PLAYER_LOGOUT")
     H.eq(#r.worth.Ada, 1, "a reading once the bags hold something")

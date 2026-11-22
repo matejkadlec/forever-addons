@@ -200,7 +200,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
     local listT = type(owned) == "table" and owned.t or nil
     local running, inList = {}, {}
     local soldRows = {} -- the sales the list shows (their mail hasn't gone out yet), one row per sale
-    local soldAid, runningAid = {}, {} -- auction IDs with a sold row, and with a running one
+    local soldAid, runningAid = {}, {} -- auction ID -> the units of its sold rows, and of its running row
     local total = 0
     -- posts of the last days: their duration and deposit, by auction ID
     local posts, byAid = {}, {}
@@ -233,9 +233,9 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                     local unit = buyout
                     if owned.v ~= 2 and qty > 1 then unit = buyout / qty end
                     soldRows[#soldRows + 1] = { key = key, qty = qty, unit = unit, aid = aid }
-                    soldAid[aid] = true
+                    soldAid[aid] = (soldAid[aid] or 0) + qty
                 else
-                    runningAid[aid] = true
+                    runningAid[aid] = (runningAid[aid] or 0) + qty
                     running[#running + 1] = { t = listT, key = key, qty = qty, deposit = deposit, ends = listT + left }
                 end
             end
@@ -272,27 +272,49 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 Mail(name or f[4], tonumber(count) or 1, t)
             elseif (kind == "osold" or kind == "opart" or kind == "ocancel" or kind == "ogone") and t >= oldest then
                 local prev = FM.Unstamp(f[8])
-                local sale = kind == "osold" or kind == "opart"
                 local aid = f[7]
                 local qty, unit = Dec(f[5]) or 1, Dec(f[6]) or 0
                 if kind == "ocancel" and aid then cancelled[aid] = true end
-                -- a commodity sells at its post's unit price: an osold line written from a sold row before 1.38
-                -- holds the sale's total in its place (FRV-106)
                 local post = aid and byAid[aid]
-                if post and post.kind == "c" and post.unit and post.unit > 0 then unit = post.unit end
+                local stack = post and post.kind == "c" and post.unit and post.unit > 0
+                -- an osold line is a sale a list showed (its sold row: marked "s" since 1.38; a line of before holds
+                -- the row's total in the price's place, for a stack its post's unit price times the units), or an
+                -- auction that was gone from a list and could not have run out: that one may be sold, or the list was
+                -- a broken one (taken as the AH closed it was empty: 95 running auctions "sold" on 2026-11-22)
+                local shown = kind == "osold" and (f[9] == "s" or (stack and qty > 1 and unit == post.unit * qty)) or false
+                -- a commodity sells at its post's unit price
+                if stack then unit = post.unit end
+                -- left out: an auction that is running in the list after all (its units and the line's are more than
+                -- were posted, or no post tells), and the same line written twice by two lists around a broken one (a
+                -- count that fell, opart, is never written twice: the same line again is another sale)
                 local id = table_concat({ kind, aid or "", qty, unit }, ":")
-                -- left out: a sale the list still shows (its rows below count it, once each); an auction that is
-                -- running in the list after all (the list that missed it was read while it was still loading); and
-                -- the same line written twice (a list read twice around such a short one)
-                local skip = (kind == "osold" and aid and soldAid[aid])
-                    or ((kind == "osold" or kind == "ogone") and aid and runningAid[aid])
-                    or (aid and aid ~= "" and logged[id])
+                local runs = (kind == "osold" or kind == "ogone") and aid and runningAid[aid]
+                local again = runs and (not post or qty + runs > post.qty)
+                local twice = kind ~= "opart" and aid and aid ~= "" and logged[id]
                 logged[id] = true
-                if not skip then
+                if not again and not twice then
+                    -- money on its way only for a sale that was seen: a row shown sold, or a count that fell. A
+                    -- vanished auction counts with its units, like an ended one, until the mail tells which it was
+                    local sale = kind == "opart" or shown
+                    local maybe = kind == "osold" and not shown
                     changes[#changes + 1] = { t = t, kind = kind, key = f[4], qty = qty, unit = unit,
-                        aid = aid, sale = sale, any = kind == "ogone", from = prev and prev - 60 or t - MAIL_LATE,
-                        to = t + (sale and MAIL_LATE or 60) }
+                        aid = aid, sale = sale, any = kind == "ogone" or maybe, from = prev and prev - 60 or t - MAIL_LATE,
+                        to = t + ((sale or maybe) and MAIL_LATE or 60) }
                 end
+            end
+        end
+    end
+    -- the sold rows of an auction are its newest sales: the lines logged of the same sales (an osold from a row, an
+    -- opart from the count that fell) give way to them, the newest first; what is left of the lines are parts sold
+    -- before, whose rows are gone
+    for aid, units in pairs(soldAid) do
+        local left = units
+        for i = #changes, 1, -1 do
+            if left <= 0 then break end
+            local c = changes[i]
+            if c.aid == aid and c.sale then
+                local n = math_min(c.qty, left)
+                c.qty, left = c.qty - n, left - n
             end
         end
     end
@@ -870,7 +892,8 @@ local function SpentSince(r, char, since)
 end
 
 -- One part of a reading for /fm held: "scope|total|deposits|sold|key:units:value:places:made;..." with its largest
--- items (places = a letter and the units per place, FM.HELD_PLACES)
+-- items (places = a letter and the units per place, FM.HELD_PLACES, joined by "." as the letters are base36 digits
+-- too: "b9.k4t" = 9 in the bags, 173 in the bank)
 local function PartLine(scope, part)
     local sold = 0
     for _, e in ipairs(part.sold or {}) do sold = sold + e.money end
@@ -889,7 +912,7 @@ local function PartLine(scope, part)
             if n and n > 0 then places[#places + 1] = p[2] .. Enc(math_floor(n + 0.5)) end
         end
         out[i] = table_concat({ item.key, Enc(math_floor(item.units + 0.5)), Enc(math_floor(item.value + 0.5)),
-            table_concat(places), item.made and "1" or "" }, ":")
+            table_concat(places, "."), item.made and "1" or "" }, ":")
     end
     return table_concat({ scope, Enc(part.total), Enc(math_floor((part.deposits or 0) + (part.others or 0) + 0.5)),
         Enc(math_floor(sold + 0.5)), table_concat(out, ";") }, "|")
@@ -911,10 +934,27 @@ end
 
 -- The guard (FRV-106): what you hold only rises by what you bought on the AH, by the deposits you paid and by the
 -- money of sold auctions on its way (sold; others = that of your other characters' auctions, in a reading of all of
--- them). How much more than that (and a small tolerance) it rose since the reading of since that held was: above 0
--- the new reading is a mistake, never a gain
-function FM.HeldJump(r, char, since, was, held, sold, others)
-    return held - was - SpentSince(r, char, since) - (sold or 0) - (others or 0) - math_max(GUARD_MIN, GUARD_SHARE * was)
+-- them), or back to what it was (back, FM.HeldFall). How much more than that (and a small tolerance) it rose since
+-- the reading of since that held was: above 0 the new reading is a mistake, never a gain
+function FM.HeldJump(r, char, since, was, held, sold, others, back)
+    return held - was - SpentSince(r, char, since) - (sold or 0) - (others or 0) - (back or 0)
+        - math_max(GUARD_MIN, GUARD_SHARE * was)
+end
+
+-- What a reading may rise by to come back to the level before it: the fall from the reading before (before held
+-- at from) to it (was held at to), when no sale's mail was read between the two. Such a fall is a reading that
+-- missed units (a list of your auctions that was still loading, a bank not read yet) or units that left without a
+-- sale; coming back from it is no gain, and counting it heals the fall. A fall with a sale's mail in it took the
+-- sold units out for good: nothing comes back from that
+function FM.HeldFall(r, char, from, to, before, was)
+    if not (from and before) or before <= was then return 0 end
+    for i = #(r.invoices or {}), 1, -1 do
+        local f = FM.Split(r.invoices[i], ",")
+        local read = FM.Unstamp(f[11]) or FM.Unstamp(f[1])
+        if not read or read < from - 86400 then break end -- the log is in the order the mails were read
+        if f[3] == "seller" and read > from and read <= to and (not char or f[2] == char) then return 0 end
+    end
+    return before - was
 end
 
 local warned = false -- the chat line about a reading left out is printed once per session
@@ -924,6 +964,9 @@ function FM.RecordWorth(force, atLogout)
     -- trade/Basis.lua is new in 1.38: after a /reload without a restart the client has not loaded it, and a reading
     -- made without the lots would be saved as one at cost
     if not FM.BasisBook then return end
+    -- nor from bags that read empty: their containers may not be loaded yet or be gone already (FRV-73), and a reading
+    -- that misses what they hold would count as a fall
+    if FM.BagIndex and next(FM.BagIndex()) == nil then return end
     local now = FM.Now()
     if not force and now - lastAt < MIN_GAP then return end
     local gold, held, seen, all, saw, parts = FM.WorthNow(true)
@@ -941,9 +984,9 @@ function FM.RecordWorth(force, atLogout)
     if type(r.worth[char]) ~= "table" then r.worth[char] = {} end
     local list = r.worth[char]
     -- the first reading of what you really hold, of this character and of all of them: what it did not find of your
-    -- lots is gone (trade/Basis.lua). Never from bags that read empty (their containers may not be loaded, FRV-73)
+    -- lots is gone (trade/Basis.lua)
     if type(r.heldBase) ~= "table" then r.heldBase = {} end
-    if FM.BagIndex and next(FM.BagIndex()) ~= nil then
+    do
         local wrote = false
         if not r.heldBase[char] then
             r.heldBase[char] = FM.Stamp(now) .. "|" .. BaseUnits(parts.own.units, parts.own.sold)
@@ -957,18 +1000,21 @@ function FM.RecordWorth(force, atLogout)
         if wrote then _, held, seen, all, saw, parts = FM.WorthNow(true) end
     end
     -- the guard (FRV-106): what you hold only rises by what you bought, by the deposits you paid and by the money
-    -- of sold auctions on its way. A reading that rises by more over the last one that counts and saw the same is a
-    -- mistake of this reading, never a gain: it is left out of the Profit tab ("x") and the chat says so once. Left
-    -- out for GUARD_GIVE_UP, its level is taken as it is: the step onto it counts nothing ("r")
+    -- of sold auctions on its way, or back to where it was before a fall without a sale. A reading that rises by
+    -- more over the last one that counts and saw the same is a mistake of this reading, never a gain: it is left out
+    -- of the Profit tab ("x") and the chat says so once. Left out for GUARD_GIVE_UP, its level is taken as it is: the
+    -- step onto it counts nothing ("r")
     local what = seen .. "," .. saw
     local mark = ""
-    local before, streak
+    local before, earlier, streak
     for i = #list, 1, -1 do
         local m = Mark(list[i])
         if m == "x" then
-            streak = FM.Unstamp(list[i]:match("^(%w+),"))
-        else
+            if not before then streak = FM.Unstamp(list[i]:match("^(%w+),")) end
+        elseif not before then
             before = list[i]
+        else
+            earlier = list[i]
             break
         end
     end
@@ -977,8 +1023,16 @@ function FM.RecordWorth(force, atLogout)
         local t, wasHeld, wasAll = FM.Unstamp(f[1]), Dec(f[3]) or 0, Dec(f[5]) or 0
         local sold = 0
         for _, e in ipairs(parts.own.sold) do sold = sold + e.money end
-        local rise = math_max(FM.HeldJump(r, char, t, wasHeld, held, sold),
-            FM.HeldJump(r, nil, t, wasAll, all, sold, parts.all.others))
+        -- the fall onto that reading from the one before it, when both saw the same and it is no new baseline
+        local backOwn, backAll = 0, 0
+        if earlier and Saw(earlier) == what and Mark(before) ~= "r" then
+            local e = FM.Split(earlier, ",")
+            local from = FM.Unstamp(e[1])
+            backOwn = FM.HeldFall(r, char, from, t, Dec(e[3]) or 0, wasHeld)
+            backAll = FM.HeldFall(r, nil, from, t, Dec(e[5]) or 0, wasAll)
+        end
+        local rise = math_max(FM.HeldJump(r, char, t, wasHeld, held, sold, 0, backOwn),
+            FM.HeldJump(r, nil, t, wasAll, all, sold, parts.all.others, backAll))
         if rise > 0 then
             mark = (streak and now - streak > GUARD_GIVE_UP) and "r" or "x"
             if not warned then
@@ -1031,8 +1085,9 @@ local function PlacesText(where, saved)
             if n and n > 0 then out[#out + 1] = PLACE_NAMES[p[2]] .. " " .. math_floor(n + 0.5) end
         end
     else
-        for letter, n in (saved or ""):gmatch("(%a)(%w+)") do
-            out[#out + 1] = (PLACE_NAMES[letter] or letter) .. " " .. (Dec(n) or 0)
+        for place in (saved or ""):gmatch("[^%.]+") do
+            local letter = place:sub(1, 1)
+            out[#out + 1] = (PLACE_NAMES[letter] or letter) .. " " .. (Dec(place:sub(2)) or 0)
         end
     end
     return table_concat(out, ", ")
@@ -1080,7 +1135,7 @@ function FM.PrintHeld()
         if t then
             local top = {}
             for entry in list:gmatch("[^;]+") do
-                local key, units, value, places = entry:match("^(.-):(%w*):(%w*):(%w*):")
+                local key, units, value, places = entry:match("^(.-):(%w*):(%w*):([%w%.]*):")
                 if key and #top < 4 then
                     top[#top + 1] = string.format("%s x%d %s (%s)", FM.GetName(key), Dec(units) or 0, Money(Dec(value)),
                         PlacesText(nil, places))

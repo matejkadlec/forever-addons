@@ -766,10 +766,13 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   food, the materials of a craft whose product never sold on the AH). The step from the logs onto that reading
   counts nothing.
 * **The guard** (1.38): what you hold only rises by what you bought, by the deposits you paid and by the money of
-  sold auctions on its way. A reading that rises by more than that since the last reading that counts (plus 1g or
-  5% of what you held) is a mistake of that reading, never a gain: it is saved with the mark `x` and left out of the
-  dots, the reading of right now gets no step, and the chat says so once per session. Left out for 12 hours, the
-  level is taken as it is: the next reading is marked `r`, a new baseline whose step counts nothing.
+  sold auctions on its way, or back to where it was: a fall from one reading to the next without a sale's mail in
+  it is a reading that missed units (a bank not read, a list of your auctions still loading) or units that left,
+  and the next reading may rise back by it, which heals the fall. A reading that rises by more than that since the
+  last reading that counts (plus 1g or 5% of what you held) is a mistake of that reading, never a gain: it is saved
+  with the mark `x` and left out of the dots, the reading of right now gets no step, and the chat says so once per
+  session. Left out for 12 hours, the level is taken as it is: the next reading is marked `r`, a new baseline whose
+  step counts nothing. No reading is made while the bags read empty (their containers not loaded).
 * **`/fm held`** (1.38): what "Held from the AH" is made of right now: the deposits, the sold auctions' money on its
   way, and the largest items with their units, what one cost, the value and where they are (bags, bank, mail,
   auctions, other characters; "from a craft nobody recorded" where the cost is the recipe's materials). Then the
@@ -809,12 +812,18 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   one or one gone while you were away (most likely expired; its deposit is gone).
   * A sold row of the list is one sale (1.38, FRV-106): the client gives it the sale's units and its total, and a
     stack sold in parts one row per part, all with the auction's ID. Its money counts once, the total less the cut;
-    the lines logged for a sale the list still shows add nothing. Until 1.37 the total was taken for the price of
-    one unit and multiplied by the units again (12 Mageweave Cloth sold for 61s 68c counted 7g 09s; a large stack
-    made "Held from the AH" jump by hundreds of gold until its mail was read), and of several rows of one auction
-    one was kept.
-  * An `osold` or `ogone` line of an auction that is running in the last list is no sale (the list that missed it
-    was read while it was still loading), and the same line logged twice counts once.
+    the lines logged of the same sales (an `osold` from a row, an `opart` from the count that fell) give way to the
+    rows, the newest first. Until 1.37 the total was taken for the price of one unit and multiplied by the units
+    again (100 Thick Leather sold for 8g 95s on 2026-11-22 counted 850g: "Held from the AH" jumped from 49g to 921g
+    until the mail was read), and of several rows of one auction one was kept.
+  * Money is on its way only for a sale that was seen: a sold row, an `osold` line of one (marked `s` since 1.38) or
+    a count that fell (`opart`; the same fall logged again is another sale). An auction that was merely gone from a
+    list (`osold` without the mark, `ogone`) counts with its units, like an ended one, until its mail tells which it
+    was: a list can be a broken one. An `osold` or `ogone` line of an auction that is running in the last list was
+    never gone (its units and the running ones are more than were posted), and the same line logged twice counts
+    once.
+  * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
+    list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
   `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
   counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
@@ -1066,10 +1075,13 @@ GUID, else one with a character of the same server (the GUID's second part), els
 faction when nothing says it is another server (no readable GUID, or its characters have none saved), else "Server
 <id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays. A bucket the
 empty name made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and is removed. One that
-holds market data gives its logs too (AH mail, posts, purchases, crafts, each line at its moment; the mails it
-logged, and deposits, names and watched items where the realm has none) and is removed when its characters are the
-realm's own, the same keys with the same GUIDs (1.38, FRV-106: the sessions of 2026-11-20/21 wrote a night of sales
-there that the Profit tab never saw; its item searches go with it); else it stays and the chat says so. ForeverArtisan now writes a second entry per character
+holds market data gives its logs too when its characters are the realm's own, the same keys with the same GUIDs
+(1.38, FRV-106: the sessions of 2026-11-20/21 wrote a night of sales there that the Profit tab never saw): AH mail,
+posts, purchases, crafts and gold, each line at its moment; the mails it logged; deposits, names and watched items
+where the realm has none; its item searches (a search record at its time, the newer listing kept); a character's
+list of its auctions where the realm's is not newer. It is removed when nothing of market data is left in it; what
+the realm cannot take (scan records, a sniper list, a farm log) stays there, and the chat says so. A bucket of
+other characters stays whole. ForeverArtisan now writes a second entry per character
 ("Name--GUIDPART"): `FM.ArtisanEntries` takes both, the recipes of the one read last, the highest skill.
 
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
@@ -1097,7 +1109,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
-  holds the sale's total there), chat `sold|expired|removed|won|outbid,item`, mail
+  holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
+  gone from the list), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
 * `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
   1.30 drops the list at load
@@ -1106,10 +1119,11 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   (`buyout` holds the quantity for commodity sales). A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
   `char|kind|item||qty|bid|buyout` without the other player's name, which the client gives only a moment after the
   mail is first listed; until 1.37 the name was part of the key and the same mail, read again with its name, was
-  logged a second time. Mended once per bucket (`mailRepair` = 1, the counts in `mailRepaired` = { t, dropped,
-  sales }, a chat line says them): of two lines of the same character, kind, item, units and money, one without the
-  name and one with it, sent at most a minute apart, the second goes and the first gets its name; `mailSeen` is
-  keyed again
+  logged a second time. Mended once per bucket (`mailRepair` = 2 since 1.38.1, the counts in `mailRepaired` = { t,
+  dropped, sales }, a chat line says them): of two lines of the same character, kind, item, units and money, one
+  without the name and one with it, the nameless one logged first, the second goes and the first gets its name;
+  lines sent in the same minute pair first, then lines a minute apart; `mailSeen` is keyed again. A bucket that
+  1.38.0 mended is only marked
 * `owned[char]` = `{ t, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2 }`: status `s` = sold, its mail
   not sent yet; `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's
   total there)
@@ -1127,7 +1141,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
   character and of all of them (sold auctions' units with them); `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
-  per place: `b` bags, `k` bank, `m` mail, `a` auctions, `o` other characters)
+  per place, joined by `.`: `b` bags, `k` bank, `m` mail, `a` auctions, `o` other characters; `b9.k4t` = 9 in the
+  bags, 173 in the bank)
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per

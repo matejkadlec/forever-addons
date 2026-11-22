@@ -7,9 +7,10 @@
 --     only realm saved for this faction, else "Server <id>"; while none of that decides it, the session keeps nothing
 --     and looks again on the next call
 --   * a bucket an unreadable realm made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and
---     goes. One that holds market data gives its logs too (AH mail, posts, purchases, crafts, each line at its
---     moment) when its characters are the realm's own, the same keys with the same GUIDs (FRV-106); else it stays
---     and the chat says so, and nothing of the realm's bucket changes
+--     goes. One that holds market data gives its logs and its item searches too (AH mail, posts, purchases, crafts,
+--     each line at its moment) when its characters are the realm's own, the same keys with the same GUIDs (FRV-106),
+--     and goes when nothing of market data is left in it; what the realm cannot take (scan records) stays there.
+--     Else it stays whole and the chat says so, and nothing of the realm's bucket changes
 --   * the crafts ForeverArtisan counted of a recipe add up over the character's entries (FRV-106)
 --   * ForeverArtisan (keys "Name-Realm-GUIDPART") then writes a second entry "Name--GUIDPART": both are the
 --     character's; recipes come from the one read last, the skill is the highest
@@ -153,10 +154,19 @@ H.test("realm: a stray bucket of the realm's own character gives its logs to the
         gold = { "a074,Tester,1orl" },
         mailSeen = { ["Tester|seller|Tasty Lion Steak||r|8b9|r"] = "a07z", ["Tester|seller|Silk Cloth||5|2s|5"] = "a07a" },
         deposits = { ["4306"] = { t = 2 }, ["8174"] = { t = 3 } },
+        -- the searches of those sessions: of an item the realm has searches of, and of one it lacks
+        items = { ["2318"] = { s = "sa086,c,1,m,2l:1j", a = "a086|1|x" }, ["8174"] = { s = "sa082,i,1,7,b72:1", a = "a084|1|y" } },
+        -- its list of the character's auctions is older than the realm's
+        owned = { Tester = { t = 1795237000, list = "old" } },
         worth = { Tester = { "a07y,211f,0,h,0,c64s" } } }
+    main.owned = { Tester = { t = 1795300000, list = "new" } }
+    main.items["2318"].s, main.items["2318"].a = "sa050,c,1,m,2l:1j;sa09a,c,1,m,2l:1j", "a09a|1|z"
     local FM, env = Load({ ["Old Realm-Alliance"] = main, ["-Alliance"] = stray }, "", GUID)
     local r = FM.R()
     H.eq(env.ForeverMarketDB.realms["-Alliance"], nil, "the stray bucket is gone")
+    H.same(r.items["2318"], { d = "r1,2,3", s = "sa050,c,1,m,2l:1j;sa086,c,1,m,2l:1j;sa09a,c,1,m,2l:1j", a = "a09a|1|z" },
+        "its search of an item between the realm's by its time, the realm's newer listing and scan record kept")
+    H.same(r.items["8174"], { s = "sa082,i,1,7,b72:1", a = "a084|1|y" }, "an item the realm had no record of")
     H.same(r.invoices, { main.invoices[1], "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z",
         "a09z,Tester,seller,Silk Cloth,,5,2s,5,0,5,a0a0" }, "its sale mail between the realm's, by when it was read")
     H.same(r.buys, { "1795230000,4306,5,100,Tester", "1795236907,8150,102,31037,Tester", "1795240000,4306,5,100,Tester" },
@@ -168,7 +178,18 @@ H.test("realm: a stray bucket of the realm's own character gives its logs to the
         "the mails it logged stay known as logged")
     H.same(r.deposits, { ["4306"] = { t = 1 }, ["8174"] = { t = 3 } }, "a measured deposit only where the realm has none")
     H.eq(r.worth.Tester, nil, "its Profit reading is not taken")
+    H.same(r.owned.Tester, { t = 1795300000, list = "new" }, "the realm's newer list of the auctions stays")
     H.eq(env.printed[#env.printed]:find("Folded the saved data", 1, true) ~= nil, true, "the chat says so")
+    -- a bucket of the realm's own character with scan records: its logs come over, the scan data stays there
+    local scanned = { charInfo = { Tester = { guid = GUID } }, invoices = { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z" },
+        scans = { "da070,1,2" }, items = { ["2318"] = { d = "ra070,2,3" } } }
+    local FM3, env3 = Load({ ["Old Realm-Alliance"] = Bucket(GUID), ["-Alliance"] = scanned }, "", GUID)
+    local r3 = FM3.R()
+    H.same(r3.invoices, { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z" }, "the sale mail came over")
+    H.same(env3.ForeverMarketDB.realms["-Alliance"], { charInfo = { Tester = { guid = GUID } }, scans = { "da070,1,2" },
+        items = { ["2318"] = { d = "ra070,2,3" } } }, "the scan records stay saved apart, the moved log is gone from it")
+    H.same(r3.items["2318"], { d = "r1,2,3" }, "the realm's own record is untouched")
+    H.eq(env3.printed[#env3.printed]:find("It stays saved apart, nothing is lost", 1, true) ~= nil, true, "the chat says so")
     -- the same bucket under another character's GUID is not this realm's to take
     local other = { charInfo = { Tester = { guid = "Player-99-0001" } }, invoices = { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z" } }
     local FM2, env2 = Load({ ["Old Realm-Alliance"] = Bucket(GUID), ["-Alliance"] = other }, "", GUID)
