@@ -93,10 +93,14 @@ have no marks, so its records stay as they were).
       table keeps cheap units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper,
       green 5%+ dearer (the same colors for "now" of crafted units)
     * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
-      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; recorded from
-      any AH window: `ConfirmCommoditiesPurchase` hooked + the server's quote, kept on
-      `COMMODITY_PURCHASE_SUCCEEDED`). Farmed, looted or skinned units of an item you cannot make are not counted:
-      never bought = "-"
+      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; kept on
+      `COMMODITY_PURCHASE_SUCCEEDED`, each purchase with its own price since 1.36.3, FRV-102: the sniper logs its own
+      with the quote it confirmed (`FM.LogPurchase`); any other AH window through `StartCommoditiesPurchase` and
+      `ConfirmCommoditiesPurchase` hooked, the quote after a start pricing only a confirm of that item and units, also
+      one that comes before the quote). Until 1.36.2 a confirm took the latest quote seen, and the sniper confirms
+      inside its own handler of the quote, before the log saw it: its purchases were logged with the quote before (a
+      rejected dearer one, another item's) or not at all; `FM.RepairBuys` mends the saved log once (Data format,
+      `buys`). Farmed, looted or skinned units of an item you cannot make are not counted: never bought = "-"
   * Units partly crafted and partly bought (some Cured Thick Hide bought, the rest made by you): each part keeps its
     own basis in a group of its own, **Material cost (3 of 5 pcs)** with the materials and **Cost (2 of 5 pcs)** with
     the AH price now and what those purchases cost
@@ -1046,7 +1050,15 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
-* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5)
+* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
+  bucket (1.36.3, FRV-102, `buysRepair` = 1, the counts in `buysRepaired` = { t, fixed, added, capped }, a chat line
+  says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a line
+  takes the total of its purchase's mail (the same character, item and units, sent within 15 minutes, the nearest
+  one); a mail of an item the log has lines of, sent after its first line, with no line is a purchase never logged
+  and is added at its time; a line without a mail of an item the sniper buys, above its sniper price per unit, gets
+  that price (an upper bound). On the maintainer's saved variables of 2026-11-22: 115 of 273 lines got their mail's
+  total, 49 purchases were added, 5 lines capped; today's sums then match the sniper's own records (Thick Leather 456
+  units for 28g 60s 41c, Tender Crocolisk Meat 128 for 1g 19s 48c, Medium Leather 204 for about 96c a unit)
 * `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
   item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the

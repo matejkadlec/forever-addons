@@ -830,6 +830,11 @@ local function Halt(reason)
     FM.SnipeStop()
 end
 
+-- A confirm of the sniper is running (the purchase log leaves it to the sniper, trade/Cost.lua, FRV-102)
+function FM.SnipeConfirming()
+    return S.calling == "confirm"
+end
+
 -- Run a purchase call; a blocked call reports while it runs (OnBlocked reads S.calling)
 local function Call(which, fn, ...)
     S.calling = which
@@ -1046,6 +1051,9 @@ FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     S.unanswered = 0
     S.hits[buy.key] = nil -- found before the purchase, the next search sizes it again
     S.lastSent = 0 -- look again right away
+    -- the purchase log (trade/Cost.lua) gets it with the quote this purchase confirmed (FRV-102: its confirm comes
+    -- inside this file's handler of the quote, before the log's own handler has seen that quote)
+    if FM.LogPurchase and type(buy.reserved) == "number" then FM.LogPurchase(buy.key, buy.qty, buy.reserved) end
     PlaySoundKit("LOOT_WINDOW_COIN_SOUND")
     local info = FM.SnipeBudgetInfo()
     local left, n = Left(buy.key)
