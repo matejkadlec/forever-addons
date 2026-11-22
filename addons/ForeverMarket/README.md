@@ -349,7 +349,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     client's count (`C_Item.GetItemCount` with - without the bank) when it counts the bank then (some item of the last
     reading shows in it: whether it does on Forever is not verified in game, so it is asked, never assumed), else the
     last reading (this session's, or `R.bank` as saved when the bank last closed: after a relog); with no reading at
-    all the client's count. Until 1.34 the closed bank was always the client's count. `/fm item <item>` says what you
+    all, or one without any item (a read before the bank's containers loaded), the client's count. Until 1.34 the closed bank was always the client's count. `/fm item <item>` says what you
     hold and how the bank was counted.
   * Your bags and bank are an input of the plan (1.35, FRV-98): 2 s after the last bag event (`BAG_UPDATE_DELAYED`,
     a bank slot change) their units are compared with the last look, and a change (moving items between bags and bank,

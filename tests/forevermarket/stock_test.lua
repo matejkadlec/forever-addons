@@ -4,7 +4,7 @@
 --   * the bank part of FM.Owned: while the bank is open, its slots as read on every item move; closed, the client's
 --     count (GetItemCount with - without the bank) when it counts the bank then (some item of the last reading shows
 --     in it), else the last reading (this session's, or R.bank as saved when the bank last closed: after a relog);
---     with no reading at all the client's count
+--     with no reading at all, or one without any item (a read before the bank's containers loaded), the client's count
 --   * a change of what you hold counts once, 2 s after the last BAG_UPDATE_DELAYED (or bank slot change): several
 --     events in a row are one change, a move that changes no unit (sorting) none (FM.stockVersion); in combat (arrows,
 --     reagents) the look waits for its end: the fight is one change
@@ -209,4 +209,15 @@ H.test("stock: in combat the look waits for the end of the fight, which counts a
     env.FireEvent("PLAYER_REGEN_ENABLED")
     env.FlushTimers()
     H.eq(computes.n, 1, "a fight without a change of your bags plans nothing")
+end)
+
+H.test("stock: a saved bank reading without any item leaves the bank to the client's count", function()
+    local state = { bags = 0, bank = 200, api = 200 }
+    local FM, env = Load(state)
+    FM.R().bank[FM.PlayerName()] = FM.Stamp(env.clock - 3600) .. "|" -- read before the bank's containers loaded
+    H.eq(Units(FM), 200, "the client counts the 200 in the bank")
+    H.eq(FM.BankCountSource(), "client", "counted by the client")
+    state.api = 0 -- a client that cannot see the closed bank: 0 either way
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    H.eq(Units(FM), 0, "nothing known of the bank")
 end)

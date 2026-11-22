@@ -636,7 +636,7 @@ end
 -- closed, GetItemCount with - without the bank when the client counts the bank then (some item of the last reading
 -- shows in it: whether it does on Forever is not verified in game, so it is asked, never assumed), else that last
 -- reading (this session's, or R.bank as saved when the bank last closed; its contents change only while it is
--- open); with no reading at all GetItemCount. Sellable units of the bank: the reading's, else the item's bind type
+-- open); with no reading at all, or one without any item, GetItemCount. Sellable units of the bank: the reading's, else the item's bind type
 -- (bind on pickup, quest = unsellable). Without the container API (old clients) GetItemCount is all there is.
 
 local bagIndex          -- [itemID] = { all = units in bags, free = units not bound }
@@ -768,17 +768,24 @@ local function BankReading()
 end
 
 -- Whether GetItemCount counts your bank while it is closed: some item of the last reading shows in its bank part
--- (asked again after every bag or bank change; an empty reading has nothing to ask with: no)
+-- (asked again after every bag or bank change). An empty reading has nothing to ask with and may be a read before the
+-- bank's containers loaded (FRV-73 saw that for bags): the client's count then, which is 0 for a bank that is empty
+-- or that the client cannot see
 local function ApiSeesBank()
     if apiBank == nil then
         apiBank = false
+        local any = false
         local reading = BankReading()
         for id, e in pairs(reading or {}) do
-            if (e.all or 0) > 0 and GetCount(id, true) - GetCount(id, false) > 0 then
-                apiBank = true
-                break
+            if (e.all or 0) > 0 then
+                any = true
+                if GetCount(id, true) - GetCount(id, false) > 0 then
+                    apiBank = true
+                    break
+                end
             end
         end
+        if not any then apiBank = true end
     end
     return apiBank
 end
