@@ -451,6 +451,7 @@ function FM.R()
     FM.realm = r
     FoldStrayBuckets(r, faction)
     if FM.MigrateRealm then FM.MigrateRealm(r) end
+    if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, trade/Cost.lua)
     return r
 end
 

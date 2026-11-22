@@ -1,8 +1,13 @@
 local _, FM = ...
 
 -- What things cost you, for the item tooltip (ui/Tooltip.lua):
---   * your AH purchases of commodities, from any window (Blizzard's, Auctionator, the sniper): the confirm call
---     is hooked, the server's quote gives the price, COMMODITY_PURCHASE_SUCCEEDED makes it real
+--   * your AH purchases of commodities, from any window (Blizzard's, Auctionator, the sniper), each with its own price
+--     (FRV-102): the sniper logs its purchases itself with the quote it confirmed (FM.LogPurchase from scan/Sniper.lua);
+--     for every other window the start and the confirm calls are hooked, a quote belongs to the purchase started last
+--     and prices a confirm of that item and units only, also when it comes after the confirm (an AddOn that confirms
+--     in its own handler of the quote event); COMMODITY_PURCHASE_SUCCEEDED makes it real. Until 1.36 the confirm took
+--     the latest quote seen, and the sniper confirms inside its own handler of that event, before this file had seen
+--     it: sniper purchases were logged with the quote before (or not at all), FM.RepairBuys mends the saved log
 --   * the deposit of an auction: max(1s, share x vendor sell price x quantity), share 20% for 8h and 60% for 24h
 --     (Medium Leather sells to vendors for 50c: 10c a unit for 8h, 1s up to 10 units, as measured in game);
 --     Blizzard's deposit calculator replaces the estimate for the stackable items in your bags when the AH opens
@@ -14,7 +19,8 @@ local _, FM = ...
 -- looted) of an item you cannot make are not counted: no purchases, no price.
 --
 -- R.buys     { "t,key,qty,total,char", ... }  newest last, a year (the Profit tab holds bought items);
---             lines before 1.15.5 have no character and count for every character
+--             lines before 1.15.5 have no character and count for every character; mended once from your AH mail
+--             (1.36.3, FRV-102: r.buysRepair, r.buysRepaired)
 -- R.deposits [key] = { t = seconds, [2] = { rate, floor }, [3] = { rate, floor } }  (duration 2 = 8h, 3 = 24h)
 
 local type = type
@@ -31,7 +37,6 @@ local KEEP_DAYS = 365
 local MAX_BUYS = 10000
 FM.BUYS_KEEP_DAYS, FM.BUYS_MAX = KEEP_DAYS, MAX_BUYS
 local PAID_DAYS = 30 -- "you paid" looks at this many days
-local QUOTE_AGE = 20       -- a quote older than this does not price a confirm
 local PENDING_AGE = 60     -- a confirm without the server's answer after this is dropped
 local MEASURE_AGE = 7 * 86400 -- deposits are measured again after a week
 local PROBE = 1000         -- units for the per unit rate (far above any floor)
@@ -54,7 +59,8 @@ local function Buys()
     return r.buys
 end
 
-local quote -- the latest quote: { total, at }
+local started -- the purchase started last (StartCommoditiesPurchase): { key, qty }; its quote is { total, start }
+local quote
 local pending = {} -- confirmed purchases waiting for the server, oldest first
 
 local function Prune()
@@ -71,24 +77,58 @@ local function Prune()
     end
 end
 
+-- A purchase into the log: "t,key,qty,total,char" (the sniper's from its own confirmed quote, FRV-102)
+function FM.LogPurchase(key, qty, total)
+    if type(key) ~= "string" or not IsNumber(qty) or qty <= 0 or not IsNumber(total) or total <= 0 then return end
+    local buys = Buys()
+    buys[#buys + 1] = string.format("%d,%s,%d,%d,%s", FM.Now(), key, qty, math_floor(total + 0.5), FM.PlayerName())
+    Prune()
+end
+
+local function Guarded(fn)
+    return function(...)
+        local ok, err = pcall(fn, ...)
+        if not ok and geterrorhandler then geterrorhandler()(err) end
+    end
+end
+
 local function HookPurchases()
     local ah = C_AuctionHouse
-    if FM.purchasesHooked or not (ah and ah.ConfirmCommoditiesPurchase) then return end
+    if FM.purchasesHooked or not (ah and ah.ConfirmCommoditiesPurchase and ah.StartCommoditiesPurchase) then return end
     FM.purchasesHooked = true
-    hooksecurefunc(ah, "ConfirmCommoditiesPurchase", function(itemID, quantity)
-        local ok, err = pcall(function()
-            if not (IsNumber(itemID) and IsNumber(quantity) and quantity > 0) then return end
-            local total = quote and GetTime() - quote.at <= QUOTE_AGE and quote.total or nil
-            pending[#pending + 1] = { key = tostring(itemID), qty = quantity, total = total, at = GetTime() }
-        end)
-        if not ok and geterrorhandler then geterrorhandler()(err) end
-    end)
+    hooksecurefunc(ah, "StartCommoditiesPurchase", Guarded(function(itemID, quantity)
+        if not (IsNumber(itemID) and IsNumber(quantity)) then return end
+        started = { key = tostring(itemID), qty = quantity }
+    end))
+    hooksecurefunc(ah, "ConfirmCommoditiesPurchase", Guarded(function(itemID, quantity)
+        if not (IsNumber(itemID) and IsNumber(quantity) and quantity > 0) then return end
+        -- the sniper's own: it logs it with the quote it checked (its answer still takes its place in the queue)
+        if FM.SnipeConfirming and FM.SnipeConfirming() then
+            pending[#pending + 1] = { sniper = true, at = GetTime() }
+            return
+        end
+        local key = tostring(itemID)
+        local p = { key = key, qty = quantity, at = GetTime() }
+        if started and started.key == key and started.qty == quantity then
+            if quote and quote.start == started then
+                p.total = quote.total
+            else
+                p.wait = started -- its quote has not come yet: the next one prices it
+            end
+        end
+        pending[#pending + 1] = p
+    end))
 end
 
 FM.On("PLAYER_LOGIN", HookPurchases)
 
 FM.On("COMMODITY_PRICE_UPDATED", function(_, totalPrice)
-    if IsNumber(totalPrice) and totalPrice > 0 then quote = { total = totalPrice, at = GetTime() } end
+    if not (IsNumber(totalPrice) and totalPrice > 0 and started) then return end
+    quote = { total = totalPrice, start = started }
+    -- a confirm that came before this quote (one in another handler of this event, called first)
+    for _, p in ipairs(pending) do
+        if p.wait == started and not p.total then p.total, p.wait = totalPrice, nil end
+    end
 end)
 
 -- the server's answer belongs to the oldest confirm still waiting (answers come in order)
@@ -100,15 +140,209 @@ end
 
 FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     local p = NextPending()
-    if not (p and p.total) then return end
-    local buys = Buys()
-    buys[#buys + 1] = string.format("%d,%s,%d,%d,%s", FM.Now(), p.key, p.qty, math_floor(p.total + 0.5), FM.PlayerName())
-    Prune()
+    if not (p and p.total) or p.sniper then return end -- a sniper purchase: scan/Sniper.lua logs it
+    FM.LogPurchase(p.key, p.qty, p.total)
 end)
 
 FM.On("COMMODITY_PURCHASE_FAILED", function()
     NextPending()
 end)
+
+---------------------------------------------------------------- the repair of the log (FRV-102)
+-- Once per realm bucket (r.buysRepair = 2): the log as it was until 1.36 (see the top of this file) is mended from your AH
+-- mail. Every commodity purchase sends one "buyer" mail with its units and the real total (R.invoices, scan/Ledger.lua):
+--   1. a line gets the total of its purchase's mail: the same character, item, units, sent within 15 minutes of the
+--      line (the nearest one not taken yet)
+--   2. a mail of an item the log holds lines of, with no line, sent after the log's first line: the purchase that was
+--      never logged (its quote was over 20 s old), added as a line at the mail's time
+--   3. a line without a mail (not read yet, or gone) of an item the sniper buys, above its sniper price per unit: that
+--      price (an upper bound: the sniper never pays more)
+-- A line without a character (before 1.15.5) takes a mail of any character, as the Profit tab matches it. Then the
+-- craft log follows (FM.RepairCraftBasis, trade/Crafts.lua). r.buysRepaired = { t, fixed, added, capped, crafts } says
+-- what it did; a chat line too
+-- 2 since 1.36.5: a bucket the first version (1.36.3, a build of the same pull request in the maintainer's game) left
+-- at 1 gets what that version missed (RepairAfterFirst)
+local BUYS_REPAIR = 2
+local REPAIR_MATCH = 15 * 60
+
+-- The buyer mails by "char|item name|units", and the same mails by "item name|units" for a line without a character
+-- (before 1.15.5: it counts for every character, as trade/Performance.lua matches it): { { sent, money }, ... }
+local function MailsOf(r)
+    local out, anyChar = {}, {}
+    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+        local f = FM.Split(line, ",")
+        local sent = f[3] == "buyer" and f[2] and f[4] and FM.Unstamp(f[1])
+        local qty, money = FM.Dec(f[6]), FM.Dec(f[7])
+        if sent and qty and money and money > 0 then
+            local m = { sent = sent, money = money, char = f[2] }
+            local k = f[2] .. "|" .. f[4] .. "|" .. qty
+            out[k] = out[k] or {}
+            table.insert(out[k], m)
+            local any = f[4] .. "|" .. qty
+            anyChar[any] = anyChar[any] or {}
+            table.insert(anyChar[any], m)
+        end
+    end
+    return out, anyChar
+end
+
+-- The nearest mail not taken yet within REPAIR_MATCH of t, or nil
+local function NearestMail(list, t)
+    local best, gap
+    for _, m in ipairs(list or {}) do
+        local d = math.abs(m.sent - t)
+        if not m.taken and d <= REPAIR_MATCH and (not gap or d < gap) then best, gap = m, d end
+    end
+    return best
+end
+
+-- A bucket the first version of the repair (1.36.3) already mended: it matched only lines with a character, so a line
+-- without one (before 1.15.5) kept its total and its mail was added as a second line, at the mail's exact minute and
+-- total under the mail's character. Now such a line takes that mail's total and the added copy goes. The craft log
+-- stays as it is (the totals it was worked out from are gone); a backup from before 1.36.3 gets the whole repair
+local function RepairAfterFirst(r)
+    r.buysRepair = BUYS_REPAIR
+    local buys = type(r.buys) == "table" and r.buys or nil
+    if not buys or #buys == 0 then return nil end
+    local names = type(r.names) == "table" and r.names or {}
+    local _, anyChar = MailsOf(r)
+    local lines, exact = {}, {}
+    for i, line in ipairs(buys) do
+        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        local l = { raw = line, t = tonumber(t), key = key, qty = tonumber(qty), total = tonumber(total), who = who }
+        lines[i] = l
+        if l.t and l.who ~= "" then
+            local k = l.t .. "|" .. key .. "|" .. qty .. "|" .. who
+            exact[k] = exact[k] or {}
+            table.insert(exact[k], l)
+        end
+    end
+    local fixed, dropped = 0, 0
+    for _, l in ipairs(lines) do
+        local name = l.t and l.who == "" and names[l.key]
+        local m = name and NearestMail(anyChar[name .. "|" .. l.qty], l.t)
+        if m then
+            m.taken = true
+            if m.money ~= l.total then
+                l.total, l.changed = m.money, true
+                fixed = fixed + 1
+            end
+            for _, d in ipairs(exact[m.sent .. "|" .. l.key .. "|" .. l.qty .. "|" .. m.char] or {}) do
+                if not d.drop and d.total == m.money then
+                    d.drop = true
+                    dropped = dropped + 1
+                    break
+                end
+            end
+        end
+    end
+    local out = {}
+    for _, l in ipairs(lines) do
+        if not l.drop then
+            out[#out + 1] = l.changed and string.format("%d,%s,%d,%d,", l.t, l.key, l.qty, math_floor(l.total + 0.5)) or l.raw
+        end
+    end
+    for i = 1, math.max(#buys, #out) do buys[i] = out[i] end
+    local result = { t = FM.Now(), fixed = fixed, dropped = dropped, after = 1 }
+    r.buysRepaired = result
+    if fixed + dropped > 0 and C_Timer and FM.Print then
+        C_Timer.After(5, function()
+            FM.Print(string.format("Purchase log repaired again (FRV-102): %d old purchases priced from your AH mail, %d copies of them removed. The material cost of your crafts stays as 1.36.3 left it.",
+                fixed, dropped))
+        end)
+    end
+    return result
+end
+
+function FM.RepairBuys(r)
+    if type(r) ~= "table" or r.buysRepair == BUYS_REPAIR then return nil end
+    if r.buysRepair == 1 then return RepairAfterFirst(r) end
+    r.buysRepair = BUYS_REPAIR
+    local buys = type(r.buys) == "table" and r.buys or nil
+    if not buys or #buys == 0 then return nil end
+    local names = type(r.names) == "table" and r.names or {}
+    local mails, anyChar = MailsOf(r)
+    local saved = type(r.snipe) == "table" and type(r.snipe.saved) == "table" and r.snipe.saved or {}
+    local lines, hasLines, first = {}, {}, nil
+    for _, line in ipairs(buys) do
+        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        t, qty, total = tonumber(t), tonumber(qty), tonumber(total)
+        if t and qty and total then
+            lines[#lines + 1] = { t = t, key = key, qty = qty, total = total, who = who }
+            hasLines[key] = true
+            if not first or t < first then first = t end
+        else
+            lines[#lines + 1] = { raw = line, t = tonumber(line:match("^(%d+),")) or 0 } -- kept as it is
+        end
+    end
+    local fixed, added, capped = 0, 0, 0
+    -- 1. each line its purchase's mail
+    for _, l in ipairs(lines) do
+        local name = l.key and names[l.key]
+        local list = name and (l.who ~= "" and mails[l.who .. "|" .. name .. "|" .. l.qty] or (l.who == "" and anyChar[name .. "|" .. l.qty]))
+        local best = list and NearestMail(list, l.t)
+        if best then
+            best.taken = true
+            l.mailed = true
+            if best.money ~= l.total then
+                l.total = best.money
+                fixed = fixed + 1
+            end
+        end
+    end
+    -- 2. the purchases that have a mail and no line
+    local keyOf = {}
+    for key, name in pairs(names) do
+        if hasLines[key] or not keyOf[name] then keyOf[name] = key end
+    end
+    for k, list in pairs(mails) do
+        local who, name, qty = k:match("^(.-)|(.*)|(%d+)$")
+        local key = name and keyOf[name]
+        if key and hasLines[key] then
+            for _, m in ipairs(list) do
+                if not m.taken and m.sent >= first then
+                    m.taken = true
+                    lines[#lines + 1] = { t = m.sent, key = key, qty = tonumber(qty), total = m.money, who = who, mailed = true }
+                    added = added + 1
+                end
+            end
+        end
+    end
+    -- 3. a line without a mail: at most the sniper's price
+    for _, l in ipairs(lines) do
+        local price = l.key and not l.raw and not l.mailed and type(saved[l.key]) == "table" and tonumber(saved[l.key].p)
+        if price and price > 0 and l.total > price * l.qty then
+            l.total = price * l.qty
+            capped = capped + 1
+        end
+    end
+    -- the log in time order again (added lines between the others; equal times keep their order)
+    local order = {}
+    for i in ipairs(lines) do order[i] = i end
+    table.sort(order, function(a, b)
+        local ta, tb = lines[a].t, lines[b].t
+        if ta ~= tb then return ta < tb end
+        return a < b
+    end)
+    local old = {}
+    for i, line in ipairs(buys) do old[i] = line end
+    for i, index in ipairs(order) do
+        local l = lines[index]
+        buys[i] = l.raw or string.format("%d,%s,%d,%d,%s", l.t, l.key, l.qty, math_floor(l.total + 0.5), l.who or "")
+    end
+    -- the crafts made from those purchases recorded their materials' basis from the old log (trade/Crafts.lua)
+    local crafts = 0
+    if fixed + added + capped > 0 and FM.RepairCraftBasis then crafts = FM.RepairCraftBasis(r, old) or 0 end
+    local result = { t = FM.Now(), fixed = fixed, added = added, capped = capped, crafts = crafts }
+    r.buysRepaired = result
+    if fixed + added + capped > 0 and C_Timer and FM.Print then
+        C_Timer.After(5, function()
+            FM.Print(string.format("Purchase log repaired (FRV-102): %d totals from your AH mail, %d purchases added that were never logged, %d capped at your sniper price, %d crafts' material cost worked out again.",
+                fixed, added, capped, crafts))
+        end)
+    end
+    return result
+end
 
 -- What your latest purchases of an item cost per unit: newest first until they cover n units (the ones you
 -- most likely still hold), or all of the last 30 days when you bought fewer. nil = never bought.
