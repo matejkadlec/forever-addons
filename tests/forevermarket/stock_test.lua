@@ -18,7 +18,7 @@ local F = require("fixtures")
 
 local B = F.Base36
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua",
-    "scan/Ledger.lua", "trade/Sources.lua", "trade/Calc.lua", "trade/Picks.lua" }
+    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Picks.lua" }
 local LEATHER = 4234
 local BANK_TAB = 6 -- Enum.BagIndex.CharacterBankTab_1
 
@@ -101,9 +101,11 @@ local function Planned(FM, counter)
     r.last = { t = 1000, fp = {} }
     FM.ComputeTrade = function()
         counter.n = counter.n + 1
-        FM.trade = { t = 1000, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion, pickStock = FM.stockVersion }
+        FM.trade = { t = 1000, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion, pickStock = FM.stockVersion,
+            placeVersion = FM.placeVersion }
     end
-    FM.trade = { t = 1000, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion, pickStock = FM.stockVersion }
+    FM.trade = { t = 1000, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion, pickStock = FM.stockVersion,
+        placeVersion = FM.placeVersion }
 end
 
 -- Bag events, then the 2 s timers run out
@@ -182,6 +184,41 @@ H.test("stock: lock off, a change while a pass runs queues a pass behind it, wit
     state.bags = 50
     Moves(env, 1)
     H.eq(ensures, 1, "not busy: FM.EnsureTrade plans when the stock changed")
+end)
+
+-- Rule (FRV-99): Picks' "Where I am" is an input of the plan like your bags: lock off, a move plans again at once while
+-- the table or a sticky window shows, else when the table opens next (FM.EnsureTrade, FM.placeVersion); lock on,
+-- nothing is computed
+H.test("place: lock off, Where I am follows a move at once or when the table opens; lock on, never", function()
+    local state = { bags = 5, bank = 0, api = 0 }
+    local FM, env = Load(state)
+    env.maps = { [1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
+        [1438] = { name = "Teldrassil", mapType = 3, parentMapID = 1414 },
+        [1457] = { name = "Darnassus", mapType = 3, parentMapID = 1438 } }
+    env.playerMap = 1438
+    FM.PlaceMoved() -- where you are at login
+    FM.GetSettings().tablePicksLock = false
+    FM.SetPlace("picks", nil, FM.PLACE_HERE)
+    local shown = false
+    FM.TableShown = function() return shown end
+    local computes = { n = 0 }
+    Planned(FM, computes)
+    env.playerMap = 1457 -- into Darnassus with the table closed
+    FM.PlaceMoved()
+    H.eq(computes.n, 0, "nothing computed while nothing shows it")
+    FM.EnsureTrade()
+    H.eq(computes.n, 1, "the table opens: planned for where you are now")
+    FM.EnsureTrade()
+    H.eq(computes.n, 1, "no move since: nothing again")
+    shown = true
+    env.playerMap = 1438
+    FM.PlaceMoved()
+    H.eq(computes.n, 2, "the table shown: planned again at once")
+    FM.GetSettings().tablePicksLock = true
+    env.playerMap = 1457
+    FM.PlaceMoved()
+    FM.EnsureTrade()
+    H.eq(computes.n, 2, "lock on: the plan keeps its vendors")
 end)
 
 H.test("stock: in combat the look waits for the end of the fight, which counts as one change", function()

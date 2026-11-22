@@ -28,8 +28,10 @@ local table_sort = table.sort
 
 local FRAME_NAME = "ForeverMarketTable"
 local W, ROW_H, ROWS = 960, 22, 20
-local TOP = -148 -- first row
-local FILTER_Y = -88 -- search box, checkboxes and filter buttons
+local TOP = -134 -- first row
+-- search box, checkboxes and filter buttons; the "Filter by name" label above the box is gone (FRV-26), the row and
+-- everything under it moved up by its height (14 px)
+local FILTER_Y = -74
 local LINE_Y = TOP + 24 - ROW_H / 2 -- the line above the header: Picks' budget row (FRV-95), Flip's age line
 local SUMMARY_Y = LINE_Y - ROW_H -- Picks: the plan's summary, under its budget row
 local MAX_COLUMNS = 9 -- per tab, in W - 28 = 932 px (Picks has 9 since FRV-67, the other tabs up to 8)
@@ -48,7 +50,8 @@ local INFO_COLOR = CreateColor and CreateColor(0.4, 0.75, 1) -- the light blue o
 local WHITE = "|cFFFFFFFF"
 
 local frame
-local view = { tab = "picks", offset = 0, filter = "" }
+-- search = the search box's text per tab (FRV-26: a search typed on Craft no longer filters Farm)
+local view = { tab = "picks", offset = 0, search = {} }
 local rowsCache = nil -- filtered and sorted rows of the current tab
 
 ---------------------------------------------------------------- formatting
@@ -399,7 +402,7 @@ local function MarketRow(p)
 end
 
 -- 9 columns in 932 px (FRV-67): the steps line under a pick spans the whole row, so the Pick column gave up its width
--- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow)
+-- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow); Conf. last (FRV-100)
 local PICK_COLUMNS = {
     { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
         sort = function(p) return p.rank end },
@@ -408,9 +411,6 @@ local PICK_COLUMNS = {
         sort = function(p) return KIND_NAME[p.kind] or p.kind end },
     { title = "Invest", tip = INVEST_TIP, width = 110, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
     { title = "Expected", tip = EXPECTED_TIP, width = 140, text = ExpectedCell, sort = function(p) return p.expected end },
-    { title = "Conf.", tip = CONF_TIP, width = 70, text = function(p)
-        return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
-    end, sort = function(p) return p.conf end },
     { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = function(p) return OnAH(MarketRow(p)) end,
         sort = function(p) return MarketRow(p).qty end },
     { title = "C/8h", tip = C8_TIP, width = 62, text = function(p)
@@ -420,7 +420,10 @@ local PICK_COLUMNS = {
     { title = "C/24h", tip = C24_TIP, width = 62, text = function(p)
         local r = MarketRow(p)
         return Sold(r.sold12, r.soldWide, 24)
-    end, sort = function(p) return MarketRow(p).sold12 end }
+    end, sort = function(p) return MarketRow(p).sold12 end },
+    { title = "Conf.", tip = CONF_TIP, width = 70, text = function(p)
+        return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
+    end, sort = function(p) return p.conf end }
 }
 
 -- Favorites: one row per item, its best use among the tabs (highest PPG), the market numbers of that row
@@ -549,6 +552,22 @@ local function SortState(tab)
         state = { list = { { col = state.col, desc = state.desc } } } -- saved before 1.11
     end
     local sig = ColumnSig(tab)
+    -- the same columns in another order (Picks' Conf. moved last, FRV-100): the saved sort follows its columns
+    if type(state) == "table" and type(state.list) == "table" and type(state.sig) == "string" and state.sig ~= sig then
+        local old, at, same = {}, {}, true
+        for title in string.gmatch(state.sig, "[^|]+") do old[#old + 1] = title end
+        for i, col in ipairs(tab.columns) do at[col.title] = i end
+        if #old ~= #tab.columns then same = false end
+        for _, title in ipairs(old) do
+            if not at[title] then same = false end
+        end
+        if same then
+            for _, level in ipairs(state.list) do
+                if type(level) == "table" and old[level.col] then level.col = at[old[level.col]] end
+            end
+            state.sig = sig
+        end
+    end
     local valid = type(state) == "table" and type(state.list) == "table" and #state.list > 0
         and (state.sig == nil or state.sig == sig) and not (tab.id == "latest" and state.sig == nil)
     if valid then
@@ -692,7 +711,10 @@ local function BuildRows(tab, lookup)
     else
         source = trade and trade[tab.data] or {}
     end
-    local needle = (not lookup and view.filter ~= "") and string_lower(view.filter) or nil
+    local text = not lookup and (view.search[tab.id] or "") or ""
+    local needle = text ~= "" and string_lower(text) or nil
+    -- Vendor: the place filter (FRV-99) keeps the items one of whose vendors is there, at the cheapest one there
+    local place = tab.id == "vendor" and FM.PlaceResolve(FM.PlaceOf("vendor")) or nil
     local prof = ProfFilter()
     local out = {}
     local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
@@ -708,7 +730,11 @@ local function BuildRows(tab, lookup)
     end
     for _, row in ipairs(source) do
         local keep = true
-        if hideOutliers and IsOutlier(row, tab, lo, hi) then
+        if place then
+            row = FM.VendorRowIn(row, place) -- nil: none of its vendors is there
+            if not row then keep = false end
+        end
+        if keep and hideOutliers and IsOutlier(row, tab, lo, hi) then
             keep = false
             if not lookup then view.outliers = view.outliers + 1 end
         end
@@ -1001,7 +1027,13 @@ local function VendorTooltip(row)
     Line("Where", WHITE .. (o and o.where or "?") .. "|r")
     Line("Vendor price", Money(o and o.price) .. ((o and o.stack or 1) > 1 and string_format(GREY .. "  per %d|r", o.stack) or ""))
     if o and o.limited then Note("Limited stock: " .. o.limited .. " at a time", ORANGE) end
-    if row.offers and #row.offers > 1 then Note(string_format("%d vendors sell it", #row.offers)) end
+    if row.placeText then
+        -- the place filter (FRV-99): the cheapest vendor there, its numbers below
+        Note(string_format("The cheapest of its vendors %s (%d of %d vendors that sell it are there).", row.placeText,
+            row.placeVendors or 1, row.offers and #row.offers or 1))
+    elseif row.offers and #row.offers > 1 then
+        Note(string_format("%d vendors sell it", #row.offers))
+    end
     Header("Sell")
     Line("List at", SellText(row))
     if row.usual then Line("Usual price", Money(row.usual) .. GREY .. "  median daily low, last week|r") end
@@ -1334,10 +1366,18 @@ local function ShowRowMenu(button, row)
         if targets and FM.SnipeFromTable then
             root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of) end)
         end
-        local place, why = FM.TrackTarget(key)
+        -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
+        local own = row.offer
+        local place, why
+        if row.placeOf then
+            own = row.trackOffer
+            if own then place, why = own, "buy" end
+        else
+            place, why = FM.TrackTarget(key, own)
+        end
         if place then
             local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
-            local track = root:CreateButton("Track " .. who .. (why == "learn" and " (learn)" or ""), function() FM.TrackVendor(key) end)
+            local track = root:CreateButton("Track " .. who .. (why == "learn" and " (learn)" or ""), function() FM.TrackVendor(key, own) end)
             local tomtom = _G.TomTom
             if not (tomtom and tomtom.AddWaypoint) then
                 track:SetEnabled(false)
@@ -1456,6 +1496,15 @@ local function LayoutFilters(f)
     f.searchAll:SetPoint("LEFT", f.search, "RIGHT", 12, 0)
     f.useGlobal.label:ClearAllPoints()
     f.useGlobal.label:SetPoint("LEFT", f.globalButton, "RIGHT", 12, 0)
+    -- Continent and Zone (FRV-99): right of "Use global filters" on Picks, right of the search box on Vendor
+    f.continent:ClearAllPoints()
+    if f.useGlobal:IsShown() then
+        f.continent:SetPoint("LEFT", f.useGlobal, "RIGHT", 12, 0)
+    else
+        f.continent:SetPoint("LEFT", f.search, "RIGHT", 14, 0)
+    end
+    f.zone:ClearAllPoints()
+    f.zone:SetPoint("LEFT", f.continent, "RIGHT", 6, 0)
     if f.prof:IsShown() then
         f.prof:ClearAllPoints()
         f.prof:SetPoint("RIGHT", f.refresh, "LEFT", -10, 0)
@@ -1634,6 +1683,9 @@ local function FooterText(total)
     elseif tab.crafts then
         text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, PPH = profit per craft / (cast time + 0.5s)", FM.TRADE.BATCH)
     elseif tab.id == "vendor" then
+        -- the place filter (FRV-99): "1-20 of 34  ·  in Darnassus"
+        local where = FM.PlaceText(FM.PlaceResolve(FM.PlaceOf("vendor")))
+        if where then text = text .. "  ·  " .. where end
         text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
     elseif tab.id == "flips" then
         text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut, Profit = the whole flip"
@@ -1754,7 +1806,8 @@ local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
-        frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll }) do
+        frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll,
+        frame.continent, frame.zone }) do
         w:Hide()
     end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
@@ -1783,7 +1836,10 @@ Render = function()
     if EnsurePlan(tab) then return end
     local graph = (tab.graph and FM.PerfShow) and true or false
     frame.search:SetShown(not graph)
-    frame.searchLabel:SetShown(not graph)
+    -- the tab's own search text (FRV-26); not while you type in it
+    if not frame.search:HasFocus() and (frame.search:GetText() or "") ~= (view.search[tab.id] or "") then
+        frame.search:SetText(view.search[tab.id] or "")
+    end
     frame.headerLine:SetShown(not graph)
     frame.refresh:SetShown(not graph) -- it reads recipes and vendors again: nothing for the graph
     if graph then return RenderGraph(tab) end
@@ -1855,6 +1911,15 @@ Render = function()
     frame.useGlobal:SetChecked(useGlobal and true or false)
     if FM.FiltersDialogSync then FM.FiltersDialogSync(filterTab and tab.id or nil) end
     frame.prof:SetShown(filterTab)
+    -- the place filter (FRV-99): on Vendor, and on Picks only while vendor flips are on (greyed out, not hidden)
+    local placeTab = FM.PLACE_TABS[tab.id] and true or false
+    local placeOff = tab.picks and FM.TableFilters("picks").noVendor and true or false
+    for _, dd in ipairs({ frame.continent, frame.zone }) do
+        dd:SetShown(placeTab)
+        dd:SetEnabled(placeTab and not placeOff)
+        dd:SetAlpha(placeOff and 0.5 or 1)
+        if placeTab and dd.GenerateMenu then dd:GenerateMenu() end -- the saved place's names
+    end
     frame.searchAll:SetShown((tab.favs and not tab.ignored) and true or false)
     frame.lock:SetShown(tab.picks and true or false)
     frame.lock.label:SetShown(tab.picks and true or false)
@@ -1969,6 +2034,117 @@ local function Scroll(delta)
     Render()
 end
 
+-- The place filter of Vendor and Picks (FRV-99): two of Blizzard's dropdowns, Continent and Zone, on the tab shown.
+-- Their entries are the continents and zones of the Vendor rows' vendors (FM.PlaceOptions), a zone's own maps
+-- indented under it; Zone starts with "Where I am". A zone sets the continent to its own; another continent resets
+-- a zone that is not on it, "Any" continent both. A change on Picks plans again (a Picks input, also when locked)
+local PLACE_INDENT = "    "
+
+local function PlaceChange(c, z)
+    local tabId = view.tab
+    local now = FM.PlaceOf(tabId)
+    if now.c == c and now.z == z then return end -- the entry already chosen: nothing changed, a locked plan stays
+    FM.SetPlace(tabId, c, z)
+    view.offset = 0
+    if tabId == "picks" then FM.PlanPicks() end
+    FM.RefreshTable()
+end
+
+-- The continent a tab's place is on (a zone's own, Where I am's where you are), or nil for "Any"
+local function PlaceContinent(p)
+    if p.z == FM.PLACE_HERE then
+        local zone = FM.PlayerZoneMap()
+        return zone and FM.MapContinent(zone) or nil
+    end
+    if p.z then return FM.MapContinent(p.z) or p.c end
+    return p.c
+end
+
+local function PlaceDropdowns(f)
+    local function Options()
+        return FM.PlaceOptions(FM.PlaceOffers(FM.trade and FM.trade.vendor))
+    end
+    local function Tip(dd, title, text)
+        dd:HookScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:AddLine(title)
+            GameTooltip:AddLine(text, 1, 1, 1, true)
+            if not self:IsEnabled() then
+                GameTooltip:AddLine("Off while vendor flips are excluded (Exclude vendor flips in the filters this tab uses): Picks plans no vendor flip, so there is no vendor to place.", 1, 0.82, 0, true)
+            end
+            GameTooltip:Show()
+        end)
+        dd:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        if dd.SetMotionScriptsWhileDisabled then dd:SetMotionScriptsWhileDisabled(true) end
+    end
+    local continent = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
+    continent:SetWidth(120)
+    local zone = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
+    zone:SetWidth(130)
+    if continent.SetupMenu then
+        continent:SetupMenu(function(_, root)
+            local p = FM.PlaceOf(view.tab)
+            local shown = PlaceContinent(p)
+            local function IsSelected(id) return (shown or false) == id end
+            local function SetSelected(id)
+                if (shown or false) == id then return end -- the continent shown already: nothing changes
+                if not id then return PlaceChange(nil, nil) end -- Any continent: anywhere
+                local z = p.z
+                if z == FM.PLACE_HERE then
+                    local here = FM.PlayerZoneMap()
+                    if not (here and FM.MapContinent(here) == id) then z = nil end
+                elseif z and FM.MapContinent(z) ~= id then
+                    z = nil -- a zone not on it goes back to Any
+                end
+                PlaceChange(id, z)
+            end
+            root:CreateRadio("Any continent", IsSelected, SetSelected, false)
+            for _, c in ipairs(Options()) do root:CreateRadio(c.name, IsSelected, SetSelected, c.id) end
+        end)
+        continent:SetSelectionText(function()
+            local id = PlaceContinent(FM.PlaceOf(view.tab))
+            return id and (FM.MapName(id) or tostring(id)) or "Any continent"
+        end)
+    end
+    if zone.SetupMenu then
+        zone:SetupMenu(function(_, root)
+            local p = FM.PlaceOf(view.tab)
+            local function IsSelected(id) return (p.z or false) == id end
+            local function SetSelected(id)
+                if not id then return PlaceChange(PlaceContinent(p), nil) end -- Any zone of the continent
+                if id == FM.PLACE_HERE then return PlaceChange(nil, FM.PLACE_HERE) end
+                PlaceChange(FM.MapContinent(id), id)
+            end
+            local here = FM.PlayerZoneMap()
+            root:CreateRadio("Where I am" .. (here and (" (" .. (FM.MapName(here) or "?") .. ")") or ""), IsSelected, SetSelected,
+                FM.PLACE_HERE)
+            root:CreateRadio("Any zone", IsSelected, SetSelected, false)
+            local shown = PlaceContinent(p) -- the zones of the continent shown, every continent's with "Any"
+            local options = Options()
+            for _, c in ipairs(options) do
+                if not shown or c.id == shown then
+                    -- with Continent "Any" every zone, grouped by continent
+                    if not shown then root:CreateTitle(c.name) end
+                    for _, z in ipairs(c.zones) do
+                        root:CreateRadio(string.rep(PLACE_INDENT, z.depth) .. z.name, IsSelected, SetSelected, z.id)
+                    end
+                end
+            end
+            if root.SetScrollMode then root:SetScrollMode(400) end
+        end)
+        zone:SetSelectionText(function()
+            local p = FM.PlaceOf(view.tab)
+            if p.z == FM.PLACE_HERE then return "Where I am" end
+            return p.z and (FM.MapName(p.z) or tostring(p.z)) or "Any zone"
+        end)
+    end
+    Tip(continent, "Continent", "Only what vendors on this continent sell. On Picks: vendor flips buy only there; crafts and AH flips stay as they are. Saved per tab.")
+    Tip(zone, "Zone", "Only what vendors in this zone sell; a zone holds the maps inside it (Teldrassil holds Dolanaar, and Darnassus when the game's map puts it there). Where I am follows you as you travel. On Picks: vendor flips buy only there, and a locked plan keeps its vendors until Refresh. Saved per tab.")
+    continent:Hide()
+    zone:Hide()
+    return continent, zone
+end
+
 local function CreateTable()
     local ok, f = pcall(CreateFrame, "Frame", FRAME_NAME, UIParent, "BasicFrameTemplateWithInset")
     if not ok or not f then
@@ -2058,22 +2234,28 @@ local function CreateTable()
     end)
     ignoredTab:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- filter row
-    local search = CreateFrame("EditBox", nil, f, "InputBoxTemplate")
-    search:SetSize(160, 22)
+    -- filter row: Blizzard's search box (FRV-26: magnifier, "Search" until you type, its clear button; its own scripts
+    -- stay, ours are hooked). Its text belongs to the tab it was typed on (view.search; Render shows the tab's own)
+    local search = CreateFrame("EditBox", nil, f, "SearchBoxTemplate")
+    search:SetSize(140, 22)
     search:SetPoint("TOPLEFT", f, "TOPLEFT", 22, FILTER_Y)
     search:SetAutoFocus(false)
-    search:SetScript("OnTextChanged", function(self)
-        view.filter = self:GetText() or ""
+    search:HookScript("OnTextChanged", function(self)
+        local text = self:GetText() or ""
+        if text == (view.search[view.tab] or "") then return end -- Render showing the tab's own text
+        view.search[view.tab] = text ~= "" and text or nil
         view.offset = 0
         FM.RefreshTable()
     end)
-    search:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    local searchLabel = Text(f, "GameFontDisableSmall", "BOTTOMLEFT", 0, 2, search, "TOPLEFT")
-    searchLabel:SetText("Filter by name")
+    search:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Search")
+        GameTooltip:AddLine(CurrentTab().farm and "Shows the mobs whose name or zone has this text. Each tab keeps its own search."
+            or "Shows the items whose name has this text. Each tab keeps its own search.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    search:HookScript("OnLeave", function() GameTooltip:Hide() end)
     f.search = search
-    f.searchLabel = searchLabel
 
     -- the filters of Picks, Craft and Learn (FRV-89): the tab's own, or the global ones while "Use global filters" is
     -- checked; each button opens the one dialog (ui/Filters.lua) on the set the tab uses, a click again closes it
@@ -2111,6 +2293,8 @@ local function CreateTable()
         FM.TableFiltersChanged(view.tab)
     end)
     FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.")
+    -- Vendor and Picks: where the vendors are (FRV-99, trade/Places.lua): Continent and Zone, each tab its own, saved
+    f.continent, f.zone = PlaceDropdowns(f)
     -- Favorites: "Search all at the AH" (FRV-47), every favorite in one search (Auctionator's shopping list, else
     -- Blizzard's Buy list)
     f.searchAll = Button(f, "Search all at the AH", 150, SearchFavorites)

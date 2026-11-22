@@ -200,8 +200,14 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
 * At most 9 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 9 since 1.35 (FRV-67), the other tabs up to 8.
+* Search box (1.36, FRV-26): Blizzard's `SearchBoxTemplate` (a magnifier, "Search" until you type, a clear button),
+  140 px; until 1.35 a plain box with "Filter by name" above it (the filter row and everything under it moved up by
+  that label's 14 px: `FILTER_Y` -74, `TOP` -134). Each tab keeps its own search text for the session (`view.search`
+  in ui/Table.lua): a search typed on Craft no longer filters Farm (by mob and zone) too; switching tabs shows the
+  tab's own text. Sticky row tooltips still look their row up without it.
 * Filter row: on Picks, Craft and Learn, right of the search box, **Filters**, **Global filters** and **Use global
-  filters [ ]** (1.29, FRV-89); the buttons on the right line up from the refresh icon (Blizzard's
+  filters [ ]** (1.29, FRV-89); on Vendor and Picks the place filter **Continent** / **Zone** (1.36, FRV-99, below:
+  Vendor right of the search box, Picks right of "Use global filters"); the buttons on the right line up from the refresh icon (Blizzard's
   `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`): the profession dropdown (Blizzard's
   `WowStyle1DropdownTemplate`; Craft, Picks, Learn). On Picks "Invest [X] % across [Y] picks" sat left of the
   dropdown from 1.20 to 1.34 ("% to invest" before); since 1.35 (FRV-95) the budget has a row of its own (Picks
@@ -303,7 +309,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
   only one that offers Stop ignoring; `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
-  every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the cheapest vendor with a known place that sells
+  every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the row's
+  own vendor when it has a known place: a Vendor row's or a vendor pick's, 1.36, FRV-99; with a place chosen only a
+  vendor there: the row's own, else the cheapest one there with a known spot, else no Track; else the cheapest vendor
+  with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
@@ -383,8 +392,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     Time to sell = your listings + the pick's units (the new ones and what you hold of it) over that rate; the queue
     of others at the same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
-    Flip / Stock), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
-    explains), and since 1.35 (FRV-67) **On AH** (yours grey in brackets), **C/8h** and **C/24h**: the same cells, header
+    Flip / Stock), **Invest** (the gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
+    brackets), **C/8h** and **C/24h**, and last **Conf.** (`pick.conf`, the confidence the tooltip explains; last since
+    1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
+    columns only moved by their titles). On AH, C/8h and C/24h have the same cells, header
     tips and sorting as on Craft, the numbers of the pick's item (the product of a craft or a recipe to learn, the item
     of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a locked
     plan keeps its picks (`MarketRow` in ui/Table.lua); an item no tab holds now keeps the numbers the pick was made with
@@ -552,6 +563,37 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   of Min. price, which stays in the row tooltip and in the item tooltip's "Sell at least"), On AH, C/8h, C/24h,
   Vendor (the NPC and zone without the coordinates, "limited n" in orange first for limited stock: it decides how
   many you can buy).
+* **Place filter** (1.36, FRV-99, `trade/Places.lua`): **Continent [Any continent v]** and **Zone [Any zone v]**,
+  Blizzard's `WowStyle1DropdownTemplate`, on Vendor (right of the search box) and Picks (right of "Use global
+  filters"), each tab its own, saved in `settings.tablePlace[tab] = { c = continent map ID, z = zone map ID or "here" }`
+  (nothing saved = Any / Any).
+  * The places come from the game's map hierarchy: a vendor offer's map (ForeverArtisan_Contacts' `mapID`/`m`; one
+    without it by its zone's name, `offer.zone`, among the maps under the continents the other vendors are on:
+    `C_Map.GetMapChildrenInfo(continent, nil, true)`), walked up with `C_Map.GetMapInfo` (`parentMapID`) to its
+    continent (`mapType` `Enum.UIMapType.Continent`). A zone is a map right under its continent, maps inside it sit
+    under it. Continent lists the continents with a vendor of the Vendor rows (`FM.PlaceOptions`), Zone "Where I am
+    (<zone>)", "Any zone" and the zones of the continent shown (with Any continent every zone, under a title per
+    continent), a zone's own maps indented under it (Darnassus under Teldrassil when the game's map puts it there)
+  * A zone holds the maps inside it (Teldrassil: Teldrassil's own map, which holds Dolanaar, and the maps under it); a
+    map inside a zone holds only itself. Zone Any with a continent = everything on it. A zone sets the continent to its
+    own; another continent resets a zone that is not on it; Any continent resets both. A vendor with no known map
+    shows only with Any / Any
+  * **Where I am**: the map you are in (`C_Map.GetBestMapForUnit("player")`, a micro map, dungeon or cave map taken
+    up to its zone), read again on `ZONE_CHANGED_NEW_AREA`, `ZONE_CHANGED`, `ZONE_CHANGED_INDOORS` and
+    `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Lock plan after refresh"
+    off (a locked plan keeps the vendors it was made for until Refresh), and when the move came while the table was
+    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a locked plan stays)
+  * Vendor: a row stays when one of its vendors is in the place, at the cheapest of them there (`FM.VendorRowIn` in
+    trade/Calc.lua: a copy with that offer, its Vendor price, profit, PPG and Min. price worked out again, at least
+    10c of profit, or no row); its Vendor cell, row tooltip ("The cheapest of its vendors in Darnassus (1 of 3 vendors
+    that sell it are there).") and Track use that vendor; the footer says where ("1-20 of 34  ·  in Darnassus")
+  * Picks: vendor flips only (Type Vendor): a vendor flip plans from the cheapest vendor in the place, its step names
+    that vendor ("buy 9 at <vendor there> ..."), and an item none of whose vendors there pays is no pick ("no vendor
+    in Darnassus sells it with a profit (Continent, Zone)"), except that units of it you hold stay a Stock pick (the
+    place limits only what is bought); crafts and AH flips are not filtered by place, the
+    picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan locked).
+    While "Exclude vendor flips" is on in the set Picks uses (its own or the global one), both stay visible but are
+    greyed out and disabled, and their tooltip says why
 * **Flip** columns (1.18): Item, **Profit** (the whole flip, `row.profit`, the default sort; PPG moved to the row
   tooltip: two cheap units at a high rate no longer rank above a flip that earns ten times as much), Buy up to,
   List at, Units, On AH, C/8h, C/24h. Once the latest snapshot is an hour old or more (`FLIP_STALE`), a line above

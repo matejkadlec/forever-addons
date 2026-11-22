@@ -112,6 +112,11 @@ Findings verified against the `forever` branch of [wow-ui-source](https://github
 
 - The minimap has no `SetPlayerTexture` / `SetPlayerTextureHeight`, the engine player arrow cannot be resized
 - World map player arrow: `GroupMembersPinTemplate` pins, `pin.dataProvider:GetUnitPinSizesTable().player`, then `pin:SynchronizePinSizes()`
+- The map hierarchy (verified against wow-ui-source `forever` for FRV-99, not yet verified in game; ForeverMarket 1.36's place filter, `trade/Places.lua`):
+  - `C_Map.GetMapInfo(uiMapID)` returns `UiMapDetails` (`mapID`, `name`, `mapType`, `parentMapID`, `flags`) or nothing; `C_Map.GetMapChildrenInfo(uiMapID, mapType, allDescendants)` the maps under one; `C_Map.GetBestMapForUnit("player")` the map you are in ("only works for the player and party members"), nilable (`MapDocumentation.lua`). None is flagged secret or `HasRestrictions` (only `OpenWorldMap` is); their `SecretArguments = "AllowedWhenUntainted"`, so an AddOn passes plain numbers
+  - `Enum.UIMapType`: `Cosmic` 0, `World` 1, `Continent` 2, `Zone` 3, `Dungeon` 4, `Micro` 5, `Orphan` 6 (`MapConstantsDocumentation.lua`); Blizzard's world map walks `parentMapID` up while it is above 0 (`Blizzard_WorldMap/Blizzard_WorldMapTemplates.lua`)
+  - Events `ZONE_CHANGED`, `ZONE_CHANGED_INDOORS`, `ZONE_CHANGED_NEW_AREA` (no payload)
+  - ForeverArtisan_Contacts saves a vendor's map as `mapID` (zone level: 1438 Teldrassil for a vendor in Dolanaar, whose `subzone` is "Dolanaar"; 1457 Darnassus) with `mapName` and `zone`; in the maintainer's saved data of 2026-11-22 one vendor of 137 has no `mapID` (zone "Deeprun Tram"). Whether the game puts Darnassus under Teldrassil (and Stormwind City under Elwynn Forest) or right under its continent is not known outside the game: ForeverMarket follows `parentMapID` either way
 
 ## Character names
 
