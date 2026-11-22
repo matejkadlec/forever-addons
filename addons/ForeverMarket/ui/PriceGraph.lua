@@ -15,7 +15,7 @@ local math_max = math.max
 local string_format = string.format
 
 local FRAME_NAME = "ForeverMarketPriceGraph"
-local W, H = 760, 620
+local W, H = 760, 640
 local CHART_TOP = -100 -- the chart from under the header
 local CHART_H = 300
 local INFO_Y = CHART_TOP - CHART_H - 6 -- the item now, under the chart
@@ -163,17 +163,20 @@ local function LogsSig()
     return table.concat(parts, "|")
 end
 
+-- Two lines that never wrap (each its own font string): what a dot is, then the legend
 local function Footer(mode, breakEven, usual)
-    local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
-    local parts = { "one dot per " .. per .. ": the average of the cheapest price of others in each scan" }
-    parts[#parts + 1] = "hollow = not listed, previous price carried"
+    local per = mode == "week" and "week" or mode == "month" and "month" or "day"
+    local parts = { "a dot per " .. per .. ": the average cheapest price of others" }
+    parts[#parts + 1] = "hollow = not listed, price carried"
     parts[#parts + 1] = mode == "month" and "a year back" or "60 days back (Monthly: a year)"
     local legend = { "bars = units that left the AH" }
-    for _, kind in ipairs(KIND_ORDER) do legend[#legend + 1] = Square(KIND[kind].rgb) .. " your " .. KIND[kind].label:lower() end
-    if breakEven then legend[#legend + 1] = "dashed = your break-even" end
-    if usual then legend[#legend + 1] = "solid = the usual price" end
+    local kinds = {}
+    for _, kind in ipairs(KIND_ORDER) do kinds[#kinds + 1] = Square(KIND[kind].rgb) .. " " .. KIND[kind].label:lower() end
+    legend[#legend + 1] = "yours: " .. table.concat(kinds, "  ")
+    if breakEven then legend[#legend + 1] = "dashed = break-even" end
+    if usual then legend[#legend + 1] = "solid = usual price" end
     legend[#legend + 1] = "hover a dot"
-    return GREY .. table.concat(parts, "  ·  ") .. "|r|n" .. GREY .. table.concat(legend, "  ·  ") .. "|r"
+    return GREY .. table.concat(parts, "  ·  ") .. "|r", GREY .. table.concat(legend, "  ·  ") .. "|r"
 end
 
 -- C/8h and C/24h of the item: its row in the market table's pass (the measured rate), else its own records
@@ -320,7 +323,9 @@ local function Render()
             return out
         end,
     })
-    window.footer:SetText(Footer(mode, breakEven, usual))
+    local line1, line2 = Footer(mode, breakEven, usual)
+    window.footer:SetText(line1)
+    window.legend:SetText(line2)
 end
 
 local function SetMode(id)
@@ -429,11 +434,17 @@ local function CreateWindow()
     f.listEmpty:SetPoint("TOPLEFT", f, "TOPLEFT", 16, LIST_Y - 16)
     f.listEmpty:SetText("None in the logs: no post, sale or purchase of it by any of your characters.")
 
+    -- the footer: two lines, each kept to one line (under the list, which ends above them)
+    f.legend = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.legend:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 10)
+    f.legend:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 10)
+    f.legend:SetJustifyH("LEFT")
+    f.legend:SetWordWrap(false)
     f.footer = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    f.footer:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 10)
-    f.footer:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 10)
+    f.footer:SetPoint("BOTTOMLEFT", f.legend, "TOPLEFT", 0, 3)
+    f.footer:SetPoint("BOTTOMRIGHT", f.legend, "TOPRIGHT", 0, 3)
     f.footer:SetJustifyH("LEFT")
-    f.footer:SetWordWrap(true)
+    f.footer:SetWordWrap(false)
     return f
 end
 
