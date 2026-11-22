@@ -1239,9 +1239,10 @@ local function EvaluateVendor(c)
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
     local where = row.offer.where
-    -- offer: the vendor the pick buys at (Track goes there, FRV-99)
+    -- offer: the vendor the pick buys at; Track goes there, or with a place to trackOffer, the vendor there (FRV-99)
     local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
-        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items, offer = row.offer }
+        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items, offer = row.offer,
+        trackOffer = row.trackOffer, placeOf = row.placeOf }
     local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unit, row.sell)
     pick.exp8, pick.exp24 = e8 * conf, e24 * conf
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }

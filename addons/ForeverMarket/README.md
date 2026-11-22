@@ -310,8 +310,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
   only one that offers Stop ignoring; `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
   every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the row's
-  own vendor when it has a known place: a Vendor row's or a vendor pick's, the one in the place filter's place, 1.36,
-  FRV-99; else the cheapest vendor with a known place that sells
+  own vendor when it has a known place: a Vendor row's or a vendor pick's, 1.36, FRV-99; with a place chosen only a
+  vendor there: the row's own, else the cheapest one there with a known spot, else no Track; else the cheapest vendor
+  with a known place that sells
   it; for a recipe still to learn, to the cheapest trainer or recipe vendor with a known place that teaches it;
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
@@ -580,7 +581,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * **Where I am**: the map you are in (`C_Map.GetBestMapForUnit("player")`, a micro map, dungeon or cave map taken
     up to its zone), read again on `ZONE_CHANGED_NEW_AREA`, `ZONE_CHANGED`, `ZONE_CHANGED_INDOORS` and
     `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Lock plan after refresh"
-    off (a locked plan keeps the vendors it was made for until Refresh)
+    off (a locked plan keeps the vendors it was made for until Refresh), and when the move came while the table was
+    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a locked plan stays)
   * Vendor: a row stays when one of its vendors is in the place, at the cheapest of them there (`FM.VendorRowIn` in
     trade/Calc.lua: a copy with that offer, its Vendor price, profit, PPG and Min. price worked out again, at least
     10c of profit, or no row); its Vendor cell, row tooltip ("The cheapest of its vendors in Darnassus (1 of 3 vendors

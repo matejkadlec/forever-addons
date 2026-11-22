@@ -106,6 +106,26 @@ local function IndexContinent(continent)
     end
 end
 
+-- Learns the continents of these offers, so a zone name alone finds its map (FM.OfferMap)
+local function IndexOffers(offers)
+    for _, offer in ipairs(offers) do
+        local chain = Chain(offer.mapID)
+        if chain then IndexContinent(chain[#chain]) end
+    end
+end
+
+-- The continents of every vendor offer (FM.sources, trade/Sources.lua), learned once per build of the sources, so a
+-- name lookup works before any dropdown was opened (the first plan of a session, the first Vendor list)
+local indexedSources = nil
+local function IndexSources()
+    local sources = FM.sources
+    if not sources or sources == indexedSources or type(sources.vendors) ~= "table" then return end
+    indexedSources = sources
+    for _, v in pairs(sources.vendors) do
+        if type(v) == "table" and type(v.offers) == "table" then IndexOffers(v.offers) end
+    end
+end
+
 -- The map of a vendor offer: its mapID, else the map named like its zone (on a continent other vendors are on);
 -- nil = no place known (it shows only with "Any" / "Any")
 function FM.OfferMap(offer)
@@ -114,15 +134,8 @@ function FM.OfferMap(offer)
     if id and Chain(id) then return id end
     local zone = offer.zone
     if type(zone) ~= "string" or zone == "" then return nil end
+    if byName[zone] == nil then IndexSources() end
     return byName[zone]
-end
-
--- Learns the continents of these offers, so a zone name alone finds its map (FM.OfferMap)
-local function IndexOffers(offers)
-    for _, offer in ipairs(offers) do
-        local chain = Chain(offer.mapID)
-        if chain then IndexContinent(chain[#chain]) end
-    end
 end
 
 ---------------------------------------------------------------- where you are
@@ -274,12 +287,14 @@ end
 
 -- A zone change moves "Where I am": the Vendor tab shows its vendors there; Picks plans again when it is not locked
 -- (a locked plan stays as it was made, FRV-63) and its vendor flips are on
+FM.placeVersion = 0 -- counts the moves of Where I am on Picks: an unlocked plan made before one plans again (FM.EnsureTrade)
 local function Moved()
     local before = playerMap
     playerMap = PlayerMapNow()
     if playerMap == before then return end
     local vendorHere = FM.PlaceOf("vendor").z == HERE
     local picksHere = FM.PlaceOf("picks").z == HERE
+    if picksHere then FM.placeVersion = FM.placeVersion + 1 end
     if picksHere and FM.TableFilters and not FM.TableFilters("picks").noVendor and FM.trade and not FM.trade.empty
         and FM.PicksLocked and not FM.PicksLocked()
         and ((FM.TableShown and FM.TableShown()) or (FM.StickyShown and FM.StickyShown())) then
@@ -296,5 +311,5 @@ FM.On("PLAYER_ENTERING_WORLD", Moved)
 
 -- A fresh session's caches (the tests change the map hierarchy between cases)
 function FM.PlacesReset()
-    infoCache, chainCache, byName, indexed, playerMap = {}, {}, {}, {}, false
+    infoCache, chainCache, byName, indexed, playerMap, indexedSources = {}, {}, {}, {}, false, nil
 end

@@ -907,16 +907,19 @@ end
 -- cheapest of its vendors there (an unlimited one on a tie, as v.best), its price and profit worked out again the way
 -- the row was (the same List at and deposit); nil when no vendor there sells it or the profit there is under the
 -- minimum. "Any" / "Any" is the row itself; any other place a copy (the shared row stays as it is) with placeOf = the
--- row, placeText ("in Darnassus") and placeVendors (how many of its vendors are there)
+-- row, placeText ("in Darnassus"), placeVendors (how many of its vendors are there) and trackOffer (where Track leads:
+-- that vendor, else the cheapest vendor there with a spot on the map, nil for none)
 function FM.VendorRowIn(row, place)
     if not place or place.any then return row end
-    local best, n = nil, 0
+    local best, track, n = nil, nil, 0
     for _, offer in ipairs(row.offers or { row.offer }) do
         if type(offer) == "table" and type(offer.unit) == "number" and FM.OfferInPlace(offer, place) then
             n = n + 1
             if not best or offer.unit < best.unit or (best.limited and not offer.limited and offer.unit <= best.unit) then
                 best = offer
             end
+            -- Track: the cheapest vendor there with a spot on the map
+            if offer.mapID and offer.x and offer.y and (not track or offer.unit < track.unit) then track = offer end
         end
     end
     if not best or type(row.sell) ~= "number" then return nil end
@@ -927,6 +930,7 @@ function FM.VendorRowIn(row, place)
     copy.offer, copy.vendorUnit, copy.profit, copy.p1g = best, best.unit, profit, profit / best.unit * 10000
     copy.minSell = best.unit / (1 - AH_CUT) + (row.depUnit and row.depUnit / (1 - AH_CUT) or 0)
     copy.placeOf, copy.placeText, copy.placeVendors = row, FM.PlaceText(place), n
+    copy.trackOffer = (best.mapID and best.x and best.y) and best or track -- nil: no vendor there to lead to
     return copy
 end
 
@@ -986,7 +990,8 @@ function FM.ComputeTrade(record, onDone)
     if FM.RefreshTable then FM.RefreshTable() end
     -- listingsVersion: your posts and auction lists the picks were planned with, stockVersion: your bags and bank
     -- (FRV-98, trade/Sources.lua; FM.EnsureTrade)
-    local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion or 0 }
+    local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion or 0,
+        placeVersion = FM.placeVersion or 0 }
     local sources
     local soldCache = {}
     local function Sold(key, window)
@@ -1229,7 +1234,8 @@ function FM.EnsureTrade()
     if running then return end
     local trade = FM.trade
     local inputs = trade and not trade.empty and not FM.PicksLocked()
-        and (trade.listingsVersion ~= (FM.listingsVersion or 0) or (trade.stockVersion or 0) ~= (FM.stockVersion or 0))
+        and (trade.listingsVersion ~= (FM.listingsVersion or 0) or (trade.stockVersion or 0) ~= (FM.stockVersion or 0)
+            or (trade.placeVersion or 0) ~= (FM.placeVersion or 0)) -- Where I am moved while the table was closed (FRV-99)
     if not trade or trade.t ~= t or (trade.empty and t) or inputs then
         FM.ComputeTrade(false)
     end

@@ -156,3 +156,41 @@ H.test("vendor rows: in a place the cheapest vendor there, its profit worked out
     local thin = { key = "501", sell = 1000, offer = DARKSHORE, offers = { DARKSHORE, dear }, vendorUnit = 90 }
     H.eq(FM.VendorRowIn(thin, Place(FM, 1415, 1453)), nil, "950 - 945 = 5c: under the minimum")
 end)
+
+-- Review round 1 (FRV-99): the name lookup must not wait for a dropdown, Where I am counts its moves for an unlocked
+-- plan, Track in a place leads only to a vendor there
+H.test("places: a vendor without mapID is found by its zone's name before any dropdown was opened", function()
+    local FM = Setup()
+    -- the first plan of a session: only the sources are there (trade/Sources.lua's FM.sources)
+    FM.sources = { vendors = { ["600"] = { offers = { STORMWIND, TRAM } } } }
+    H.eq(FM.OfferInPlace(TRAM, Place(FM, 1415, 1453)), true, "Deeprun Tram in Stormwind City, no FM.PlaceOptions call first")
+end)
+
+H.test("places: a move counts for Picks only while Picks uses Where I am", function()
+    local FM, env = Setup()
+    env.playerMap = 1429
+    FM.PlaceMoved()
+    local before = FM.placeVersion
+    env.playerMap = 1457
+    FM.PlaceMoved()
+    H.eq(FM.placeVersion, before, "Picks on Any / Any: no count")
+    FM.SetPlace("picks", nil, FM.PLACE_HERE)
+    env.playerMap = 1453
+    FM.PlaceMoved()
+    H.eq(FM.placeVersion, before + 1, "Picks on Where I am: the move counts (FM.EnsureTrade plans again when unlocked)")
+    FM.PlaceMoved()
+    H.eq(FM.placeVersion, before + 1, "no move, no count")
+end)
+
+H.test("vendor rows: in a place Track leads to a vendor there with a spot on the map, or nowhere", function()
+    local FM = Setup()
+    FM.PlaceOptions({ STORMWIND, TRAM }) -- the Tram vendor's map by its name
+    local spotted = { npc = "Spotted vendor", mapID = 1453, x = 50, y = 50, unit = 130 }
+    local row = { key = "502", sell = 1000, offer = TRAM, offers = { TRAM, spotted, DARKSHORE }, vendorUnit = 105 }
+    local there = FM.VendorRowIn(row, Place(FM, 1415, 1453))
+    H.eq(there.offer, TRAM, "the cheapest vendor there has no spot on the map")
+    H.eq(there.trackOffer, spotted, "Track: the cheapest vendor there that has one")
+    local alone = FM.VendorRowIn({ key = "503", sell = 1000, offer = TRAM, offers = { TRAM, DARKSHORE }, vendorUnit = 105 },
+        Place(FM, 1415, 1453))
+    H.eq(alone.trackOffer, nil, "no vendor there with a spot: no Track (never one elsewhere)")
+end)

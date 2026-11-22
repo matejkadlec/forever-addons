@@ -1366,9 +1366,15 @@ local function ShowRowMenu(button, row)
         if targets and FM.SnipeFromTable then
             root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of) end)
         end
-        -- a Vendor row or a vendor pick goes to its own vendor (the one in the place filter's place, FRV-99)
+        -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
-        local place, why = FM.TrackTarget(key, own)
+        local place, why
+        if row.placeOf then
+            own = row.trackOffer
+            if own then place, why = own, "buy" end
+        else
+            place, why = FM.TrackTarget(key, own)
+        end
         if place then
             local who = place.npc or (why == "learn" and "the trainer" or "the vendor")
             local track = root:CreateButton("Track " .. who .. (why == "learn" and " (learn)" or ""), function() FM.TrackVendor(key, own) end)
@@ -2036,6 +2042,8 @@ local PLACE_INDENT = "    "
 
 local function PlaceChange(c, z)
     local tabId = view.tab
+    local now = FM.PlaceOf(tabId)
+    if now.c == c and now.z == z then return end -- the entry already chosen: nothing changed, a locked plan stays
     FM.SetPlace(tabId, c, z)
     view.offset = 0
     if tabId == "picks" then FM.PlanPicks() end
@@ -2079,6 +2087,7 @@ local function PlaceDropdowns(f)
             local shown = PlaceContinent(p)
             local function IsSelected(id) return (shown or false) == id end
             local function SetSelected(id)
+                if (shown or false) == id then return end -- the continent shown already: nothing changes
                 if not id then return PlaceChange(nil, nil) end -- Any continent: anywhere
                 local z = p.z
                 if z == FM.PLACE_HERE then
