@@ -56,6 +56,9 @@ H.test("settings: the Picks budget's % and amount load as saved, in range", func
     H.eq(Load({ settings = { tableInvestPct = "x" } }).GetSettings().tableInvestPct, 90, "no number: the default")
     H.eq(Load({ settings = { tableInvestAmount = 123456.9 } }).GetSettings().tableInvestAmount, 123456, "whole copper")
     H.eq(Load({ settings = { tableInvestAmount = -1 } }).GetSettings().tableInvestAmount, 0, "negative: 0")
+    -- the gold box takes 6 digits: 999999g 99s 99c at most
+    H.eq(Load({ settings = { tableInvestAmount = 10000000 * 10000 } }).GetSettings().tableInvestAmount, 999999 * 10000 + 9999,
+        "over 999999g 99s 99c: clamped")
 end)
 
 H.test("settings: the sniper's manual budget loads as a whole number of copper in range", function()

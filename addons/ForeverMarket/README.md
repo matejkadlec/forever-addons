@@ -297,8 +297,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     `tableLearnHigher`, `tableLearnMaxAbove`) are dropped at load (`FM.MigrateFilters`). Broken values get their
     default, numbers their range (`FM.FilterClamp`).
   * Every checkbox of the table and its dialogs has its text first, the box after it ("Lock plan after refresh [x]"),
-    like the number boxes ("Picks: [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
-    checkboxes sit after their boxes ("[90] % [x]", "Invest: [g s c] [ ]", 1.35).
+    like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
+    checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
@@ -404,13 +404,15 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     what is bought, as Invest and the shopping list) > make > list (price, and the length of Expected; with units you
     hold, how many in all and how many of them yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
-  * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks:
-    [Y] | [X] % [x] | Invest: [g] [s] [c] [ ]**, with "Lock plan after refresh" at its right. Y (`tableInvestPicks`,
+  * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks
+    [Y] Invest [X] % [x] | [g] [s] [c] [ ]**, with "Lock plan after refresh" at its right (the maintainer's layout
+    after his test, 1.35.5; first "Picks: [Y] | [X] % [x] | Invest: [g s c] [ ]"). Y (`tableInvestPicks`,
     default 3, 1 to 12) is how many picks the plan has at most; fewer when fewer good picks exist. The two checkboxes
     are one choice, always one of them checked, the other's boxes greyed out and disabled (`tableInvestManual`):
     **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90, 1 to 90: 10% stay for deposits; an
-    older X above 90 counts as 90), **Invest** = the amount typed in (`tableInvestAmount`, copper; the sniper's money
-    boxes, `MoneyInputFrameTemplate`), capped at 90% of your gold, which the row's tooltip says. "Allow picks budget
+    older X above 90 counts as 90), the money boxes = the amount typed in (`tableInvestAmount`, copper, up to 999999g
+    99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed to 60 / 34 / 34 px for 6 and 2 digits),
+    capped at 90% of your gold, which the row's tooltip says. "Allow picks budget
     over current gold" (settings panel, `tablePicksOverGold`, off) lets X go to 999 and the amount above your gold:
     the plan is sized as if you had it (turning it off brings X back to 90 at most). `FM.PicksBudget` in
     trade/Picks.lua; with "Gold of all characters" (Filters) your gold is that of all your characters. Every box

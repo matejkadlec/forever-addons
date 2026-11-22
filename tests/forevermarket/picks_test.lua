@@ -6,7 +6,7 @@
 -- latest snapshot (2 hours for a feed snapshot) only what can still be in it: the units it holds at exactly your
 -- unit prices, marked as yours or not, up to what you listed at each.
 -- A view as the scans produce it: ladder = the auctions not marked as yours, own / ownLevels = the marked ones.
--- The plan's gold: the budget row "Picks: [Y] | [X] % [ ] | Invest: [g s c] [ ]" (FRV-95; "Invest [X] % across [Y]
+-- The plan's gold: the budget row "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]" (FRV-95; "Invest [X] % across [Y]
 -- picks" before: tableInvestPct, default 90 and at most 90; tableInvestPicks, default 3). The plan has up to Y picks;
 -- each gets the budget left divided by the picks still open; a pick outside the plan is sized with one pick's share
 -- (the budget / Y).

@@ -6,7 +6,7 @@ local _, FM = ...
 --     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales: with 3+
 --     of them your pace is the rate while units of yours are still listed (1.22, FRV-66), the market share counts
 --     only once you sold out
---   * one plan for a budget: "Picks: [Y] | [X] % [ ] | Invest: [g s c] [ ]" (1.20; 1.35, FRV-95: Y = its picks at most,
+--   * one plan for a budget: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]" (1.20; 1.35, FRV-95: Y = its picks at most,
 --     default 3; the budget X % of your gold, default and at most 90, or an amount set by hand, capped at 90% of your
 --     gold unless "Allow picks budget over current gold" (settings panel; % up to 999 then); with "Gold of all
 --     characters" (FRV-36) your gold counts your other characters' as last recorded). Picks are chosen greedily, each

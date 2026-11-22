@@ -2121,7 +2121,7 @@ local function CreateTable()
         GameTooltip:Show()
     end)
     f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- Picks' budget row (FRV-95), on the line above the summary: "Picks: [Y] | [X] % [ ] | Invest: [g s c] [ ]";
+    -- Picks' budget row (FRV-95), on the line above the summary: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]";
     -- Y = the picks the plan has at most, the budget X % of your gold or the amount set (the two checkboxes are one
     -- choice, always one of them checked; the other's boxes greyed out). Every box applies on Enter or a lost focus,
     -- Esc shows the saved value again, a change plans again
@@ -2150,7 +2150,7 @@ local function CreateTable()
     end
     local slotsMax = FM.PICKS_MAX or 12
     local slotsLabel = Text(budget, "GameFontHighlight", "LEFT", 4, 0)
-    slotsLabel:SetText("Picks:")
+    slotsLabel:SetText("Picks")
     local slots = FM.NumberBox(budget, 2)
     slots:SetPoint("LEFT", slotsLabel, "RIGHT", 10, 0)
     slots:HookScript("OnEditFocusLost", function(self)
@@ -2172,10 +2172,11 @@ local function CreateTable()
     end)
     BudgetTip(slots, "Picks", string_format("The plan has up to this many picks (default 3, 1 to %d). Each pick gets a fair share of the budget that is left; what one does not use goes to the later ones. 1 = everything into the best pick. The picks out of scope are sized with one pick's share. Enter or click elsewhere to apply.", slotsMax))
     f.slots = slots
-    local sep1 = Text(budget, "GameFontDisable", "LEFT", 12, 0, slots, "RIGHT")
-    sep1:SetText("|")
+    -- "Invest [X] %": the % right after the picks, the money boxes behind the one separator (the maintainer, 2026-11-22)
+    local investLabel = Text(budget, "GameFontHighlight", "LEFT", 16, 0, slots, "RIGHT")
+    investLabel:SetText("Invest")
     local invest = FM.NumberBox(budget, 3)
-    invest:SetPoint("LEFT", sep1, "RIGHT", 14, 0)
+    invest:SetPoint("LEFT", investLabel, "RIGHT", 10, 0)
     invest:HookScript("OnEditFocusLost", function(self)
         if self.restore then
             self.restore = nil
@@ -2206,11 +2207,18 @@ local function CreateTable()
     f.pctCheck = pctCheck
     local sep2 = Text(budget, "GameFontDisable", "LEFT", 12, 0, pctCheck, "RIGHT")
     sep2:SetText("|")
-    local manualLabel = Text(budget, "GameFontHighlight", "LEFT", 14, 0, sep2, "RIGHT")
-    manualLabel:SetText("Invest:")
-    -- the sniper's money boxes (MoneyInputFrameTemplate, FM.MoneyInput in ui/SniperPanel.lua): the same inputs
+    -- the sniper's money boxes (MoneyInputFrameTemplate, FM.MoneyInput in ui/SniperPanel.lua): the same inputs, narrower
+    -- (the template's 70 / 48 / 48 px fit 7 digits of gold and leave silver and copper half empty): gold up to 999999
+    -- (6 digits, FM.SETTING_RANGE), silver and copper 2 digits each, every box with its coin at the right
     local manual = CreateFrame("Frame", "ForeverMarketPicksInvest", budget, "MoneyInputFrameTemplate")
-    manual:SetPoint("LEFT", manualLabel, "RIGHT", 12, 0)
+    manual:SetPoint("LEFT", sep2, "RIGHT", 16, 0)
+    if manual.gold and manual.silver and manual.copper then
+        manual.gold:SetWidth(60)
+        manual.gold:SetMaxLetters(6)
+        manual.silver:SetWidth(34)
+        manual.copper:SetWidth(34)
+        manual:SetWidth(60 + 10 + 34 + 10 + 34)
+    end
     local manualTip = "The budget is this amount (checked): the plan is sized for it whatever your gold. Without Allow picks budget over current gold (settings panel) an amount over 90% of your gold is capped there, and this tooltip says so. Enter or click elsewhere to apply, Esc keeps the saved amount."
     local money = FM.MoneyInput
     for _, box in ipairs(money and money.Boxes(manual) or {}) do

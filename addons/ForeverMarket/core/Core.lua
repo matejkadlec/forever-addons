@@ -39,8 +39,8 @@ FM.DEFAULTS = {
     tableMinProfit = 1, -- market table and picks: rows earning less per item are hidden, in copper (settings panel)
     tableInvestPct = 90, -- picks: "[X] %": the share of your gold the whole plan may use, in percent (at most 90 counts
                          -- unless tablePicksOverGold, then 999)
-    tableInvestPicks = 3, -- picks: "Picks: [Y]": the plan has up to this many picks
-    tableInvestManual = false, -- picks: "Invest: [g s c]" checked: the budget is tableInvestAmount, not the % (FRV-95)
+    tableInvestPicks = 3, -- picks: "Picks [Y]": the plan has up to this many picks
+    tableInvestManual = false, -- picks: "| [g] [s] [c] [x]" checked: the budget is tableInvestAmount, not the % (FRV-95)
     tableInvestAmount = 0, -- picks: the budget set by hand, in copper (capped at 90% of your gold unless tablePicksOverGold)
     tablePicksOverGold = false, -- picks: "Allow picks budget over current gold" (settings panel, FRV-95)
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
@@ -166,9 +166,9 @@ FM.SETTING_RANGE = {
     tableTimePct = { 0, 20 }, -- 0 = always the cheaper route
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
     -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
-    -- current gold", FM.PicksPctMax) and the amount set by hand (the same boxes as the sniper's)
+    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
     tableInvestPct = { 1, 999 },
-    tableInvestAmount = { 0, 9999999 * 10000 + 9999 },
+    tableInvestAmount = { 0, 999999 * 10000 + 9999 },
 }
 
 -- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all
