@@ -823,7 +823,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 Right-click an item row of the market table > **Show history** (until 1.36 "Show price graph"), or `/fm item <link or
 ID>` (after its chat summary, the first item given): the item's price over time and your trading of it in its own
 window (760 × 620, movable, closes with its X or Escape, above the market table, which stays usable; another item
-replaces the one shown; the item's icon and name in the title, the position is saved in `priceGraphPos`). One window
+replaces the one shown; the item's icon and name in the title, the position is saved in `priceGraphPos`). FRV-52
+asked for about 520 × 360 next to the table: the chart, the block under it and the list of 10 do not fit that, so the
+window keeps the price graph's width and place (centered at first, then where you leave it) and grows by the list. One window
 for both: FRV-52 asked for a history window before FRV-76 built the price graph, and builds on it; FRV-76's price
 (the average of a day's cheapest prices, carried days as hollow dots, never 0) and its Daily / Weekly / Monthly stay
 in place of FRV-52's median and 30 / 60 days.
@@ -863,8 +865,8 @@ in place of FRV-52's median and 30 / 60 days.
 * **Bars** (1.37, FRV-52): the units that left the AH in each period (bought or taken down: Forever hides sellers,
   as C/8h and C/24h count them), grey under the line on a scale of their own (the highest bar a third of the
   chart's height): a deep or feed record's sold units (field 10) since the scan before, a daily rollup's (field 7);
-  an unchanged record adds none; a period without any record or rollup has no bar (not known), one whose scans saw
-  none leave has none either. The hover says "Left the AH 50 for 48s 10c" (their listed value, fields 12 and 8).
+  an unchanged record adds none; a period no deep diff measured (no record or rollup with a gap: browse scans alone
+  measure nothing) has no bar and says "not known", one whose scans saw none leave has none either. The hover says "Left the AH 50 for 48s 10c" (their listed value, fields 12 and 8).
 * **The usual price** (1.37): a thin light blue solid line at the item's usual price now (`FM.UsualPrice`, the median
   daily low of the last 7 days, the market table's tooltips' "Usual price"), labeled at its left end.
 * **Your trading** (1.37, `FM.ItemActivity`): your posts (`posts`), sales (the AH's sale mails, `invoices` "seller",

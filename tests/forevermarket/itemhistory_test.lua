@@ -2,7 +2,8 @@
 -- Rules:
 --   * a period's bar = the units that left the AH in it (bought or taken down) and their value: a deep or feed
 --     record's sold units (field 10) and value (field 12) since the scan before, a daily rollup's (fields 7 and 8); an
---     unchanged record adds none; a day with a record or rollup knows its number, 0 included
+--     unchanged record adds none; a day a deep diff measured (a record's gap, a rollup's gap) knows its number, 0
+--     included; browse scans alone measure nothing
 --   * your activity of an item, newest first: posts (R.posts), sales (sale mails by the item's name), purchases (the
 --     purchase log; for an item the log has no line of, won auctions' mails), of every character
 --   * the 3 day range = the lowest and highest cheapest price of others in the per-scan records of the last 72 hours
@@ -23,9 +24,10 @@ local function T(y, m, d, h, min) return os.time({ year = y, month = m, day = d,
 local function Minutes(t) return math.floor((t - EPOCH) / 60) end
 local function Stamp(kind, t) return kind .. B(Minutes(t)) end
 
--- A deep record at t: cheapest min of others (none of yours), qty listed, sold units and their value since the scan before
+-- A deep record at t: cheapest min of others (none of yours), qty listed, sold units and their value since the scan
+-- before, 6 hours before (the gap, field 9)
 local function Deep(t, min, qty, sold, soldValue)
-    local f = { Stamp("r", t), B(min), B(qty), "1", "", "", "", "0", "" }
+    local f = { Stamp("r", t), B(min), B(qty), "1", "", "", "", "0", B(360) }
     f[10] = sold and B(sold) or ""
     f[11] = sold and "1" or ""
     f[12] = soldValue and B(soldValue) or ""
@@ -34,10 +36,12 @@ local function Deep(t, min, qty, sold, soldValue)
     return table.concat(f, ",", 1, n)
 end
 
--- A daily rollup "D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap" of a UTC day
-local function Rollup(t, n, min, qty, sold, soldValue)
+-- A daily rollup "D<day>,n,nMin,minMin,sumMin,sumQty,sold,soldVal,amb,gap" of a UTC day; gap = the minutes deep diffs
+-- covered (0: only browse scans, which measure nothing)
+local function Rollup(t, n, min, qty, sold, soldValue, gap)
     local day = math.floor((t - EPOCH) / 86400)
-    return table.concat({ "D" .. B(day), B(n), B(n), B(min), B(min * n), B(qty * n), B(sold), B(soldValue), "0", "0" }, ",")
+    return table.concat({ "D" .. B(day), B(n), B(n), B(min), B(min * n), B(qty * n), B(sold), B(soldValue), "0",
+        B(gap or 360 * n) }, ",")
 end
 
 local function Load(now)
@@ -61,7 +65,7 @@ end
 H.test("item history: a day's bar is the units that left the AH and their value, from records and rollups", function()
     local FM, _, r, item = Load()
     local day1, day2 = T(2026, 11, 10), T(2026, 11, 21)
-    item.r = Rollup(day1, 4, 100, 300, 120, 12000)
+    item.r = Rollup(day1, 4, 100, 300, 120, 12000) .. ";" .. Rollup(T(2026, 11, 12), 3, 101, 300, 0, 0, 0)
     item.d = table.concat({
         Deep(T(2026, 11, 21, 9), 95, 400, 30, 2850),
         Stamp("r", T(2026, 11, 21, 10)) .. ",=,60", -- unchanged: nothing left the AH
@@ -72,6 +76,7 @@ H.test("item history: a day's bar is the units that left the AH and their value,
     local series = FM.PriceSeries(KEY, "day")
     local p1 = DayPeriod(series, day1)
     H.same({ p1.gone, p1.goneVal, p1.goneKnown }, { 120, 12000, true }, "the rollup's day")
+    H.eq(DayPeriod(series, T(2026, 11, 12)).goneKnown, nil, "a rollup of browse scans only: not known, no bar")
     local p2 = DayPeriod(series, day2)
     H.same({ p2.gone, p2.goneVal, p2.goneKnown }, { 50, 4810, true }, "11/21: 30 and 20 units, the unchanged scan none")
     local p3 = DayPeriod(series, T(2026, 11, 22, 9))

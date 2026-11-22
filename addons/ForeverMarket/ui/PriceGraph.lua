@@ -151,6 +151,18 @@ local function Square(rgb)
         math.floor(rgb[2] * 255), math.floor(rgb[3] * 255))
 end
 
+-- The logs your activity comes from, by their size and newest line (as trade/Performance.lua's Tail): a change of any
+-- of them can be a post, sale or purchase of the item shown
+local function LogsSig()
+    local r = FM.R()
+    local parts = {}
+    for i, name in ipairs({ "posts", "invoices", "buys" }) do
+        local list = r and type(r[name]) == "table" and r[name] or nil
+        parts[i] = list and (#list .. ":" .. tostring(list[#list])) or "-"
+    end
+    return table.concat(parts, "|")
+end
+
 local function Footer(mode, breakEven, usual)
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { "one dot per " .. per .. ": the average of the cheapest price of others in each scan" }
@@ -233,7 +245,7 @@ local function Render()
     local breakEven, label = FM.PriceBreakEven(key)
     local usual = FM.UsualPrice and FM.UsualPrice(key, FM.Now()) or nil
     local activity = FM.ItemActivity(key)
-    shown.mode, shown.version, shown.breakEven, shown.activity = mode, FM.dataVersion, breakEven, #activity
+    shown.mode, shown.version, shown.breakEven, shown.logs = mode, FM.dataVersion, breakEven, LogsSig()
     -- your posts, sales and purchases in each period: its marks and the hover
     local at = 1
     for i = #activity, 1, -1 do -- oldest first, like the periods
@@ -439,8 +451,6 @@ end
 function FM.PriceGraphRefresh()
     if not (window and window:IsShown() and shown.key) then return end
     local breakEven = FM.PriceBreakEven(shown.key)
-    if shown.version == FM.dataVersion and shown.breakEven == breakEven and shown.activity == #FM.ItemActivity(shown.key) then
-        return
-    end
+    if shown.version == FM.dataVersion and shown.breakEven == breakEven and shown.logs == LogsSig() then return end
     Render()
 end

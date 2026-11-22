@@ -112,8 +112,10 @@ local function Collect(r, item, key)
                 c.last = math_max(c.last or noon, noon)
             end
             d.qty, d.qn = d.qty + (Dec(f[6]) or 0), d.qn + (Dec(f[2]) or 0)
-            -- the units that left the AH that day and what they were listed at (FRV-52)
-            d.gone, d.goneVal, d.goneKnown = d.gone + (Dec(f[7]) or 0), d.goneVal + (Dec(f[8]) or 0), true
+            -- the units that left the AH that day and what they were listed at (FRV-52); known only where a deep diff
+            -- measured it (its gap, field 10: an Auctionator browse scan alone measures nothing)
+            d.gone, d.goneVal = d.gone + (Dec(f[7]) or 0), d.goneVal + (Dec(f[8]) or 0)
+            if (Dec(f[10]) or 0) > 0 then d.goneKnown = true end
         end
     end
 
@@ -138,10 +140,12 @@ local function Collect(r, item, key)
             if p then st = true elseif listed == false then st = false end
             state[f[1]] = st
             recs[#recs + 1] = { t = t, p = p, st = st, qty = Dec(f[3]) or 0, stamp = f[1] }
-            -- a deep or feed record knows the units gone since the scan before (an unchanged one: none)
+            -- a deep or feed record knows the units gone since the scan before (an unchanged one: none), when there was
+            -- a scan before (its gap, field 9)
             if string_sub(f[1], 1, 1) == "r" then
                 local d = DayOf(days, t)
-                d.gone, d.goneVal, d.goneKnown = d.gone + (Dec(f[10]) or 0), d.goneVal + (Dec(f[12]) or 0), true
+                d.gone, d.goneVal = d.gone + (Dec(f[10]) or 0), d.goneVal + (Dec(f[12]) or 0)
+                if (Dec(f[9]) or 0) > 0 then d.goneKnown = true end
             end
         end
     end
