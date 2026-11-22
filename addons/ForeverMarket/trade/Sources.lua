@@ -172,8 +172,9 @@ local function ReadContacts(profSkill)
                     local stack = (type(it.stack) == "number" and it.stack > 0) and it.stack or 1
                     local limited = it.limited
                     if type(limited) ~= "number" or limited <= 0 then limited = nil end
+                    -- zone: the zone's name, for a vendor without a mapID (the place filter, trade/Places.lua)
                     local offer = { unit = price / stack, price = price, stack = stack, where = Place(entry), limited = limited,
-                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y }
+                        npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y, zone = entry.zone or entry.mapName }
                     local v = vendors[key]
                     if not v then
                         v = { offers = {} }
@@ -518,10 +519,12 @@ function FM.VendorWithPlace(key)
     return best
 end
 
--- Where Track leads for an item: the cheapest vendor with a known place that sells it; else, for a recipe
--- you can still learn, the cheapest trainer or recipe vendor with a known place that teaches it.
+-- Where Track leads for an item: the row's own vendor when it has a known place (a Vendor row or a vendor pick, the
+-- one in the place filter's place, FRV-99); else the cheapest vendor with a known place that sells it; else, for a
+-- recipe you can still learn, the cheapest trainer or recipe vendor with a known place that teaches it.
 -- Returns the place ({ npc, mapID, x, y, where }) and "buy" or "learn", or nil.
-function FM.TrackTarget(key)
+function FM.TrackTarget(key, own)
+    if type(own) == "table" and own.mapID and own.x and own.y then return own, "buy" end
     local offer = FM.VendorWithPlace(key)
     if offer then return offer, "buy" end
     local best
@@ -551,9 +554,9 @@ function FM.RecipeOnAH(key)
     return false
 end
 
--- Track: a TomTom arrow to that place (its place in chat without TomTom)
-function FM.TrackVendor(key)
-    local place, why = FM.TrackTarget(key)
+-- Track: a TomTom arrow to that place (its place in chat without TomTom); own = the row's vendor offer
+function FM.TrackVendor(key, own)
+    local place, why = FM.TrackTarget(key, own)
     if not place then
         FM.PrintError("Failed to track " .. FM.GetName(key) .. ": no vendor or trainer with a known place sells or teaches it.")
         return

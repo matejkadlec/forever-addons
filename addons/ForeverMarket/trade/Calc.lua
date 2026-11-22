@@ -903,6 +903,33 @@ local function AddDeposit(row)
     if row.breakEven then row.breakEven = row.breakEven + add end
 end
 
+-- A Vendor row as it is in a place (the place filter of the Vendor and Picks tabs, FRV-99, trade/Places.lua): the
+-- cheapest of its vendors there (an unlimited one on a tie, as v.best), its price and profit worked out again the way
+-- the row was (the same List at and deposit); nil when no vendor there sells it or the profit there is under the
+-- minimum. "Any" / "Any" is the row itself; any other place a copy (the shared row stays as it is) with placeOf = the
+-- row, placeText ("in Darnassus") and placeVendors (how many of its vendors are there)
+function FM.VendorRowIn(row, place)
+    if not place or place.any then return row end
+    local best, n = nil, 0
+    for _, offer in ipairs(row.offers or { row.offer }) do
+        if type(offer) == "table" and type(offer.unit) == "number" and FM.OfferInPlace(offer, place) then
+            n = n + 1
+            if not best or offer.unit < best.unit or (best.limited and not offer.limited and offer.unit <= best.unit) then
+                best = offer
+            end
+        end
+    end
+    if not best or type(row.sell) ~= "number" then return nil end
+    local profit = row.sell * (1 - AH_CUT) - best.unit
+    if profit < VENDOR_MIN_PROFIT then return nil end
+    local copy = {}
+    for k, v in pairs(row) do copy[k] = v end
+    copy.offer, copy.vendorUnit, copy.profit, copy.p1g = best, best.unit, profit, profit / best.unit * 10000
+    copy.minSell = best.unit / (1 - AH_CUT) + (row.depUnit and row.depUnit / (1 - AH_CUT) or 0)
+    copy.placeOf, copy.placeText, copy.placeVendors = row, FM.PlaceText(place), n
+    return copy
+end
+
 FM.trade = nil
 local running = false
 local queued = false

@@ -14,7 +14,8 @@
 local H = require("harness")
 local F = require("fixtures")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Calc.lua", "trade/Picks.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Places.lua", "trade/Calc.lua",
+    "trade/Picks.lua" }
 local B = F.Base36
 local NOW_MINUTES = 400000 -- minutes since FM.EPOCH
 local WHITE, ORANGE = "|cFFFFFFFF", "|cFFFF9933"
@@ -307,6 +308,47 @@ H.test("picks: vendor resells and flips are capped the same way", function()
     H.eq(picks["105"].invest, 5 * 4000, "the flip buys 5 of the 40 cheap units")
     H.eq(Reason(picks["104"], "C/24h 20, cap 5 (25%), you list 0 -> buy 5") ~= nil, true, "the vendor pick's room line")
     H.eq(Reason(picks["105"], "C/24h 20, cap 5 (25%), you list 0 -> buy 5") ~= nil, true, "the flip's room line")
+end)
+
+-- Rule (FRV-99): the place filter of Picks (Continent, Zone) limits vendor flips to the vendors there: a vendor flip is
+-- planned from the cheapest vendor in the place at its price, and its step names that vendor; an item none of whose
+-- vendors is there is no pick and says so. Crafts and AH flips are not filtered by place.
+H.test("picks: with a place, vendor flips buy only from a vendor there; crafts and AH flips stay as they are", function()
+    local function Market(place)
+        local FM, env = Setup({ ["100"] = 9, ["104"] = 9, ["105"] = 9 })
+        env.maps = {
+            [1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
+            [1415] = { name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
+            [1438] = { name = "Teldrassil", mapType = 3, parentMapID = 1414 },
+            [1457] = { name = "Darnassus", mapType = 3, parentMapID = 1438 },
+            [1439] = { name = "Darkshore", mapType = 3, parentMapID = 1414 },
+        }
+        if place then FM.SetPlace("picks", place[1], place[2]) end
+        local cheap = { where = "Darkshore vendor, Darkshore", mapID = 1439, unit = 1000 }
+        local dear = { where = "Darnassus vendor, Darnassus", mapID = 1457, unit = 1500 }
+        local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = cheap, offers = { cheap, dear },
+            qty = 200, own = 0, sold12 = 10 }
+        local flip = { key = "105", sell = 10000, usual = 10000, top = 5000, units = 40, support = 10, wall = 10000, qty = 60,
+            sold12 = 10 }
+        local view = View({
+            ["104"] = { ladder = { { 10000, 200 } }, qty = 200, own = 0 },
+            ["105"] = { ladder = { { 4000, 40 }, { 10000, 20 } }, qty = 60, own = 0 }
+        })
+        local out = { crafts = { Craft("100", 43) }, vendor = { vendor }, flips = { flip } }
+        return Compute(FM, env, out, view), out
+    end
+    local anywhere = Market(nil)
+    H.eq(anywhere["104"].invest, 5 * 1000, "Any / Any: the cheapest vendor, Darkshore")
+    local picks = Market({ 1414, 1457 })
+    H.eq(picks["104"].invest, 5 * 1500, "Darnassus: its vendor's price")
+    H.eq(picks["104"].offer.where, "Darnassus vendor, Darnassus", "the pick buys there (Track goes there)")
+    H.eq(picks["104"].steps[1]:find("at Darnassus vendor", 1, true) ~= nil, true, "its step names that vendor")
+    H.eq(picks["105"].invest, anywhere["105"].invest, "the AH flip as before")
+    H.eq(picks["100"].invest, anywhere["100"].invest, "the craft as before")
+    local none, out = Market({ 1415, nil })
+    H.eq(none["104"], nil, "Eastern Kingdoms: no vendor there, no vendor flip")
+    H.eq(out.pickWhy["104"], "no vendor on Eastern Kingdoms sells it with a profit (Continent, Zone)", "the reason")
+    H.eq(none["105"] ~= nil and none["100"] ~= nil, true, "the AH flip and the craft stay")
 end)
 
 H.test("picks: the tooltip says when your auctions were never read, or how old the list is", function()
@@ -1220,7 +1262,7 @@ end)
 -- forgotten with /fm forget does not count.
 H.test("budget: Gold of all characters adds your other characters' last recorded gold, a forgotten one does not count", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
-        "scan/Ledger.lua", "scan/Characters.lua", "trade/Calc.lua", "trade/Picks.lua" })
+        "scan/Ledger.lua", "scan/Characters.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Picks.lua" })
     FM.InitializeSavedData()
     env.clock = FM.EPOCH + NOW_MINUTES * 60
     env.GetMoney = function() return 10000 end

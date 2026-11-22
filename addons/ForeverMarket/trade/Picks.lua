@@ -1239,8 +1239,9 @@ local function EvaluateVendor(c)
         return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
     end
     local where = row.offer.where
+    -- offer: the vendor the pick buys at (Track goes there, FRV-99)
     local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
-        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items }
+        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items, offer = row.offer }
     local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unit, row.sell)
     pick.exp8, pick.exp24 = e8 * conf, e24 * conf
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
@@ -1469,16 +1470,20 @@ local function Candidates(out, why)
     end
     for _, row in ipairs(out.vendor or EMPTY) do
         local listedWhy = ListedOut(row.key)
+        -- the place filter (FRV-99): the row as it is at the cheapest of its vendors in the place, or none there
+        local placed = P.filters.noVendor and row or FM.VendorRowIn(row, P.place)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
         elseif P.filters.noVendor then
             why[row.key] = "vendor resells are off (Exclude vendor flips)"
         elseif listedWhy then
             why[row.key] = listedWhy
-        elseif not row.sell or row.sell > 10 * row.vendorUnit then
+        elseif not placed then
+            why[row.key] = string_format("no vendor %s sells it with a profit (Continent, Zone)", FM.PlaceText(P.place) or "there")
+        elseif not placed.sell or placed.sell > 10 * placed.vendorUnit then
             why[row.key] = "AH price over 10x the vendor price looks like an outlier"
         else
-            list[#list + 1] = { kind = "vendor", row = row }
+            list[#list + 1] = { kind = "vendor", row = placed }
         end
     end
     for _, row in ipairs(out.flips or EMPTY) do
@@ -1638,6 +1643,7 @@ function FM.ComputePicks(out, ctx, done)
         demand = {}, owned = {}, stockLeft = {}, taken = {}, used = {}, toolsBought = {}, listings = listings,
         listInfo = listInfo, yours = {}, ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
+        place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit > 0 and s.tableMinProfit or nil }
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
     -- is left

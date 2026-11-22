@@ -104,6 +104,33 @@ function Stubs.NewEnvironment()
     env.UnitName = function() return "Tester" end
     env.C_AddOns = { GetAddOnMetadata = function() return "0.0.0-test" end }
 
+    -- C_Map (the place filter, trade/Places.lua): a test fills env.maps[mapID] = { name, mapType, parentMapID } and
+    -- sets env.playerMap; GetMapChildrenInfo(map, nil, true) lists every map under one, as the client's
+    -- allDescendants does
+    env.maps = {}
+    local function Info(id)
+        local m = env.maps[id]
+        if not m then return nil end
+        return { mapID = id, name = m.name, mapType = m.mapType, parentMapID = m.parentMapID or 0, flags = 0 }
+    end
+    env.C_Map = {
+        GetMapInfo = Info,
+        GetBestMapForUnit = function(unit) if unit == "player" then return env.playerMap end end,
+        GetMapChildrenInfo = function(id, _, allDescendants)
+            local out = {}
+            local function Under(parent)
+                for child, m in pairs(env.maps) do
+                    if m.parentMapID == parent then
+                        out[#out + 1] = Info(child)
+                        if allDescendants then Under(child) end
+                    end
+                end
+            end
+            Under(id)
+            return out
+        end
+    }
+
     -- Lua's own libraries (math, string, pairs, ...) come from the real globals
     return setmetatable(env, { __index = _G })
 end
