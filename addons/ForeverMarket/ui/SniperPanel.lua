@@ -220,6 +220,10 @@ local function MoneyEnabled(money, on)
     money:SetAlpha(on and 1 or 0.45)
 end
 
+-- The same money boxes elsewhere (the market table's Picks budget, FRV-95: the same inputs as the manual budget here)
+FM.MoneyInput = { Boxes = MoneyBoxes, Read = ReadMoney, Write = WriteMoney, Empty = MoneyEmpty, Focused = MoneyFocused,
+    Enabled = MoneyEnabled }
+
 ---------------------------------------------------------------- the line under the add row
 
 -- The form's message for 5 seconds, else the picked item's prices: "Cheapest now 2s 10c  ·  usual price 2s 80c",

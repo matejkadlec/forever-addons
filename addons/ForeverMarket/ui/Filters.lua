@@ -51,6 +51,8 @@ local OPTIONS = {
         tip = "Listed for at least this much in all, at your listing prices (default 1c; 0g 0s 0c becomes 1c)." },
     { key = "noStock", label = "Exclude stock for crafting",
         tip = "Checked: the plan buys every material, as if your bags and bank were empty (tools you own still count). Unchecked (default): the materials you hold are used first and only the rest is bought; the steps say what comes from your bags. Units of the pick's own item that you hold count either way: the pick makes that many fewer." },
+    { key = "allGold", label = "Gold of all characters",
+        tip = "Checked: your gold for the budget is that of all your characters of this realm and faction, this one's now and the others' as last recorded (/fm chars); the % of the Picks row applies to that sum, the cap of 90% too. Their gold has to be mailed to this character before you can spend it: hover the plan's summary for each character's gold. Unchecked (default): this character's gold only. The sniper always spends this character's gold." },
 }
 
 local dialog

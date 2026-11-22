@@ -632,9 +632,12 @@ end
 
 ---------------------------------------------------------------- what you own
 -- C_Item.GetItemCount counts what you wear too, and soulbound items can't go to the AH. So bags are read
--- slot by slot (not bound = sellable); the bank part (GetItemCount with - without the bank) uses the bank
--- slots seen while it was open this session, else the item's bind type (bind on pickup, quest = unsellable).
--- Without the container API (old clients) GetItemCount is all there is.
+-- slot by slot (not bound = sellable). The bank (FRV-98): while it is open, its slots as read on every item move;
+-- closed, GetItemCount with - without the bank when the client counts the bank then (some item of the last reading
+-- shows in it: whether it does on Forever is not verified in game, so it is asked, never assumed), else that last
+-- reading (this session's, or R.bank as saved when the bank last closed; its contents change only while it is
+-- open); with no reading at all GetItemCount. Sellable units of the bank: the reading's, else the item's bind type
+-- (bind on pickup, quest = unsellable). Without the container API (old clients) GetItemCount is all there is.
 
 local bagIndex          -- [itemID] = { all = units in bags, free = units not bound }
 local bankIndex = {}    -- [itemID] = { all, free } from the last time the bank was open
@@ -720,6 +723,7 @@ FM.ScanContainers = Scan -- [itemID] = { all, free } of the given containers (sc
 
 local bankOpen = false
 local bankScanned = false
+local apiBank -- whether GetItemCount counts the closed bank: nil = not asked since the last change
 local function ScanBank()
     if bankOpen then
         bankIndex = Scan(BankIDs())
@@ -729,22 +733,85 @@ end
 -- [itemID] = { all, free } of the bank, and whether it was scanned this session (scan/Worth.lua keeps it)
 FM.BankIndex = function() return bankIndex, bankScanned end
 
+local function GetCount(id, bank)
+    if not (C_Item and C_Item.GetItemCount) then return 0 end
+    local ok, n = pcall(C_Item.GetItemCount, id, bank)
+    return (ok and type(n) == "number" and not FM.IsSecret(n)) and n or 0
+end
+
+-- This character's bank as saved when it last closed (R.bank, scan/Worth.lua: "t|id:all:free,..."), parsed once
+-- per saved text: [itemID] = { all, free }, and when it was read
+local savedText, savedBank, savedAt
+local function SavedBank()
+    local r = FM.realm or (FM.R and FM.R())
+    local text = r and type(r.bank) == "table" and r.bank[FM.PlayerName()] or nil
+    if text ~= savedText then
+        savedText, savedBank, savedAt = text, nil, nil
+        if type(text) == "string" then
+            local stamp, body = text:match("^([^|]*)|(.*)$")
+            savedBank, savedAt = {}, FM.Unstamp(stamp)
+            for id, all, free in (body or ""):gmatch("([^:,]+):([^:,]+):([^:,]+)") do
+                local i, a, f = FM.Dec(id), FM.Dec(all), FM.Dec(free)
+                if i and a then savedBank[i] = { all = a, free = f or 0 } end
+            end
+        end
+    end
+    return savedBank, savedAt
+end
+
+-- The last reading of your bank: this session's scan (live while it is open), else the saved one; nil without any
+local function BankReading()
+    if bankScanned then return bankIndex, bankOpen and "open" or "session" end
+    local saved = SavedBank()
+    if saved then return saved, "saved" end
+    return nil
+end
+
+-- Whether GetItemCount counts your bank while it is closed: some item of the last reading shows in its bank part
+-- (asked again after every bag or bank change; an empty reading has nothing to ask with: no)
+local function ApiSeesBank()
+    if apiBank == nil then
+        apiBank = false
+        local reading = BankReading()
+        for id, e in pairs(reading or {}) do
+            if (e.all or 0) > 0 and GetCount(id, true) - GetCount(id, false) > 0 then
+                apiBank = true
+                break
+            end
+        end
+    end
+    return apiBank
+end
+
+-- How the bank part of your stock is counted right now (/fm item says it): "open" (the bank is open: its slots),
+-- "client" (closed: the client's count), "session" / "saved" (closed: the last reading, the client does not count
+-- the bank), "none" (no reading: the client's count); with the time of a saved reading
+function FM.BankCountSource()
+    if bankOpen and bankScanned then return "open" end
+    local reading, how = BankReading()
+    if not reading then return "none" end
+    if ApiSeesBank() then return "client" end
+    return how, how == "saved" and select(2, SavedBank()) or nil
+end
+
 FM.On("BAG_UPDATE_DELAYED", function()
     bagIndex = nil
+    apiBank = nil
     ScanBank()
 end)
 FM.On("BANKFRAME_OPENED", function()
     bankOpen = true
+    apiBank = nil
     ScanBank()
 end)
-FM.On("BANKFRAME_CLOSED", function() bankOpen = false end)
-FM.On("PLAYERBANKSLOTS_CHANGED", ScanBank)
-
-local function GetCount(id, bank)
-    if not (C_Item and C_Item.GetItemCount) then return 0 end
-    local ok, n = pcall(C_Item.GetItemCount, id, bank)
-    return (ok and type(n) == "number") and n or 0
-end
+FM.On("BANKFRAME_CLOSED", function()
+    bankOpen = false
+    apiBank = nil
+end)
+FM.On("PLAYERBANKSLOTS_CHANGED", function()
+    apiBank = nil
+    ScanBank()
+end)
 
 -- Bind on pickup (1) and quest items (4) never go to the AH
 local function NeverSellable(id)
@@ -773,13 +840,71 @@ function FM.Owned(key)
     end
     local b = BagIndex()[id]
     local bagAll, bagFree = b and b.all or 0, b and b.free or 0
-    local bankAll = math.max(0, GetCount(id, true) - GetCount(id, false))
-    local bankFree
-    local seen = bankIndex[id]
-    if seen and seen.all == bankAll then
-        bankFree = seen.free
+    local reading = BankReading()
+    local seen = reading and reading[id]
+    local bankAll, bankFree
+    if reading and ((bankOpen and bankScanned) or not ApiSeesBank()) then
+        -- the bank open (its slots now), or closed while the client does not count it: the last reading
+        bankAll, bankFree = seen and seen.all or 0, seen and seen.free or 0
     else
-        bankFree = NeverSellable(id) and 0 or bankAll
+        bankAll = math.max(0, GetCount(id, true) - GetCount(id, false))
+        if seen and seen.all == bankAll then
+            bankFree = seen.free
+        else
+            bankFree = NeverSellable(id) and 0 or bankAll
+        end
     end
     return bagAll + bankAll, bagFree + bankFree, bagFree, bagAll
 end
+
+---------------------------------------------------------------- changes of what you hold (FRV-98)
+-- FM.stockVersion counts the changes of your bags and bank (what FM.Owned reads): STOCK_SETTLE seconds after the
+-- last BAG_UPDATE_DELAYED or bank slot change, their units are compared with the last look, and a change counts
+-- once (moving items within your bags does not). The plan stores the version it was made with (trade/Calc.lua):
+-- with "Lock plan after refresh" off the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
+-- else when the table opens next); locked, the plan stays and Refresh's tooltip says your bags or bank changed.
+local STOCK_SETTLE = 2
+FM.stockVersion = 0
+local stockSig    -- the units of the last look
+local stockWait = 0 -- counts the events: only the check of the last one runs
+
+-- Your bags' and bank's units in one text: "id:all:free" per item in ID order, bags then bank
+local function StockSignature()
+    local parts = {}
+    local function add(index, mark)
+        local ids = {}
+        for id in pairs(index or {}) do ids[#ids + 1] = id end
+        table.sort(ids)
+        parts[#parts + 1] = mark
+        for _, id in ipairs(ids) do
+            local e = index[id]
+            parts[#parts + 1] = id .. ":" .. (e.all or 0) .. ":" .. (e.free or 0)
+        end
+    end
+    add(BagIndex(), "b")
+    add(BankReading(), "k")
+    return table.concat(parts, ",")
+end
+
+-- The settled look: a change counts, and the plan follows when it is not locked and something shows it
+function FM.CheckStock()
+    local ok, sig = pcall(StockSignature)
+    if not ok or sig == stockSig then return false end
+    stockSig = sig
+    FM.stockVersion = FM.stockVersion + 1
+    local shown = (FM.TableShown and FM.TableShown()) or (FM.StickyShown and FM.StickyShown())
+    if FM.trade and not FM.trade.empty and FM.PicksLocked and not FM.PicksLocked() and shown and FM.EnsureTrade then
+        FM.EnsureTrade()
+    end
+    return true
+end
+
+local function StockMoved()
+    stockWait = stockWait + 1
+    local mine = stockWait
+    C_Timer.After(STOCK_SETTLE, function()
+        if mine == stockWait then FM.CheckStock() end -- a later event waits for its own
+    end)
+end
+FM.On("BAG_UPDATE_DELAYED", StockMoved)
+FM.On("PLAYERBANKSLOTS_CHANGED", StockMoved)

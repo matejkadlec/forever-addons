@@ -6,9 +6,10 @@
 -- latest snapshot (2 hours for a feed snapshot) only what can still be in it: the units it holds at exactly your
 -- unit prices, marked as yours or not, up to what you listed at each.
 -- A view as the scans produce it: ladder = the auctions not marked as yours, own / ownLevels = the marked ones.
--- The plan's gold: "Invest [X] % across [Y] picks" (tableInvestPct, default 90 and at most 90; tableInvestPicks,
--- default 3). The plan has up to Y picks; each gets the gold left divided by the picks still open; a pick outside
--- the plan is sized with one pick's share (X / Y of your gold).
+-- The plan's gold: the budget row "Picks: [Y] | [X] % [ ] | Invest: [g s c] [ ]" (FRV-95; "Invest [X] % across [Y]
+-- picks" before: tableInvestPct, default 90 and at most 90; tableInvestPicks, default 3). The plan has up to Y picks;
+-- each gets the budget left divided by the picks still open; a pick outside the plan is sized with one pick's share
+-- (the budget / Y).
 
 local H = require("harness")
 local F = require("fixtures")
@@ -1155,4 +1156,142 @@ H.test("picks: Exclude already listed items with the defaults also excludes a li
     H.eq(out.pickWhy["137"], "you list 1 already, worth " .. FM.FormatMoney(0) .. " (Exclude already listed items)", "the reason")
     FM, env = Setup137(2)
     H.eq(Compute(FM, env, { crafts = { Craft("137", 400) } })["137"] ~= nil, true, "2c: a listing worth nothing known stays a pick")
+end)
+
+---------------------------------------------------------------- the budget (FRV-95) and whose gold (FRV-36)
+-- Rule: "%" checked (the default), the budget is X % of your gold, X from 1 to 90 (an older X above 90 counts as 90);
+-- "Invest" checked, it is the amount set, capped at 90% of your gold. "Allow picks budget over current gold" (settings
+-- panel): X up to 999, the amount uncapped, the plan sized as if you had that gold.
+
+H.test("budget: % of your gold, or the amount set, capped at 90% unless the option allows more", function()
+    local FM = Setup({})
+    local function Budget(settings, gold)
+        local s = {}
+        for k, v in pairs(settings) do s[k] = v end
+        return FM.PicksBudget(gold or 10000, s)
+    end
+    local b = Budget({ tableInvestPct = 75 })
+    H.eq(b.mode, "pct", "% checked")
+    H.eq(b.budget, 7500, "75% of 1g")
+    H.eq(Budget({ tableInvestPct = 100 }).budget, 9000, "an older 100: 90% counts")
+    H.eq(Budget({ tableInvestPct = 100 }).pct, 90, "and is shown as 90")
+    H.eq(Budget({ tableInvestPct = 0 }).budget, 100, "at least 1%")
+    H.eq(Budget({ tableInvestPct = 150, tablePicksOverGold = true }).budget, 15000, "over your gold: 150%")
+    H.eq(Budget({ tableInvestPct = 5000, tablePicksOverGold = true }).pct, 999, "at most 999%")
+    b = Budget({ tableInvestManual = true, tableInvestAmount = 5000, tableInvestPct = 10 })
+    H.eq(b.mode, "manual", "Invest checked")
+    H.eq(b.budget, 5000, "the 50s set, the % does not count")
+    H.eq(b.capped, nil, "under 90% of the gold: not capped")
+    b = Budget({ tableInvestManual = true, tableInvestAmount = 20000 })
+    H.eq(b.budget, 9000, "2g set with 1g of gold: capped at 90s")
+    H.eq(b.capped, true, "and says so")
+    H.eq(b.amount, 20000, "the amount set stays known")
+    b = Budget({ tableInvestManual = true, tableInvestAmount = 20000, tablePicksOverGold = true })
+    H.eq(b.budget, 20000, "over your gold: the 2g set")
+    H.eq(b.capped, nil, "not capped")
+end)
+
+H.test("budget: the plan uses the amount set, and with the option a plan for more gold than you have", function()
+    local function Need(settings)
+        local s = { tableInvestPicks = 1 }
+        for k, v in pairs(settings) do s[k] = v end
+        local FM, env = Setup(FOUR_BUYERS, s, 10000)
+        local out = { crafts = FourCrafts() }
+        Compute(FM, env, out)
+        return out.pickNeed, out.pickFunds
+    end
+    local need, funds = Need({})
+    H.eq(need, 9000, "% checked: as before, 90% of 1g")
+    H.eq(funds.mode, "pct", "the plan knows its budget")
+    need, funds = Need({ tableInvestManual = true, tableInvestAmount = 5000 })
+    H.eq(need, 5000, "50s set: 5 crafts of 10s")
+    H.eq(funds.budget, 5000, "the plan's budget")
+    need, funds = Need({ tableInvestManual = true, tableInvestAmount = 20000 })
+    H.eq(need, 9000, "2g set, capped at 90s")
+    H.eq(funds.capped, true, "the plan says it was capped")
+    need = Need({ tableInvestManual = true, tableInvestAmount = 20000, tablePicksOverGold = true })
+    H.eq(need, 20000, "over your gold: 20 crafts for the 2g set")
+    need = Need({ tableInvestPct = 150, tablePicksOverGold = true })
+    H.eq(need, 15000, "150% of 1g: 15 crafts")
+end)
+
+-- Rule (FRV-36): with "Gold of all characters" (a Picks filter, default off) your gold is the logged-in character's
+-- now plus the other characters' of this realm and faction as last recorded; the % applies to that sum. A character
+-- forgotten with /fm forget does not count.
+H.test("budget: Gold of all characters adds your other characters' last recorded gold, a forgotten one does not count", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Ledger.lua", "scan/Characters.lua", "trade/Calc.lua", "trade/Picks.lua" })
+    FM.InitializeSavedData()
+    env.clock = FM.EPOCH + NOW_MINUTES * 60
+    env.GetMoney = function() return 10000 end
+    FM.Owned = function() return 0, 0, 0, 0 end
+    FM.VendorUnit = function() return nil end
+    FM.IsExcluded = function() return false end
+    FM.SuffixUnknown = function() return false end
+    local r = FM.R()
+    for key, perInterval in pairs(FOUR_BUYERS) do r.items[key] = { d = Records(perInterval) } end
+    FM.GetSettings().tableInvestPicks = 1
+    r.chars.Alt, r.chars.Banker = "HUNTER", "MAGE"
+    r.goldLast = { Alt = { t = env.clock - 7200, copper = 30000 }, Banker = { t = env.clock - 60, copper = 60000 } }
+    local function Plan()
+        local out = { crafts = FourCrafts() }
+        Compute(FM, env, out)
+        return out
+    end
+    local out = Plan()
+    H.eq(out.pickGold, 10000, "off: this character's gold")
+    H.eq(out.pickNeed, 9000, "the plan as before")
+    H.eq(#out.pickFunds.chars, 1, "one character counted")
+    FM.FilterSet("picks").allGold = true
+    out = Plan()
+    H.eq(out.pickGold, 100000, "on: 1g + 3g + 6g")
+    H.eq(out.pickFunds.all, true, "the summary says all characters")
+    H.eq(#out.pickFunds.chars, 3, "three characters")
+    H.eq(out.pickFunds.chars[1].current, true, "yours first")
+    H.eq(out.pickFunds.chars[1].copper, 10000, "your gold now")
+    local alt
+    for _, c in ipairs(out.pickFunds.chars) do if c.key == "Alt" then alt = c end end
+    H.eq(alt.copper, 30000, "the alt's gold")
+    H.eq(alt.t, env.clock - 7200, "and when it was recorded")
+    H.eq(out.pickBudget, 90000, "90% of the sum")
+    H.eq(out.pickNeed, 90000, "the plan uses it")
+    FM.ForgetCharacter("Banker")
+    out = Plan()
+    H.eq(out.pickGold, 40000, "the forgotten character's gold is gone")
+    H.eq(#out.pickFunds.chars, 2, "two characters")
+end)
+
+-- Rule (FRV-98): units of yours an earlier pick of the plan uses are named in the material line, so the number does
+-- not read as all you hold: "30 from your bank (of your 150, pick #1 uses 120)"
+H.test("picks: a material an earlier pick uses says what that pick takes of yours", function()
+    local function Plan(held)
+        local FM, env, r = Setup({ ["130"] = 9, ["133"] = 9 })
+        FM_Money = FM.FormatMoney
+        r.names["990"] = "Heavy Leather"
+        Own(FM, { ["990"] = { held, held, 0, 0 } }) -- all in the bank
+        local first = Craft("133", 48, 1, 12000) -- sells dearer: pick #1
+        first.parts = { { key = "990", n = 10, unit = 100, src = "ah" } }
+        return Compute(FM, env, { crafts = { first, LeatherCraft("130") } }, Leather())
+    end
+    local picks = Plan(150)
+    H.eq(picks["133"].rank, 1, "the dearer craft is pick #1")
+    H.eq(MaterialLine(picks["133"], "990"), "120 from your bank", "pick #1 takes 120 of your 150")
+    H.eq(MaterialLine(picks["130"], "990"), "30 from your bank (of your 150, pick #1 uses 120), AH 90 up to " .. Money(100),
+        "pick #2: the 30 left, and why only 30")
+    picks = Plan(100)
+    H.eq(MaterialLine(picks["133"], "990"), "100 from your bank, AH 20 up to " .. Money(100), "pick #1 takes all 100")
+    H.eq(MaterialLine(picks["130"], "990"), "none of your 100 (pick #1 uses 100), AH 120 up to " .. Money(100),
+        "pick #2 says where yours went")
+end)
+
+-- Rule (FRV-67): a pick carries On AH (yours), C/8h and C/24h of the market row it was made from
+H.test("picks: a pick has the market numbers of its row for On AH, C/8h and C/24h", function()
+    local FM, env = Setup({ ["100"] = 9 })
+    local row = Craft("100", 43)
+    row.qty, row.own, row.soldWide = 64, 3, true
+    local pick = Compute(FM, env, { crafts = { row } })["100"]
+    H.eq(pick.qty, 64, "units listed")
+    H.eq(pick.own, 3, "yours of them")
+    H.eq(pick.sold12, 43 / 2, "the measured rate")
+    H.eq(pick.soldWide, true, "from the 3 day window")
 end)

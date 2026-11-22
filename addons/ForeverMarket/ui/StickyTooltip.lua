@@ -227,6 +227,14 @@ function FM.StickyOpen(id, tabId, tabLabel, lines)
     return w
 end
 
+-- Some window is open (trade/Sources.lua: a change of your bags or bank plans again while one shows, FRV-98)
+function FM.StickyShown()
+    for _, w in ipairs(windows) do
+        if w:IsShown() then return true end
+    end
+    return false
+end
+
 -- After every refresh of the table's data (FM.RefreshTable): the windows that are due look their row up again
 function FM.StickyRefresh()
     for _, w in ipairs(windows) do

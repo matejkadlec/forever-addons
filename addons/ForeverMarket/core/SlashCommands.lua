@@ -91,6 +91,16 @@ local function ItemSummary(rest)
         -- this character's crafts of it (trade/Crafts.lua): how many, the newest and its materials' basis
         local crafted = FM.CraftReport and FM.CraftReport(key)
         if crafted then FM.Print(FM.GetName(key) .. ":", crafted) end
+        -- what you hold of it as the picks count it, and how the bank part was counted (FRV-98, trade/Sources.lua)
+        if FM.Owned and FM.BankCountSource then
+            local all, _, _, bags = FM.Owned(key)
+            local how, at = FM.BankCountSource()
+            local source = ({ open = "the bank is open", client = "the closed bank as the client counts it",
+                session = "the bank as you last saw it this session", none = "the client's count, the bank not seen yet" })[how]
+                or ("the bank as you last saw it " .. (at and FM.ReadingAge and FM.ReadingAge(at) or "before"))
+            FM.Print(FM.GetName(key) .. ":", string_format("you hold %s (bags %s, bank %s: %s)", FM.FormatCount(all or 0),
+                FM.FormatCount(bags or 0), FM.FormatCount((all or 0) - (bags or 0)), source))
+        end
     end
 end
 

@@ -910,7 +910,7 @@ local planRequested = false
 
 -- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
-    "pickNeed", "pickExpected", "pickGold", "pickAt", "pickT", "pickListings" }
+    "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickAt", "pickT", "pickListings", "pickStock" }
 
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
 function FM.PicksLocked()
@@ -957,8 +957,9 @@ function FM.ComputeTrade(record, onDone)
     shown.busy = true
     FM.trade = shown
     if FM.RefreshTable then FM.RefreshTable() end
-    -- listingsVersion: your posts and auction lists the picks were planned with (FM.EnsureTrade)
-    local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0 }
+    -- listingsVersion: your posts and auction lists the picks were planned with, stockVersion: your bags and bank
+    -- (FRV-98, trade/Sources.lua; FM.EnsureTrade)
+    local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion or 0 }
     local sources
     local soldCache = {}
     local function Sold(key, window)
@@ -1167,9 +1168,9 @@ function FM.ComputeTrade(record, onDone)
                 return done()
             end
             FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, function()
-                -- when, and with which snapshot and listings, this plan was made (the summary line, Refresh's tooltip);
-                -- the snapshot of the pass's start, not one a deep scan saved while it ran
-                out.pickAt, out.pickT, out.pickListings = now, out.t, out.listingsVersion
+                -- when, and with which snapshot, listings and stock, this plan was made (the summary line, Refresh's
+                -- tooltip); the snapshot of the pass's start, not one a deep scan saved while it ran
+                out.pickAt, out.pickT, out.pickListings, out.pickStock = now, out.t, out.listingsVersion, out.stockVersion
                 done()
             end)
         end
@@ -1193,15 +1194,16 @@ function FM.OnDeepScanSaved()
     FM.ComputeTrade(true)
 end
 
--- The table wants numbers: compute when there are none for the latest scan, or when you posted or your auction
--- list was read since they were computed (your listings are an input of the picks; a locked plan keeps its own)
+-- The table wants numbers: compute when there are none for the latest scan, or when you posted, your auction list
+-- was read or your bags or bank changed since they were computed (inputs of the picks; a locked plan keeps its own)
 function FM.EnsureTrade()
     local r = FM.R()
     local t = r.last and r.last.t
     if running then return end
     local trade = FM.trade
-    if not trade or trade.t ~= t or (trade.empty and t)
-        or (not trade.empty and not FM.PicksLocked() and trade.listingsVersion ~= (FM.listingsVersion or 0)) then
+    local inputs = trade and not trade.empty and not FM.PicksLocked()
+        and (trade.listingsVersion ~= (FM.listingsVersion or 0) or (trade.stockVersion or 0) ~= (FM.stockVersion or 0))
+    if not trade or trade.t ~= t or (trade.empty and t) or inputs then
         FM.ComputeTrade(false)
     end
 end

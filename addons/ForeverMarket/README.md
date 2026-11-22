@@ -116,7 +116,8 @@ have no marks, so its records stay as they were).
     than the logs) counts as the oldest, at the vendor price when a vendor sells it without limit (thread, salt,
     vials), else at its AH price at the craft (the cheapest of others, the price of the `Auction` line: 5 hides that
     sell for 1.1g make 1.1g of material cost next to a 1g item, sell the hides). A material with no price at all
-    leaves the basis unknown. `/fm item <item>` adds a line with your crafts of it (how many, the newest and its
+    leaves the basis unknown. `/fm item <item>` adds a line with what you hold of it (bags, bank and how the bank was
+    counted, 1.35) and one with your crafts of it (how many, the newest and its
     materials' basis per unit)
   * **Sell at least (n pcs)**, rows **8h listing** / **24h listing**: a guard against selling under price by
     mistake: the lowest price per unit that still nets the units' AH value (the item's cheapest price of others,
@@ -198,12 +199,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
-* At most 8 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`).
+* At most 9 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 9 since 1.35 (FRV-67), the other tabs up to 8.
 * Filter row: on Picks, Craft and Learn, right of the search box, **Filters**, **Global filters** and **Use global
   filters [ ]** (1.29, FRV-89); the buttons on the right line up from the refresh icon (Blizzard's
   `RefreshButtonTemplate`) to the left, only the shown ones (`LayoutFilters`): the profession dropdown (Blizzard's
-  `WowStyle1DropdownTemplate`; Craft, Picks, Learn), and on Picks "Invest [X] % across [Y] picks" left of the
-  dropdown (1.20; "% to invest" before). Until 1.28 the options sat in the row as checkboxes: "Above current skill" +
+  `WowStyle1DropdownTemplate`; Craft, Picks, Learn). On Picks "Invest [X] % across [Y] picks" sat left of the
+  dropdown from 1.20 to 1.34 ("% to invest" before); since 1.35 (FRV-95) the budget has a row of its own (Picks
+  below). Until 1.28 the options sat in the row as checkboxes: "Above current skill" +
   "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore vendor" and
   "Ignore stock" (Picks). From 1.20 to 1.29 an "Ignored (n)" button in the tab row right of Favorites switched every tab to its ignored rows ("Show all" back); since 1.30 (FRV-83) **Ignored (n)** is a tab of its own there, see Favorites and Ignored below. Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
   (Options -> AddOns -> Jim's Forever AddOns -> Market).
@@ -274,6 +276,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       (1c holds for every listing, also one whose price is not known); the reason names it
     * **Exclude stock for crafting** [ ] (Picks, FRV-90): checked, the plan buys every material as if your bags and
       bank were empty (tools you own still count); unchecked, your materials are used first (Picks below)
+    * **Gold of all characters** [ ] (Picks, 1.35, FRV-36): your gold for the budget is that of all your characters
+      of this realm and faction, the logged-in one's now and the others' as last recorded (`R.goldLast` through
+      `FM.Characters`, the list `/fm chars` shows; `/fm forget` drops one); the % of the budget row applies to that
+      sum, the cap of 90% too (`FM.PicksGold` in trade/Picks.lua). Their gold has to be mailed to this character
+      before you can spend it: the summary line says how many characters (`Gold: 412g (3 characters)`) and its tooltip
+      lists each with its gold and the age of the reading. The sniper always spends the logged-in character's gold
   * In Learn the level and skill options are at the top level. Number boxes are as wide as their digits.
   * A recipe's character level (FRV-91): the level needed to learn it, per way to learn it (`route.level` in
     trade/Sources.lua): a trainer's from ForeverArtisan_Contacts' `levelReq` (`GetTrainerServiceLevelReq`), a
@@ -289,7 +297,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     `tableLearnHigher`, `tableLearnMaxAbove`) are dropped at load (`FM.MigrateFilters`). Broken values get their
     default, numbers their range (`FM.FilterClamp`).
   * Every checkbox of the table and its dialogs has its text first, the box after it ("Lock plan after refresh [x]"),
-    like the number boxes ("Invest [95]"); a click on the text toggles it too (`FM.TextCheck`).
+    like the number boxes ("Picks: [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
+    checkboxes sit after their boxes ("[90] % [x]", "Invest: [g s c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
 * Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
@@ -314,9 +323,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
   its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
 * **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
-  the tooltip. Above the header (1.17) a summary line: your gold, the number of plan picks, the gold they need
-  together and the sum of their Expected (`FM.trade.pickGold`, `pickPlan`, `pickNeed`, `pickExpected`); the header
-  and the list sit one row lower on this tab. Two sections (1.17, they replace the orange "beyond your gold now" and
+  the tooltip. Above the header the budget row (1.35, FRV-95, below) and under it a summary line (1.17): your gold,
+  the budget, the number of plan picks, the gold they need together and the sum of their Expected, "Gold: 16g 53s  ·
+  Budget: 75% of your gold = 12g 40s:   3 picks  ·  needs 11g 90s  ·  expected +1g 64s" (`FM.trade.pickGold`,
+  `pickFunds`, `pickPlan`, `pickNeed`, `pickExpected`; "Plan for your 10g 22s: ..." until 1.34); hovering it shows
+  the budget and whose gold. The header and the list sit two rows lower on this tab (one until 1.34). Two sections (1.17, they replace the orange "beyond your gold now" and
   the footer sentence): **Plan, fitting parameters**, then **Also good, but out of scope** (1.20; "Plan: fits your gold" and
   "Also good, beyond your gold" before, which read as if the second could not be afforded. Each of its picks is
   judged on its own with one pick's share of the plan's gold, so it can take the place of a plan pick; up to 20
@@ -330,9 +341,27 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   them with the new ones ("list 18 at 1g for 24h (1 you hold)"), so making one unit of a pick lowers how many it
   plans; when they cover the pick, it stays as a **Stock** pick (Invest 0, "list your 18 at 1g for 24h", profit
   against what one more unit would cost now). What an earlier pick of the plan uses as material is no longer yours
-  to list. No other "list your stock" rows (1.9). Your stock = bags and bank slot by slot (`FM.Owned`): what you wear
-  isn't counted, soulbound units are used for crafting but never listed (bank: slots seen while it was open, else
-  the bind type).
+  to list, and a later pick's material line names it (1.35, FRV-98), so its number does not read as all you hold:
+  "30 from your bank (of your 150, pick #1 uses 120)", "none of your 100 (pick #1 uses 100)". No other "list your
+  stock" rows (1.9). Your stock = bags and bank slot by slot (`FM.Owned`): what you wear isn't counted, soulbound
+  units are used for crafting but never listed (bank: the slots seen while it was open, else the bind type).
+  * The bank (1.35, FRV-98, trade/Sources.lua): while it is open, its slots as read on every item move; closed, the
+    client's count (`C_Item.GetItemCount` with - without the bank) when it counts the bank then (some item of the last
+    reading shows in it: whether it does on Forever is not verified in game, so it is asked, never assumed), else the
+    last reading (this session's, or `R.bank` as saved when the bank last closed: after a relog); with no reading at
+    all the client's count. Until 1.34 the closed bank was always the client's count. `/fm item <item>` says what you
+    hold and how the bank was counted.
+  * Your bags and bank are an input of the plan (1.35, FRV-98): 2 s after the last bag event (`BAG_UPDATE_DELAYED`,
+    a bank slot change) their units are compared with the last look, and a change (moving items between bags and bank,
+    crafting, looting, buying, mail taken out; not sorting) counts once (`FM.stockVersion`). With "Lock plan after
+    refresh" off the open table or a sticky window plans again at once, else the table when it opens next; locked, the
+    plan stays and Refresh's tooltip says your bags or bank changed. Why the maintainer's pick read "48 from your
+    bank, AH 136" with 200+ Heavy Leather in the bank (2026-11-22): the lock held a plan made with the stock of its
+    moment (until 1.34 nothing planned again for a change of your bags or bank, locked or not), and the number fits an
+    earlier pick that used the rest (another Heavy Leather craft of the saved craft log takes 5 each: with 203 held, 31
+    of its crafts leave 48), which the line did not say; the counts in the saved data agree with the bank (the craft
+    log's 240 held before a craft of 75 at 16:47, the bank's reading of 165 after it). The plan itself is not saved, so
+    this is the likely cause, not a proven one.
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
@@ -353,7 +382,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     of others at the same price counts only at the 1s floor (elsewhere you undercut it).
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
     Flip / Stock), **Invest** (the gold it needs now), **Expected**, **Conf.** (`pick.conf`, the confidence the tooltip
-    explains). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
+    explains), and since 1.35 (FRV-67) **On AH** (yours grey in brackets), **C/8h** and **C/24h**: the same cells, header
+    tips and sorting as on Craft, the numbers of the pick's own market row (the product of a craft or a recipe to
+    learn, the item of a vendor resell or a flip; `pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
+    snapshot's own units; the tooltip's "you list" (Room on the AH) also counts your posts since, so the two can differ
+    (the On AH header tip says so). The Pick column gave up width for them (420 to 278 px). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
     behind it (`pick.expected`, `pick.listHours`, a tie goes to 8h; sorting uses the shown value): what buyers take
     in that time earns the profit, the deposit of the rest is lost when the auction expires, at the pick's
     confidence; deposits from trade/Cost.lua, non-stacking items pay the 1s floor per unit; flips use the source
@@ -367,11 +400,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     what is bought, as Invest and the shopping list) > make > list (price, and the length of Expected; with units you
     hold, how many in all and how many of them yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
-  * "Invest [X] % across [Y] picks" (1.20, two number boxes left of the professions): X (`tableInvestPct`, default
-    90) is the share of your gold the whole plan may use, at most 90%: 10% stay for deposits, so above 90 changes
-    nothing. Y (`tableInvestPicks`, default 3, 1 to 12) is how many picks the plan has at most; fewer when fewer
-    good picks exist. Each pick gets a fair share of what is left, the gold left divided by the picks still open
-    (`P.perPick` in `Step`), so what one does not use (the C/24h cap, the margin) goes to the later ones; 1 puts
+  * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks:
+    [Y] | [X] % [x] | Invest: [g] [s] [c] [ ]**, with "Lock plan after refresh" at its right. Y (`tableInvestPicks`,
+    default 3, 1 to 12) is how many picks the plan has at most; fewer when fewer good picks exist. The two checkboxes
+    are one choice, always one of them checked, the other's boxes greyed out and disabled (`tableInvestManual`):
+    **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90, 1 to 90: 10% stay for deposits; an
+    older X above 90 counts as 90), **Invest** = the amount typed in (`tableInvestAmount`, copper; the sniper's money
+    boxes, `MoneyInputFrameTemplate`), capped at 90% of your gold, which the row's tooltip says. "Allow picks budget
+    over current gold" (settings panel, `tablePicksOverGold`, off) lets X go to 999 and the amount above your gold:
+    the plan is sized as if you had it (turning it off brings X back to 90 at most). `FM.PicksBudget` in
+    trade/Picks.lua; with "Gold of all characters" (Filters) your gold is that of all your characters. Every box
+    applies on Enter or a lost focus, Esc shows the saved value again, a change plans again; every part's tooltip
+    shows the budget in use. Each pick gets a fair share of what is left, the budget left divided by the picks still
+    open (`P.perPick` in `Step`), so what one does not use (the C/24h cap, the margin) goes to the later ones; 1 puts
     everything into the best pick. From 1.14 to 1.19 the one box "% to invest" was the most of your gold one pick
     may use and the number of picks fell out by itself: a saved value under 90 now limits the whole plan.
     The Picks filters ("Exclude vendor flips" and the others, Filters above) are inputs of the plan too. All of them
@@ -415,7 +456,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     listed inside those last minutes or hours count in full. A post and a newly read auction list make the table
     plan again within 15 seconds while it is open (its 15 s tick, 1.20.3; before, only the next time it was
     opened), or when it is opened next (`FM.listingsVersion`, `FM.EnsureTrade`; nothing plans while nothing
-    changed): until 1.19 the plan stayed as
+    changed; a change of your bags or bank the same way, at once, 1.35, `FM.stockVersion`): until 1.19 the plan stayed as
     it was computed for the latest scan, so what you listed after that scan did not change it before the next scan
     or `/reload`. What sold after the snapshot is not known and still counts until its time runs out. The tooltip
     says how the number is known ("6 in your auction lists, 4 posted since; last seen 3h ago", "4 of the 10 you
@@ -427,14 +468,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     data puts the 25% share right for items sold per auction (you sold a median 20% of C/24h per day listed) and far
     too high for commodities (at most 4%, FRV-71). `tools/fm_analyze.py room` shows these numbers per item.
   * "Lock plan after refresh" (1.22, FRV-63, `tablePicksLock`, on by default and for existing settings): a
-    checkbox at the right of the summary line. On, Picks keeps its plan while you buy, craft and post it: only the
+    checkbox at the right of the budget row (of the summary line until 1.34). On, Picks keeps its plan while you buy, craft and post it: only the
     Refresh button, a change of a Picks input (below, also Ignore / Stop ignoring an item and `/fm exclude`) and the
     first view of Picks (or Learn, whose green arrows come from the plan) in a session make a new plan
-    (`FM.PlanPicks`). Deep scans, feed imports, posts, newly read auction lists, opening the table and its 15 s tick
-    compute the other tabs again and keep the plan (`FM.ComputeTrade` copies the `pick*` fields of the plan shown;
-    `FM.EnsureTrade` no longer computes for a post or an auction list). The summary line keeps the gold the plan
-    was made with and its time, "Plan for your 17g 73s (locked 14:05): ..." (`pickGold`, `pickAt`); Refresh's
-    tooltip says what came since ("A newer snapshot and 2 posts since the plan", `pickT`, `pickListings`). The plan
+    (`FM.PlanPicks`). Deep scans, feed imports, posts, newly read auction lists, changes of your bags or bank, opening
+    the table and its 15 s tick compute the other tabs again and keep the plan (`FM.ComputeTrade` copies the `pick*`
+    fields of the plan shown; `FM.EnsureTrade` no longer computes for a post, an auction list or a change of your
+    stock). The summary line keeps the gold and budget the plan was made with and its time, "Gold: 17g 73s  ·  Budget:
+    90% of your gold = 15g 95s (locked 14:05): ..." (`pickGold`, `pickFunds`, `pickAt`); Refresh's tooltip says what
+    came since ("A newer snapshot, 2 posts and a change in your bags or bank since the plan", `pickT`, `pickListings`,
+    `pickStock`). The plan
     is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
     1.20.3, and turning it off plans at once.
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
@@ -444,7 +487,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
     leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
-  * One plan for X% of your gold (at most 90), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
+  * One plan for the budget (X % of your gold or the amount set), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
     they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
   * A material you can craft yourself (Cured Heavy Hide from Heavy Hide + Salt) is bought or crafted craft run by
@@ -552,7 +595,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   item's C/24h one pick may plan (1.19, `tableCircPct`), the first batch of a commodity without your sales (1.31,
   FRV-71, `tableFirstPct`; see Picks, Room on the AH) and the buy or craft rate (1.33, FRV-69, `tableTimePct`: "Buy a
   craftable material when it costs at most [N]% more per second of crafting it saves", 0 to 20, default 2, 0 = always
-  the cheaper route; see Picks, buy or craft).
+  the cheaper route; see Picks, buy or craft). Its checkbox "Allow picks budget over current gold (% up to 999, any
+  amount set)" (1.35, FRV-95, `tablePicksOverGold`, off) is the budget row's: see Picks; a click plans again.
 * The first three are number inputs since 1.32 (FRV-86; dropdowns before), the rate one since it came (1.33): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
   25; the first batch 1 to 10, default 2, the bounds of its dropdown), the rate "[N]% more per second ..." (0 to 20,

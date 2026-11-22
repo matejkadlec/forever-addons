@@ -84,6 +84,9 @@ local OPTIONS = {
     { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
     { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" },
+    -- Picks (FRV-95): the budget row's % up to 999 and any amount set by hand, the plan sized as if you had that gold;
+    -- off, the % stays 1 to 90 and an amount over 90% of your gold is capped there
+    { key = "tablePicksOverGold", label = "Allow picks budget over current gold (% up to 999, any amount set)", replan = true },
     -- the sniper (FRV-45): its two sounds, and a second wheel step (or Confirm click) for every purchase, which the game
     -- may also switch on by itself when it blocks the automatic confirm
     { key = "snipeSound", label = "Sniper: sounds for an offer and a purchase" },
@@ -240,9 +243,17 @@ function FM.RegisterSettingsPanel()
         checkbox.Text:SetFontObject("GameFontHighlight")
         checkbox.Text:SetText(option.label)
         checkbox.settingKey = option.key
+        checkbox.replan = option.replan
         checkbox:SetScript("OnClick", function(self)
-            FM.GetSettings()[self.settingKey] = self:GetChecked() and true or false
+            local settings = FM.GetSettings()
+            settings[self.settingKey] = self:GetChecked() and true or false
             FM.dataVersion = FM.dataVersion + 1 -- refresh tooltip lines
+            if self.replan then
+                -- an input of the picks plan: off again, the % goes back within 1 to 90 (FRV-95), and the plan follows
+                local most = FM.PicksPctMax and FM.PicksPctMax(settings)
+                if most and (tonumber(settings.tableInvestPct) or 0) > most then settings.tableInvestPct = most end
+                if FM.trade and FM.PlanPicks then FM.PlanPicks() end
+            end
             if FM.RefreshTable then FM.RefreshTable() end
         end)
         checkboxes[#checkboxes + 1] = checkbox
