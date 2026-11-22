@@ -351,6 +351,23 @@ H.test("picks: with a place, vendor flips buy only from a vendor there; crafts a
     H.eq(none["105"] ~= nil and none["100"] ~= nil, true, "the AH flip and the craft stay")
 end)
 
+-- The place limits only what a pick buys: a vendor item you hold stays a Stock pick wherever its vendors are
+H.test("picks: with a place where none of its vendors is, a vendor item you hold is still a Stock pick", function()
+    local FM, env = Setup({ ["104"] = 9 })
+    env.maps = { [1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
+        [1415] = { name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
+        [1439] = { name = "Darkshore", mapType = 3, parentMapID = 1414 } }
+    FM.Owned = function(key) if key == "104" then return 5, 5, 5, 5 end return 0, 0, 0, 0 end -- you hold 5 of it
+    FM.SetPlace("picks", 1415, nil) -- Eastern Kingdoms: its only vendor is in Darkshore
+    local cheap = { where = "Darkshore vendor, Darkshore", mapID = 1439, unit = 1000 }
+    local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = cheap, offers = { cheap },
+        qty = 200, own = 0, sold12 = 10 }
+    local view = View({ ["104"] = { ladder = { { 10000, 200 } }, qty = 200, own = 0 } })
+    local picks = Compute(FM, env, { vendor = { vendor } }, view)
+    H.eq(picks["104"] ~= nil and picks["104"].kind, "stock", "a Stock pick: list your 5")
+    H.eq(picks["104"].invest, 0, "it buys nothing")
+end)
+
 H.test("picks: the tooltip says when your auctions were never read, or how old the list is", function()
     local FM, env, r = Setup({ ["100"] = 9 })
     local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })

@@ -589,7 +589,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     that sell it are there).") and Track use that vendor; the footer says where ("1-20 of 34  ·  in Darnassus")
   * Picks: vendor flips only (Type Vendor): a vendor flip plans from the cheapest vendor in the place, its step names
     that vendor ("buy 9 at <vendor there> ..."), and an item none of whose vendors there pays is no pick ("no vendor
-    in Darnassus sells it with a profit (Continent, Zone)"); crafts and AH flips are not filtered by place, the
+    in Darnassus sells it with a profit (Continent, Zone)"), except that units of it you hold stay a Stock pick (the
+    place limits only what is bought); crafts and AH flips are not filtered by place, the
     picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan locked).
     While "Exclude vendor flips" is on in the set Picks uses (its own or the global one), both stay visible but are
     greyed out and disabled, and their tooltip says why

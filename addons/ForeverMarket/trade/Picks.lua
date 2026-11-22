@@ -1214,6 +1214,7 @@ local function EvaluateVendor(c)
     local units = math_floor(math_min(MAX_UNITS, vLeft, room.room, math_max(1, VENDOR_LISTED_SHARE * others)))
     local held = math_min(HeldOf(row.key), units)
     local n = math_floor(math_min(units - held, row.offer.limited or math.huge, cap / unit))
+    if c.noBuy then n = 0 end -- no vendor of it in the place (FRV-99): only what you hold, as a Stock pick
     if n < 1 then
         if held <= 0 then return nil, NoGold() end
         local notes = {}
@@ -1471,20 +1472,23 @@ local function Candidates(out, why)
     end
     for _, row in ipairs(out.vendor or EMPTY) do
         local listedWhy = ListedOut(row.key)
-        -- the place filter (FRV-99): the row as it is at the cheapest of its vendors in the place, or none there
+        -- the place filter (FRV-99): the row as it is at the cheapest of its vendors in the place, or none there. It
+        -- limits only what a pick buys: units of it you hold stay a Stock pick wherever its vendors are (noBuy)
         local placed = P.filters.noVendor and row or FM.VendorRowIn(row, P.place)
+        local noBuy = not placed and HeldOf(row.key) > 0 or nil
+        local use = placed or row
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
         elseif P.filters.noVendor then
             why[row.key] = "vendor resells are off (Exclude vendor flips)"
         elseif listedWhy then
             why[row.key] = listedWhy
-        elseif not placed then
+        elseif not placed and not noBuy then
             why[row.key] = string_format("no vendor %s sells it with a profit (Continent, Zone)", FM.PlaceText(P.place) or "there")
-        elseif not placed.sell or placed.sell > 10 * placed.vendorUnit then
+        elseif not use.sell or use.sell > 10 * use.vendorUnit then
             why[row.key] = "AH price over 10x the vendor price looks like an outlier"
         else
-            list[#list + 1] = { kind = "vendor", row = placed }
+            list[#list + 1] = { kind = "vendor", row = use, noBuy = noBuy }
         end
     end
     for _, row in ipairs(out.flips or EMPTY) do
