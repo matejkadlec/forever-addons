@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Spell_Fire_Fire
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.0.7
+## Version: 1.0.8
 ## X-License: MIT
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## OptionalDeps: TomTom

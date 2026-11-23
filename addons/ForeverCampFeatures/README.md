@@ -32,6 +32,8 @@ With "Share the objects I place or find" on (the default), the AddOn sends a sho
 
 The messages go through a hidden chat channel the AddOn joins by itself (`ForeverCampFeatures`; it appears in no chat window). When the channel cannot be joined, they go to your guild and your party or raid instead. Turn sharing off in the settings to send nothing; turn "Show objects others found" off to ignore what others send.
 
+Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the objects I place or find" or "Show objects others found" is on; with both off, or with `/fcf off`, it leaves the channel.
+
 ## Commands
 
 | Command | What it does |

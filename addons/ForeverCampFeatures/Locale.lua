@@ -115,7 +115,8 @@ local L = {
     PANEL_ALL_OFF = "All off",
     PANEL_NOTE = "Placed objects stay about 15 minutes. In range works for objects a recipe you know needs nearby "
         .. "(Iron Oven, forges, ...). Hover works for anything you can point at. Sharing sends the object, its map, "
-        .. "its coordinates and when it was placed or seen; nothing else.",
+        .. "its coordinates and when it was placed or seen; nothing else. While either sharing option is on, your "
+        .. "character is in the AddOn's chat channel, whose member list anyone who joins it can see.",
     OPTION_ENABLED = "Enable Forever Camp Features",
     OPTION_ALERT_TEXT = "Text in the middle of the screen",
     OPTION_ALERT_SOUND = "Sound",

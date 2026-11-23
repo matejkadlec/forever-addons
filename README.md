@@ -168,7 +168,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Shared: the objects other players running the AddOn placed or found in range, through a hidden chat channel the AddOn joins by itself, or your guild and group when the channel cannot be joined
 - The alert, for an object in your zone: a text in the upper middle of the screen ("Iron Oven at 38.5, 73.6, Ironforge", with the distance and the age for a shared one) and a sound, then a TomTom waypoint (without TomTom the coordinates in the chat); once per object, again after it moved or you left the zone and came back
 - Placed objects expire after 15 minutes (the camping wiki's number; `/fcf debug objects` prints each placement spell's own text)
-- Privacy: with "Share the objects I place or find" on (default), placing an object or finding one in range (again every 5 minutes while you stay at it) sends which object, the map, its coordinates and when it was placed or seen; nothing else
+- Privacy: with "Share the objects I place or find" on (default), placing an object or finding one in range (again every 5 minutes while you stay at it) sends which object, the map, its coordinates and when it was placed or seen; nothing else. While either sharing option is on, your character is in the AddOn's chat channel, whose member list anyone who joins it can see
 - Slash commands:
   - `/fcf` (or `/campfeatures`) lists the known objects of your zone with coordinates, distance and age
   - `/fcf on` and `/fcf off` enable/disable it without reloading the UI
