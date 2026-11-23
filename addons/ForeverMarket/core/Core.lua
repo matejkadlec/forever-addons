@@ -410,20 +410,162 @@ local function HoldsMarketData(stray)
     return false
 end
 
+-- Whether every character a stray bucket knows by GUID is the realm bucket's character of the same key: then the
+-- sessions behind it were this realm's own (FRV-106)
+local function SameCharacters(stray, r)
+    local any = false
+    for key, info in pairs(type(stray.charInfo) == "table" and stray.charInfo or {}) do
+        if type(info) == "table" and type(info.guid) == "string" then
+            local own = type(r.charInfo) == "table" and r.charInfo[key]
+            if type(own) ~= "table" or own.guid ~= info.guid then return false end
+            any = true
+        end
+    end
+    return any
+end
+
+-- The logs of a realm bucket and the moment a line of each belongs to (an AH mail: when it was read, as the log is
+-- written)
+local STRAY_LOGS = {
+    invoices = function(line)
+        local f = FM.Split(line, ",")
+        return FM.Unstamp(f[11]) or FM.Unstamp(f[1])
+    end,
+    posts = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    events = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    gold = function(line) return FM.Unstamp(line:match("^(%w+),")) end,
+    buys = function(line) return tonumber(line:match("^(%d+),")) end,
+    crafts = function(line) return tonumber(line:match("^(%d+),")) end,
+}
+
+-- The logs of a stray bucket into the realm's, each line at its moment (a line the realm's log holds already is not
+-- taken twice). Returns how many lines came over
+local function MergeStrayLogs(r, stray)
+    local moved = 0
+    for name, timeOf in pairs(STRAY_LOGS) do
+        local from = type(stray[name]) == "table" and stray[name] or {}
+        if #from > 0 then
+            if type(r[name]) ~= "table" then r[name] = {} end
+            local list, have, rows = r[name], {}, {}
+            for i, line in ipairs(list) do
+                have[line] = true
+                rows[i] = { line = line, t = type(line) == "string" and timeOf(line) or 0, n = i }
+            end
+            for _, line in ipairs(from) do
+                if type(line) == "string" and not have[line] then
+                    rows[#rows + 1] = { line = line, t = timeOf(line) or 0, n = #rows + 1 }
+                    moved = moved + 1
+                end
+            end
+            table.sort(rows, function(a, b)
+                if a.t ~= b.t then return a.t < b.t end
+                return a.n < b.n
+            end)
+            for i, row in ipairs(rows) do list[i] = row.line end
+        end
+    end
+    -- the mails those sessions logged stay known as logged; deposits, names and watched items only where the realm
+    -- has none
+    if type(stray.mailSeen) == "table" then
+        if type(r.mailSeen) ~= "table" then r.mailSeen = {} end
+        for base, stamps in pairs(stray.mailSeen) do
+            if type(stamps) == "string" then
+                local known = r.mailSeen[base]
+                r.mailSeen[base] = (type(known) == "string" and known ~= "") and (known .. "," .. stamps) or stamps
+            end
+        end
+    end
+    for _, name in ipairs({ "deposits", "names", "watch" }) do
+        if type(stray[name]) == "table" then
+            if type(r[name]) ~= "table" then r[name] = {} end
+            for key, value in pairs(stray[name]) do
+                if r[name][key] == nil then r[name][key] = value end
+            end
+        end
+    end
+    -- the item searches of those sessions (items[key].s "s<t>,...;..." and .a "t|...", scan/Search.lua): a search
+    -- record the realm lacks joins its item's at its time, the newer listing stays. An item with anything else (scan
+    -- records) is not taken: it stays in the stray bucket
+    for key, item in pairs(type(stray.items) == "table" and stray.items or {}) do
+        local searches = type(item) == "table"
+        for field in pairs(searches and item or {}) do
+            if field ~= "s" and field ~= "a" then searches = false end
+        end
+        if searches then
+            if type(r.items) ~= "table" then r.items = {} end
+            local own = r.items[key]
+            if type(own) ~= "table" then
+                r.items[key] = item
+            else
+                if type(item.s) == "string" and item.s ~= "" then
+                    local have, rows = {}, {}
+                    local function Take(record)
+                        if record ~= "" and not have[record] then
+                            have[record] = true
+                            rows[#rows + 1] = { record = record, t = FM.Dec(record:match("^s(%w+),")) or 0, n = #rows }
+                        end
+                    end
+                    for _, record in ipairs(FM.Split(type(own.s) == "string" and own.s or "", ";")) do Take(record) end
+                    for _, record in ipairs(FM.Split(item.s, ";")) do Take(record) end
+                    table.sort(rows, function(a, b)
+                        if a.t ~= b.t then return a.t < b.t end
+                        return a.n < b.n
+                    end)
+                    local out = {}
+                    for i, row in ipairs(rows) do out[i] = row.record end
+                    own.s = table.concat(out, ";")
+                end
+                local theirs = type(item.a) == "string" and FM.Dec(item.a:match("^(%w+)|"))
+                local ours = type(own.a) == "string" and FM.Dec(own.a:match("^(%w+)|")) or -1
+                if theirs and theirs > ours then own.a = item.a end
+            end
+            stray.items[key] = nil
+        end
+    end
+    -- a character's list of its auctions from those sessions: the realm's newer list of the same character replaces
+    -- it, as the next visit to the AH would; where the realm has none, it comes over
+    for char, list in pairs(type(stray.owned) == "table" and stray.owned or {}) do
+        if type(r.owned) ~= "table" then r.owned = {} end
+        local own = r.owned[char]
+        local theirs = type(list) == "table" and tonumber(list.t) or 0
+        if type(own) ~= "table" or (tonumber(own.t) or 0) < theirs then r.owned[char] = list end
+        stray.owned[char] = nil
+    end
+    -- what came over is the realm's now
+    for name in pairs(STRAY_LOGS) do stray[name] = nil end
+    for _, name in ipairs({ "mailSeen", "deposits", "names", "watch" }) do stray[name] = nil end
+    return moved
+end
+
 -- Buckets an unreadable realm name made ("-Alliance", "?-Alliance"; FRV-92): the sessions behind them saw none of
 -- the real data, so their per-character readings (bags, Profit readings with nothing held) are wrong; their gold
--- lines are real and join the realm's own bucket, the rest goes. One with market data stays, and the chat says so
+-- lines are real and join the realm's own bucket, the rest goes. One with market data: when its characters are this
+-- realm's own (the same keys with the same GUIDs), its logs and item searches join the realm's too (FRV-106: the
+-- sales, purchases, posts and crafts of those sessions were missing from the Profit tab; in the maintainer's data 69
+-- sale mails worth 54g of the night of 2026-11-21), and it goes when nothing of market data is left in it; what the
+-- realm cannot take (scan records, a sniper list, a farm log) stays there. Else it stays whole, and the chat says so
 local function FoldStrayBuckets(r, faction)
     for _, realm in ipairs({ "", "?" }) do
         local key = realm .. "-" .. faction
         local stray = FM.db.realms[key]
         if type(stray) == "table" and stray ~= r then
-            if HoldsMarketData(stray) then
-                FM.PrintError("Failed to fold the saved data under \"" .. key .. "\" into " .. FM.realmKey
-                    .. ": it holds market data. It stays saved apart, nothing is lost.")
-            else
+            if not HoldsMarketData(stray) then
                 for _, line in ipairs(type(stray.gold) == "table" and stray.gold or {}) do r.gold[#r.gold + 1] = line end
                 FM.db.realms[key] = nil
+            elseif SameCharacters(stray, r) then
+                local moved = MergeStrayLogs(r, stray)
+                local rest = HoldsMarketData(stray)
+                if not rest then FM.db.realms[key] = nil end
+                if moved > 0 or not rest then
+                    FM.Print("Folded the saved data under \"" .. key .. "\" into " .. FM.realmKey .. ": lines of its logs (AH mail, posts, purchases, crafts, gold) moved over:", tostring(moved))
+                end
+                if rest then
+                    FM.PrintError("Failed to fold the rest of the saved data under \"" .. key .. "\" into " .. FM.realmKey
+                        .. ": it holds scan data. It stays saved apart, nothing is lost.")
+                end
+            else
+                FM.PrintError("Failed to fold the saved data under \"" .. key .. "\" into " .. FM.realmKey
+                    .. ": it holds market data. It stays saved apart, nothing is lost.")
             end
         end
     end
@@ -452,6 +594,7 @@ function FM.R()
     FoldStrayBuckets(r, faction)
     if FM.MigrateRealm then FM.MigrateRealm(r) end
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, trade/Cost.lua)
+    if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
     return r
 end
 

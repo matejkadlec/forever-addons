@@ -62,12 +62,23 @@ local function CharData(db)
             best = data
         end
     end
-    local merged = { recipes = best.recipes, skill = best.skill, skillMax = best.skillMax }
+    local merged = { recipes = best.recipes, skill = best.skill, skillMax = best.skillMax, log = {} }
     for _, data in ipairs(entries) do
         if (tonumber(data.skill) or 0) > (tonumber(merged.skill) or 0) then merged.skill = data.skill end
         if (tonumber(data.skillMax) or 0) > (tonumber(merged.skillMax) or 0) then merged.skillMax = data.skillMax end
+        -- the crafts each entry counted add up (FRV-106)
+        for name, e in pairs(type(data.log) == "table" and data.log or {}) do
+            local n = type(e) == "table" and tonumber(e.n) or 0
+            merged.log[name] = { n = (merged.log[name] and merged.log[name].n or 0) + n }
+        end
     end
     return merged
+end
+
+-- How often ForeverArtisan saw you craft a recipe (its per-recipe log, { n = crafts }); 0 when it says nothing
+local function CraftsSeen(data, recipeName)
+    local e = type(data.log) == "table" and data.log[recipeName]
+    return type(e) == "table" and tonumber(e.n) or 0
 end
 
 local function RecipeName(itemName)
@@ -412,7 +423,8 @@ function FM.BuildSources()
                             makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
                             learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
                             spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
-                            reagents = reagents, skillNow = data.skill, later = later or nil
+                            reagents = reagents, skillNow = data.skill, later = later or nil,
+                            made = CraftsSeen(data, recipeName) -- crafts ForeverArtisan counted (trade/Basis.lua)
                         }
                         if later then
                             -- the Learn tab only: no craft row, no picks

@@ -140,7 +140,7 @@ have no marks, so its records stay as they were).
   written into the AddOn's `data/` folder, the reload offer after the AH closed, `/fm save`, the bag counts of watched
   items `inv`) and the chat alerts for undercuts and buy prices (`/fm popup`, `/fm alerts`); their saved keys go at
   load
-* `/fm` or the key `U` opens the market table (`/fm help` for commands), settings under Options → AddOns → Jim's Forever AddOns → Market
+* `/fm` or the key `U` opens the market table (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of), settings under Options → AddOns → Jim's Forever AddOns → Market
 * Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and "toggle sniper
   window". The market table gets `U` and the sniper window `Z` (1.34, FRV-94; Z also when the game's
   Sheathe/Unsheathe Weapon has it) once per binding set (account, or a character with its own bindings), replacing
@@ -714,7 +714,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   **All characters** is the default. With one such character there is no switch and the tab shows that character
   alone, as before 1.24. Everything below describes one character; all characters together:
   * The AH's money is the money of all of them, and the lists (Sold, Bought, Real losses) hold all of them; a sale
-    is "under cost" against the latest purchases of any of them.
+    is "under cost" against what its units cost any of them.
   * What you hold from the AH is one number for all of them: the units of each item bought there by any character
     and not sold there by any character since, that any of them still holds: the logged-in one live (as for one
     character), the others from their saved bags, bank and mailbox (their purchases after their last look into the
@@ -727,25 +727,56 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     account bank). The joint line is the `all` of every character's readings in time order; a step counts only
     between readings that saw the same, so the first look at another character's bank, a character's first saved
     bags or a forgotten character are no gain and no loss; such a reading stays as its own line.
-  * Readings from before 1.24 have no joint number: for that time each character's own steps are added up (the
-    sum of the characters' tabs), and the step onto the first joint reading counts nothing. A character without
-    any reading by then counts its purchases from the first joint reading on.
   * The header shows what all of them hold and their gold (this character's right now, the others' as last
     recorded).
 
 * AH result = the AH's money + what you hold from the AH. The AH's money: sales after the cut plus their deposit back
   (from the sale mails, counted when you read the mail: until then the readings still hold the auction or its sold
   money; mails read before 1.15.13 count when they were sent), less purchases (`buys`, kept a year now) and won auctions (a commodity purchase's own mail
-  left out, also counted when its mail was read) and the deposits paid at posting. What you hold from the AH (`R.worth` readings and right now): the units
-  of each item bought there and not sold there since (purchases of a year and won auctions less your sale mails, in
-  time order: a sale before a purchase sold farmed units, not bought ones; purchases are this character's, the ones
-  logged before 1.15.5 have no character and count for every one) that you still hold in bags, bank (as scanned this
-  session, else as last seen), mailbox (as last seen), purchases made after the last look into the mailbox (they wait
-  in the mail) and your auctions, at the usual AH price; plus the deposits of your running auctions and the money of
-  sold ones still on its way. So buying and posting move gold into items and deposits and don't move the line;
-  overpaying, selling under cost, the AH cut and lost deposits do, and so does the usual price of what you hold. An
-  item you didn't buy on the AH (farmed, looted, crafted) counts when it sells there, all of its money; materials
-  bought there and crafted leave the line until the product sells.
+  left out, also counted when its mail was read) and the deposits paid at posting.
+* **What you hold from the AH counts at what it cost you** (1.38, FRV-106, trade/Basis.lua; the usual AH price until
+  1.37). The logs are replayed into lots:
+  * a purchase (`buys`, or a won auction's mail) is a lot of its units at its price
+  * a craft (`crafts`, the craft log) takes its materials from their lots, the oldest first, and makes a lot of its
+    product at what they cost. Units of a material beyond your lots (skinned, looted, from a vendor: the craft line
+    says how many you held) cost nothing and are used first, as the craft log counts them
+  * a sale (a seller mail, when you read it) takes the oldest units of its item's lots: that is what the sold units
+    cost. Units no lot covers cost nothing (loot), unless you craft the item: then its craft was not recorded and its
+    materials leave their lots with the sale, by its recipe (your first recorded craft of it, else a learned recipe
+    that ForeverArtisan counted crafts of; a learned recipe alone does not say that you make the item)
+  * own gear has no lot (below)
+
+  What you hold (`R.worth` readings and right now): of every item with lots, the units you really hold in bags, bank
+  (as scanned this session, else as last seen), mailbox (as last seen), purchases made after the last look into the
+  mailbox (they wait in the mail) and your auctions, at most the lots' units, at what the newest of them cost. Units
+  of an item you craft beyond its lots were made in a craft nobody recorded: what the material units missing from
+  your bags cost counts for them, until the sale's mail takes those materials out of their lots. Plus the deposits of
+  your running auctions and the money of sold ones still on its way. So buying, crafting and posting move gold into
+  items and deposits and don't move the line; a sale moves it by its money after the cut less what its units cost,
+  a lost deposit by itself, and a bought unit that leaves without a sale (used, vendored, destroyed, mailed away) by
+  what it cost. An item you didn't buy on the AH (farmed, looted) counts when it sells there, all of its money.
+  Vendor materials never count (they are not AH money): a crafted item's cost here is its AH materials alone.
+* **The days before the first reading at cost** come from the logs alone: what you held then is the cost of the lots
+  plus the deposits out (a post's deposit, less the share each sale's mail brings back, the rest gone when the
+  auction ends). The readings of 1.15 to 1.37 no longer count for what you held (they still tell your gold): they
+  were sums at the usual price that counted a sold stack's money several times over, and what your bags held then
+  is not saved. The first reading of 1.38 also says which bought units are simply gone (`heldBase[char]`, and `*`
+  for all characters: the units it held): lot units it does not find, neither held nor in a product of an
+  unrecorded craft, count as gone from the moment they were bought or made (a learned pattern, a bag in use, eaten
+  food, the materials of a craft whose product never sold on the AH). The step from the logs onto that reading
+  counts nothing.
+* **The guard** (1.38): what you hold only rises by what you bought, by the deposits you paid and by the money of
+  sold auctions on its way, or back to where it was: a fall from one reading to the next without a sale's mail in
+  it is a reading that missed units (a bank not read, a list of your auctions still loading) or units that left,
+  and the next reading may rise back by it, which heals the fall. A reading that rises by more than that since the
+  last reading that counts (plus 1g or 5% of what you held) is a mistake of that reading, never a gain: it is saved
+  with the mark `x` and left out of the dots, the reading of right now gets no step, and the chat says so once per
+  session. Left out for 12 hours, the level is taken as it is: the next reading is marked `r`, a new baseline whose
+  step counts nothing. No reading is made while the bags read empty (their containers not loaded).
+* **`/fm held`** (1.38): what "Held from the AH" is made of right now: the deposits, the sold auctions' money on its
+  way, and the largest items with their units, what one cost, the value and where they are (bags, bank, mail,
+  auctions, other characters; "from a craft nobody recorded" where the cost is the recipe's materials). Then the
+  last 8 readings (`heldLog[char]`) with their total, deposits, sold money and largest items.
 * Every won auction is a purchase (1.31, FRV-75): a mail of a won auction is left out only when it is the mail of a
   commodity purchase of the purchase log (same item and quantity, within 12 hours). Before 1.31 the second of two
   won auctions of the same item and quantity within 12 hours took the first one's place as "its logged purchase"
@@ -762,37 +793,56 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   another counts too. Checked 5 s after login (gear equipped before 1.31 as well) and a second after every
   `PLAYER_EQUIPMENT_CHANGED`. The readings of what you held counted the item from its arrival (the purchase, or the
   won auction's mail read) until it was equipped: both steps are taken back where they landed (the first reading
-  after each, or the reading of right now) at the value it counted for when it was equipped, so neither the day it
-  arrived nor the day it was equipped moves; that is exact for gear the same character equips while ForeverMarket
+  after each, or the reading of right now) at the value it counted for when it was equipped (what it cost you,
+  since 1.38), so neither the day it arrived nor the day it was equipped moves; that is exact for gear the same character equips while ForeverMarket
   runs, and gear mailed to another character leaves "This character" of the buyer at the mailing (as before), so
   there the step back lands at the equipping. Gear the login check finds worn (equipped while ForeverMarket did not
   watch, e.g. before 1.31; also what an equipment change before that check finds) was equipped at a moment nobody
   saw: none of its steps is taken back, they stay where they landed (bought and worn the same day: the day rises by
-  its price; bought one day and worn another: the first shows its usual price gained, the second the same lost;
+  its price; bought one day and worn another: the first shows its cost gained, the second the same lost;
   bought and worn before your first reading: nothing moves). Item IDs match whatever you wear: an item looted and
   worn while you hold a bought one of the same ID for resale marks the bought one.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
-  since (oldest first). What the lists saw change (`osold`, also an auction still shown sold, `opart`, `ocancel`,
-  `ogone`) is matched to the mails you read of the item (sent after the list before it and by the list that saw
-  it, a sale's up to 2 hours later): a matched mail takes nothing off the running auctions. A change whose mail
-  you haven't read is on its way by mail while that mail can't have been in the mailbox at your last look (without
-  any mailbox reading: since login): a sale until 2 hours after the list saw it (its mail goes out up to an hour
-  after the sale), an ended or cancelled one if it happened after the look. On its way: a sale's money after the
-  cut and deposit, the units of a cancelled one or one gone while you were away (most likely expired; its deposit
-  is gone).
+  since (oldest first). What the lists saw change (`osold`, `opart`, `ocancel`, `ogone`) is matched to the mails you
+  read of the item (sent after the list before it and by the list that saw it, a sale's up to 2 hours later): a
+  matched mail takes nothing off the running auctions. A change whose mail you haven't read is on its way by mail
+  while that mail can't have been in the mailbox at your last look (without any mailbox reading: since login): a
+  sale until 2 hours after the list saw it (its mail goes out up to an hour after the sale), an ended or cancelled
+  one if it happened after the look. On its way: a sale's money after the cut and deposit, the units of a cancelled
+  one or one gone while you were away (most likely expired; its deposit is gone).
+  * A sold row of the list is one sale (1.38, FRV-106): the client gives it the sale's units and its total, and a
+    stack sold in parts one row per part, all with the auction's ID. Its money counts once, the total less the cut;
+    the lines logged of the same sales (an `osold` from a row, an `opart` from the count that fell) give way to the
+    rows, the newest first. Until 1.37 the total was taken for the price of one unit and multiplied by the units
+    again (100 Thick Leather sold for 8g 95s on 2026-11-22 counted 850g: "Held from the AH" jumped from 49g to 921g
+    until the mail was read), and of several rows of one auction one was kept.
+  * Money is on its way only for a sale that was seen: a sold row, an `osold` line of one (marked `s` since 1.38) or
+    a count that fell (`opart`; the same fall logged again is another sale). An auction that was merely gone from a
+    list (`osold` without the mark, `ogone`) counts with its units, like an ended one, until its mail tells which it
+    was: a list can be a broken one. One that could not have run out (`osold` without the mark) keeps its units for
+    as long as its post can still be running, also after a look into the mailbox that brings nothing of it back; a
+    sale's or a return's mail of the item takes them. An `osold` or `ogone` line of an auction that is running in the last list was
+    never gone (its units and the running ones are more than were posted), and the same line logged twice counts
+    once.
+  * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
+    list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
   `buys` 10000 lines or a year, readings 10000 per character) has dropped its oldest lines, so the graph and what
   counts as bought start at its first line (an invoice: when it was read); a dropped sale can't make its purchase
   look held again. Units bought before that and still held leave what you hold when it passes them.
-* Before the first reading of what you hold (1.15.2 on) purchases count as neutral, and a sale counts its money
-  less what its units cost you (your purchases before it). What you hold counts step by step between consecutive
-  readings (the stored ones and one of right now), each step in the period of its later reading; the first reading
-  is the baseline, and a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox,
-  e.g. the first look at the bank) counts nothing; such a reading doesn't replace the earlier one of its hour.
+* From the first reading at cost on, what you hold counts step by step between consecutive readings (the stored
+  ones and one of right now), each step in the period of its later reading; that first reading is the baseline, and
+  a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + the rule the reading
+  was made by, `c3`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
+  such a reading doesn't replace the earlier one of its hour, and neither does one that holds less than it (the
+  line keeps the level before a fall). A reading marked `x` is skipped. Only readings of the current rule count:
+  when what a reading counts changes, the rule's number does, the readings before tell their gold alone and the
+  base and the readings' parts are taken again (`heldRule`).
 * **Usual AH price** (`FM.FairPrice(key, t, strict)`): the median of the lowest prices of others (your own auctions
   left out) of all snapshots in the 72 hours before t (detail records one by one; older days through their daily
   rollup, its average weighted by its snapshot count), so one odd snapshot doesn't move it. To judge a purchase it
-  needs 3 snapshots (`strict`); for what you hold 1-2 still give a price, and none the latest one before.
+  needs 3 snapshots (`strict`). Since 1.38 it only judges purchases ("paid over the usual price"); what you hold
+  counts at cost.
 * Header: the AH result over the dots shown (green / red), what you hold from the AH and your gold. The line is green
   when the range went up, red when down; each dot green / red by its own change. The axis starts at 0 unless the
   line goes under it.
@@ -804,8 +854,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   %), then the top 3 of **Sold** (sale invoices, after the cut), **Bought** (commodity purchases and won auctions) and
   **Real losses** (one list, largest first); hold **Shift** for all of their items. Expired auctions show only as
   their lost deposit. Real losses:
-  * sold under cost: a sale's money after the cut under what your latest purchases (and won auctions) of the item
-    before it cost
+  * sold under cost: a sale's money after the cut under what its units cost you (bought, or crafted from bought
+    materials: the lots above)
   * paid over the usual price: unit price over the usual price before the purchase + 10% (normal noise), times
     the units
   * expired deposit: the mail's share of the deposit of the post it belongs to (a post that ended by then, of at
@@ -814,7 +864,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 * Readings (`R.worth`): 40 s after login, every 15 minutes (at most every 10), when the AH, mailbox, bank, a vendor
   or a trade closes and at logout; about one line per hour (the first reading that saw something new stays as its own
   line, readings of the same minute keep the order they were saved in). The last dot always uses a reading of right
-  now. The periods
+  now. At logout the client's gold reads 0: the reading and the gold log keep the gold recorded before (1.38; until
+  then every session's last gold line was 0). The periods
   and what happened in them are cached until a log changes; gold or bag changes redraw at most every 2 seconds.
   1.15.0-1.15.1 kept an hourly money log (`R.money`, removed at login) and readings of all items (left out).
 
@@ -1028,8 +1079,14 @@ realm in the saved data (`FM.RealmName`): the bucket whose characters (`charInfo
 GUID, else one with a character of the same server (the GUID's second part), else the only realm saved for the
 faction when nothing says it is another server (no readable GUID, or its characters have none saved), else "Server
 <id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays. A bucket the
-empty name made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and is removed, unless it
-holds market data (then it stays and the chat says so). ForeverArtisan now writes a second entry per character
+empty name made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and is removed. One that
+holds market data gives its logs too when its characters are the realm's own, the same keys with the same GUIDs
+(1.38, FRV-106: the sessions of 2026-11-20/21 wrote a night of sales there that the Profit tab never saw): AH mail,
+posts, purchases, crafts and gold, each line at its moment; the mails it logged; deposits, names and watched items
+where the realm has none; its item searches (a search record at its time, the newer listing kept); a character's
+list of its auctions where the realm's is not newer. It is removed when nothing of market data is left in it; what
+the realm cannot take (scan records, a sniper list, a farm log) stays there, and the chat says so. A bucket of
+other characters stays whole. ForeverArtisan now writes a second entry per character
 ("Name--GUIDPART"): `FM.ArtisanEntries` takes both, the recipes of the one read last, the highest skill.
 
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
@@ -1056,23 +1113,52 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
-  before, 1.15.14 on; buyout is the unit price for commodities), chat `sold|expired|removed|won|outbid,item`, mail
+  before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
+  holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
+  gone from the list), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
 * `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
   1.30 drops the list at load
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
-  (`buyout` holds the quantity for commodity sales)
-* `mailSeen`, `gold`, `owned`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
+  (`buyout` holds the quantity for commodity sales). A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
+  `char|kind|item||qty|bid|buyout` without the other player's name, which the client gives only a moment after the
+  mail is first listed; until 1.37 the name was part of the key and the same mail, read again with its name, was
+  logged a second time. An entry of `mailSeen` stands for a mail that is still in the mailbox: it goes when its mail
+  leaves the inbox after you took it out (1.38.4: for 10 seconds after a call of `TakeInboxMoney`, `TakeInboxItem`,
+  `AutoLootMailItem` or `DeleteInboxItem`, the calls of Blizzard's mail frame, the listed mails of that mail's key
+  are watched; a mail that stays listed, emptied or because the call came to nothing, keeps its entry and is never
+  logged again), and when the whole inbox was listed (the mailbox open, the client showing all the mail the server
+  holds) without it. So a mail you collected cannot take a later sale of the same item, units and price for "logged
+  already"; a mail matches an entry within 2 minutes of its sent time (10 until 1.38.3). The sent time comes from the
+  days the mail has left, which are the server's from when it sent the list and stand still while the client keeps
+  it: every read of the same list counts from the time that list was first read (1.38.4; before, a mailbox left
+  open moved the sent times forward). A mail taken out within the second before its first read is logged at the
+  call. Mended once per
+  bucket (`mailRepair` = 3 since 1.38.3, the counts in `mailRepaired` = { t, dropped, sales }, a chat line says
+  them): of two lines of the same character, kind, item, units and money, one without the name and one with it, the
+  nameless one logged first, the second goes and the first gets its name; lines sent in the same minute pair first,
+  then lines a minute apart; `mailSeen` is made again from the mended log. A bucket that 1.38.0 to 1.38.2 mended
+  keeps its log and only gets its `mailSeen` made again
+* `owned[char]` = `{ t, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2 }`: status `s` = sold, its mail
+  not sent yet; `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's
+  total there)
+* `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
   seen, since, bagsEmpty }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
   `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
-* `worth[char]` readings `t,gold,held,seen,all,saw` (about one per hour, the first that saw something new kept
-  apart; `seen` = `h` + `b` bank and / or `m` mailbox; `all`, `saw` from 1.24 on, older lines end after `seen`:
-  what all your characters held together and a hash of which readings that counted), `bank[char]`
-  `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
+* `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c3` = counted at cost (1.38: only readings of the
+  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
+  hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
+  baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
+* `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
+  character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
+  for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
+  per place, joined by `.`: `b` bags, `k` bank, `m` mail, `a` auctions, `o` other characters; `b9.k4t` = 9 in the
+  bags, 173 in the bank)
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
