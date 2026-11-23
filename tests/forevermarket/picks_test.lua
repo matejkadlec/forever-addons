@@ -526,6 +526,48 @@ H.test("picks: your pace is the rate while yours are still listed, even when hal
     H.eq(line, "12 in 3 days, 14 a day", "your sales and your pace")
 end)
 
+-- Rule (FRV-109): each sale once, as the Profit tab counts it. A sold row's line written again after a list that
+-- lacked the row (the same auction, units, price and nth) adds nothing, the second part of the same size and price
+-- (nth 2) is a sale of its own, and an auction that was merely gone from a list still loading but is in the newest
+-- list after all was not sold (the 80 Monster Omelet of 2026-11-20 11:16)
+H.test("picks: your pace counts each sale once", function()
+    local FM, env, r = Setup({ ["504"] = 9 })
+    local key = "504"
+    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 1200), "Tester", key, B(12), B(10000), "2", "c", "a1" }, ",")
+    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 900), "Tester", key, B(80), B(10000), "3", "c", "r1" }, ",")
+    -- mailIn: minutes after the line when its row's mail goes out (the line's mail time, 1.38.8), nil for none
+    local function Sold(ago, aid, qty, shown, nth, mailIn)
+        local fields = { B(NOW_MINUTES - ago), "Tester", "osold", key, B(qty), B(10000), aid, B(NOW_MINUTES - ago - 2) }
+        if shown then fields[9], fields[10] = "s", B(nth) end
+        if mailIn then fields[11] = B(NOW_MINUTES - ago + mailIn) end
+        r.events[#r.events + 1] = table.concat(fields, ",")
+    end
+    Sold(600, "a1", 6, true, 1)
+    Sold(597, "a1", 6, true, 1) -- the same row again: the list of 3 minutes before lacked it
+    Sold(590, "a1", 6, true, 2) -- the second part of 6 at the same price
+    Sold(580, "r1", 80)         -- missing from a list that was still loading
+    r.owned.Tester = { t = env.clock - 60, v = 2,
+        list = table.concat({ "r1", key, B(80), B(10000), "a", B(50000) }, ":") }
+    local out = { crafts = { Craft(key, 400) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy[key], "you list 80 and sell 14 a day yourself (12 sold in 3 days): they cover 5d",
+        "12 sold: the two parts, once each")
+    -- a line comes again only while its row is listed, within the hour after the first: 6 more sold 100 minutes later,
+    -- after the first rows' mails went out (nth 1 again), are a sale of their own
+    Sold(500, "a1", 6, true, 1)
+    out = { crafts = { Craft(key, 400) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy[key]:find("(18 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
+    -- with the mail time on the line: a part seen late in a list (its mail 20 minutes after its line), the same line 5
+    -- minutes later (the row again), and another part 30 minutes later, after that mail went out: a sale of its own
+    Sold(400, "a2", 3, true, 1, 20)
+    Sold(395, "a2", 3, true, 1, 15)
+    Sold(370, "a2", 3, true, 1, 50)
+    out = { crafts = { Craft(key, 400) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy[key]:find("(24 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
+end)
+
 H.test("picks: what you list covers a day at your pace: no pick, and the reason names your pace", function()
     -- 12 sold in 20h = 14.4 a day, 15 listed
     local FM, env, r = Setup({ ["502"] = 9 })

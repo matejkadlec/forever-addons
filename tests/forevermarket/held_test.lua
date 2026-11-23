@@ -214,6 +214,39 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(#parts.own.sold, 2, "the two sold rows")
     H.eq(held, Round(80 * 700 + 10 * 994 * 0.95), "the 10 units once: as the sale's money, not held as well")
+    -- since 1.38.5 a sold row's line says which of the auction's rows of its units and price it is (FRV-109): two parts
+    -- of 5 at one price are two sales, the first one's line written again after a list that lacked its row is not
+    r.events = {}
+    -- mailIn: seconds after the line when its row's mail goes out (the line's mail time, 1.38.8), nil for none
+    local function Part(ago, nth, mailIn)
+        local fields = { FM.Stamp(listT - ago), "Ada", "osold", "8172", B(5), B(994), "x9", FM.Stamp(listT - ago - 120),
+            "s", B(nth) }
+        if mailIn then fields[11] = FM.Stamp(listT - ago + mailIn) end
+        r.events[#r.events + 1] = table.concat(fields, ",")
+    end
+    Part(300, 1)
+    Part(120, 2)
+    Part(60, 1)
+    r.owned.Ada = { t = listT, list = table.concat({ "r1", "8172", B(80), B(994), "a", B(60000) }, ":"), v = 2 }
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "both parts once each, the line written again adds nothing")
+    -- a line comes again only while its row is listed, within the hour after the first: a part of the same size and
+    -- price whose line comes more than an hour later (the first row's mail went out, nth starts at 1 again) is a sale
+    r.events = {}
+    Part(4000, 1)
+    Part(300, 1)
+    Part(60, 1)
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the part 62 minutes later counts, its repeat does not")
+    -- with the mail time on the line: a part seen late in a list (its mail 20 minutes after its line) is followed 30
+    -- minutes later by another part of the same size and price, seen after that mail went out: a sale of its own; the
+    -- same line before the mail went out is the row again
+    r.events = {}
+    Part(3000, 1, 1200)
+    Part(2400, 1, 600)
+    Part(1200, 1, 3000)
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the part after the first one's mail counts, the repeat does not")
 end)
 
 -- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two

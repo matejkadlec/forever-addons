@@ -8,7 +8,9 @@ local _, FM = ...
 --   * every BAG_UPDATE_DELAYED after that: crafts done = the fewest of (a material's units gone / its units per
 --     craft), units made = the product's count now - before (multi-unit and random amounts as they came out);
 --     the batch's line is written again each time, and the batch ends once its crafts are done and nothing changed
---     for 3 s, after 30 s without a change, or with the next craft
+--     for 3 s, after 30 s without a change (plus the recipe's cast time) while no profession cast is running, or with
+--     the next craft. A craft casts long on Forever (Dusky Boots 45 s, FRV-107): until 1.38.5 a batch ended after
+--     30 s, before such a craft took its reagents, and no line was written
 -- Cost basis of the materials (FM.HeldLots): the units you hold are taken to be your newest acquisitions (older ones
 -- already left your bags), and a craft uses the oldest of them first:
 --   * lots of an item = your AH purchases of it (R.buys) and your own crafts of it (R.crafts, at their recorded
@@ -41,11 +43,19 @@ local KEEP_DAYS = 365
 local MAX_CRAFTS = 5000
 FM.CRAFTS_KEEP_DAYS, FM.CRAFTS_MAX = KEEP_DAYS, MAX_CRAFTS
 local DONE_QUIET = 3   -- seconds without a change after the last craft of a batch before it ends
-local IDLE_MAX = 30    -- seconds without a change before an unfinished batch (interrupted) ends
+local IDLE_MAX = 30    -- seconds without a change (and without a cast) before an unfinished batch (interrupted) ends
 local TICK = 2         -- seconds between checks of an open batch
 
 local function IsNumber(v)
     return type(v) == "number" and not FM.IsSecret(v) and v == v
+end
+
+-- Whether the player is casting a profession craft right now (UnitCastingInfo's isTradeskill, NeverSecret on the
+-- forever branch): a craft's reagents go and its product comes only when its cast ends
+local function Casting()
+    if not UnitCastingInfo then return false end
+    local ok, _, _, _, _, _, isTradeskill = pcall(UnitCastingInfo, "player")
+    return ok and not FM.IsSecret(isTradeskill) and isTradeskill == true
 end
 
 local function Crafts()
@@ -422,7 +432,7 @@ end
 
 ---------------------------------------------------------------- recording
 
-local batch -- the craft batch in progress: { spell, key, crafts, before, mats, t, done, units, touched, line, index }
+local batch -- the craft batch in progress: { spell, key, crafts, before, mats, t, done, units, touched, idle, line, index }
 
 -- Units of an item you hold: bags, bank, reagent bank and account bank (a craft may take reagents from any of
 -- them), nil when the client cannot tell
@@ -524,8 +534,10 @@ end
 local function Tick(b)
     if batch ~= b then return end
     Update()
+    -- a craft that is still casting is no pause: the batch waits for its end however long it casts
+    if Casting() then b.touched = GetTime() end
     local quiet = GetTime() - b.touched
-    if (b.done >= b.crafts and quiet >= DONE_QUIET) or quiet >= IDLE_MAX then
+    if (b.done >= b.crafts and quiet >= DONE_QUIET) or quiet >= b.idle then
         Close()
         return
     end
@@ -547,8 +559,10 @@ local function Open(spell, casts)
         if not held then return end
         mats[i] = { key = g.key, n = g.n, before = held, lots = FM.HeldLots(g.key, held) }
     end
+    -- an interrupted batch ends after IDLE_MAX without a change, counted from the end of a cast it may still wait for
+    local castSeconds = FM.CraftSeconds and FM.CraftSeconds({ spell = spell }) or 0
     batch = { spell = spell, key = recipe.key, crafts = casts, before = before, mats = mats, t = FM.Now(),
-        done = 0, units = 0, touched = GetTime() }
+        done = 0, units = 0, touched = GetTime(), idle = IDLE_MAX + castSeconds }
     local b = batch
     C_Timer.After(TICK, function() Tick(b) end)
 end

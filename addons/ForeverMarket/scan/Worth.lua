@@ -65,6 +65,7 @@ local AH_CUT = 0.05
 local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 } -- posts store the duration index
 local POSTS_BACK = 3 * 86400 -- posts older than this have ended and come back long ago
 local MAIL_LATE = 2 * 3600 -- a sale's mail may go out this long after a list showed the sale
+local SOLD_ROW_LIFE = 61 * 60 -- a sold row is listed until its mail goes out, at most an hour after the sale
 local SENT_KEEP = 30 * 86400 -- mail lives 30 days: one of your characters' mails older than this is gone
 local OTHERS_KEEP = 300 -- seconds the reading of your other characters is kept (their auctions run out with time)
 
@@ -298,8 +299,9 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 -- left out: an auction that is in the list after all, running or shown sold (its units there and the
                 -- line's are more than were posted, or no post tells), and the same line written twice by two lists
                 -- around a broken one (a count that fell, opart, is never written twice: the same line again is
-                -- another sale)
-                local id = table_concat({ kind, aid or "", qty, unit }, ":")
+                -- another sale; since 1.38.5 a sold row's line carries which of the auction's rows of these units
+                -- and price it is, so a second part of the same size and price is a sale of its own, FRV-109)
+                local id = table_concat({ kind, aid or "", qty, unit, f[10] or "" }, ":")
                 local runs = (kind == "osold" or kind == "ogone") and aid and runningAid[aid]
                 -- for a line of an auction that was merely gone, the sales the list shows of it count as there too:
                 -- its sold rows are those units
@@ -308,8 +310,12 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                     if rows then runs = (runs or 0) + rows end
                 end
                 local again = runs and (not post or qty + runs > post.qty)
-                local twice = kind ~= "opart" and aid and aid ~= "" and logged[id]
-                logged[id] = true
+                -- a sold row's line comes again only while its row is listed: until the mail time the first line
+                -- carries (1.38.8; a row seen late in a list leaves it well within the hour after its line), without
+                -- one within the hour after it; the same line later is another sale of the same size and price
+                local ref = kind ~= "opart" and aid and aid ~= "" and logged[id]
+                local twice = ref and not (shown and t > (ref.mail and ref.mail + 60 or ref.t + SOLD_ROW_LIFE))
+                if not twice then logged[id] = { t = t, mail = FM.Unstamp(f[11]) } end
                 if not again and not twice then
                     -- money on its way only for a sale that was seen: a row shown sold, or a count that fell. A
                     -- vanished auction counts with its units, like an ended one, until the mail tells which it was

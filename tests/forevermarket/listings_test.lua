@@ -47,6 +47,23 @@ H.test("listings: active auctions of the last list count, sold and run out ones 
     H.same(info, { lists = 1, newest = now - 3600 }, "info")
 end)
 
+-- Rule (FRV-109): a stack sold in parts has a sold row next to its running rest, both with the auction's ID, in either
+-- order (the client's sort decides): the rest counts as listed and is in the pool the deep scan matches against.
+-- Until 1.38.5 the later row of an auction replaced the earlier one, so a sold row after the rest hid it
+H.test("listings: the running rest of an auction sold in parts counts, whichever of its rows comes first", function()
+    local FM, r, now = Load()
+    r.owned.Tester = { t = now - 600, v = 2, list = table.concat({
+        Entry(1, "100", 5, "a", 80000), Entry(1, "100", 6, "s", 3000), -- the rest first, then the part sold
+        Entry(2, "200", 6, "s", 3000), Entry(2, "200", 4, "a", 80000), -- the part sold first
+    }, ",") }
+    local byKey = FM.OwnListings()
+    H.eq(byKey["100"] and byKey["100"].n, 5, "the 5 left of auction 1")
+    H.eq(byKey["200"] and byKey["200"].n, 4, "the 4 left of auction 2")
+    local pool = FM.BuildOwnPool()
+    H.eq(pool["100"] and pool["100"][1].left, 5, "the pool holds the rest of auction 1")
+    H.eq(pool["200"] and pool["200"][1].left, 4, "and of auction 2")
+end)
+
 H.test("listings: posts after the list count while they can still run, posts before it do not", function()
     local FM, r, now = Load()
     r.owned.Tester = { t = now - 120 * 60, list = Entry(1, "100", 4, "a", 80000) }
