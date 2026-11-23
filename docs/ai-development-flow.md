@@ -25,7 +25,7 @@ They are entry points into this document, not a second source of truth: every ru
 - Project `FRV` on `envelopment.atlassian.net`; statuses To Do -> In Progress -> In Review -> Done ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)). There are no other statuses: do not look for or create any
 - The tools attach a few minutes after a session starts: wait and retry each minute, as that section says
 - Move a ticket by the transition whose target is the wanted status, and read the returned status: it must be the target
-- Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn (`forever-marketplace` for ForeverMarket, `tooling` for the repository itself), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
+- Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn (`forever-marketplace` for ForeverMarket, `forever-camp-features` for ForeverCampFeatures, `tooling` for the repository itself), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
 
 ### Status model
 
