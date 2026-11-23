@@ -313,18 +313,27 @@ H.test("the channel: a join that does not take is tried 5 times a session, a blo
         "debug line")
 end)
 
-H.test("sharing: without the channel the guild gets it, a restricted realm gets nothing, off means off", function()
+H.test("sharing: without the channel the guild gets it, the chat lockdown holds it back, off means off", function()
     local ns, env, seen = Load({ noChannel = true })
     env.inGuild = true
     OvenInRange(env, true)
     env.tick()
     H.eq(seen.sent[1] and seen.sent[1].distribution, "GUILD", "guild")
-    -- another character on a realm that does not let AddOns send
+    -- the realm flag that Blizzard reads for a tournament realm feature does not stop the AddOn; the chat lockdown does
     ns, env, seen = Load()
     env.restricted = true
     OvenInRange(env, true)
     env.tick()
-    H.eq(#seen.sent, 0, "restricted")
+    H.eq(#seen.sent, 1, "sent with the realm flag set")
+    ns, env, seen = Load()
+    env.C_ChatInfo.InChatMessagingLockdown = function() return true end
+    OvenInRange(env, true)
+    env.tick()
+    H.eq(#seen.sent, 0, "chat lockdown")
+    env.C_ChatInfo.InChatMessagingLockdown = function() return false end
+    env.clock = env.clock + 1
+    env.tick()
+    H.eq(#seen.sent, 1, "sent once the lockdown is over")
     ns, env, seen = Load()
     ns.SetOption("share", false)
     OvenInRange(env, true)
@@ -405,7 +414,7 @@ H.test("slash commands: the list, help, debug, test and errors", function()
     H.eq(#Printed(env, "Lobster Stew (18245), known: true: Iron Oven = true"), 1, "probe line")
     H.eq(#Printed(env, "In range now: Iron Oven"), 1, "in range line")
     H.eq(#Printed(env, "Channel ForeverCampFeatures: joined as 5"), 1, "channel line")
-    H.eq(#Printed(env, "Sending restricted on this realm: false"), 1, "restriction line")
+    H.eq(#Printed(env, "Outgoing AddOn messages restricted (the tournament realm flag): false"), 1, "restriction line")
     env.SlashCmdList.FCF("debug objects")
     H.eq(#Printed(env, "placement spell 1300001 \"Iron Oven\": Places an Iron Oven for 15 min."), 1, "objects")
     env.SlashCmdList.FCF("test")

@@ -5,8 +5,10 @@ local _, ns = ...
 -- Route: a custom chat channel the AddOn joins by itself (JoinPermanentChannel with no chat window, so it shows
 -- nowhere), C_ChatInfo.SendAddonMessage with the CHANNEL distribution; while the channel is not joined, the
 -- guild and your party or raid instead. Received reports are validated (Core.lua), rate-limited per sender and
--- merged with what is known. Whether the realm lets AddOns send at all (AreOutgoingAddonChatMessagesRestricted)
--- and the chat lockdown are checked before every send and shown in /fcf debug.
+-- merged with what is known. The chat lockdown is checked before every send; SendAddonMessage's own result tells
+-- whether the game took a message. C_ChatInfo.AreOutgoingAddonChatMessagesRestricted() is only shown in /fcf debug:
+-- Blizzard reads it to load a tournament realm feature (CooldownBroadcaster, sent through C_Commentator), so it is
+-- expected to be true on normal realms and says nothing about C_ChatInfo.SendAddonMessage.
 
 local L = ns.L
 
@@ -44,7 +46,6 @@ local stats = {
     invalid = 0,
     limited = 0,
     ignored = 0,     -- "Show objects others found" off, or the object switched off
-    restricted = 0,  -- the realm does not let AddOns send
     lockdown = 0,    -- chat lockdown
     noRoute = 0,     -- no channel, no guild, no group
     joinTries = 0
@@ -90,22 +91,13 @@ local function EnumName(enum, value)
     return tostring(value)
 end
 
--- True (and the reason) when AddOn messages cannot be sent right now
-local function SendBlocked()
-    local C = C_ChatInfo
-    if C.AreOutgoingAddonChatMessagesRestricted then
-        local restricted = C.AreOutgoingAddonChatMessagesRestricted()
-        if IsSecret(restricted) or restricted == true then
-            return "restricted"
-        end
+-- True while the chat lockdown keeps AddOns from sending
+local function InLockdown()
+    if not C_ChatInfo.InChatMessagingLockdown then
+        return false
     end
-    if C.InChatMessagingLockdown then
-        local lockdown = C.InChatMessagingLockdown()
-        if IsSecret(lockdown) or lockdown == true then
-            return "lockdown"
-        end
-    end
-    return nil
+    local lockdown = C_ChatInfo.InChatMessagingLockdown()
+    return IsSecret(lockdown) or lockdown == true
 end
 
 -- Join or leave the channel to match the settings (never in combat: retried by the next call)
@@ -158,9 +150,8 @@ function ns.ShareEntry(entry)
     if lastSent[entry] and now - lastSent[entry] < RESEND_INTERVAL then
         return
     end
-    local blocked = SendBlocked()
-    if blocked then
-        stats[blocked] = stats[blocked] + 1
+    if InLockdown() then
+        stats.lockdown = stats.lockdown + 1
         return
     end
     lastSent[entry] = now
@@ -253,8 +244,8 @@ function ns.DebugShareLines()
     lines[#lines + 1] = string_format(L.DEBUG_SEND_STATE, restricted, lockdown, chatRestriction, prefixResult or "?")
     lines[#lines + 1] = string_format(L.DEBUG_ROUTES, Show(IsInGuild and IsInGuild()), Show(IsInGroup and IsInGroup()),
         Show(IsInRaid and IsInRaid()))
-    lines[#lines + 1] = string_format(L.DEBUG_SENT, CountsText(stats.sent, stats.results), stats.restricted,
-        stats.lockdown, stats.noRoute)
+    lines[#lines + 1] = string_format(L.DEBUG_SENT, CountsText(stats.sent, stats.results), stats.lockdown,
+        stats.noRoute)
     lines[#lines + 1] = string_format(L.DEBUG_RECEIVED, CountsText(stats.received), stats.invalid,
         lastInvalid or "-", stats.limited, stats.ignored)
     local shared = 0

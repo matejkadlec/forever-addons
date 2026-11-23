@@ -92,9 +92,9 @@ local L = {
     DEBUG_CHANNEL_JOINED = "joined as %d",
     DEBUG_BLOCKED = "the game blocked %s",
     DEBUG_CHANNEL_NOT_JOINED = "not joined (the guild and the group are used)",
-    DEBUG_SEND_STATE = "Sending restricted on this realm: %s; chat lockdown: %s; chat restriction: %s; prefix: %s",
+    DEBUG_SEND_STATE = "Outgoing AddOn messages restricted (the tournament realm flag): %s; chat lockdown: %s; chat restriction: %s; prefix: %s",
     DEBUG_ROUTES = "In a guild: %s; in a group: %s; in a raid: %s",
-    DEBUG_SENT = "Sent: %s; not sent: %d restricted, %d lockdown, %d no channel, guild or group",
+    DEBUG_SENT = "Sent: %s; not sent: %d in chat lockdown, %d without channel, guild or group",
     DEBUG_RECEIVED = "Received: %s; dropped: %d invalid (last: %s), %d rate-limited, %d ignored",
     DEBUG_SHARED_KNOWN = "Shared objects known: %d",
 
