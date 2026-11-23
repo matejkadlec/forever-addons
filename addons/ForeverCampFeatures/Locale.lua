@@ -52,7 +52,7 @@ local L = {
     TEST_DISABLED = "show a test alert. %s is disabled",
     OPTIONS_IN_COMBAT = "open settings. Not available in combat",
     ERROR_UNKNOWN_COMMAND = "find subcommand '%s'. Use %s help to see available commands",
-    ERROR_ARGUMENT_COUNT = "execute command. Wrong number of arguments for '%s' (expected at most %d)",
+    ERROR_ARGUMENT_COUNT = "execute command. Wrong number of arguments for '%s' (expected %s)",
     ERROR_ARGUMENT_VALUE = "execute command. Invalid value '%s' for '%s' (expected %s)",
 
     -- /fcf debug

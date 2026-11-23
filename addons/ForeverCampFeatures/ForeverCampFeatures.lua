@@ -782,7 +782,10 @@ SlashCmdList["FCF"] = function(msg)
 
     local argCount = rawArgs == "" and 0 or select("#", strsplit(" ", rawArgs))
     if argCount < command.minArgs or argCount > command.maxArgs then
-        ns.PrintError(string_format(L.ERROR_ARGUMENT_COUNT, subcommand, command.maxArgs))
+        -- "0", or "0-1" for a range
+        local expected = command.minArgs == command.maxArgs and tostring(command.maxArgs)
+            or string_format("%d-%d", command.minArgs, command.maxArgs)
+        ns.PrintError(string_format(L.ERROR_ARGUMENT_COUNT, subcommand, expected))
         return
     end
     if argCount > 0 and command.values and not command.values[rawArgs] then
