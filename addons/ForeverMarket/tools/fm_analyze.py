@@ -1275,7 +1275,7 @@ def cmd_flips(m, args):
 # --------------------------------------------------------------------------- room (Picks' cap against your sales)
 
 PICKS_WINDOW = 72 * 3600  # Picks reads 3 days of deep scans and of your sales
-PICKS_SHARE_OF_BUYERS = 0.5  # trade/Picks.lua SHARE_OF_BUYERS
+PICKS_SHARE_OF_BUYERS = 0.5  # trade/Picks.lua SHARE_OF_BUYERS until 1.39 (FRV-103 replaced the rate with the batch)
 PICKS_OWN_MIN = 3  # your own record counts from 3 units sold in the window
 
 
@@ -1418,7 +1418,7 @@ def cmd_room(m, args):
         t = stamp_to_epoch(f[0])
         if t and len(f) > 2 and now - PICKS_WINDOW < t <= now and (f[2] not in first_post or t < first_post[f[2]]):
             first_post[f[2]] = t
-    # Picks' own rate counts each sale once (OwnSales in trade/Picks.lua, FRV-109): an osold line written again (the
+    # Picks' own rate until 1.39 counted each sale once (OwnSales in trade/Picks.lua, FRV-109): an osold line written again (the
     # same character, auction, units, price and nth; a sold row's line only until the mail time the first one carries,
     # without one within 61 minutes of it) counts nothing, nor does one without "s" of an auction that is in the newest
     # list after all with more units than were posted
@@ -1484,8 +1484,9 @@ def cmd_room(m, args):
                  'of C/24h', 'buyers/2', 'pace 3d'])
     print('  listed = your auction lists + posts since (seen = the oldest of them); sold = sale mails of the last %d '
           'days; sold/day = per day you had it listed (posts by their duration)' % args.days)
-    print('  buyers/2 = the market rate Picks plans with (? = too few intervals to trust it); pace 3d = your own '
-          'rate as Picks reads it (sales of 3 days over the time since your first post in them)')
+    print('  buyers/2 = the market rate Picks planned with until 1.39 (? = too few intervals to trust it); pace 3d = '
+          'your own rate as Picks read it until 1.39 (sales of 3 days over the time since your first post in them); '
+          'since 1.40 Picks sizes a batch from your proven listings (FRV-103)')
     for kind, values in shares.items():
         if values:
             values.sort()

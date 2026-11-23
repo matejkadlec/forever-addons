@@ -373,16 +373,24 @@ local FARM_COLUMNS = {
     end, sort = function(r) return math_max(r.parts and r.parts[1] and r.parts[1].per or 0, r.skinPer or 0) end },
 }
 
+-- A pick's Type by FM.PickKind (trade/Picks.lua): craft = Craft and sell, wait = Craft and wait (FRV-103: make now, list
+-- once the price is back), stock = what you hold covers the pick (FRV-89), swait = Stock, wait
 local KIND_LABEL = {
-    craft = GREEN .. "Craft|r", learn = BLUE .. "Learn|r", level = GREY .. "Level for|r", vendor = YELLOW .. "Vendor|r",
-    flip = YELLOW .. "Flip|r", stock = WHITE .. "Stock|r" -- what you hold covers the pick: list it (FRV-89)
+    craft = GREEN .. "Craft and sell|r", wait = GREEN .. "Craft and wait|r", learn = BLUE .. "Learn|r",
+    level = GREY .. "Level for|r", vendor = YELLOW .. "Vendor|r", flip = YELLOW .. "Flip|r", stock = WHITE .. "Stock|r",
+    swait = WHITE .. "Stock, wait|r"
 }
-local KIND_NAME = { craft = "Craft", learn = "Learn", level = "Level for", vendor = "Vendor", flip = "Flip", stock = "Stock" }
+local KIND_NAME = { craft = "Craft and sell", wait = "Craft and wait", learn = "Learn", level = "Level for", vendor = "Vendor",
+    flip = "Flip", stock = "Stock", swait = "Stock, wait" }
 
-local RANK_TIP = "#: the pick's place in the plan, by a day's expected profit at its confidence."
+local function PickKind(p)
+    return FM.PickKind and FM.PickKind(p) or p.kind
+end
+
+local RANK_TIP = "#: the pick's place in the plan, by its expected profit per gold it needs (a pick needing less than a quarter of one pick's share counts as needing that quarter)."
 local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH and at vendors, plus a recipe or tool it still needs."
-local EXPECTED_TIP = "Expected: the profit of one listing of all of the pick's units, for 8h or 24h, whichever pays better (grey behind it): what buyers take in that time, minus the deposit lost on what doesn't sell, at the pick's confidence. The row tooltip shows both."
-local CONF_TIP = "Conf.: how far the numbers can be trusted: where the buyer counts come from (your sales, measured, estimated), price swings, a falling price today, days of stock listed, estimated prices. The row tooltip says what lowered it."
+local EXPECTED_TIP = "Expected: the profit of one 8h listing of the pick's units at its confidence: about 75% of an item's listing sells (40% of a commodity's), what doesn't sell loses its deposit. A Craft and wait or Stock, wait pick lists later, once the price is back."
+local CONF_TIP = "Conf.: how far the numbers can be trusted: buyer counts estimated from older records, little price history, listings far above the usual price, days of stock listed by others, estimated prices, few units of a material at its price. The row tooltip says what lowered it."
 
 -- A pick's icon and name in its quality color; the favorite mark as everywhere
 local function PickName(p)
@@ -415,13 +423,14 @@ local function MarketRow(p)
 end
 
 -- 9 columns in 932 px (FRV-67): the steps line under a pick spans the whole row, so the Pick column gave up its width
--- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow); Conf. last (FRV-100)
+-- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow); Conf. last (FRV-100); Type 110 for "Craft and
+-- sell" and "Craft and wait" (FRV-103)
 local PICK_COLUMNS = {
     { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
         sort = function(p) return p.rank end },
-    { title = "Pick", width = 278, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
-    { title = "Type", width = 80, align = "LEFT", text = function(p) return KIND_LABEL[p.kind] or p.kind end,
-        sort = function(p) return KIND_NAME[p.kind] or p.kind end },
+    { title = "Pick", width = 248, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
+    { title = "Type", width = 110, align = "LEFT", text = function(p) return KIND_LABEL[PickKind(p)] or p.kind end,
+        sort = function(p) return KIND_NAME[PickKind(p)] or p.kind end },
     { title = "Invest", tip = INVEST_TIP, width = 110, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
     { title = "Expected", tip = EXPECTED_TIP, width = 140, text = ExpectedCell, sort = function(p) return p.expected end },
     { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = function(p) return OnAH(MarketRow(p)) end,
@@ -1080,7 +1089,7 @@ end
 
 -- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note
 local function PickTooltip(pick)
-    Note((KIND_LABEL[pick.kind] or pick.kind) .. GREY .. string_format("  pick #%d", pick.rank or 0) .. "|r", WHITE)
+    Note((KIND_LABEL[PickKind(pick)] or pick.kind) .. GREY .. string_format("  pick #%d", pick.rank or 0) .. "|r", WHITE)
     for _, r in ipairs(pick.reasons or {}) do
         if r[1] == "h" then
             Header(r[2])

@@ -354,8 +354,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
   its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
-* **Picks** (trade/Picks.lua) = what to do in the next 24h, ranked by expected profit, with the reasons in
-  the tooltip. Above the header the budget row (1.35, FRV-95, below) and under it a summary line (1.17): your gold,
+* **Picks** (trade/Picks.lua) = what to do now, one 8h listing per pick, ranked by expected profit per gold put
+  in (1.40, FRV-103; by a day's expected profit before), with the reasons in the tooltip. The formula is on the
+  Confluence page [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)
+  (what each signal is, the constants and why, worked examples, the backtest). Above the header the budget row (1.35, FRV-95, below) and under it a summary line (1.17): your gold,
   the budget, the number of plan picks, the gold they need together and the sum of their Expected, "Gold: 16g 53s  ·
   Budget: 75% of your gold = 12g 40s:   3 picks  ·  needs 11g 90s  ·  expected +1g 64s" (`FM.trade.pickGold`,
   `pickFunds`, `pickPlan`, `pickNeed`, `pickExpected`; "Plan for your 10g 22s: ..." until 1.34); hovering it shows
@@ -370,8 +372,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   until 1.28 "Ignore stock", on by default, treated bags and bank as empty): the materials you hold are used first
   and only the rest is bought ("Exclude stock for crafting" checked buys everything; tools you own count either way);
   units of a pick's own item that you hold always count as the pick's: it makes or buys that many fewer and lists
-  them with the new ones ("list 18 at 1g for 24h (1 you hold)"), so making one unit of a pick lowers how many it
-  plans; when they cover the pick, it stays as a **Stock** pick (Invest 0, "list your 18 at 1g for 24h", profit
+  them with the new ones ("list 18 at 1g for 8h (1 you hold)"), so making one unit of a pick lowers how many it
+  plans; when they cover the pick, it stays as a **Stock** pick (Invest 0, "list your 18 at 1g for 8h", profit
   against what one more unit would cost now). What an earlier pick of the plan uses as material is no longer yours
   to list, and a later pick's material line names it (1.35, FRV-98), so its number does not read as all you hold:
   "30 from your bank (of your 150, pick #1 uses 120)", "none of your 100 (pick #1 uses 100)". No other "list your
@@ -397,27 +399,70 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     log's 240 held before a craft of 75 at 16:47, the bank's reading of 165 after it). The plan itself is not saved, so
     this is the likely cause, not a proven one.
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
-    older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
-    of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
-    3+ sales; each sale once since 1.38.5, FRV-109, as the Profit tab counts it: an `osold` line written again after
-    a list that lacked its row (before the first one's mail went out), or of an auction that was merely gone from a list
-    but is in the newest one after all, counts nothing). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
-    says (1.22, FRV-66): nothing cut your sales short, so it is what buyers take at your price; the reason then
-    names it ("you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h") and the tooltip's
-    "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
-    sold out, your pace was capped by what you listed, so half the buyers counts when it is more; before 1.22 that
-    rule held while you still had units listed too (Barbaric Bracers: "make 14" next to 10 listed).
-    That holds for items sold per auction. A commodity (an item that stacks, `FM.ItemStacks`; 1.31, FRV-71) plans
-    with your pace whenever you have the 3 sales, listed or sold out: Forever hides sellers, so every cancel and
-    relist of its cheapest stacks looks like a purchase, and its buyers ran 4 to 900 times anyone's sales in
-    FRV-56's data (your best was 4% of C/24h a day listed); the tooltip notes "A commodity: your own pace is the
-    rate (its buyers are mostly relists).". Without 3 sales of yours a commodity plans a **first batch** only (Room
-    on the AH below), and its tooltip says "No sales of your own yet: a first batch (a commodity's buyers are
-    mostly relists).".
-    Time to sell = your listings + the pick's units (the new ones and what you hold of it) over that rate; the queue
-    of others at the same price counts only at the 1s floor (elsewhere you undercut it).
-  * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft / Learn / Vendor /
-    Flip / Stock), **Invest** (the gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
+    older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. They size a first
+    batch and the stock check (days of stock listed by others); your own record sizes the rest (below). Until 1.39
+    the plan sold half of them a day, or your own pace (1.22, FRV-66; a commodity only your pace, 1.31, FRV-71).
+  * Your own record (1.40, FRV-103, trade/Listings.lua `FM.ListingsRecord`): every post of the last 72h with its
+    outcome, by the rules of the analysis behind the formula. An item post (n single auctions at one buyout) sold
+    the larger of its sale mails (one unit at its unit price, sent within 15 minutes of its life, each mail once)
+    and its distinct auctions with an `osold` at that buyout; a sale's moment is its mail's, else the middle between
+    the two list reads; an `ogone` is a sale only through its mail. A commodity post (one auction) sold n less what
+    came back: an `ocancel`, else the expiry mail of its end (its count, sent within 25 minutes of the end), else an
+    `ogone`; none of them and the post is over (its character's auction list was read after its end: before that it
+    still counts as running): sold out; still running, the larger of its `opart` units and its
+    purchase entries (an `osold` of one unit, or whose buyout is a purchase's total; an `osold` of more units at the
+    unit price is the list's mark of a running auction, no sale). As the Profit tab: an `osold` without `s` (an
+    auction merely gone from a list) of an auction that is in its character's newest list after all, with more units
+    than were posted, is no sale (FRV-109: a list that came back incomplete). **Proven** = the most of your units of the item
+    sold within 8h of a post of yours of the last 72h (all your listings of it count); **your units ran out** when
+    nothing of yours was listed at the end of that time or nothing for 15+ minutes inside it. The tooltip's "Your
+    sales" is what sold in the 72h.
+  * The batch (1.40, FRV-103): what one 8h listing of the pick has, what you hold included. Proven x 1.25 when your
+    units ran out, x 0.75 when units were left ("Proven: 25 sold within 8h (21.11. 15:29), your units ran out: one
+    listing 31 (x 1.25)"); without a record of yours a first batch: an item half the buyers of 8h, at least 10
+    ("No sales of your own yet: a first batch, half of the 152 buyers of 8h = 76"), a commodity 6% of them and at
+    most the settings panel's first batch share of C/24h (FRV-71). Half when the margin (the price after the cut,
+    less the cost of one unit) is under the 8h deposit of one unit ("Margin 1s 28c under the deposit 2s 05c: half,
+    15"), twice for a commodity whose margin is 4 deposits or more ("Margin 3s 38c is 169 deposits (2c): twice,
+    176"). At most the room on the AH (below) and 100 units of an item, 200 of a commodity; what you list on all
+    your characters comes off. A batch under one craft or one unit is no pick, and the reason says why ("you list 70
+    already (last seen 1h ago): one listing sells 55 (1.25 x the 44 you sold within 8h)", "a first batch is 3 (6% of
+    the 50 buyers of 8h), one craft makes 5").
+  * Expected (1.40, FRV-103): of one 8h listing 75% of an item's units sell and 40% of a commodity's (measured on
+    your listings); each sold unit earns its margin, each unsold one loses its 8h deposit (trade/Cost.lua, else the
+    share of the price your sale mails show). "Sells: about 23 of 31 in 8h" in the tooltip; a pick whose Expected is
+    not above 0 is no pick ("the deposits of what does not sell eat the profit: about 40% of a commodity listing
+    sells"). The minimum profit per unit (10c and 3% of its cost), the minimum score and the worst case at the usual
+    low price stay. Until 1.39: what buyers take of one 8h or 24h listing at the rate above, the better of the two.
+  * **Craft and wait** and **Stock, wait** (1.40, FRV-103, `WaitInfo`): when the cheapest price of others is at most
+    85% of the usual price (median daily low, last week), a scan of the last 24h saw it at 95% of usual or more (the
+    dip is new) and the wait table of the analysis says it comes back (the chance within 2 days and the hours it
+    takes, by how much of what is listed sits at the low price and whether more is listed than usual; it waits when
+    that earns at least 5% more than listing now, after the risk), a learned craft is made now only when its
+    materials cost 10% or more under their usual cost (at the usual price, or the vendor's when that is lower) and the
+    upside outweighs the downside three times; then it lists later at 95% of the usual price: "make 12 > wait until
+    the price is 17s 52c (estimated 12h, 81% within 2 days; waits until 06:52 tomorrow at the latest) > list at 17s
+    52c for 8h". Without cheap materials it is no pick ("wait, craft later: the price is 24% under usual and comes
+    back in about 12h (81% within 2 days); the materials are not cheap now"); units of it you hold wait as **Stock,
+    wait** ("wait until ... > list your 20 at 17s 52c for 8h"), also those of a vendor resell or a flip, which never
+    wait themselves. The gold is tied up longer: the score counts 8 / (8 + the hours). The tooltip's **Why wait**
+    shows the price now against the usual one, the units at the low price, the chance, the materials now against
+    their usual cost, what listing now would earn and until when it waits: a day after the scan that last saw 95% of
+    usual; then the pick is judged again at that moment's price, as Craft and sell or a held stock, and stays no pick
+    while that price is under what its units cost. A recipe still to learn never waits.
+  * The order (1.40, FRV-103): the best expected profit per gold the pick needs (`pick.rate` = score / Invest, where
+    a pick needing less than a quarter of one pick's share counts as needing that quarter); "Also good" sorts the
+    same way. Confidence (1.40): buyers estimated from older records behind a first batch x 0.6, little price history
+    x 0.7, listings at 125%+ of usual ("maybe cornered") x 0.6, estimated prices x 0.8, a tool that cannot be
+    checked x 0.8, stock listed by others over 4 days of buyers x 0.85 (over 7 no pick), a material of the plan with
+    under 10 units within 5% of its cheapest price x 0.9 ("few Heavy Leather at this price"); a price swing over 30%
+    is a note only. Until 1.39 also the price swing, a falling price today and measured buyers (x 0.9) counted, and
+    3 days of stock listed x 0.5.
+  * The plan log (1.40, FRV-103): every plan's picks go to `plans` (Data format), so the order and the plan can be
+    measured later against what sold (FRV-125, the `listings` report of tools/fm_analyze.py).
+  * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
+    and wait / Learn / Vendor / Flip / Stock / Stock, wait; 110 px since 1.40, "Craft" until 1.39), **Invest** (the
+    gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
     brackets), **C/8h** and **C/24h**, and last **Conf.** (`pick.conf`, the confidence the tooltip explains; last since
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
     columns only moved by their titles). On AH, C/8h and C/24h have the same cells, header
@@ -426,19 +471,18 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     plan keeps its picks (`MarketRow` in ui/Table.lua); an item no tab holds now keeps the numbers the pick was made with
     (`pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
     snapshot's own units; the tooltip's "you list" (Room on the AH) also counts your posts since, so the two can differ
-    (the On AH header tip says so). The Pick column gave up width for them (420 to 278 px). Expected = one listing of the pick's units for 8h or 24h, whichever pays better, its length grey
-    behind it (`pick.expected`, `pick.listHours`, a tie goes to 8h; sorting uses the shown value): what buyers take
-    in that time earns the profit, the deposit of the rest is lost when the auction expires, at the pick's
-    confidence; deposits from trade/Cost.lua, non-stacking items pay the 1s floor per unit; flips use the source
-    confidence only, the listing already counts the time to sell. The tooltip's "One listing of all of it" keeps
-    both lengths. The rank still follows a day's expected profit (the score). Until 1.16: Pick (rank and type
-    before the name), Expected 8h, Expected 24h, PPG and a cut off Plan column.
+    (the On AH header tip says so). The Pick column gave up width for them (420 to 278 px, 248 since 1.40 for Type).
+    Expected = one 8h listing of the pick's units (above) at the pick's confidence, "8h" grey behind it
+    (`pick.expected`, `pick.listHours`); until 1.39 the better of an 8h and a 24h listing, the tooltip's "One listing
+    of all of it" showing both. The rank follows the profit per gold (above). Until 1.16: Pick (rank and type before
+    the name), Expected 8h, Expected 24h, PPG and a cut off Plan column.
   * The second line of a pick: its steps in order, ">" between them (`pick.steps`): learn (where, price) > use (your
     own materials, the most first: "use 9 Heavy Leather from your bags (+1 more)", bags, bank or both; 1.29, FRV-90;
     the tooltip's material lines say "9 from your bags" each) > buy (the main purchase: how many, what, up to which
     AH price or at which vendor; the other purchases and tools counted as "(+n more)", the tooltip lists them; only
-    what is bought, as Invest and the shopping list) > make > list (price, and the length of Expected; with units you
-    hold, how many in all and how many of them yours). Evidence
+    what is bought, as Invest and the shopping list) > make > wait (Craft and wait, Stock, wait: the target price,
+    the estimate and until when) > list (price, for 8h; with units you hold, how many in all and how many of them
+    yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks
     [Y] Invest [X] % [x] | [g] [s] [c] [ ]**, with "Lock plan after refresh" at its right (the maintainer's layout
@@ -460,7 +504,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     The Picks filters ("Exclude vendor flips" and the others, Filters above) are inputs of the plan too. All of them
     recompute the picks.
   * Room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h, the measure the
-    table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded; the share is the settings panel's
+    table shows as C/24h (`row.sold12` x 2): cap = share x C/24h, rounded, since 1.40 the upper limit of the batch
+    (above); the share is the settings panel's
     "share of an item's C/24h one pick may plan" (1 to 100%, default 25, `tableCircPct`; a dropdown of 10 / 15 / 20 /
     25 / 33 / 50 / 100% until 1.31). C/24h counts
     everything that leaves the AH, bought or taken down, and other sellers undercut you during the day, so a
@@ -470,14 +515,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     room with the new units). A room under one craft (the recipe's "makes") or one unit is no pick, and the row says why ("you list 10
     already (last seen 1h ago): the cap is 7 (25% of C/24h 28)", "too little circulation: ...", "circulation not known yet"). It holds
     for crafts, recipes to learn, vendor resells and flips, in the plan and in "Also good, but out of scope", and it
-    is an input of the plan: the gold a smaller pick leaves goes to the next ones. The buyers' limit (half of the
-    buyers a day) and the 100 units stay next to it. The pick tooltip's "Room on the AH" section reads "C/24h 43,
-    cap 11 (25%), you list 0 -> make 11" and says where "you list" comes from. A commodity's first batch (1.31,
-    FRV-71) has the smaller cap of the settings panel's "first batch of a commodity without your sales" share of
-    C/24h (1 to 10%, default 2, `tableFirstPct`; a dropdown of 1 / 2 / 3 / 5 / 10% in 1.31) and what one 8h listing at the market rate (half the
-    buyers) sells: "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6"; too small for
-    one craft or one unit: "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the
-    market rate 6)".
+    is an input of the plan: the gold a smaller pick leaves goes to the next ones. The pick tooltip's "Room on the AH"
+    section has the batch lines (above), then "C/24h 43, cap 11 (25%), you list 0 -> make 11" and where "you list"
+    comes from. A commodity's first batch (1.31, FRV-71) is at most the settings panel's "first batch of a commodity
+    without your sales" share of C/24h (1 to 10%, default 2, `tableFirstPct`; a dropdown of 1 / 2 / 3 / 5 / 10% in
+    1.31): "C/24h 1,000, cap 250 (25%), a first batch at most 2% of C/24h (20), you list 0 -> make 20"; until 1.39
+    also what one 8h listing at half the buyers sells.
   * Your listings (1.19, `FM.OwnListings` in scan/Ledger.lua): per character its last auction list (`owned`: active
     auctions whose time has not run out; one the client gave no time left for counts for 24h) plus what it posted
     after that list and can still be running (2h / 8h / 24h). The client hands the auction list out only when
@@ -1158,6 +1201,12 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   fields empty without a diff; othersMin = the cheapest unit price of others, 1.26 on)
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
+* `plans` (1.40, FRV-103) `t,char,key,kind,batch,invest,expected,conf,rank,x`: the picks of every plan (Picks, the
+  order and the plan to be measured later against what sold, FRV-125), one line each: t = when it was planned, kind
+  `craft` (Craft and sell) / `wait` (Craft and wait) / `stock` / `swait` (Stock, wait) / `learn` / `vendor` / `flip`,
+  batch = the units of its listing, invest and expected in copper (expected at its confidence), conf in %, rank its
+  place, x = `x` for a pick of "Also good, but out of scope"; the same plan as the one logged last is logged again only
+  after an hour, lines older than 14 days go (at most 6,000)
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
@@ -1275,9 +1324,9 @@ python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25
 
 `room` (1.22, FRV-56) puts Picks' room on the AH next to your real sales: per item you listed in the window, your
 listings as Picks counts them (auction lists + posts since, and their age), C/24h, the cap and the room, your sales
-by mail and how many you sold per day you had it listed (and that as a share of C/24h), the buyers/2 rate Picks
-plans with and your own pace as Picks reads it; at the end the median share of C/24h you sold, for items sold per
-auction and for commodities.
+by mail and how many you sold per day you had it listed (and that as a share of C/24h), the buyers/2 rate and the
+own pace Picks planned with until 1.39 (since 1.40 its batch comes from your proven listings, FRV-103); at the end
+the median share of C/24h you sold, for items sold per auction and for commodities.
 
 Sales rates (sold/day) appear once there are 2 hours of deep scans or searches at most 8 hours apart;
 `price --rate <sold/day>` simulates with your own estimate before that. `flips` lists cheap listings
