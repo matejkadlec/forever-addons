@@ -73,6 +73,9 @@ function Stubs.NewEnvironment()
         function frame:CreateTexture() return env.CreateFrame() end
         function frame:CreateLine() return env.CreateFrame() end
         function frame:CreateMaskTexture() return env.CreateFrame() end
+        -- a frame level is kept (0 until set), so code can stack one frame above another
+        function frame:SetFrameLevel(level) self.frameLevel = level end
+        function frame:GetFrameLevel() return self.frameLevel or 0 end
         function frame:SetText(text) self.text = text end
         function frame:GetText() return self.text end
         function frame:GetUnboundedStringWidth() return 0 end

@@ -22,6 +22,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - [ForeverHawkTimer](#foreverhawktimer)
   - [ForeverMarket](#forevermarket)
   - [ForeverCampFeatures](#forevercampfeatures)
+  - [ForeverCraftQueue](#forevercraftqueue)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
   - [Skada](#skada)
@@ -177,6 +178,32 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - `/fcf help` shows help
 - Settings panel: `Jim's Forever AddOns -> Camp Features` (the page scrolls): the alert text, sound and waypoint; the sound picked from every game sound A-Z (Raid Warning by default, a preview on pick and hover, a ▶ play button); the text's font (the game's, plus LibSharedMedia's when loaded), size, text and background color with opacity, Move (drag a preview anywhere), Reset position and Test; sharing and showing shared objects, and each object on or off
 - Standalone, TomTom optional; MIT licensed and written for CurseForge, with a player README: [`addons/ForeverCampFeatures/README.md`](addons/ForeverCampFeatures/README.md)
+
+### ForeverCraftQueue
+
+📜 A crafting queue across all your professions, right in the profession window: queue what you want to make, then craft it with one key.
+
+- **Add to queue** sits left of Create All in the profession window: it queues the selected recipe with the count in the count box (1 when the box is empty or off, as it is while the materials are short); adding a queued recipe again adds to its count
+- **The queue panel** docks to the right of the profession window (past its side tabs) and opens with it; `/fcq` or a key binding also open it on its own, where it is a free window you drag by its title
+  - One list across every profession (10x Dusky Boots, 10x Hillman's Cloak, 60x Smoked Bear Meat, ...): icon, name, profession, the count (type a new one and press Enter), up / down and remove
+  - A row whose materials are short says for how many crafts your bags hold them, in red; its tooltip lists each material with what your bags hold and what all of the row's crafts need
+  - **Clear queue** empties it after a confirmation in the panel
+- **Process queue** (the panel's button, or its key binding) does one step per press, never more: the game lets an AddOn craft only on a key press or click
+  - The next row is the first one your bags hold the materials for at least one craft of: when its profession is open, the press crafts its whole count as one batch (like Create with that count), or as many as the materials allow
+  - When another profession (or none) is open, the button reads "Open Cooking" (the row's profession) and the press opens it; the next press crafts
+  - A recipe that needs a fire, an anvil or a forge nearby is not started away from it: the chat says what it requires
+  - Crafted units leave the queue as each cast succeeds, so an interrupted batch keeps the rest queued; when the queue is empty the chat says "Craft queue done: 3 recipes, 80 crafts" with a sound
+  - In combat the button is off and says so; while a batch runs, a press waits for it
+- The queue is saved per character and kept over a relog
+- Key bindings: `Esc -> Options -> Keybindings -> Jim's Forever AddOns`: "Forever Craft Queue: process queue" and "show or hide the queue" (no keys by default)
+- Slash commands:
+  - `/fcq` shows or hides the queue panel
+  - `/fcq on` and `/fcq off` enable/disable it without reloading the UI (the queue stays saved)
+  - `/fcq clear` empties the queue (asks first while that option is on), `/fcq options` opens the settings
+  - `/fcq debug` prints the profession window's state, the next step, the last call to the game and the last casts (for testing)
+  - `/fcq help` shows help
+- Settings panel: `Jim's Forever AddOns -> Craft Queue`: enable, dock the panel to the profession window, ask before Clear queue, the sound when the queue is done, Show queue, Reset position and a `Defaults` button
+- Standalone; the idea of the queue comes from the 3.3.5 AddOn Advanced Trade Skill Window, the code is written from scratch for Forever
 
 ## 🧩 Backported AddOns
 

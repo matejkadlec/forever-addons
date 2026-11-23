@@ -1,0 +1,9 @@
+<Bindings>
+	<!-- Options -> Keybindings -> Jim's Forever AddOns (names in ForeverCraftQueue.lua); no key is set by default -->
+	<Binding name="FOREVERCRAFTQUEUE_PROCESS" category="Jim's Forever AddOns">
+		ForeverCraftQueue_Process();
+	</Binding>
+	<Binding name="FOREVERCRAFTQUEUE_TOGGLE" category="Jim's Forever AddOns">
+		ForeverCraftQueue_TogglePanel();
+	</Binding>
+</Bindings>
