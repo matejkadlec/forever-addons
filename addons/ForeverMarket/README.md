@@ -1196,8 +1196,10 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   as it was after 5 s of no, missing when the client cannot tell
 * `mailTakes` (1.39.1, FRV-108) `{ since, calls, ah, logged, gone }`: what the reads at the take-out calls saw since
   the first one, for checking in game that a call still finds its mail listed: the calls with the mailbox open, those
-  on an AH mail, the AH mails first logged by the read at their own call, and the calls whose mail was no longer listed
-  (it left before the read: such a mail is not logged); `/fm status` prints it as its "AH mail" line
+  on an AH mail, the AH mails first logged by the read at their own call, and the calls whose mail had already left the
+  list when the read ran (the list got shorter within the call, or the call's index holds another mail than before it:
+  Open All takes nearly every mail at index 1, where the next mail moves up; such a mail is not logged, so any number
+  above 0 means the read comes too late); `/fm status` prints it as its "AH mail" line
 * `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,

@@ -368,7 +368,11 @@ local function Mailbox(env, c)
         if not box.inbox[i] or box.inbox[i].noInvoice then return end
         return "seller", c.name, nil, c.money, c.money, c.deposit, c.cut, nil, nil, nil, 1
     end
-    env.TakeInboxMoney = function() box.calls = box.calls + 1 end
+    -- leaveAtCall: a client that drops the mail inside the call, before the AddOn's hook runs
+    env.TakeInboxMoney = function(i)
+        box.calls = box.calls + 1
+        if box.leaveAtCall and box.inbox[i] then table.remove(box.inbox, i) end
+    end
     -- the server sends the list: every mail's days left as of now
     function box.Load(sentTimes)
         box.inbox = {}
@@ -556,6 +560,33 @@ H.test("held: a mail the read after a change could not log yet is logged at the 
     env.FireEvent("MAIL_CLOSED")
     env.TakeInboxMoney(1)
     H.eq(r.mailTakes.calls, 3, "no call counted with the mailbox closed")
+end)
+
+-- Rule (FRV-108): a call whose mail left the list before the hook ran counts as gone, also when the next mail moved up
+-- into its index (Open All takes nearly every mail at index 1) and is a sale of the same item and price a minute later
+H.test("held: a take-out call whose mail left before the hook counts as gone, not as the next mail", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    box.Open({ t - 300, t - 240, t - 60 })
+    H.eq(#r.invoices, 3, "three mails logged")
+    box.leaveAtCall = true
+    for _ = 1, 3 do
+        env.TakeInboxMoney(1)
+        box.Changed()
+    end
+    H.same(r.mailTakes, { since = t, calls = 3, ah = 0, logged = 0, gone = 3 }, "every call counted as gone")
+    H.eq(#r.invoices, 3, "nothing logged again")
+    H.eq(next(r.mailSeen), nil, "the entries went with the mails")
+    -- the same calls on a client that keeps the mail until the inbox changes: nothing gone
+    env.FireEvent("MAIL_CLOSED")
+    env.clock = t + 600
+    box.leaveAtCall = false
+    box.Open({ t + 300, t + 360 })
+    H.eq(#r.invoices, 5, "two new mails logged")
+    box.Take(1)
+    box.Take(1)
+    H.same(r.mailTakes, { since = t, calls = 5, ah = 2, logged = 0, gone = 3 }, "found at their calls")
 end)
 
 -- Rule: twins have the same sent minute, or one a minute off; lines of the same minute pair first, so a named line
