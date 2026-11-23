@@ -207,6 +207,107 @@ H.test("purchases: a bucket the first repair (1.36.3) mended loses the copies it
         string.format("%d,%d,5,500,Tester", t0 + 300, LEATHER),
     }, "one line per purchase at its mail's total")
     H.eq(r.crafts[1], string.format("%d,5000,1,1,Tester,1,769:20:9999:20", t0 + 600), "the craft log stays")
-    H.eq(r.buysRepair, 2, "marked as the second version")
+    H.eq(r.buysRepair, 3, "marked as the current version (FRV-113 looked for its other copies too)")
     H.eq(FM.RepairBuys(r), nil, "and not again")
+end)
+
+-- FRV-113: lines and mails of the maintainer's saved variables of 2026-11-22 22:49 (the character's name replaced),
+-- a bucket the repair mended (buysRepair = 2, its run at 11/22 15:19). Rules:
+--   * the logged purchases take their mails first, then the lines the repair added (on their mail's minute, no newer
+--     than the repair): the nearest mail of the same character, item and units within 15 minutes
+--   * (a) an added line without a mail left goes when another line of the same character, item, units and total lies
+--     within 15 minutes (it copied a mail logged twice, whose second line FRV-106 removed)
+--   * (b) a line without a mail goes when two or more added lines of the same item, each on its mail's minute within
+--     2 minutes of it, add up to its units (a purchase of more than 16 stacks came as several mails)
+--   * everything else stays: a purchase with its one mail, two real purchases of the same size and total with two
+--     mails (one of them on a whole minute), an added line whose mail is gone with no line like it, a line without
+--     any mail
+local HEAVY, LIGHT, SNAPPER = 4234, 2318, 6289
+local REPAIRED_AT = 1795357198
+
+local function SavedBucket(FM)
+    local r = FM.R()
+    r.names = { [tostring(HEAVY)] = "Heavy Leather", [tostring(LIGHT)] = "Light Leather",
+        [tostring(LEATHER)] = "Medium Leather", [tostring(SNAPPER)] = "Raw Longjaw Mud Snapper" }
+    r.snipe = { saved = {} }
+    r.buysRepair, r.buysRepaired = 2, { t = REPAIRED_AT, fixed = 3, dropped = 14, after = 1 }
+    return r
+end
+
+H.test("purchases: the copies the repair made of mails logged twice and of a purchase's several mails go (FRV-113)", function()
+    local FM, env = Load()
+    local r = SavedBucket(FM)
+    local keep = {
+        "1794946456,6289,400,2992,Tester",   -- no mail at all
+        "1795269414,4234,18,4122,Tester",    -- 18 Heavy Leather, the purchase's own line
+        "1795275720,2318,87,6375,Tester",    -- 407 Light Leather came as two mails: the repair added a line for each
+        "1795275720,2318,320,23444,Tester",
+        "1795299960,4234,7,1610,Tester",     -- an added line whose mail is gone, no line like it
+        "1795332274,4234,3,750,Tester",      -- a purchase with its one mail
+        "1795332777,4234,5,1165,Tester",     -- two purchases of 5 Heavy Leather, two mails
+        "1795332784,4234,5,1165,Tester",
+        "1795333980,2319,1,55,Tester",       -- two purchases of 1 Medium Leather, two mails, one line on their minute
+        "1795334036,2319,1,55,Tester",
+    }
+    local copyA1 = "1795269360,4234,18,4122,Tester"  -- (a): the copy of the 18's mail, which was logged twice
+    local copyA2 = "1795332720,4234,5,1165,Tester"   -- (a): a third line of the two purchases of 5
+    local copyB = "1795275731,2318,407,5150,Tester"  -- (b): the purchase of 407, its mails stand as their own lines
+    r.buys = { keep[1], copyA1, keep[2], keep[3], keep[4], copyB, keep[5], keep[6], copyA2, keep[7], keep[8], keep[9], keep[10] }
+    r.invoices = {
+        Mail(FM, 1795269360, "Heavy Leather", 18, 4122),
+        Mail(FM, 1795275720, "Light Leather", 320, 23444),
+        Mail(FM, 1795275720, "Light Leather", 87, 6375),
+        Mail(FM, 1795332240, "Heavy Leather", 3, 750),
+        Mail(FM, 1795332780, "Heavy Leather", 5, 1165),
+        Mail(FM, 1795332780, "Heavy Leather", 5, 1165),
+        Mail(FM, 1795333980, "Medium Leather", 1, 55),
+        Mail(FM, 1795333980, "Medium Leather", 1, 55),
+    }
+    local function Sum()
+        local sum = 0
+        for _, line in ipairs(r.buys) do sum = sum + tonumber(line:match("^%d+,%d+,%d+,(%d+)")) end
+        return sum
+    end
+    local before = Sum()
+    FM.RepairBuys(r)
+    H.same(r.buys, keep, "the three copies go, nothing else")
+    H.eq(before - Sum(), 4122 + 1165 + 5150, "the log's total falls by what they held")
+    H.same({ r.buysCopies.dropped, r.buysCopies.total, r.buysCopies.mails }, { 3, 10437, 1 }, "the counts")
+    H.eq(r.buysRepair, 3, "marked")
+    env.FlushTimers()
+    H.eq(env.printed[#env.printed]:find("3 purchases that stood in it twice removed", 1, true) ~= nil, true, "the chat says so")
+    H.eq(FM.RepairBuys(r), nil, "once per bucket")
+end)
+
+H.test("purchases: the repair gives a purchase that came as several mails their total and adds none of them (FRV-113)", function()
+    local FM = Load()
+    local r = FM.R()
+    r.names = { [tostring(LIGHT)] = "Light Leather" }
+    r.snipe = { saved = {} }
+    -- 407 Light Leather logged with the quote before; its mails: 320 + 87 (16 stacks of 20, then the rest)
+    r.buys = { "1795275731,2318,407,5150,Tester" }
+    r.invoices = { Mail(FM, 1795275720, "Light Leather", 320, 23444), Mail(FM, 1795275720, "Light Leather", 87, 6375) }
+    r.buysRepair = nil
+    local result = FM.RepairBuys(r)
+    H.same({ result.fixed, result.added }, { 1, 0 }, "its total from both mails, no mail added as a purchase")
+    H.same(r.buys, { "1795275731,2318,407,29819,Tester" }, "one line at the mails' total")
+end)
+
+H.test("purchases: the AH mail is mended before the purchase log, a mail logged twice gives no copy (FRV-113)", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
+        "scan/Ledger.lua", "trade/Crafts.lua", "trade/Cost.lua" })
+    FM.InitializeSavedData()
+    env.clock = REPAIRED_AT
+    local minutes = math.floor((1795269360 - FM.EPOCH) / 60)
+    local function Twin(player, read)
+        return table.concat({ B(minutes), "Tester", "buyer", "Heavy Leather", player, B(18), B(4122), B(18), "0", "0",
+            B(minutes + read) }, ",")
+    end
+    -- a bucket as 1.35 left it: the mail logged twice (its seller's name came a moment later), the purchase at the
+    -- quote before
+    FM.db.realms[FM.RealmKey()] = { names = { [tostring(HEAVY)] = "Heavy Leather" }, snipe = { saved = {} },
+        buys = { "1795269414,4234,18,7786,Tester" }, invoices = { Twin("", 1), Twin("A Seller", 1) } }
+    local r = FM.R()
+    H.eq(#r.invoices, 1, "the mail once")
+    H.same(r.buys, { "1795269414,4234,18,4122,Tester" }, "the purchase once, at its mail's total")
 end)

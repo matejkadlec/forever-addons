@@ -247,6 +247,18 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     Part(1200, 1, 3000)
     _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the part after the first one's mail counts, the repeat does not")
+    -- FRV-118: since 1.40.6 a part whose row took the place of a gone row of the same size and price has that row's
+    -- nth (of the list before only the rows it can still show count). Its line comes half a minute after the first
+    -- part's mail went out, so it is a sale of its own by its mail time (an hour after the first one's), not by when it
+    -- came; written again after a list that lacked its row it is the same row (the same mail time)
+    r.events = {}
+    Part(600, 1, 300)
+    Part(270, 1, 3300)
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the second part counts, half a minute after the first one's mail")
+    Part(60, 1, 3090)
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "its line written again adds nothing")
 end)
 
 -- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two

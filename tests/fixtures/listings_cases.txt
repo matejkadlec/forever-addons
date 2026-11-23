@@ -170,3 +170,19 @@ mail 864 2040 1000
 proven 863 25 1 sold72 25
 proven 864 12 0 sold72 12
 expect 864 1 sold 12 expired 88 cancelled 0 open 0
+
+case commodity-two-parts-of-one-size
+# 10 at 5s (FRV-118): a list shows the running 5 and sale A's row of 5; the other 5 sell to one buyer (sale B) after
+# A's mail went out, so the next list shows only B's row. Since 1.40.6 the writer logs B as an osold line of its own
+# (the same nth as A's), and B's line comes again after a list that lacked its row; the auction list was read after
+# the post's end: sold out. Until 1.40.6 it logged the rest of 5 as cancelled (the second post, the same sales)
+post 1500 870 10 500 24 c c1
+event osold 870 1400 5 500 c1 1410 s
+event osold 870 1300 5 500 c1 1310 s
+event osold 870 1200 5 500 c1 1210 s
+post 1500 871 10 500 24 c c2
+event osold 871 1400 5 500 c2 1410 s
+event ocancel 871 1300 5 500 c2 1310
+list 30
+expect 870 1 sold 10 expired 0 cancelled 0 open 0
+expect 871 1 sold 5 expired 0 cancelled 5 open 0

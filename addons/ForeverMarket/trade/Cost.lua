@@ -149,10 +149,13 @@ FM.On("COMMODITY_PURCHASE_FAILED", function()
 end)
 
 ---------------------------------------------------------------- the repair of the log (FRV-102)
--- Once per realm bucket (r.buysRepair = 2): the log as it was until 1.36 (see the top of this file) is mended from your AH
--- mail. Every commodity purchase sends one "buyer" mail with its units and the real total (R.invoices, scan/Ledger.lua):
+-- Once per realm bucket (r.buysRepair): the log as it was until 1.36 (see the top of this file) is mended from your AH
+-- mail. Every commodity purchase sends a "buyer" mail with its units and the real total, several for more than 16
+-- stacks (R.invoices, scan/Ledger.lua; core/Core.lua runs FM.RepairMailLog first, so a mail logged twice until 1.37
+-- counts once):
 --   1. a line gets the total of its purchase's mail: the same character, item, units, sent within 15 minutes of the
---      line (the nearest one not taken yet)
+--      line (the nearest one not taken yet); a line no such mail takes gets the mails of a purchase that came as
+--      several (FM.SplitMails, 1.40.6, FRV-113: until then each of them was added as a purchase of its own in 2)
 --   2. a mail of an item the log holds lines of, with no line, sent after the log's first line: the purchase that was
 --      never logged (its quote was over 20 s old), added as a line at the mail's time
 --   3. a line without a mail (not read yet, or gone) of an item the sniper buys, above its sniper price per unit: that
@@ -162,28 +165,41 @@ end)
 -- what it did; a chat line too
 -- 2 since 1.36.5: a bucket the first version (1.36.3, a build of the same pull request in the maintainer's game) left
 -- at 1 gets what that version missed (RepairAfterFirst)
-local BUYS_REPAIR = 2
+-- 3 since 1.40.6 (FRV-113): a bucket at 1 or 2 loses the copies the repair made (DropCopies)
+local BUYS_REPAIR = 3
 local REPAIR_MATCH = 15 * 60
 
 -- The buyer mails by "char|item name|units", and the same mails by "item name|units" for a line without a character
--- (before 1.15.5: it counts for every character, as trade/Performance.lua matches it): { { sent, money }, ... }
+-- (before 1.15.5: it counts for every character, as trade/Performance.lua matches it): { { sent, money, qty }, ... };
+-- the same mails by "char|item name" and "item name" (any units) for a purchase that came as several
 local function MailsOf(r)
-    local out, anyChar = {}, {}
+    local out, anyChar, byItem, anyItem = {}, {}, {}, {}
+    local function add(map, k, m)
+        map[k] = map[k] or {}
+        table.insert(map[k], m)
+    end
     for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
         local f = FM.Split(line, ",")
         local sent = f[3] == "buyer" and f[2] and f[4] and FM.Unstamp(f[1])
         local qty, money = FM.Dec(f[6]), FM.Dec(f[7])
         if sent and qty and money and money > 0 then
-            local m = { sent = sent, money = money, char = f[2] }
-            local k = f[2] .. "|" .. f[4] .. "|" .. qty
-            out[k] = out[k] or {}
-            table.insert(out[k], m)
-            local any = f[4] .. "|" .. qty
-            anyChar[any] = anyChar[any] or {}
-            table.insert(anyChar[any], m)
+            local m = { sent = sent, money = money, char = f[2], qty = qty }
+            add(out, f[2] .. "|" .. f[4] .. "|" .. qty, m)
+            add(anyChar, f[4] .. "|" .. qty, m)
+            add(byItem, f[2] .. "|" .. f[4], m)
+            add(anyItem, f[4], m)
         end
     end
-    return out, anyChar
+    return out, anyChar, byItem, anyItem
+end
+
+-- The mails not taken yet of a list
+local function Untaken(list)
+    local out = {}
+    for _, m in ipairs(list or {}) do
+        if not m.taken then out[#out + 1] = m end
+    end
+    return out
 end
 
 -- The nearest mail not taken yet within REPAIR_MATCH of t, or nil
@@ -201,7 +217,6 @@ end
 -- total under the mail's character. Now such a line takes that mail's total and the added copy goes. The craft log
 -- stays as it is (the totals it was worked out from are gone); a backup from before 1.36.3 gets the whole repair
 local function RepairAfterFirst(r)
-    r.buysRepair = BUYS_REPAIR
     local buys = type(r.buys) == "table" and r.buys or nil
     if not buys or #buys == 0 then return nil end
     local names = type(r.names) == "table" and r.names or {}
@@ -254,14 +269,118 @@ local function RepairAfterFirst(r)
     return result
 end
 
+-- 3 (1.40.6, FRV-113): the copies the repair made in a bucket it mended (at 1 or 2). Its step 2 took a buyer mail
+-- without a line for a purchase never logged, but
+--   (a) a mail logged twice until 1.37 (FRV-106) had two lines in R.invoices: the second got a purchase line of its
+--       own next to the purchase's line; FM.RepairMailLog removed that mail since, the copy stayed
+--   (b) a purchase that came as several mails (FM.SplitMails) got a line per mail next to its own line, which no mail
+--       of its units took (the mails hold the right totals)
+-- A line the repair added sits on its mail's sent minute (a logged purchase has its second) and is no newer than the
+-- repair (`before`, r.buysRepaired.t). The logged purchases take their mails first, then the added lines (the nearest
+-- one not taken of the same character, item and units within 15 minutes). Dropped:
+--   (a) an added line that has no mail left, when another line of the same character, item, units and total lies
+--       within 15 minutes of it (the purchase it copied)
+--   (b) a line without a mail whose units two or more added lines of the same character and item, each on its own
+--       mail's minute and within 2 minutes of it, add up to
+-- On the maintainer's saved variables of 2026-11-22 22:49: 6 lines, 6g 15s 30c. r.buysCopies = { t, dropped, total
+-- (their copper), mails = how many were (b) }; a chat line too. Returns how many lines went
+local function DropCopies(r, before)
+    local buys = type(r.buys) == "table" and r.buys or nil
+    if not buys or #buys == 0 or not before then return 0 end
+    local names = type(r.names) == "table" and r.names or {}
+    local mails, anyChar = MailsOf(r)
+    local lines, byKey = {}, {}
+    for i, line in ipairs(buys) do
+        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        t, qty, total = tonumber(t), tonumber(qty), tonumber(total)
+        if t and qty and total then
+            local l = { i = i, t = t, key = key, qty = qty, total = total, who = who, added = t % 60 == 0 and t <= before }
+            lines[#lines + 1] = l
+            byKey[key] = byKey[key] or {}
+            table.insert(byKey[key], l)
+        end
+    end
+    local function MailList(l)
+        local name = names[l.key]
+        if not name then return nil end
+        if l.who ~= "" then return mails[l.who .. "|" .. name .. "|" .. l.qty] end
+        return anyChar[name .. "|" .. l.qty]
+    end
+    -- the logged purchases take their mails first, then the lines the repair added
+    for pass = 1, 2 do
+        for _, l in ipairs(lines) do
+            if l.added == (pass == 2) then
+                local m = NearestMail(MailList(l), l.t)
+                if m then m.taken, l.mail = true, m end
+            end
+        end
+    end
+    local drop, split = {}, 0
+    -- (a) a copy of a mail logged twice
+    for _, l in ipairs(lines) do
+        if l.added and not l.mail then
+            for _, o in ipairs(byKey[l.key]) do
+                if o ~= l and not drop[o.i] and o.who == l.who and o.qty == l.qty and o.total == l.total
+                    and math.abs(o.t - l.t) <= REPAIR_MATCH then
+                    drop[l.i] = true
+                    break
+                end
+            end
+        end
+    end
+    -- (b) a purchase whose mails were added as lines of their own
+    for _, l in ipairs(lines) do
+        if not l.mail and not drop[l.i] then
+            local parts = {}
+            for _, o in ipairs(byKey[l.key]) do
+                if o.added and o.mail and o.mail.sent == o.t and not o.part and not drop[o.i] and o.who == l.who then
+                    parts[#parts + 1] = { qty = o.qty, sent = o.t, line = o }
+                end
+            end
+            local taken = FM.SplitMails(parts, l.qty, l.t)
+            if taken then
+                for _, p in ipairs(taken) do p.line.part = true end
+                drop[l.i] = true
+                split = split + 1
+            end
+        end
+    end
+    local out, dropped, total = {}, 0, 0
+    for i, line in ipairs(buys) do
+        if drop[i] then
+            dropped = dropped + 1
+            total = total + (tonumber(line:match("^%d+,[^,]+,%d+,(%d+)")) or 0)
+        else
+            out[#out + 1] = line
+        end
+    end
+    if dropped == 0 then return 0 end
+    for i = 1, math.max(#buys, #out) do buys[i] = out[i] end
+    r.buysCopies = { t = FM.Now(), dropped = dropped, total = total, mails = split }
+    if C_Timer and FM.Print then
+        C_Timer.After(5, function()
+            FM.Print(string.format("Purchase log repaired (FRV-113): %d purchases that stood in it twice removed, %s: %d copies of an AH mail that was logged twice, %d purchases that came as several mails.",
+                dropped, FM.FormatMoney(total), dropped - split, split))
+        end)
+    end
+    return dropped
+end
+
 function FM.RepairBuys(r)
     if type(r) ~= "table" or r.buysRepair == BUYS_REPAIR then return nil end
-    if r.buysRepair == 1 then return RepairAfterFirst(r) end
+    local was = r.buysRepair
     r.buysRepair = BUYS_REPAIR
+    if was == 1 or was == 2 then
+        -- the time of the repair that mended it: the lines it added are no newer
+        local before = type(r.buysRepaired) == "table" and tonumber(r.buysRepaired.t) or FM.Now()
+        local result = was == 1 and RepairAfterFirst(r) or nil
+        DropCopies(r, before)
+        return result
+    end
     local buys = type(r.buys) == "table" and r.buys or nil
     if not buys or #buys == 0 then return nil end
     local names = type(r.names) == "table" and r.names or {}
-    local mails, anyChar = MailsOf(r)
+    local mails, anyChar, byItem, anyItem = MailsOf(r)
     local saved = type(r.snipe) == "table" and type(r.snipe.saved) == "table" and r.snipe.saved or {}
     local lines, hasLines, first = {}, {}, nil
     for _, line in ipairs(buys) do
@@ -286,6 +405,24 @@ function FM.RepairBuys(r)
             l.mailed = true
             if best.money ~= l.total then
                 l.total = best.money
+                fixed = fixed + 1
+            end
+        end
+    end
+    -- a line no mail of its units took: the mails of a purchase that came as several (FRV-113)
+    for _, l in ipairs(lines) do
+        local name = not l.raw and not l.mailed and names[l.key]
+        local list = name and (l.who ~= "" and byItem[l.who .. "|" .. name] or (l.who == "" and anyItem[name]))
+        local parts = list and FM.SplitMails(Untaken(list), l.qty, l.t)
+        if parts then
+            local money = 0
+            for _, m in ipairs(parts) do
+                m.taken = true
+                money = money + m.money
+            end
+            l.mailed = true
+            if money ~= l.total then
+                l.total = money
                 fixed = fixed + 1
             end
         end

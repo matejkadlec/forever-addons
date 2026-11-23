@@ -306,14 +306,44 @@ local function Intake(r, char, cover)
     for _, inv in ipairs(invoices) do
         if inv.kind == "buyer" then
             local key = nameKeys[inv.name]
-            local logged
             for _, b in ipairs(key and buysByKey[key] or {}) do
                 if not b.mailed and b.qty == inv.qty and (b.who == "" or b.who == inv.who)
                     and math_abs(b.t - inv.sent) <= MAIL_MATCH then
-                    b.mailed, logged = true, true
+                    b.mailed, inv.logged = true, true
                     break
                 end
             end
+        end
+    end
+    -- a purchase of more than 16 stacks came as several mails (FM.SplitMails, core/Store.lua; FRV-113): its line takes
+    -- them, until 1.40.6 each counted as a won auction and the purchase twice
+    local open = {} -- key -> the buyer mails no line took
+    for _, inv in ipairs(invoices) do
+        local key = inv.kind == "buyer" and not inv.logged and nameKeys[inv.name]
+        if key then
+            open[key] = open[key] or {}
+            table_insert(open[key], inv)
+        end
+    end
+    for key, list in pairs(open) do
+        for _, b in ipairs(buysByKey[key] or {}) do
+            if not b.mailed then
+                local candidates = {}
+                for _, inv in ipairs(list) do
+                    if not inv.logged and (b.who == "" or b.who == inv.who) then candidates[#candidates + 1] = inv end
+                end
+                local parts = FM.SplitMails(candidates, b.qty, b.t)
+                if parts then
+                    b.mailed = true
+                    for _, inv in ipairs(parts) do inv.logged = true end
+                end
+            end
+        end
+    end
+    for _, inv in ipairs(invoices) do
+        if inv.kind == "buyer" then
+            local key = nameKeys[inv.name]
+            local logged = inv.logged
             local own = not logged and inv.stamp and Own(FM.GearRef("i", inv.stamp, inv.who), inv.name, inv.qty, inv.t, inv.who) or 0
             if own > 0 then
                 inv.money = inv.money * (inv.qty - own) / inv.qty

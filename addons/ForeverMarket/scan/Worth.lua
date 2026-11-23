@@ -66,6 +66,7 @@ local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 } -- posts store the duration in
 local POSTS_BACK = 3 * 86400 -- posts older than this have ended and come back long ago
 local MAIL_LATE = 2 * 3600 -- a sale's mail may go out this long after a list showed the sale
 local SOLD_ROW_LIFE = 61 * 60 -- a sold row is listed until its mail goes out, at most an hour after the sale
+local SAME_MAIL = 2 * 60 -- two lines of a sold row whose mail times are this close are the same row (FRV-118)
 local SENT_KEEP = 30 * 86400 -- mail lives 30 days: one of your characters' mails older than this is gone
 local OTHERS_KEEP = 300 -- seconds the reading of your other characters is kept (their auctions run out with time)
 
@@ -193,6 +194,29 @@ function FM.CoveredFrom(r, char, now)
     return from
 end
 
+-- Whether a line of your auctions' events repeats one logged before (refs: the earlier lines of the same kind,
+-- auction, units, price and nth, { t, mail }, oldest first). A sold row's line comes again only while its row is
+-- listed: with its mail time (1.38.8) it is the line of the same row only when an earlier line's mail time lies
+-- within SAME_MAIL of its own (FRV-118: a new sale whose row took the place of a gone one of the same units and
+-- price has that row's nth, and its own mail time), an earlier line without one counts within the hour after it;
+-- without a mail time the newest earlier line rules, until its mail time (+ 1 minute) or within the hour after it.
+-- Any other line (gone, cancelled, an osold without "s") is the same again whenever it comes
+local function Repeats(refs, t, shown, mail)
+    if not refs then return false end
+    if shown and mail then
+        for _, ref in ipairs(refs) do
+            if ref.mail then
+                if math.abs(ref.mail - mail) <= SAME_MAIL then return true end
+            elseif t <= ref.t + SOLD_ROW_LIFE then
+                return true
+            end
+        end
+        return false
+    end
+    local ref = refs[#refs]
+    return not (shown and t > (ref.mail and ref.mail + 60 or ref.t + SOLD_ROW_LIFE))
+end
+
 -- Your auctions, from the last list of them plus what you posted after it, by what happened since:
 --   running: their units (add) and their deposit (it comes back with a sale)
 --   sold, its mail not read: the money after the cut and the deposit, on their way by mail
@@ -310,12 +334,15 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                     if rows then runs = (runs or 0) + rows end
                 end
                 local again = runs and (not post or qty + runs > post.qty)
-                -- a sold row's line comes again only while its row is listed: until the mail time the first line
-                -- carries (1.38.8; a row seen late in a list leaves it well within the hour after its line), without
-                -- one within the hour after it; the same line later is another sale of the same size and price
-                local ref = kind ~= "opart" and aid and aid ~= "" and logged[id]
-                local twice = ref and not (shown and t > (ref.mail and ref.mail + 60 or ref.t + SOLD_ROW_LIFE))
-                if not twice then logged[id] = { t = t, mail = FM.Unstamp(f[11]) } end
+                -- a sold row's line comes again only while its row is listed (Repeats): the same line of another row
+                -- is another sale of the same size and price
+                local refs = kind ~= "opart" and aid and aid ~= "" and logged[id]
+                local mail = FM.Unstamp(f[11])
+                local twice = Repeats(refs, t, shown, mail)
+                if not twice then
+                    logged[id] = logged[id] or {}
+                    table.insert(logged[id], { t = t, mail = mail })
+                end
                 if not again and not twice then
                     -- money on its way only for a sale that was seen: a row shown sold, or a count that fell. A
                     -- vanished auction counts with its units, like an ended one, until the mail tells which it was

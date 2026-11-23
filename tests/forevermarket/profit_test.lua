@@ -372,6 +372,38 @@ H.test("profit: a logged commodity purchase and its mail count once", function()
     H.eq(series.change, -2000, "taken off the AH's money once")
 end)
 
+-- Rule (FRV-113): a mail holds at most 16 stacks, so a commodity purchase of more units comes as several mails sent
+-- together (407 Light Leather as 320 + 87, the maintainer's mail of 2026-11-21); its line takes them all: the purchase
+-- counts once and none of its mails is a won auction (until 1.40.6 both were, and the purchase counted twice)
+H.test("profit: a purchase of more than 16 stacks counts once with its several mails", function()
+    local FM, env, _, r = Session(nil, "Ada", "G-A", NOW)
+    env.GetMoney = nil
+    r.worth.Ada = { FM.Stamp(NOW - 86400) .. "," .. B(1) .. "," .. B(0) .. ",hbmc3" }
+    local sent = NOW - 5 * 3600 - (NOW - 5 * 3600) % 60 -- the mails' minute
+    Buy(r, sent + 11, CLOTH, 407, 29819, "Ada")
+    for _, part in ipairs({ { 320, 23444 }, { 87, 6375 } }) do
+        r.invoices[#r.invoices + 1] = table.concat({ FM.Stamp(sent), "Ada", "buyer", CLOTH_NAME, "", B(part[1]),
+            B(part[2]), B(part[1]), B(0), B(0), FM.Stamp(NOW - 3 * 3600) }, ",")
+    end
+    local series = FM.PerfSeries("day", NOW, "char")
+    local qty, money = 0, 0
+    for _, p in ipairs(series.periods) do
+        for _, e in ipairs(p.bought) do qty, money = qty + e.qty, money + e.money end
+    end
+    H.eq(qty, 407, "the purchase once")
+    H.eq(money, 29819, "paid once")
+    H.eq(series.change, -29819, "taken off the AH's money once")
+    -- the same two mails without the purchase's line: two won auctions (a purchase the log missed)
+    r.buys = {}
+    FM.dataVersion = (FM.dataVersion or 0) + 1
+    series = FM.PerfSeries("day", NOW, "char")
+    qty = 0
+    for _, p in ipairs(series.periods) do
+        for _, e in ipairs(p.bought) do qty = qty + e.qty end
+    end
+    H.eq(qty, 407, "the mails alone count as what they hold")
+end)
+
 -- Rule (FRV-73): no reading at logout while the bags read empty (their containers may be gone already)
 H.test("profit: no reading at logout while the bags read empty", function()
     local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)

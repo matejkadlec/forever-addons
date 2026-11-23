@@ -339,16 +339,13 @@ local function PurchaseEvents(buys, char)
     return out
 end
 
--- After FM.RepairBuys (trade/Cost.lua) mended the purchase log, the craft lines' material basis, which was worked out
--- from the log as it was: each character's crafts are replayed in time order twice, with the old log and the mended
--- one (purchases add lots, crafts use them, AfterUse; a craft's product is a lot at its basis). A material's copper
--- becomes the mended replay's lots part plus its unrecorded units at the price the line recorded for them (what is
--- left of the recorded copper after the old replay's lots part). A material the old replay does not reproduce (a
--- negative price for its unrecorded units, or none of them and another total), without a price, or without the units
--- held is kept as it was. Returns how many craft lines changed
-function FM.RepairCraftBasis(r, oldBuys)
+-- Each character's crafts replayed in time order with the purchase log as it is (purchases add lots, crafts use them,
+-- AfterUse; a craft's product is a lot at its basis, so an intermediate passes a mended basis on), the material copper
+-- of a line mended where the rule allows (see the two callers below). Returns how many craft lines and materials
+-- changed
+local function ReplayCrafts(r, oldBuys)
     local crafts = type(r.crafts) == "table" and r.crafts or nil
-    if not crafts or #crafts == 0 or type(r.buys) ~= "table" then return 0 end
+    if not crafts or #crafts == 0 or type(r.buys) ~= "table" then return 0, 0 end
     local byChar = {}
     for i, line in ipairs(crafts) do
         local c = ParseCraft(line)
@@ -357,16 +354,16 @@ function FM.RepairCraftBasis(r, oldBuys)
             table_insert(byChar[c.char], { c = c, index = i })
         end
     end
-    local changed = 0
+    local changed, mats = 0, 0
     for char, list in pairs(byChar) do
         table_sort(list, function(a, b)
             if a.c.t ~= b.c.t then return a.c.t < b.c.t end
             return a.index < b.index
         end)
-        local runs = {
-            { events = PurchaseEvents(oldBuys, char), next = 1, lots = {} },
-            { events = PurchaseEvents(r.buys, char), next = 1, lots = {} },
-        }
+        -- the log as it is, and (FM.RepairCraftBasis) the log as it was when the lines were written
+        local now = { events = PurchaseEvents(r.buys, char), next = 1, lots = {} }
+        local old = oldBuys and { events = PurchaseEvents(oldBuys, char), next = 1, lots = {} } or nil
+        local runs = { now, old }
         local function Lots(run, key)
             run.lots[key] = run.lots[key] or {}
             return run.lots[key]
@@ -385,37 +382,44 @@ function FM.RepairCraftBasis(r, oldBuys)
             local parts, newTotal, differs = {}, 0, false
             for i, m in ipairs(c.mats) do
                 local cost = m.cost
-                if cost and m.held then
-                    local oldCost, oldUnrec = ReplayBasis(Lots(runs[1], m.key), m.held, m.units)
-                    local newCost, newUnrec = ReplayBasis(Lots(runs[2], m.key), m.held, m.units)
-                    if oldCost and newCost then
-                        local unitPrice
-                        if oldUnrec > 0 then
-                            unitPrice = (cost - oldCost) / oldUnrec
-                            if unitPrice < -0.5 then unitPrice = nil end
-                        elseif math.abs(oldCost - cost) <= 1 + 0.001 * cost and newUnrec == 0 then
-                            unitPrice = 0
-                        end
-                        if unitPrice then
-                            local mended = math_floor(newCost + newUnrec * math_max(0, unitPrice) + 0.5)
-                            if mended ~= cost then
-                                cost = mended
-                                differs = true
+                if m.held then
+                    local newCost, newUnrec = ReplayBasis(Lots(now, m.key), m.held, m.units)
+                    local mended
+                    if old and cost then
+                        local oldCost, oldUnrec = ReplayBasis(Lots(old, m.key), m.held, m.units)
+                        if oldCost and newCost then
+                            local unitPrice
+                            if oldUnrec > 0 then
+                                unitPrice = (cost - oldCost) / oldUnrec
+                                if unitPrice < -0.5 then unitPrice = nil end
+                            elseif math.abs(oldCost - cost) <= 1 + 0.001 * cost and newUnrec == 0 then
+                                unitPrice = 0
                             end
+                            if unitPrice then mended = math_floor(newCost + newUnrec * math_max(0, unitPrice) + 0.5) end
                         end
+                    elseif not old and newCost and newUnrec == 0 then
+                        mended = math_floor(newCost + 0.5) -- the log's lots cover every unit the craft used
+                    end
+                    if mended and mended ~= cost then
+                        cost = mended
+                        differs = true
+                        mats = mats + 1
                     end
                 end
                 parts[i] = string_format("%s:%d:%s:%s", m.key, m.units, cost and tostring(cost) or "", m.held and tostring(m.held) or "")
                 if cost and newTotal then newTotal = newTotal + cost else newTotal = nil end
             end
-            -- the materials leave both replays, the product joins them at its basis (old: as recorded)
+            -- the materials leave the replays, the product joins them at its basis (the old replay: as recorded)
             for _, run in ipairs(runs) do
                 for _, m in ipairs(c.mats) do run.lots[m.key] = AfterUse(Lots(run, m.key), m.units, m.held) end
             end
             if c.units > 0 then
-                local oldLots, newLots = Lots(runs[1], c.key), Lots(runs[2], c.key)
-                oldLots[#oldLots + 1] = { qty = c.units, unit = c.total and c.total / c.units }
-                newLots[#newLots + 1] = { qty = c.units, unit = newTotal and newTotal / c.units }
+                local nowLots = Lots(now, c.key)
+                nowLots[#nowLots + 1] = { qty = c.units, unit = newTotal and newTotal / c.units }
+                if old then
+                    local oldLots = Lots(old, c.key)
+                    oldLots[#oldLots + 1] = { qty = c.units, unit = c.total and c.total / c.units }
+                end
             end
             if differs then
                 local prefix = crafts[entry.index]:match("^(%d+,[^,]+,%d+,%d+,[^,]*,%d*,)")
@@ -427,7 +431,46 @@ function FM.RepairCraftBasis(r, oldBuys)
         end
     end
     if changed > 0 then indexSig = nil end -- the lots are built again from the mended lines
-    return changed
+    return changed, mats
+end
+
+-- After FM.RepairBuys (trade/Cost.lua) mended the purchase log, the craft lines' material basis, which was worked out
+-- from the log as it was: replayed twice, with the old log and the mended one. A material's copper becomes the mended
+-- replay's lots part plus its unrecorded units at the price the line recorded for them (what is left of the recorded
+-- copper after the old replay's lots part). A material the old replay does not reproduce (a negative price for its
+-- unrecorded units, or none of them and another total), without a price, or without the units held is kept as it
+-- was. Returns how many craft lines changed
+function FM.RepairCraftBasis(r, oldBuys)
+    return (ReplayCrafts(r, oldBuys or {}))
+end
+
+-- Once per realm bucket (r.craftsRepair = 1, 1.40.6, FRV-112): a craft line's material basis is worked out when you
+-- craft, from the purchase log as it is then. The maintainer's lines of before 2026-11-22 were worked out from the log
+-- FRV-102 mended later (sniper purchases logged with the quote before: 75 Heavy Leather of Hillman's Cloak x15 on
+-- 11/21 17:47 at 5g 56s 84c, 7s 42c a unit, from 16 units at 6s 13c, 1 at 36s 80c and 31 at 11s 09c), and the
+-- replay of FM.RepairCraftBasis never ran on his bucket: the first build of that repair (1.36.3) marked it before the
+-- replay existed (1.36.4), and the way for such a bucket (1.36.5) leaves the craft log, as the old totals are gone.
+-- The log as it is is all there is: each character's crafts are replayed with it, and a material whose used units
+-- its lots cover in full (purchases and your crafts, newest first over the units you held) gets the replay's copper;
+-- one that used units no lot covers keeps its copper (those were priced at the vendor or the AH price of that moment,
+-- which no log keeps). The 120 Heavy Leather of 11/20 11:10 at 5s 56c a unit stay: its AH mail holds the same total.
+-- r.craftsRepaired = { t, lines, mats }; a chat line too
+local CRAFTS_REPAIR = 1
+
+function FM.RepairCrafts(r)
+    if type(r) ~= "table" or r.craftsRepair == CRAFTS_REPAIR then return nil end
+    r.craftsRepair = CRAFTS_REPAIR
+    local lines, mats = ReplayCrafts(r, nil)
+    if lines == 0 then return nil end
+    local result = { t = FM.Now(), lines = lines, mats = mats }
+    r.craftsRepaired = result
+    if C_Timer and FM.Print then
+        C_Timer.After(5, function()
+            FM.Print(string.format("Craft log repaired (FRV-112): the material cost of %d crafts (%d materials) worked out again from your purchase log.",
+                lines, mats))
+        end)
+    end
+    return result
 end
 
 ---------------------------------------------------------------- recording
