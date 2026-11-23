@@ -215,7 +215,7 @@ H.test("owned list: a list still loading is read again once complete, a client t
 end)
 
 -- Rule: a client that has never said yes this session and let a wait run out may not tell at all: its later lists
--- are taken at once, as before 1.38.5, so a short AH visit still gets its list
+-- are taken at once, as before 1.38.5, so a short AH visit still gets its list; once it says yes it is waited for again
 H.test("owned list: once a wait ran out on a client that never said yes, later lists are taken at once", function()
     local FM, env, ah = Load()
     local list = OwnedList(FM, env, ah)
@@ -228,6 +228,16 @@ H.test("owned list: once a wait ran out on a client that never said yes, later l
     list.Read({ { 1, 80 } })
     H.eq(list.asks, 1, "the next one is taken at once")
     H.same(OwnedLines(FM), { { "ocancel", 88, 2, false } }, "and compared as before")
+    -- the client says yes after all: it tells, so a list still loading is waited for again
+    list.full = true
+    list.Read({ { 1, 80 } })
+    list.full, list.asks = false, 0
+    list.onAsk = function(n)
+        if n == 2 then list.rows, list.full = { { 1, 80 } }, true end
+    end
+    list.Read({})
+    H.eq(list.asks, 2, "waited until it said yes")
+    H.same(OwnedLines(FM), { { "ocancel", 88, 2, false } }, "nothing logged of the auction the loading list lacked")
 end)
 
 -- Rule (FRV-109): every sold row the list before did not have is one sale, by auction, units and price: a stack sold

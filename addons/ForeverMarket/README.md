@@ -475,7 +475,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     the mail tells). A list still loading lacks running auctions (1.38.5, FRV-109): while
     `C_AuctionHouse.HasFullOwnedAuctionResults()` says no, it is read again every half second, after 5 s taken as
     it is (what the client said is kept as `owned[char].full`); once such a wait ran out without the client ever
-    saying yes in the session, later lists are taken at once (1.38.6), so a short AH visit still gets its list. Every sold row the list before did not have is one
+    saying yes in the session, later lists are taken at once until it says yes (1.38.6, 1.38.7), so a short AH
+    visit still gets its list. Every sold row the list before did not have is one
     `osold` line, by auction, units and price (a stack sold in parts has a sold row per part next to its running
     rest; until 1.38.5 one row per auction was compared, so a part was missed or a sold-out rest logged as gone),
     and the running rest's fall beyond those rows is an `opart`. Until
