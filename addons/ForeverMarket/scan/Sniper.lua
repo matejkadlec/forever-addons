@@ -605,9 +605,12 @@ local function Sorts()
     return SORTS
 end
 
+-- The deep scan reads or saves its list, or its request waits for a free AH or the server's answer (FRV-130: the
+-- searches hold back so that the AH gets free for it)
 local function DeepScanBusy()
     local state = FM.deep and FM.deep.state
-    return state == "waiting" or state == "walking" or state == "saving"
+    if state == "walking" or state == "saving" then return true end
+    return FM.DeepScanWantsAH ~= nil and FM.DeepScanWantsAH()
 end
 
 local function Searchable(key, b)

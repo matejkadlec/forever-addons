@@ -46,13 +46,12 @@ function listener:ReceiveEvent(eventName, ...)
         FM.aucScanRunning = false
         local ok, err = pcall(FM.ProcessBrowseScan, ..., "aucb")
         if not ok and geterrorhandler then geterrorhandler()(err) end
-        if FM.pendingAuto then C_Timer.After(1, FM.MaybeAutoDeepScan) end
     elseif incremental and eventName == incremental.ScanFailed then
-        FM.aucScanRunning = false
-        if FM.pendingAuto then C_Timer.After(1, FM.MaybeAutoDeepScan) end
+        FM.aucScanRunning = false -- a queued deep scan waited for it (scan/DeepScan.lua, FRV-130)
     elseif full and eventName == full.ScanStart then
         FM.aucReplicateRunning = true
-        FM.R().lastReplicateT = FM.Now() -- Auctionator used the 15 minute replicate window
+        local r = FM.R()
+        r.lastReplicateT, r.lastReplicateBy = FM.Now(), "aucr" -- Auctionator used the 15 minute replicate window
     elseif full and eventName == full.ScanComplete then
         FM.aucReplicateRunning = false
         local ok, err = pcall(ProcessReplicateData, ...)
@@ -111,7 +110,8 @@ end
 
 -- A finished deep scan of our own
 function FM.FeedAuctionator(snap, onDone)
-    if snap.source ~= "fm" or not PriceDB() then -- checked before the merge pass: a scan has many items
+    -- ours and another AddOn's list read by the deep scan ("rep", FRV-130); Auctionator stored its own scans itself
+    if (snap.source ~= "fm" and snap.source ~= "rep") or not PriceDB() then -- checked before the merge pass
         onDone(0)
         return
     end

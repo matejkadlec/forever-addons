@@ -289,7 +289,8 @@ end
 ---------------------------------------------------------------- asking for your auctions (FRV-57)
 -- Blizzard asks for the list only from its Auctions tab, so a visit that only bought or posted left it as old as
 -- the last look at that tab. ForeverMarket asks once per AH visit, a moment after it opens, and again once your
--- posts settle. Never while its deep scan waits for the server, Auctionator scans, or the AH's message throttle is
+-- posts settle. Never while its deep scan waits for the AH to be free or for the server (the deep scan goes first,
+-- FRV-130: the automatic one is queued as the AH opens), Auctionator scans, or the AH's message throttle is
 -- busy (the sniper's searches and Auctionator's queue share it): then a few seconds later, for as long as the visit
 -- lasts. Not while Blizzard's
 -- Auctions tab is shown (it asks itself), and with that tab's own sorts, so its list keeps its order.
@@ -323,7 +324,8 @@ end
 
 local function AHBusy(ah)
     local deep = FM.deep
-    if deep and deep.state == "waiting" then return true end -- ReplicateItems is waiting for the server
+    -- ReplicateItems waits for the AH to be free (FRV-130) or for the server
+    if deep and (deep.state == "queued" or deep.state == "waiting") then return true end
     if FM.aucScanRunning or FM.aucReplicateRunning then return true end
     if ah.IsThrottledMessageSystemReady then
         local ready = ah.IsThrottledMessageSystemReady()
@@ -560,6 +562,12 @@ FM.On("OWNED_AUCTIONS_UPDATED", function()
     ownedPending = true
     C_Timer.After(0.5, function() TakeOwned(0) end)
 end)
+
+-- The list of your auctions is still arriving (read again until the client holds all of it): the deep scan's request
+-- waits for it (FM.AHBusyReason, FRV-130)
+function FM.OwnedListLoading()
+    return ownedPending
+end
 
 ---------------------------------------------------------------- chat messages
 

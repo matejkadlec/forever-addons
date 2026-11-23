@@ -117,7 +117,8 @@ local function ShowTooltip(self)
 end
 
 -- Where the latest snapshot (r.last) came from: a feed import writes it too, so it is not always a deep scan
-local SNAPSHOT_SOURCE = { fm = "deep scan", aucr = "Auctionator's full scan", api = "Battle.net feed" }
+local SNAPSHOT_SOURCE = { fm = "deep scan", aucr = "Auctionator's full scan", api = "Battle.net feed",
+    rep = "another AddOn's full scan" }
 
 -- What a deep scan is, how old the latest snapshot is and what made it, and why the button is disabled now
 local function ShowScanTooltip(self)
