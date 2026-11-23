@@ -10,8 +10,10 @@
 --     was not sold; a line logged twice counts once, a count that fell twice is two sales
 --     An auction gone although it could not have run out keeps its units while it can still be running
 --   * the list of your auctions is taken only while the AH is open
---   * an AH mail is logged once, whether or not its buyer's name has arrived; a mail that is gone from a fully
---     listed inbox is forgotten, so a later sale of the same item, units and price is a mail of its own
+--   * an AH mail is logged once, whether or not its buyer's name has arrived, and however long the mailbox stays
+--     open (the days a mail has left stand still while the client keeps its list). A mail that leaves the inbox
+--     after you took it out, or is gone from a fully listed inbox, is forgotten, so a later sale of the same item,
+--     units and price is a mail of its own; a mail that stays listed, emptied or not, is never logged again
 --   * what you hold counts at what it cost you: bought units at their price, crafted units at the cost of the bought
 --     materials they used. So buying, crafting and posting move nothing; a sale moves the AH result by its money
 --     less that cost, a lost deposit by itself
@@ -315,62 +317,173 @@ H.test("held: the saved AH mail log loses the second line of a mail logged twice
     H.eq(Days(FM, { clock = read + 600 })[2], 6 * (C.cloak.money - C.cloak.cut + C.cloak.deposit), "six sales")
 end)
 
+-- The mailbox of the tests below: inbox = the mails, each { sent = when it was sent, money = what it holds (0:
+-- emptied) }; more = mails the server holds beyond the ones shown. The days a mail has left are the server's, of
+-- the moment the list came (Load): they stand still until it comes again. Take(i) is the client's TakeInboxMoney:
+-- the mail leaves the list (or, with stays, is emptied and stays) at the next change of the inbox
+local function Mailbox(env, c)
+    local box = { inbox = {}, more = 0, calls = 0 }
+    env.GetInboxNumItems = function() return #box.inbox, #box.inbox + box.more end
+    env.GetInboxHeaderInfo = function(i)
+        local mail = box.inbox[i]
+        if not mail then return end
+        return nil, nil, nil, "Auction successful", mail.money, 0, mail.days, nil
+    end
+    env.GetInboxItem = function() end
+    env.GetInboxInvoiceInfo = function(i)
+        if not box.inbox[i] then return end
+        return "seller", c.name, nil, c.money, c.money, c.deposit, c.cut, nil, nil, nil, 1
+    end
+    env.TakeInboxMoney = function() box.calls = box.calls + 1 end
+    -- the server sends the list: every mail's days left as of now
+    function box.Load(sentTimes)
+        box.inbox = {}
+        for i, sent in ipairs(sentTimes) do
+            box.inbox[i] = { sent = sent, money = c.money, days = 30 - (env.clock - sent) / 86400 }
+        end
+        env.FireEvent("MAIL_INBOX_UPDATE")
+        env.FlushTimers()
+    end
+    function box.Changed()
+        env.FireEvent("MAIL_INBOX_UPDATE")
+        env.FlushTimers()
+    end
+    function box.Open(sentTimes)
+        env.FireEvent("MAIL_SHOW")
+        box.Load(sentTimes)
+    end
+    function box.Take(i, stays)
+        env.TakeInboxMoney(i)
+        if stays then box.inbox[i].money = 0 else table.remove(box.inbox, i) end
+        box.Changed()
+    end
+    env.C_Timer.NewTicker = function() end -- the readings' ticker
+    env.FireEvent("PLAYER_LOGIN") -- the AddOn hooks the calls that take a mail out
+    return box
+end
+
 -- Rule: an entry of "logged already" stands for a mail that is still in the mailbox. In the maintainer's log two
 -- Barbaric Bracers sold 7 and 9 minutes after two that were already collected; only their names had got them logged
 H.test("held: a mail you collected does not take a later sale of the same item and price for logged", function()
     local t = DAY1 + 16 * 3600
     local FM, env, _, r = Session(nil, t)
-    local c = C.cloak
-    local inbox = {} -- the mails in the inbox: when each was sent
-    local more = 0   -- mails the server holds beyond the ones shown
-    env.GetInboxNumItems = function() return #inbox, #inbox + more end
-    env.GetInboxHeaderInfo = function(i)
-        return nil, nil, nil, "Auction successful", c.money, 0, 30 - (env.clock - inbox[i]) / 86400, 0
-    end
-    env.GetInboxItem = function() end
-    env.GetInboxInvoiceInfo = function() return "seller", c.name, nil, c.money, c.money, c.deposit, c.cut, nil, nil, nil, 1 end
-    local function Look()
-        env.FireEvent("MAIL_INBOX_UPDATE")
-        env.FlushTimers()
-    end
+    local box = Mailbox(env, C.cloak)
     -- a visit to the mailbox: mail A is listed and logged, then collected
-    env.FireEvent("MAIL_SHOW")
-    inbox = { t - 600 }
-    Look()
+    box.Open({ t - 600 })
     H.eq(#r.invoices, 1, "A is logged")
-    inbox = {}
-    Look()
+    box.Take(1)
+    H.eq(next(r.mailSeen), nil, "A's entry went with it")
     env.FireEvent("MAIL_CLOSED")
-    -- the next visit: B, the same item and price, sent 7 minutes after A
+    -- the next visit: B, the same item and price, sent a minute after A
     env.clock = t + 1800
-    env.FireEvent("MAIL_SHOW")
-    inbox = { t - 600 + 7 * 60 }
-    Look()
+    box.Open({ t - 600 + 60 })
     H.eq(#r.invoices, 2, "B is a mail of its own")
-    Look()
+    box.Changed()
     H.eq(#r.invoices, 2, "and is logged once")
-    -- while the server holds more mail than is shown, nothing is forgotten: C is logged, leaves the shown part, and
-    -- a mail 5 minutes off still counts as it
     env.FireEvent("MAIL_CLOSED")
-    env.clock = t + 7200
-    env.FireEvent("MAIL_SHOW")
-    more = 60
-    inbox = { t + 3600 }
-    Look()
-    H.eq(#r.invoices, 3, "C is logged")
-    inbox = { t + 3600 + 300 }
-    Look()
-    H.eq(#r.invoices, 3, "an inbox that shows only part of its mail forgets none")
-    -- nor does a read after the mailbox closed, or the first read of a visit that finds no mail (its list may not
-    -- have come yet)
+end)
+
+-- Rule: the same while the inbox shows only part of its mail (the server holds more than 50) and no read lists all
+-- of it: the entry goes when its mail leaves after you took it out
+H.test("held: in an inbox that shows only part of its mail, a collected mail's entry goes when it is taken out", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    box.more = 60
+    box.Open({ t - 600, t - 300 })
+    H.eq(#r.invoices, 2, "two mails of the same item and price, 5 minutes apart")
+    box.Take(1)
+    local entries = FM.Split(select(2, next(r.mailSeen)), ",")
+    H.same(entries, { FM.Stamp(t - 300) }, "the entry of the mail taken out is gone, the other's stays")
+    -- a later sale of the same item and price, sent a minute after the collected one, comes into the list
+    env.clock = t + 60
+    box.Load({ t - 300, t - 600 + 60 })
+    H.eq(#r.invoices, 3, "it is a mail of its own")
+    -- a mail that left the shown part without being taken out may still exist: its entry stays, and a mail within
+    -- 2 minutes of it counts as it; one 3 minutes off does not
     env.FireEvent("MAIL_CLOSED")
-    more, inbox = 0, {}
-    Look()
+    env.clock = t + 3700
+    box.Open({ t + 3000 })
+    H.eq(#r.invoices, 4, "C is logged")
+    box.Load({ t + 3000 + 120 })
+    H.eq(#r.invoices, 4, "an inbox that shows only part of its mail forgets none")
+    box.Load({ t + 3000 + 180 })
+    H.eq(#r.invoices, 5, "a mail sent 3 minutes after it is another mail")
+    -- nor does a read after the mailbox closed forget, or the first read of a visit that finds no mail (its list
+    -- may not have come yet)
+    env.FireEvent("MAIL_CLOSED")
+    box.more = 0
+    box.Load({})
     env.FireEvent("MAIL_SHOW")
-    Look()
-    inbox = { t + 3600 + 300 }
-    Look()
-    H.eq(#r.invoices, 3, "the mail that is still there is not logged a second time")
+    box.Load({})
+    box.Load({ t + 3000 + 180 })
+    H.eq(#r.invoices, 5, "the mail that is still there is not logged a second time")
+end)
+
+-- Rule: a mail that stays in the list keeps its entry: emptied (the client keeps an opened mail until it is closed),
+-- or because the call came to nothing. Neither is logged again, and a later identical sale is still its own mail
+H.test("held: a mail that stays listed after it was taken out is not logged again", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    box.more = 60
+    box.Open({ t - 600 })
+    H.eq(#r.invoices, 1, "A is logged")
+    -- the call came to nothing: the mail is as it was
+    env.TakeInboxMoney(1)
+    box.Changed()
+    H.eq(box.calls, 1, "the client's call ran")
+    H.eq(#r.invoices, 1, "not logged again")
+    H.eq(select(2, next(r.mailSeen)), FM.Stamp(t - 600), "its entry stays")
+    -- emptied, and still listed
+    box.Take(1, true)
+    H.eq(#r.invoices, 1, "the emptied mail is not logged again")
+    H.eq(select(2, next(r.mailSeen)), FM.Stamp(t - 600), "its entry stays while it is listed")
+    -- a later sale a minute after it, next to the emptied mail
+    env.clock = t + 120
+    box.inbox[2] = { sent = t - 540, money = C.cloak.money, days = 30 - (env.clock - (t - 540)) / 86400 }
+    box.Changed()
+    H.eq(#r.invoices, 2, "the later sale is logged, the emptied mail is not")
+end)
+
+-- Rule: the days a mail has left are the server's, from when it sent the list, so a sent time worked out from the
+-- current time moves forward while the mailbox stays open: every read of the same list counts from the first one
+H.test("held: a mailbox left open for minutes logs none of its mail again", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    box.Open({ t - 3600, t - 1800, t - 600 })
+    H.eq(#r.invoices, 3, "three mails")
+    env.clock = t + 7 * 60 -- 7 minutes later the inbox changes: the list is the one of before
+    box.Take(3)
+    H.eq(#r.invoices, 3, "none logged again")
+    env.clock = t + 25 * 60
+    box.Changed()
+    H.eq(#r.invoices, 3, "nor 25 minutes after the list came")
+    -- the list comes again: its days left are of now, and the mails are still the logged ones
+    box.Load({ t - 3600, t - 1800 })
+    H.eq(#r.invoices, 3, "a list sent again is read from its own time")
+    -- a client that counts the days down instead: every read has new values and counts from now
+    for step = 1, 3 do
+        env.clock = t + 25 * 60 + step * 100
+        box.Load({ t - 3600, t - 1800 })
+    end
+    H.eq(#r.invoices, 3, "the same under days that count down")
+end)
+
+-- Rule: a mail taken out within the second before the inbox was read is logged before it leaves
+H.test("held: a mail taken out before the inbox was first read is still logged", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    env.FireEvent("MAIL_SHOW")
+    box.inbox = { { sent = t - 600, money = C.cloak.money, days = 30 - 600 / 86400 } }
+    env.FireEvent("MAIL_INBOX_UPDATE") -- the list came; its read is due a second later
+    env.TakeInboxMoney(1)
+    table.remove(box.inbox, 1)
+    box.Changed()
+    H.eq(#r.invoices, 1, "logged at the call, while it was still listed")
+    H.eq(next(r.mailSeen), nil, "and forgotten when it left")
 end)
 
 -- Rule: twins have the same sent minute, or one a minute off; lines of the same minute pair first, so a named line
@@ -628,7 +741,8 @@ H.test("held: a reading that misses units within the hour of the one before stil
 end)
 
 -- Rule: a reading counts only under the rule it was made by. 1.38.0, a build of this pull request that ran in the
--- maintainer's game, wrote readings with "c", a base and readings' parts; what a reading counts changed after it
+-- maintainer's game, wrote readings with "c", a base and readings' parts, 1.38.1 to 1.38.3 with "c2"; what a
+-- reading counts changed after 1.38.0 and after 1.38.2
 H.test("held: readings, the base and the parts of an earlier rule do not count, the first reading takes them again", function()
     local FM, env, state, r = Session(nil, DAY2 + 12 * 3600)
     local key = C.bracers.leather.key
@@ -638,7 +752,9 @@ H.test("held: readings, the base and the parts of an earlier rule do not count, 
     -- as 1.38.0 left the bucket: two readings (the first far too high), a base that found none of the units, parts
     -- in its own format
     r.worth.Ada = { FM.Stamp(DAY2 + 3600) .. "," .. B(1) .. "," .. B(900000) .. ",hbmc," .. B(900000) .. ",x1",
-        FM.Stamp(DAY2 + 7200) .. "," .. B(1) .. "," .. B(38833) .. ",hbmc," .. B(38833) .. ",x1" }
+        FM.Stamp(DAY2 + 7200) .. "," .. B(1) .. "," .. B(38833) .. ",hbmc," .. B(38833) .. ",x1",
+        FM.Stamp(DAY2 + 10800) .. "," .. B(1) .. "," .. B(500000) .. ",hbmc2," .. B(500000) .. ",x1" }
+    r.heldRule = "c2"
     r.heldBase = { Ada = FM.Stamp(DAY2 + 3600) .. "|", ["*"] = FM.Stamp(DAY2 + 3600) .. "|" }
     r.heldLog = { Ada = { FM.Stamp(DAY2 + 3600) .. "||own|" .. B(900000) .. "|0|0|" .. key .. ":" .. B(77) .. ":" .. B(38833) .. ":b9k4t:" } }
     env.GetMoney = nil
@@ -648,7 +764,8 @@ H.test("held: readings, the base and the parts of an earlier rule do not count, 
     H.eq(r.heldRule, FM.HELD_RULE, "the bucket's rule")
     H.eq(r.heldBase.Ada, FM.Stamp(env.clock) .. "|" .. key .. "=" .. B(77) .. ";6948=1", "the base, taken again")
     H.eq(#r.heldLog.Ada, 1, "the parts start again")
-    H.eq(FM.Split(r.worth.Ada[3], ",")[4], "hm" .. FM.HELD_RULE, "the new reading (bags and mailbox seen) carries the rule")
+    H.eq(FM.HELD_RULE, "c3", "the rule of 1.38.4")
+    H.eq(FM.Split(r.worth.Ada[4], ",")[4], "hmc3", "the new reading (bags and mailbox seen) carries the rule")
     H.same(Days(FM, env), { { 0, 0 }, 0 }, "and nothing moved")
 end)
 

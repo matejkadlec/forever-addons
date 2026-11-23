@@ -335,6 +335,39 @@ H.test("characters: mail the other same-name character logs after the switch is 
     H.eq(r.mailSeen["Tester|" .. base], B(minutes(1)) .. "," .. B(minutes(10)), "the other character's entries stay")
 end)
 
+-- Rule (FRV-106): a fully listed inbox forgets the entries no mail of it uses, but not while the character that
+-- shares this one's first name may still hold mail it logged under that name (its full-name key is younger than a
+-- mail's life)
+H.test("characters: the first-name character's full inbox keeps the entries its same-name character still needs", function()
+    local function Run(sinceDaysAgo)
+        local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua" })
+        env.clock = NOW
+        env.UnitName = function() return "Tester" end
+        env.UnitNameUnmodified = function() return "Tester" end
+        env.UnitGUID = function() return "Player-1-A" end
+        FM.InitializeSavedData()
+        local r = FM.R()
+        r.charInfo.Tester = { guid = "Player-1-A" }
+        r.charInfo["Tester Second"] = { guid = "Player-1-B", since = NOW - sinceDaysAgo * 86400 }
+        H.eq(FM.PlayerName(), "Tester", "the first-name key")
+        -- a sale under the first name, sent 5 days ago: with a key that began 3 days ago it may be the other
+        -- character's, logged before its key began, of a mail still in its inbox
+        local theirs = table.concat({ "Tester", "seller", "Wool Cloth", "", B(1), B(500), B(500) }, "|")
+        r.mailSeen = { [theirs] = B(math.floor((NOW - 5 * 86400 - FM.EPOCH) / 60)) }
+        -- this character's inbox, all of it listed: one sale of its own
+        env.GetInboxNumItems = function() return 1, 1 end
+        env.GetInboxHeaderInfo = function() return nil, nil, nil, "Auction successful", 1000, 0, 29 end
+        env.GetInboxInvoiceInfo = function() return "seller", "Silk Cloth", "Buyer", 1000, 1000, 50, 50, nil, nil, nil, 1 end
+        env.FireEvent("MAIL_SHOW")
+        env.FireEvent("MAIL_INBOX_UPDATE")
+        env.FlushTimers()
+        H.eq(#r.invoices, 1, "its own sale is logged")
+        return r.mailSeen[theirs] ~= nil
+    end
+    H.eq(Run(3), true, "the other character's key began 3 days ago: its entry stays")
+    H.eq(Run(40), false, "40 days ago: no mail from before it can exist, the entry goes")
+end)
+
 -- Rule: the account bank is read again after every item move while the bank is open, never as it closes
 H.test("characters: the account bank follows item moves while open and keeps its reading after it closes", function()
     local FM, env = Load("Player-1-A", "Tester", "Surname")

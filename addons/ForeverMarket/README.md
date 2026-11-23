@@ -833,7 +833,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 * From the first reading at cost on, what you hold counts step by step between consecutive readings (the stored
   ones and one of right now), each step in the period of its later reading; that first reading is the baseline, and
   a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + the rule the reading
-  was made by, `c2`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
+  was made by, `c3`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
   such a reading doesn't replace the earlier one of its hour, and neither does one that holds less than it (the
   line keeps the level before a fall). A reading marked `x` is skipped. Only readings of the current rule count:
   when what a reading counts changes, the rule's number does, the readings before tell their gold alone and the
@@ -1124,9 +1124,17 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   (`buyout` holds the quantity for commodity sales). A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
   `char|kind|item||qty|bid|buyout` without the other player's name, which the client gives only a moment after the
   mail is first listed; until 1.37 the name was part of the key and the same mail, read again with its name, was
-  logged a second time. An entry of `mailSeen` stands for a mail that is still in the mailbox: when the whole inbox
-  was listed (the mailbox open, the client showing all the mail the server holds) without it, it goes, so a mail
-  you collected cannot take a later sale of the same item, units and price for "logged already". Mended once per
+  logged a second time. An entry of `mailSeen` stands for a mail that is still in the mailbox: it goes when its mail
+  leaves the inbox after you took it out (1.38.4: for 10 seconds after a call of `TakeInboxMoney`, `TakeInboxItem`,
+  `AutoLootMailItem` or `DeleteInboxItem`, the calls of Blizzard's mail frame, the listed mails of that mail's key
+  are watched; a mail that stays listed, emptied or because the call came to nothing, keeps its entry and is never
+  logged again), and when the whole inbox was listed (the mailbox open, the client showing all the mail the server
+  holds) without it. So a mail you collected cannot take a later sale of the same item, units and price for "logged
+  already"; a mail matches an entry within 2 minutes of its sent time (10 until 1.38.3). The sent time comes from the
+  days the mail has left, which are the server's from when it sent the list and stand still while the client keeps
+  it: every read of the same list counts from the time that list was first read (1.38.4; before, a mailbox left
+  open moved the sent times forward). A mail taken out within the second before its first read is logged at the
+  call. Mended once per
   bucket (`mailRepair` = 3 since 1.38.3, the counts in `mailRepaired` = { t, dropped, sales }, a chat line says
   them): of two lines of the same character, kind, item, units and money, one without the name and one with it, the
   nameless one logged first, the second goes and the first gets its name; lines sent in the same minute pair first,
@@ -1142,8 +1150,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
-  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c2` = counted at cost (1.38: only readings of the
-  current rule count for what you held; 1.38.0 wrote `c`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c3` = counted at cost (1.38: only readings of the
+  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
   hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
   baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the

@@ -9,7 +9,7 @@
 --   * checked at login (gear already equipped) and after PLAYER_EQUIPMENT_CHANGED
 --   * the readings of what you held counted the item, at what it cost (FRV-106), from its arrival until it was
 --     equipped: both steps are taken back, so neither the day it arrived nor the day it was equipped moves
--- The readings here are readings of what you hold at cost (what they saw ends in the rule, "c2").
+-- The readings here are readings of what you hold at cost (what they saw ends in the rule, "c3").
 
 local H = require("harness")
 local F = require("fixtures")
@@ -69,9 +69,9 @@ local function Won(FM, r, who, name, money, t)
         B(0), B(0), FM.Stamp(t) }, ",")
 end
 
--- A stored reading "t,gold,held,hbmc2"
+-- A stored reading "t,gold,held,hbmc3"
 local function Reading(FM, t, held)
-    return FM.Stamp(t) .. "," .. B(1) .. "," .. B(held) .. ",hbmc2"
+    return FM.Stamp(t) .. "," .. B(1) .. "," .. B(held) .. ",hbmc3"
 end
 
 local function Bought(series)
@@ -155,8 +155,8 @@ H.test("gear: equipped after the last reading, the live reading's drop is taken 
     local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
     local day = FM.PerfStart("day", NOW)
     r.mailbox.Ada = FM.Stamp(day) .. "|0|"
-    r.worth.Ada = { FM.Stamp(day - 3600) .. "," .. B(1) .. "," .. B(0) .. ",hmc2",
-        FM.Stamp(day + 2 * 3600) .. "," .. B(1) .. "," .. B(500) .. ",hmc2" }
+    r.worth.Ada = { FM.Stamp(day - 3600) .. "," .. B(1) .. "," .. B(0) .. ",hmc3",
+        FM.Stamp(day + 2 * 3600) .. "," .. B(1) .. "," .. B(500) .. ",hmc3" }
     Won(FM, r, "Ada", SWORD_NAME, 500, day + 3600)
     env.GetMoney = function() return 1 end
     env.clock = day + 3 * 3600
@@ -241,10 +241,10 @@ H.test("gear: bought and equipped before the first reading, found at login: noth
     local FM, env, state, r = Session(nil, "Ada", "G-A", NOW)
     local day = FM.PerfStart("day", NOW)
     -- the sword was won and worn before the first reading of what Ada holds: no reading ever counted it; the
-    -- readings saw bags and mailbox ("hmc2"), like the reading of right now
+    -- readings saw bags and mailbox ("hmc3"), like the reading of right now
     Won(FM, r, "Ada", SWORD_NAME, 500, day - 2 * 3600)
     r.mailbox.Ada = FM.Stamp(day - 3 * 3600) .. "|0|"
-    local function Line(t) return FM.Stamp(t) .. "," .. B(1) .. "," .. B(0) .. ",hmc2" end
+    local function Line(t) return FM.Stamp(t) .. "," .. B(1) .. "," .. B(0) .. ",hmc3" end
     r.worth.Ada = { Line(day - 3600), Line(day + 3600) }
     env.GetMoney = function() return 1 end
     env.clock = day + 2 * 3600

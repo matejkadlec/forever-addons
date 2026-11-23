@@ -12,7 +12,7 @@ local _, FM = ...
 --   held = of each item with lots (bought on the AH or crafted from what you bought, not sold since: FM.BasisBook)
 --   the units you still hold (bags, bank, mailbox, purchases still in the mail, your auctions) at what they cost,
 --   plus the deposits of your running auctions and the money of sold ones still on its way by mail;
---   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + the rule the reading was made by (FM.HELD_RULE, "c2":
+--   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + the rule the reading was made by (FM.HELD_RULE, "c3":
 --   counted at cost, 1.38; only readings of the current rule count for what you held): held counts in a change only
 --   between readings that saw the same, so the first look at the bank is no gain (readings without "h" are from
 --   1.15.0-1.15.1);
@@ -51,8 +51,10 @@ local table_sort = table.sort
 -- The rule a reading is made by: "c" (counted at cost, FRV-106) and its number. Only readings of the current rule count
 -- for what you held, and R.heldBase / R.heldLog start again under a new one. Bump the number whenever what a reading
 -- counts changes after a build ran on real saved variables: 1.38.0, a build of this pull request that was synced into
--- the maintainer's game, wrote "c" (an auction gone from a list still counted as sold there)
-local RULE = "c2"
+-- the maintainer's game, wrote "c" (an auction gone from a list still counted as sold there); 1.38.1 to 1.38.3 wrote
+-- "c2" (until 1.38.2 an auction gone although it could not have run out lost its units at the next look into the
+-- mailbox); "c3" since 1.38.4
+local RULE = "c3"
 FM.HELD_RULE = RULE
 
 local FAIR_HOURS = 72 -- the usual price looks at the snapshots of this many hours before a moment
@@ -895,7 +897,7 @@ local HELD_LOG_ITEMS = 12 -- items kept of each
 local PLACES = { { "bags", "b" }, { "bank", "k" }, { "mail", "m" }, { "auctions", "a" }, { "others", "o" } }
 FM.HELD_PLACES = PLACES
 
--- What a reading line saw: this character's "hbmc2" and the hash of all of them together ("" before 1.24)
+-- What a reading line saw: this character's "hbmc3" and the hash of all of them together ("" before 1.24)
 local function Saw(line)
     local f = FM.Split(line, ",")
     return (f[4] or "") .. "," .. (f[6] or "")

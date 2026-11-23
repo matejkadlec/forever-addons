@@ -478,16 +478,22 @@ end)
 
 local MAIL_DAYS = 30 -- AH mail lives 30 days, so daysLeft tells when it was sent
 
-local MAIL_MATCH_MINUTES = 10 -- the sent time derived from daysLeft wobbles a little between reads
+-- How far the sent minute of a mail may lie from its entry of R.mailSeen: the sent time of the same mail differs by
+-- a second or two between two visits to the mailbox (InboxClock), which can cross a minute. 2 since 1.38.4 (10
+-- before): within this window an entry left behind by a mail that is gone takes another mail of the same item,
+-- units and price for itself (FRV-106)
+local MAIL_MATCH_MINUTES = 2
+local WATCH_SECONDS = 10 -- how long after a call that takes a mail out its leaving the inbox is taken for that call's
 
 -- Mail already logged: R.mailSeen[char|kind|item||qty|bid|buyout] = "sentMinutes36,..." (one entry per
 -- mail, so several identical mails, e.g. three pants sold at the same price, are all counted). The other player's
 -- name is not part of the key (the empty field; until 1.37 it was): the client gives an AH mail's name only a moment
 -- after the mail is first listed, so the same mail read again seconds later had another key and was logged a second
 -- time (FRV-106: 413 of the maintainer's 1,149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log.
--- An entry stands for a mail that is still in the mailbox: once the whole inbox was listed without it, it goes
--- (ScanInbox). Without the name in the key an entry left behind by a mail you collected would otherwise take a later
--- sale of the same item, units and price sent within MAIL_MATCH_MINUTES of it for "logged already", for good
+-- An entry stands for a mail that is still in the mailbox: it goes when its mail leaves the inbox after you took it
+-- out (WatchMail), and once the whole inbox was listed without it (ScanInbox). Without the name in the key an entry
+-- left behind by a mail you collected would otherwise take a later sale of the same item, units and price sent
+-- within MAIL_MATCH_MINUTES of it for "logged already", for good
 local function MailBase(char, kind, itemName, count, bid, buyout)
     return table_concat({ char, kind, itemName, "", count or "", bid or "", buyout or "" }, "|")
 end
@@ -594,11 +600,76 @@ end
 local mailOpen = false   -- between MAIL_SHOW and MAIL_CLOSED
 local mailListed = false -- a read of this visit to the mailbox found mail: its list is loaded
 
+-- The time an inbox read counts from. The days a mail has left are the server's, of the moment it sent the list: they
+-- stand still while the client keeps that list, so a sent time worked out from the current time moves forward with
+-- every read of the same list (in the maintainer's log, of the mails read twice within seconds 19 moved a minute
+-- forward and 3 back), by minutes when the mailbox stays open that long. A read of the list the read before saw
+-- (most of its mails are mails of that read: the same subject with the same days left) therefore counts from the
+-- time that list was first read; a list with new values counts from now. Right under both ways a client can keep the
+-- days left, standing still or counting down. The list is the server's answer to CheckInbox, which the client may
+-- only ask for every so often (C_Mail.CanCheckInbox), so a mailbox opened again can show the list of the visit
+-- before: what a read saw is kept across visits
+local listSeen = { t = nil, mails = {} }
+
+local function InboxClock(now)
+    local mails, n, same = {}, 0, 0
+    for i = 1, (GetInboxNumItems()) do
+        local _, _, _, subject, _, _, daysLeft = GetInboxHeaderInfo(i)
+        if type(daysLeft) == "number" and not FM.IsSecret(daysLeft) then
+            local key = tostring(daysLeft) .. "|" .. ((type(subject) == "string" and not FM.IsSecret(subject)) and subject or "")
+            n = n + 1
+            if listSeen.mails[key] then same = same + 1 end
+            mails[key] = true
+        end
+    end
+    -- an empty read says nothing: the list may not have come yet
+    if n == 0 then return now end
+    if not listSeen.t or same * 2 <= n or now < listSeen.t then listSeen.t = now end
+    listSeen.mails = mails
+    return listSeen.t
+end
+
+-- The AH mail at an inbox index: { base (its R.mailSeen key), sent, minutes, list ("invoices" or "events"), record
+-- (the line's fields) }; nil for any other mail. clock = InboxClock's time of this read
+local function ReadMail(i, char, clock)
+    local _, _, _, subject, _, _, daysLeft = GetInboxHeaderInfo(i)
+    if type(daysLeft) ~= "number" or FM.IsSecret(daysLeft) then return nil end
+    local sent = clock - math.max(0, MAIL_DAYS - daysLeft) * 86400
+    local minutes = math_floor((sent - FM.EPOCH) / 60)
+    local invoiceType, itemName, player, bid, buyout, deposit, cut, _, _, _, count = GetInboxInvoiceInfo(i)
+    if type(invoiceType) == "string" and type(itemName) == "string" and not FM.IsSecret(itemName) then
+        local fields = { char, invoiceType, Clean(itemName), Clean(player), Enc(count or 1), Enc(bid or 0),
+            Enc(buyout or 0), Enc(deposit or 0), Enc(cut or 0) }
+        return { base = MailBase(fields[1], fields[2], fields[3], fields[5], fields[6], fields[7]), sent = sent,
+            minutes = minutes, list = "invoices", record = fields }
+    elseif type(subject) == "string" and not FM.IsSecret(subject) then
+        local expiredPattern = PatternFromFormat(AUCTION_EXPIRED_MAIL_SUBJECT)
+        local cancelledPattern = PatternFromFormat(AUCTION_REMOVED_MAIL_SUBJECT)
+        local kind, name
+        if expiredPattern then name = subject:match(expiredPattern) kind = "mexpired" end
+        if not name and cancelledPattern then name = subject:match(cancelledPattern) kind = "mcancelled" end
+        if name then
+            return { base = MailBase(char, kind, Clean(name)), sent = sent, minutes = minutes, list = "events",
+                record = { char, kind, Clean(name) } }
+        end
+    end
+    return nil
+end
+
+-- The separator between a character's first name and its surname in a full-name key (FM.PlayerFullName)
+local function SurnameSeparator()
+    local consts = Constants and Constants.CharacterNameSeparatorConsts
+    return consts and consts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+end
+
 local function ScanInbox()
     if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
     local r = FM.R()
     if type(r.mailSeen) ~= "table" then SeedMailSeen(r) end
     local now = FM.Now()
+    local clock = InboxClock(now)
+    local nowMinutes = math_floor((now - FM.EPOCH) / 60)
+    local char = FM.PlayerName()
     -- whether this read lists every mail of the inbox: the mailbox is open, the client shows all the server holds
     -- (Blizzard's inbox compares the same two numbers), and the list is loaded (this read or an earlier one of the
     -- visit found mail: an empty first read may be a list that has not come yet). Then an entry of R.mailSeen that no
@@ -607,8 +678,15 @@ local function ScanInbox()
     local numbers = type(shown) == "number" and type(total) == "number" and not FM.IsSecret(shown) and not FM.IsSecret(total)
     if mailOpen and numbers and shown > 0 then mailListed = true end
     local complete = mailOpen and numbers and total <= shown and mailListed
-    local nowMinutes = math_floor((now - FM.EPOCH) / 60)
-    local char = FM.PlayerName()
+    -- not while a character that shares this one's first name may still hold mail it logged under that name (its
+    -- full-name key began less than a mail's life ago, FRV-35): those entries are this key's, the mail is in its inbox
+    local surnamed = char .. SurnameSeparator()
+    for key, other in pairs(type(r.charInfo) == "table" and r.charInfo or {}) do
+        if type(key) == "string" and key ~= char and key:sub(1, #surnamed) == surnamed and type(other) == "table"
+            and type(other.since) == "number" and now - other.since < (MAIL_DAYS + 2) * 86400 then
+            complete = false
+        end
+    end
     -- a character keyed by its full name since 1.23 (FRV-35) logged its mail under its first name before: those
     -- entries, of mail sent before its key began, count as seen too, so the mail still in its inbox is not logged a
     -- second time. Later ones are the other character's (it keeps the first name), never this one's
@@ -617,37 +695,19 @@ local function ScanInbox()
     local since = first and first ~= char and type(info) == "table" and type(info.since) == "number" and info.since
     local alias = since and (first .. "|") or nil
     local aliasBefore = since and math_floor((since - FM.EPOCH) / 60)
-    local expiredPattern = PatternFromFormat(AUCTION_EXPIRED_MAIL_SUBJECT)
-    local cancelledPattern = PatternFromFormat(AUCTION_REMOVED_MAIL_SUBJECT)
 
     -- this read of the inbox, grouped by identical mail
     local groups, order = {}, {}
-    local function add(base, sent, list, record)
-        local g = groups[base]
-        if not g then
-            g = {}
-            groups[base] = g
-            order[#order + 1] = base
-        end
-        g[#g + 1] = { minutes = math_floor((sent - FM.EPOCH) / 60), sent = sent, list = list, record = record }
-    end
-    for i = 1, GetInboxNumItems() do
-        local _, _, _, subject, _, _, daysLeft = GetInboxHeaderInfo(i)
-        if type(daysLeft) == "number" and not FM.IsSecret(daysLeft) then
-            local sent = now - math.max(0, MAIL_DAYS - daysLeft) * 86400
-            local invoiceType, itemName, player, bid, buyout, deposit, cut, _, _, _, count = GetInboxInvoiceInfo(i)
-            if type(invoiceType) == "string" and type(itemName) == "string" and not FM.IsSecret(itemName) then
-                local fields = { char, invoiceType, Clean(itemName), Clean(player), Enc(count or 1), Enc(bid or 0),
-                    Enc(buyout or 0), Enc(deposit or 0), Enc(cut or 0) }
-                add(MailBase(fields[1], fields[2], fields[3], fields[5], fields[6], fields[7]), sent, "invoices", fields)
-            elseif type(subject) == "string" and not FM.IsSecret(subject) then
-                local kind, itemName
-                if expiredPattern then itemName = subject:match(expiredPattern) kind = "mexpired" end
-                if not itemName and cancelledPattern then itemName = subject:match(cancelledPattern) kind = "mcancelled" end
-                if itemName then
-                    add(MailBase(char, kind, Clean(itemName)), sent, "events", { char, kind, Clean(itemName) })
-                end
+    for i = 1, (GetInboxNumItems()) do
+        local mail = ReadMail(i, char, clock)
+        if mail then
+            local g = groups[mail.base]
+            if not g then
+                g = {}
+                groups[mail.base] = g
+                order[#order + 1] = mail.base
             end
+            g[#g + 1] = mail
         end
     end
 
@@ -664,12 +724,11 @@ local function ScanInbox()
             end
         end
         for _, mail in ipairs(mails) do
-            local match
+            -- the nearest entry no other mail of this read took
+            local match, gap
             for _, s in ipairs(seen) do
-                if not s.used and math.abs(s.minutes - mail.minutes) <= MAIL_MATCH_MINUTES then
-                    match = s
-                    break
-                end
+                local d = math.abs(s.minutes - mail.minutes)
+                if not s.used and d <= MAIL_MATCH_MINUTES and (not gap or d < gap) then match, gap = s, d end
             end
             if match then
                 match.used = true
@@ -709,11 +768,129 @@ local function ScanInbox()
     end
 end
 
-FM.On("MAIL_SHOW", function() mailOpen, mailListed = true, false end)
-FM.On("MAIL_CLOSED", function() mailOpen, mailListed = false, false end)
+local inboxPending = false -- the inbox changed and the read of it is still to come (a second later)
 
-local inboxPending = false
+-- A mail you take out (FRV-106). TakeInboxMoney, TakeInboxItem, AutoLootMailItem and DeleteInboxItem are the calls
+-- Blizzard's mail frame makes (Blizzard_MailFrame/MailFrame.lua: a click, Open All, the mail closed after it was
+-- emptied); the mail leaves the inbox a moment after the call, with a MAIL_INBOX_UPDATE. After such a call the
+-- mails of its kind (the same R.mailSeen key) the inbox lists are watched for WATCH_SECONDS: one that is no longer
+-- listed at a change of the inbox has left, and its entry of R.mailSeen goes with it, so no later mail of the same
+-- item, units and price is taken for it. A mail that stays listed, emptied or because the call came to nothing (the
+-- client was busy, the bags full), keeps its entry and is not logged again.
+-- Not yet verified in game that the inbox follows the calls this way; where it does not, the entry stays until the
+-- whole inbox was listed without its mail, as before
+local watch = {} -- [key] = { minutes = { the sent minutes of its mails listed at the last look }, t = the last call }
+
+-- The sent minutes of the listed mails per key
+local function ListedByBase(char, clock)
+    local listed = {}
+    for i = 1, (GetInboxNumItems()) do
+        local mail = ReadMail(i, char, clock)
+        if mail then
+            listed[mail.base] = listed[mail.base] or {}
+            table.insert(listed[mail.base], mail.minutes)
+        end
+    end
+    return listed
+end
+
+-- The minutes of before that after no longer holds, one to one: equal minutes pair first, then minutes one apart
+-- (a list that came again counts from another second). Never more than the number of mails the list lost
+local function MinutesGone(before, after)
+    local used, left = {}, {}
+    for _, minutes in ipairs(before) do left[#left + 1] = minutes end
+    for gap = 0, 1 do
+        local rest = {}
+        for _, minutes in ipairs(left) do
+            local found
+            for i, other in ipairs(after) do
+                if not used[i] and math.abs(other - minutes) == gap then found = i break end
+            end
+            if found then used[found] = true else rest[#rest + 1] = minutes end
+        end
+        left = rest
+    end
+    local gone = {}
+    for i = 1, math.min(#left, #before - #after) do gone[i] = left[i] end
+    return gone
+end
+
+-- Drops the entries of the watched mails that left the inbox
+local function WatchedGone()
+    if not next(watch) then return end
+    if not (mailOpen and GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then
+        watch = {}
+        return
+    end
+    local now = FM.Now()
+    local listed = ListedByBase(FM.PlayerName(), InboxClock(now))
+    local r = FM.R()
+    for base, w in pairs(watch) do
+        if now - w.t > WATCH_SECONDS or now < w.t then
+            watch[base] = nil
+        else
+            local after = listed[base] or {}
+            local stamps = type(r.mailSeen) == "table" and FM.Split(r.mailSeen[base], ",") or {}
+            for _, minutes in ipairs(MinutesGone(w.minutes, after)) do
+                -- the entry nearest to the mail that left
+                local best, gap
+                for i, stamp in ipairs(stamps) do
+                    local d = math.abs((Dec(stamp) or 0) - minutes)
+                    if d <= MAIL_MATCH_MINUTES and (not gap or d < gap) then best, gap = i, d end
+                end
+                if best then
+                    table.remove(stamps, best)
+                    r.mailSeen[base] = #stamps > 0 and table_concat(stamps, ",") or nil
+                end
+            end
+            w.minutes = after
+        end
+    end
+end
+
+-- After a call that takes the mail at index out: its kind's mails are watched
+local function WatchMail(index)
+    if not mailOpen or type(index) ~= "number" or not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
+    -- a mail taken out within the second before the inbox was read is logged before it leaves
+    if inboxPending then ScanInbox() end
+    WatchedGone()
+    local now, char = FM.Now(), FM.PlayerName()
+    local clock = InboxClock(now)
+    local mail = ReadMail(index, char, clock)
+    if mail then watch[mail.base] = { minutes = ListedByBase(char, clock)[mail.base] or {}, t = now } end
+end
+
+local function HookMailbox()
+    if FM.mailboxHooked then return end
+    FM.mailboxHooked = true
+    for _, name in ipairs({ "TakeInboxMoney", "TakeInboxItem", "AutoLootMailItem", "DeleteInboxItem" }) do
+        if type(_G[name]) == "function" then
+            hooksecurefunc(name, function(index)
+                local ok, err = pcall(WatchMail, index)
+                if not ok and geterrorhandler then geterrorhandler()(err) end
+            end)
+        end
+    end
+end
+
+FM.On("PLAYER_LOGIN", HookMailbox)
+FM.On("MAIL_SHOW", function()
+    mailOpen, mailListed = true, false
+    watch = {}
+end)
+FM.On("MAIL_CLOSED", function()
+    mailOpen, mailListed = false, false
+    watch = {}
+end)
+
 FM.On("MAIL_INBOX_UPDATE", function()
+    -- at once: the time this list counts from, and a watched mail that just left
+    local ok, err = pcall(function()
+        if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
+        InboxClock(FM.Now())
+        WatchedGone()
+    end)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
     if inboxPending then return end
     inboxPending = true
     C_Timer.After(1, function()
