@@ -82,10 +82,11 @@ A batch has one kind: the strictest of its tickets. Prefer not to mix a gated ti
 
 `flow1` and `flow2` take `local` or `cloud`. Without an argument the run is `local` when the session can sync (the game's AddOns folder from `.env.sync-addons` exists), else `cloud`; a session without the game folder always runs as `cloud` and says so.
 
-- **Local:** WSL on the maintainer's machine. It syncs changed AddOns into the game after every change ([AGENTS.md, Sync](../AGENTS.md#sync)) and can hand over an in-game test directly
-- **Cloud:** no game folder, so no sync
+- **Local:** WSL on the maintainer's machine. It syncs changed AddOns into the game after every change ([AGENTS.md, Sync](../AGENTS.md#sync)), backs up his saved data itself before a change of it reaches the game, and can hand over an in-game test directly
+- **Cloud:** no game folder, so no sync and no backup of his saved data
   - It takes work that changes no AddOn file first (documentation, guides, `tools/`, scripts, `services/`)
   - It may take AddOn work too: the response then says that the sync did not complete and gives the commands for his clone ([AGENTS.md, Ending a response](../AGENTS.md#ending-a-response)); a gated batch is handed over the same way
+  - A batch that migrates, repairs or cleans up saved data asks him to copy the AddOn's SavedVariables file before the `/reload`, since the run cannot reach it ([AGENTS.md, In-Game QA](../AGENTS.md#in-game-qa))
   - It never takes a ticket that needs his machine or data: reading his SavedVariables or `Logs/`, the game folder, the feed's Windows task
 
 ---
@@ -127,6 +128,10 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
   - `git diff --check`, and for Markdown the relative links
 - The gate proves syntax and the logic `tests/run.sh` covers, not behavior in the game: say so in Verification. A check that needs the game is the maintainer's
 - After every change to AddOn files: sync (local) or say that it did not happen (cloud)
+- **Saved data:** a build that migrates, repairs or cleans up saved data runs on the maintainer's live data at his next `/reload`, also while its pull request is still under review ([AGENTS.md, Sync](../AGENTS.md#sync), Saved data backup)
+  - Local: before the batch's first sync of that code, and before each later sync that changes it, copy the AddOn's `<AddOn>.lua` and `<AddOn>.lua.bak` from `WTF/Account/<account>/SavedVariables/` (and from the per-character `SavedVariables/` folders of an AddOn with `## SavedVariablesPerCharacter`) into the main checkout's `untracked/backups/<branch>/<YYYY-MM-DD-HHMM>/`, check the copy with `cmp`, and only then sync; a missing `WTF/Account` folder or a failed copy stops the sync; the sync message names the copy, and What to test has no copy step for him
+  - Cloud: the run cannot reach the file, so What to test asks him to copy it before the `/reload` ([AGENTS.md, In-Game QA](../AGENTS.md#in-game-qa))
+  - A one-time migration whose logic changes after a build with it was synced (a review fix, a `qa2` revision) gets a new version mark and a path for data at the earlier mark ([AGENTS.md, Coding Rules](../AGENTS.md#coding-rules))
 - Use the lowest reasoning effort that gives a precise result; raise it for secret values, taint, the sniper and data formats
 
 ---
@@ -148,7 +153,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 
 For a gated batch `finalize-pr` stops before the merge, once the independent review of the head is clean and the checks are green:
 
-1. Each ticket gets the label `in-game-qa` and a `🎮 In-game QA handoff` comment: the head, `independent review clean on <sha>` (the record a later session's `qa1` relies on), what to test, and whether the game needs `/reload` or a restart
+1. Each ticket gets the label `in-game-qa` and a `🎮 In-game QA handoff` comment: the head, `independent review clean on <sha>` (the record a later session's `qa1` relies on), what to test, and whether the game needs `/reload` or a restart; for a batch that changes saved data also where the backup is, or, from a cloud run, that he copies the file before the `/reload`
 2. The response ends in the shape of [AGENTS.md, Ending a response](../AGENTS.md#ending-a-response) with `What to test (needed before the merge)`, and its last line tells him how to answer: `qa1` when it works, `qa2` with what is wrong
 3. The branch, the worktree and the pull request stay as they are. The game keeps the synced copy of that branch: no other branch of the same AddOn is synced until he has answered
 
@@ -161,7 +166,7 @@ For a gated batch `finalize-pr` stops before the merge, once the independent rev
 ### qa2: changes needed
 
 - Find the batch as `qa1` does, and remove the label `in-game-qa` from its tickets: they wait for the agent now. Feedback that changes the plan or needs his decision goes back to him as a question first
-- Stay on the same branch: no new branch, no new pull request. Apply his feedback and nothing beyond it, run the gate, sync, push
+- Stay on the same branch: no new branch, no new pull request. Apply his feedback and nothing beyond it, run the gate, sync, push. A revision that changes a migration of saved data takes a new backup before the sync and a new version mark (_Implementation and verification_)
 - The new head gets its independent review through `finalize-pr`, then a new `🎮 In-game QA handoff` limited to what the revision changed. The tickets stay In Review; the handoff sets the label `in-game-qa` again
 
 ---
