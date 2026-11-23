@@ -34,6 +34,8 @@ The messages go through a hidden chat channel the AddOn joins by itself (`Foreve
 
 Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the objects I place or find" or "Show objects others found" is on; with both off, or with `/fcf off`, it leaves the channel.
 
+Disabling or deleting the AddOn does not leave the channel by itself: the game keeps the channels you joined and joins them again at every login. Type `/fcf off` before you disable it, or `/leave ForeverCampFeatures` once afterwards.
+
 ## Commands
 
 | Command | What it does |
