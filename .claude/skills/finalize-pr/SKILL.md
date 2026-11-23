@@ -20,7 +20,7 @@ The run is not finished at a clean review or a green check. It ends only at one 
 - **Only your own pull requests are merged:** GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork), and the Claude Code attribution ends the description. Anyone else's pull request is reviewed on request and reported, never fixed, pushed to or merged.
 - It fixes verified findings on the branch, pushes that branch, comments on the pull request, merges, follows the feed deploy run and keeps the tickets in step. It never deploys by hand, re-runs the deploy workflow, touches the feed's host, weakens a check, or uses `--no-verify`, `--admin` or auto-merge.
 - Never mention a bot account (`@...`) on the pull request: GitHub treats a mention as a request to it.
-- Never read or print `.env` files, tokens or the feed server's private configuration, and never put them into a review bundle, a comment or a report.
+- Never read or print `.env` files, tokens or the feed server's private configuration, and never put them into a review bundle, a comment or a report. The one exception is `.env.sync-addons`, which holds only the game path: the sync and the saved data backup source it (`AGENTS.md`, Sync).
 
 ## Start
 
