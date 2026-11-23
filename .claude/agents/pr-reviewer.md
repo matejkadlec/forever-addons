@@ -31,7 +31,7 @@ Report only material problems that the change introduces or exposes:
 - correctness and regressions, including Lua runtime errors a syntax check cannot see (nil indexing, wrong argument order, a renamed function still called elsewhere, a global leaked by a missing `local`);
 - wrong or unverified use of the game API;
 - secret value and taint safety;
-- data loss in SavedVariables;
+- data loss in SavedVariables, including a one-time migration or repair changed since an earlier round that keeps its old version mark (`AGENTS.md`, Coding Rules: a synced build of the earlier round may already have marked the live data);
 - anything that spends the player's gold or acts for him beyond what the ticket asks;
 - a behavior change whose documentation, guide or inventory was not updated;
 - the maintainer's request not met, or exceeded.
