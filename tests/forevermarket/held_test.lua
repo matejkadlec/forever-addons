@@ -8,8 +8,10 @@
 --   * an auction that is gone from a list is a sale only when a list showed it sold (its row) or its count fell;
 --     else its units stay counted, like an ended one's, until the mail tells. One that runs again in a later list
 --     was not sold; a line logged twice counts once, a count that fell twice is two sales
+--     An auction gone although it could not have run out keeps its units while it can still be running
 --   * the list of your auctions is taken only while the AH is open
---   * an AH mail is logged once, whether or not its buyer's name has arrived
+--   * an AH mail is logged once, whether or not its buyer's name has arrived; a mail that is gone from a fully
+--     listed inbox is forgotten, so a later sale of the same item, units and price is a mail of its own
 --   * what you hold counts at what it cost you: bought units at their price, crafted units at the cost of the bought
 --     materials they used. So buying, crafting and posting move nothing; a sale moves the AH result by its money
 --     less that cost, a lost deposit by itself
@@ -163,7 +165,7 @@ end)
 
 H.test("held: an auction gone from a list holds its units until a list showed it sold; running again it was never gone", function()
     local listT = DAY1 + 11 * 3600 + 18 * 60
-    local FM, _, _, r = Session(nil, listT + 60)
+    local FM, env, _, r = Session(nil, listT + 60)
     FM.Deposit = function() return 0 end
     r.mailbox.Ada = FM.Stamp(listT - 3600) .. "|0|"
     Buy(r, listT - 86400, "8172", 90, 90 * 700) -- 90 cured hides that cost 7s each
@@ -182,6 +184,15 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     local _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(#parts.own.sold, 0, "no money on its way: nothing was seen sold")
     H.eq(held, 90 * 700, "the 80 running and the 10 that are gone, at what they cost")
+    -- a look into the mailbox that brings nothing of the 10 back says nothing: they can still be running (a 24
+    -- hour post). Once the post has ended and the mailbox was looked into after that, they are gone
+    r.mailbox.Ada = FM.Stamp(listT + 30) .. "|0|"
+    H.eq(select(2, FM.WorthNow()), 90 * 700, "still held after the look")
+    env.clock = listT + 23 * 3600
+    r.mailbox.Ada = FM.Stamp(env.clock - 60) .. "|0|"
+    H.eq(select(2, FM.WorthNow()), 0, "both posts have ended and the mailbox was looked into since: nothing is out any more")
+    env.clock = listT + 60
+    r.mailbox.Ada = FM.Stamp(listT - 3600) .. "|0|"
     -- the same lines of a list that showed the 10 sold (marked "s"): their money, once
     r.events = {}
     Gone(120, "x9", 10, "s")
@@ -258,7 +269,7 @@ end)
 
 H.test("held: the saved AH mail log loses the second line of a mail logged twice, once per bucket", function()
     local sent, read = DAY1 + 15 * 3600 + 39 * 60, DAY1 + 16 * 3600 + 42 * 60
-    local FM, _, _, r = Session(nil, read + 600)
+    local FM, env, _, r = Session(nil, read + 600)
     for _, line in ipairs(C.cloakLines) do
         SaleMail(FM, r, C.cloak.name, 1, C.cloak.money, C.cloak.deposit, C.cloak.cut, sent + line.minute * 60, read, line.buyer)
     end
@@ -278,18 +289,88 @@ H.test("held: the saved AH mail log loses the second line of a mail logged twice
         if FM.Split(line, ",")[5] ~= "" then named = named + 1 end
     end
     H.eq(named, 5, "the kept lines carry the names, the nameless sale stays nameless")
-    H.same(r.mailSeen, { [base:format("")] = FM.Stamp(sent) .. "," .. FM.Stamp(sent + 60) .. "," .. FM.Stamp(sent + 60) },
-        "the mails already logged are keyed without the name")
+    H.eq(r.mailSeen, nil, "the mails already logged are worked out again from the mended log")
     H.eq(FM.RepairMailLog(r), nil, "once per bucket")
-    H.eq(r.mailRepair, 2, "the bucket's mark")
-    -- a bucket the first version (1.38.0) mended keeps what that did: its lines are mails of their own now
-    r.mailRepair = 1
-    SaleMail(FM, r, C.cloak.name, 1, C.cloak.money, C.cloak.deposit, C.cloak.cut, sent + 600, read, "Buyer 6")
-    H.eq(FM.RepairMailLog(r), nil, "no second pass")
-    H.eq(#r.invoices, 7, "the named line next to a nameless one of the same minute stays")
-    H.eq(r.mailRepair, 2, "marked")
+    H.eq(r.mailRepair, 3, "the bucket's mark")
+    -- at the next look into the mailbox: one entry per logged mail, keyed without the name
+    env.GetInboxNumItems = function() return 0, 0 end
+    env.GetInboxHeaderInfo = function() end
+    env.GetInboxItem = function() end
+    env.GetInboxInvoiceInfo = function() end
+    env.FireEvent("MAIL_INBOX_UPDATE")
+    env.FlushTimers()
+    H.same(r.mailSeen, { [base:format("")] = table.concat({ FM.Stamp(sent), FM.Stamp(sent + 60), FM.Stamp(sent + 60),
+        FM.Stamp(sent + 60), FM.Stamp(sent + 1800), FM.Stamp(sent + 600) }, ",") }, "six mails, six entries")
+    -- a bucket an earlier version (1.38.0 to 1.38.2) mended keeps its log: its lines are mails of their own now. Its
+    -- entries, two per mended mail then, are made again
+    for _, version in ipairs({ 1, 2 }) do
+        r.mailRepair = version
+        r.mailSeen = { [base:format("")] = FM.Stamp(sent) .. "," .. FM.Stamp(sent) }
+        H.eq(FM.RepairMailLog(r), nil, "no second pass over the log")
+        H.eq(#r.invoices, 6, "the lines stay")
+        H.eq(r.mailSeen, nil, "the entries go, to be made again from the log")
+        H.eq(r.mailRepair, 3, "marked")
+    end
     -- the Profit tab books each sale once
-    H.eq(Days(FM, { clock = read + 600 })[2], 7 * (C.cloak.money - C.cloak.cut + C.cloak.deposit), "seven sales")
+    H.eq(Days(FM, { clock = read + 600 })[2], 6 * (C.cloak.money - C.cloak.cut + C.cloak.deposit), "six sales")
+end)
+
+-- Rule: an entry of "logged already" stands for a mail that is still in the mailbox. In the maintainer's log two
+-- Barbaric Bracers sold 7 and 9 minutes after two that were already collected; only their names had got them logged
+H.test("held: a mail you collected does not take a later sale of the same item and price for logged", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local c = C.cloak
+    local inbox = {} -- the mails in the inbox: when each was sent
+    local more = 0   -- mails the server holds beyond the ones shown
+    env.GetInboxNumItems = function() return #inbox, #inbox + more end
+    env.GetInboxHeaderInfo = function(i)
+        return nil, nil, nil, "Auction successful", c.money, 0, 30 - (env.clock - inbox[i]) / 86400, 0
+    end
+    env.GetInboxItem = function() end
+    env.GetInboxInvoiceInfo = function() return "seller", c.name, nil, c.money, c.money, c.deposit, c.cut, nil, nil, nil, 1 end
+    local function Look()
+        env.FireEvent("MAIL_INBOX_UPDATE")
+        env.FlushTimers()
+    end
+    -- a visit to the mailbox: mail A is listed and logged, then collected
+    env.FireEvent("MAIL_SHOW")
+    inbox = { t - 600 }
+    Look()
+    H.eq(#r.invoices, 1, "A is logged")
+    inbox = {}
+    Look()
+    env.FireEvent("MAIL_CLOSED")
+    -- the next visit: B, the same item and price, sent 7 minutes after A
+    env.clock = t + 1800
+    env.FireEvent("MAIL_SHOW")
+    inbox = { t - 600 + 7 * 60 }
+    Look()
+    H.eq(#r.invoices, 2, "B is a mail of its own")
+    Look()
+    H.eq(#r.invoices, 2, "and is logged once")
+    -- while the server holds more mail than is shown, nothing is forgotten: C is logged, leaves the shown part, and
+    -- a mail 5 minutes off still counts as it
+    env.FireEvent("MAIL_CLOSED")
+    env.clock = t + 7200
+    env.FireEvent("MAIL_SHOW")
+    more = 60
+    inbox = { t + 3600 }
+    Look()
+    H.eq(#r.invoices, 3, "C is logged")
+    inbox = { t + 3600 + 300 }
+    Look()
+    H.eq(#r.invoices, 3, "an inbox that shows only part of its mail forgets none")
+    -- nor does a read after the mailbox closed, or the first read of a visit that finds no mail (its list may not
+    -- have come yet)
+    env.FireEvent("MAIL_CLOSED")
+    more, inbox = 0, {}
+    Look()
+    env.FireEvent("MAIL_SHOW")
+    Look()
+    inbox = { t + 3600 + 300 }
+    Look()
+    H.eq(#r.invoices, 3, "the mail that is still there is not logged a second time")
 end)
 
 -- Rule: twins have the same sent minute, or one a minute off; lines of the same minute pair first, so a named line

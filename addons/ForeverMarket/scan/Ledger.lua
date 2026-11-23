@@ -484,7 +484,10 @@ local MAIL_MATCH_MINUTES = 10 -- the sent time derived from daysLeft wobbles a l
 -- mail, so several identical mails, e.g. three pants sold at the same price, are all counted). The other player's
 -- name is not part of the key (the empty field; until 1.37 it was): the client gives an AH mail's name only a moment
 -- after the mail is first listed, so the same mail read again seconds later had another key and was logged a second
--- time (FRV-106: 413 of the maintainer's 1,149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log
+-- time (FRV-106: 413 of the maintainer's 1,149 sale mails by 2026-11-22). FM.RepairMailLog mends the saved log.
+-- An entry stands for a mail that is still in the mailbox: once the whole inbox was listed without it, it goes
+-- (ScanInbox). Without the name in the key an entry left behind by a mail you collected would otherwise take a later
+-- sale of the same item, units and price sent within MAIL_MATCH_MINUTES of it for "logged already", for good
 local function MailBase(char, kind, itemName, count, bid, buyout)
     return table_concat({ char, kind, itemName, "", count or "", bid or "", buyout or "" }, "|")
 end
@@ -511,18 +514,22 @@ end
 --     one without the name logged first: the second goes, the first gets its name (the Profit tab booked the mail's
 --     money when it was first read). Two lines sent in the same minute pair first, then two a minute apart (the
 --     sent time is worked out from the days the mail has left and moves by a minute between two readings)
---   * R.mailSeen is keyed without the name, so a mail still in your mailbox is not logged again
+--   * R.mailSeen is made again from the mended log (SeedMailSeen at the next look into the mailbox): one entry per
+--     logged mail, keyed without the name, so a mail still in your mailbox is not logged again
 -- r.mailRepaired = { t, dropped, sales = their money after the cut, with the deposits }; a chat line too.
--- 2 since 1.38.1: equal minutes pair first. A bucket the first version (1.38.0, a build of the same pull request
--- that was synced into the maintainer's game) mended keeps what that did: its second lines are gone, and what is
--- left are mails of their own, which a second pass would pair again
-local MAIL_REPAIR = 2
+-- 2 (1.38.1): equal minutes pair first. 3 (1.38.3): R.mailSeen from the log; versions 1 and 2 joined the old keys,
+-- which left two entries for every mended mail. A bucket an earlier version mended (1.38.0 to 1.38.2 were builds of
+-- the same pull request, synced into the maintainer's game) keeps its log as that left it: its second lines are
+-- gone, and what is left are mails of their own, which another pass would pair again. Only its R.mailSeen is made
+-- again
+local MAIL_REPAIR = 3
 local TWIN_MINUTES = 1
 
 function FM.RepairMailLog(r)
     if type(r) ~= "table" or r.mailRepair == MAIL_REPAIR then return nil end
-    local mended = r.mailRepair == 1
+    local mended = r.mailRepair == 1 or r.mailRepair == 2
     r.mailRepair = MAIL_REPAIR
+    r.mailSeen = nil
     if mended then return nil end
     local invoices = type(r.invoices) == "table" and r.invoices or {}
     local blanks, named = {}, {} -- base -> its lines without a name, in log order; the lines with one
@@ -573,20 +580,6 @@ function FM.RepairMailLog(r)
         end
         for i = 1, math.max(#invoices, #out) do invoices[i] = out[i] end
     end
-    -- the mails already logged, keyed without the name
-    if type(r.mailSeen) == "table" then
-        local seen = {}
-        for base, stamps in pairs(r.mailSeen) do
-            local f = type(base) == "string" and FM.Split(base, "|") or {}
-            if f[1] and type(stamps) == "string" then
-                f[4] = ""
-                for n = #f + 1, 7 do f[n] = "" end
-                local key = table_concat(f, "|")
-                seen[key] = seen[key] and (seen[key] .. "," .. stamps) or stamps
-            end
-        end
-        r.mailSeen = seen
-    end
     local result = { t = FM.Now(), dropped = dropped, sales = sales }
     r.mailRepaired = result
     if dropped > 0 and C_Timer and FM.Print then
@@ -598,11 +591,22 @@ function FM.RepairMailLog(r)
     return result
 end
 
+local mailOpen = false   -- between MAIL_SHOW and MAIL_CLOSED
+local mailListed = false -- a read of this visit to the mailbox found mail: its list is loaded
+
 local function ScanInbox()
     if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
     local r = FM.R()
     if type(r.mailSeen) ~= "table" then SeedMailSeen(r) end
     local now = FM.Now()
+    -- whether this read lists every mail of the inbox: the mailbox is open, the client shows all the server holds
+    -- (Blizzard's inbox compares the same two numbers), and the list is loaded (this read or an earlier one of the
+    -- visit found mail: an empty first read may be a list that has not come yet). Then an entry of R.mailSeen that no
+    -- mail of this read uses is of a mail that is gone
+    local shown, total = GetInboxNumItems()
+    local numbers = type(shown) == "number" and type(total) == "number" and not FM.IsSecret(shown) and not FM.IsSecret(total)
+    if mailOpen and numbers and shown > 0 then mailListed = true end
+    local complete = mailOpen and numbers and total <= shown and mailListed
     local nowMinutes = math_floor((now - FM.EPOCH) / 60)
     local char = FM.PlayerName()
     -- a character keyed by its full name since 1.23 (FRV-35) logged its mail under its first name before: those
@@ -680,10 +684,18 @@ local function ScanInbox()
         end
         local keep = {}
         for _, s in ipairs(seen) do
-            -- an entry under the first name moves to this key only when one of this character's mails used it
-            if not s.alias or s.used then keep[#keep + 1] = Enc(s.minutes) end
+            -- an entry under the first name moves to this key only when one of this character's mails used it; an
+            -- entry no mail used goes when the whole inbox was listed
+            if (not s.alias or s.used) and (s.used or not complete) then keep[#keep + 1] = Enc(s.minutes) end
         end
         r.mailSeen[base] = table_concat(keep, ",")
+    end
+    -- and the entries of this character's mails of which the inbox holds none any more
+    if complete then
+        local own = char .. "|"
+        for base in pairs(r.mailSeen) do
+            if not groups[base] and base:sub(1, #own) == own then r.mailSeen[base] = nil end
+        end
     end
 
     -- forget mail that cannot exist anymore
@@ -696,6 +708,9 @@ local function ScanInbox()
         r.mailSeen[base] = #keep > 0 and table_concat(keep, ",") or nil
     end
 end
+
+FM.On("MAIL_SHOW", function() mailOpen, mailListed = true, false end)
+FM.On("MAIL_CLOSED", function() mailOpen, mailListed = false, false end)
 
 local inboxPending = false
 FM.On("MAIL_INBOX_UPDATE", function()

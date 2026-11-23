@@ -313,9 +313,24 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                     -- vanished auction counts with its units, like an ended one, until the mail tells which it was
                     local sale = kind == "opart" or shown
                     local maybe = kind == "osold" and not shown
+                    -- an auction that was gone although it could not have run out: until when it can still be
+                    -- running (its post, else the newest post of the item before the line)
+                    local ends
+                    if maybe then
+                        local of = post
+                        if not of then
+                            for _, p in ipairs(posts) do
+                                if p.key == f[4] and p.t <= t then
+                                    of = p
+                                    break
+                                end
+                            end
+                        end
+                        ends = of and of.t + (POST_HOURS[of.duration or 3] or 24) * 3600 or nil
+                    end
                     changes[#changes + 1] = { t = t, kind = kind, key = f[4], qty = qty, unit = unit,
                         aid = aid, sale = sale, any = kind == "ogone" or maybe, from = prev and prev - 60 or t - MAIL_LATE,
-                        to = t + ((sale or maybe) and MAIL_LATE or 60) }
+                        to = t + ((sale or maybe) and MAIL_LATE or 60), ends = ends }
                 end
             end
         end
@@ -362,9 +377,10 @@ local function Auctions(r, char, now, mailT, add, look, notes)
         end
     end
     table_sort(running, function(a, b) return a.t < b.t end)
-    -- what the other mails took off them since
+    -- what the other mails took off them since, and after them off the auctions that were gone from a list but can
+    -- still be running (below): a sale's or a return's mail of the item is theirs
     local since = listT or (running[1] and running[1].t)
-    if since and #running > 0 then
+    if since then
         local taken = {}
         for key, list in pairs(mails) do
             local n = 0
@@ -381,11 +397,18 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 a.qty = a.qty - off
             end
         end
+        for _, c in ipairs(changes) do
+            local off = c.ends and math_min(c.open, taken[c.key] or 0) or 0
+            if off > 0 then taken[c.key], c.open = taken[c.key] - off, c.open - off end
+        end
     end
     -- changes whose mail you haven't read and that weren't in the mailbox at the last look: on their way by mail (a
-    -- return's mail goes out at once, a sale's up to MAIL_LATE after the list saw it)
+    -- return's mail goes out at once, a sale's up to MAIL_LATE after the list saw it). An auction that was gone from
+    -- a list although it could not have run out keeps its units for as long as it can still be running: the list may
+    -- have been a broken one, and a look into the mailbox that brings nothing of it back says nothing
     for _, c in ipairs(changes) do
-        if c.open > 0 and (c.sale and lookT < c.t + MAIL_LATE or c.t > lookT) then
+        local running = c.ends and c.ends > now
+        if c.open > 0 and (c.sale and lookT < c.t + MAIL_LATE or c.t > lookT or running) then
             if c.sale then
                 -- the unit price (commodities) or the auction's buyout (one item), and a sold auction's deposit
                 local post = c.kind == "osold" and c.aid and byAid[c.aid]
@@ -394,7 +417,8 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 total = total + money
                 if notes then notes.sold[#notes.sold + 1] = { key = c.key, qty = c.open, money = money } end
             else
-                add(c.key, c.open, "mail") -- cancelled or gone (most likely expired): the units, the deposit is gone
+                -- cancelled or gone (most likely expired): the units, the deposit is gone
+                add(c.key, c.open, running and "auctions" or "mail")
             end
         end
     end

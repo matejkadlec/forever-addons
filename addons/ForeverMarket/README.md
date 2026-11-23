@@ -819,7 +819,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   * Money is on its way only for a sale that was seen: a sold row, an `osold` line of one (marked `s` since 1.38) or
     a count that fell (`opart`; the same fall logged again is another sale). An auction that was merely gone from a
     list (`osold` without the mark, `ogone`) counts with its units, like an ended one, until its mail tells which it
-    was: a list can be a broken one. An `osold` or `ogone` line of an auction that is running in the last list was
+    was: a list can be a broken one. One that could not have run out (`osold` without the mark) keeps its units for
+    as long as its post can still be running, also after a look into the mailbox that brings nothing of it back; a
+    sale's or a return's mail of the item takes them. An `osold` or `ogone` line of an auction that is running in the last list was
     never gone (its units and the running ones are more than were posted), and the same line logged twice counts
     once.
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
@@ -1122,11 +1124,14 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   (`buyout` holds the quantity for commodity sales). A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
   `char|kind|item||qty|bid|buyout` without the other player's name, which the client gives only a moment after the
   mail is first listed; until 1.37 the name was part of the key and the same mail, read again with its name, was
-  logged a second time. Mended once per bucket (`mailRepair` = 2 since 1.38.1, the counts in `mailRepaired` = { t,
-  dropped, sales }, a chat line says them): of two lines of the same character, kind, item, units and money, one
-  without the name and one with it, the nameless one logged first, the second goes and the first gets its name;
-  lines sent in the same minute pair first, then lines a minute apart; `mailSeen` is keyed again. A bucket that
-  1.38.0 mended is only marked
+  logged a second time. An entry of `mailSeen` stands for a mail that is still in the mailbox: when the whole inbox
+  was listed (the mailbox open, the client showing all the mail the server holds) without it, it goes, so a mail
+  you collected cannot take a later sale of the same item, units and price for "logged already". Mended once per
+  bucket (`mailRepair` = 3 since 1.38.3, the counts in `mailRepaired` = { t, dropped, sales }, a chat line says
+  them): of two lines of the same character, kind, item, units and money, one without the name and one with it, the
+  nameless one logged first, the second goes and the first gets its name; lines sent in the same minute pair first,
+  then lines a minute apart; `mailSeen` is made again from the mended log. A bucket that 1.38.0 to 1.38.2 mended
+  keeps its log and only gets its `mailSeen` made again
 * `owned[char]` = `{ t, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2 }`: status `s` = sold, its mail
   not sent yet; `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's
   total there)
