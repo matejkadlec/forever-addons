@@ -439,9 +439,18 @@ local STRAY_LOGS = {
 }
 
 -- The logs of a stray bucket into the realm's, each line at its moment (a line the realm's log holds already is not
--- taken twice). Returns how many lines came over
+-- taken twice). Returns how many lines came over.
+-- A realm whose AH mail log was mended already (FM.RepairMailLog, scan/Ledger.lua, runs once per bucket) is never
+-- mended again, so the stray bucket's own mails from before 1.38 that were logged twice are paired by the same rule
+-- before they join it, and R.mailSeen is made again from the joined log at the next look into the mailbox (the
+-- stray's entries are keyed with the other player's name). FRV-114: with two characters the fold can come only in a
+-- later session, once both are known in the realm's charInfo. A fold before the repair leaves both to the repair
 local function MergeStrayLogs(r, stray)
     local moved = 0
+    local mended = FM.MAIL_REPAIR ~= nil and r.mailRepair == FM.MAIL_REPAIR
+    if mended and stray.mailRepair == nil and FM.PairMailTwins and type(stray.invoices) == "table" then
+        FM.PairMailTwins(stray.invoices)
+    end
     for name, timeOf in pairs(STRAY_LOGS) do
         local from = type(stray[name]) == "table" and stray[name] or {}
         if #from > 0 then
@@ -464,9 +473,13 @@ local function MergeStrayLogs(r, stray)
             for i, row in ipairs(rows) do list[i] = row.line end
         end
     end
-    -- the mails those sessions logged stay known as logged; deposits, names and watched items only where the realm
-    -- has none
-    if type(stray.mailSeen) == "table" then
+    -- the mails those sessions logged stay known as logged (a mended realm: made again from the joined log); deposits,
+    -- names and watched items only where the realm has none
+    if mended then
+        if (type(stray.invoices) == "table" and #stray.invoices > 0) or (type(stray.mailSeen) == "table" and next(stray.mailSeen) ~= nil) then
+            r.mailSeen = nil
+        end
+    elseif type(stray.mailSeen) == "table" then
         if type(r.mailSeen) ~= "table" then r.mailSeen = {} end
         for base, stamps in pairs(stray.mailSeen) do
             if type(stamps) == "string" then
@@ -593,8 +606,11 @@ function FM.R()
     FM.realm = r
     FoldStrayBuckets(r, faction)
     if FM.MigrateRealm then FM.MigrateRealm(r) end
-    if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, trade/Cost.lua)
+    -- the one-time repairs, each once per bucket: the AH mail first, the purchase log is mended from it (FRV-113: a
+    -- mail logged twice gave the purchase repair a copy), the craft log's material cost from the mended purchase log
     if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
+    if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, FRV-113, trade/Cost.lua)
+    if FM.RepairCrafts then FM.RepairCrafts(r) end -- the craft log's material cost worked out again (FRV-112, trade/Crafts.lua)
     return r
 end
 

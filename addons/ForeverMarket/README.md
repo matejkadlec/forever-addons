@@ -100,7 +100,8 @@ have no marks, so its records stay as they were).
       one that comes before the quote). Until 1.36.2 a confirm took the latest quote seen, and the sniper confirms
       inside its own handler of the quote, before the log saw it: its purchases were logged with the quote before (a
       rejected dearer one, another item's) or not at all; `FM.RepairBuys` mends the saved log once (Data format,
-      `buys`). Farmed, looted or skinned units of an item you cannot make are not counted: never bought = "-"
+      `buys`), and 1.40.6 (FRV-113) removes the purchases that repair left in it twice. Farmed, looted or skinned
+      units of an item you cannot make are not counted: never bought = "-"
   * Units partly crafted and partly bought (some Cured Thick Hide bought, the rest made by you): each part keeps its
     own basis in a group of its own, **Material cost (3 of 5 pcs)** with the materials and **Cost (2 of 5 pcs)** with
     the AH price now and what those purchases cost
@@ -123,7 +124,9 @@ have no marks, so its records stay as they were).
     than the logs) counts as the oldest, at the vendor price when a vendor sells it without limit (thread, salt,
     vials), else at its AH price at the craft (the cheapest of others, the price of the `Auction` line: 5 hides that
     sell for 1.1g make 1.1g of material cost next to a 1g item, sell the hides). A material with no price at all
-    leaves the basis unknown. `/fm item <item>` adds a line with what you hold of it (bags, bank and how the bank was
+    leaves the basis unknown. Lines written before the purchase log was mended (2026-11-22, FRV-102) are worked out
+    again once from the mended log where its purchases cover every unit the craft used (1.40.6, FRV-112; Data format,
+    `crafts`). `/fm item <item>` adds a line with what you hold of it (bags, bank and how the bank was
     counted, 1.35) and one with your crafts of it (how many, the newest and its
     materials' basis per unit)
   * **Sell at least (n pcs)**, rows **8h listing** / **24h listing**: a guard against selling under price by
@@ -848,7 +851,11 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   auctions, other characters; "from a craft nobody recorded" where the cost is the recipe's materials). Then the
   last 8 readings (`heldLog[char]`) with their total, deposits, sold money and largest items.
 * Every won auction is a purchase (1.31, FRV-75): a mail of a won auction is left out only when it is the mail of a
-  commodity purchase of the purchase log (same item and quantity, within 12 hours). Before 1.31 the second of two
+  commodity purchase of the purchase log (same item and quantity, within 12 hours), or one of the mails of such a
+  purchase that came as several (1.40.6, FRV-113): a mail holds at most 16 stacks, so 407 Light Leather arrive as
+  320 + 87, two mails sent within 2 minutes of the purchase's line whose units add up to it (`FM.SplitMails`, the
+  full mails first). Until 1.40.6 each such mail counted as a won auction next to the logged purchase: the units
+  and the money twice. Before 1.31 the second of two
   won auctions of the same item and quantity within 12 hours took the first one's place as "its logged purchase"
   and was left out: it was missing in Bought and in what was spent on the AH, and its money was not taken off. The
   stored history changes for such auctions: the AH result of those days falls by the auctions that were left out.
@@ -899,6 +906,14 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     goes out (the list's time plus the row's seconds left), and a line of the same auction, units, price and `nth`
     after that is another sale (`nth` starts at 1 again once the rows before it left the list); a line without it
     counts again more than 61 minutes after the first (1.38.6: a row is listed at most an hour after the sale).
+    Since 1.40.6 (FRV-118) a new sale whose row takes the place of a row of the same units and price whose mail went
+    out between two lists is logged (before, the list's count of such rows stayed the same and the sale got no line:
+    a rest that sold out was logged as cancelled, and its units counted as on their way back): of the list before
+    only the rows that can still be listed count (their seconds left reach past the gap), and the new row's line has
+    the `nth` the gone row had; with several rows of one units and price the line of `nth` k takes the mail time of the
+    row whose mail goes out k-th soonest (1.40.7: every line took the first listed row's). So a sold row's line with a
+    mail time is the same row again only when an earlier line's mail time lies within 2 minutes of its own; one
+    without a mail time keeps the rule before.
     The analysis tool's `room` reads the pace the same way.
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
     list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
@@ -1175,7 +1190,12 @@ posts, purchases, crafts and gold, each line at its moment; the mails it logged;
 where the realm has none; its item searches (a search record at its time, the newer listing kept); a character's
 list of its auctions where the realm's is not newer. It is removed when nothing of market data is left in it; what
 the realm cannot take (scan records, a sniper list, a farm log) stays there, and the chat says so. A bucket of
-other characters stays whole. ForeverArtisan now writes a second entry per character
+other characters stays whole. With two characters the fold can come only in a later session, once both are known in
+the realm's `charInfo`, after the realm's AH mail log was mended (`mailRepair`, below), which happens once: since
+1.40.6 (FRV-114) the bucket's own mails from before 1.38 that were logged twice are paired by the same rule before
+they join that log, and `mailSeen` is made again from the joined log (the bucket's entries are keyed with the other
+player's name); before, those sales counted twice in the Profit tab for good. A fold before the repair leaves both
+to the repair. ForeverArtisan now writes a second entry per character
 ("Name--GUIDPART"): `FM.ArtisanEntries` takes both, the recipes of the one read last, the highest skill.
 
 Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item keys are plain item IDs
@@ -1212,13 +1232,16 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
   gone from the list; since 1.38.5 a line of a sold row ends in `,s,nth`: which of its auction's sold rows of those
   units and price it is; since 1.38.8 in `,s,nth,mail`: when the row's mail goes out, the list's time plus its
-  seconds left), chat `sold|expired|removed|won|outbid,item`, mail
+  seconds left; since 1.40.6, FRV-118, a row that took the place of one of the same units and price whose mail went
+  out has that one's `nth`: the mail time tells them apart), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
 * `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
   1.30 drops the list at load
 * `invoices` `t,char,type,item,player,qty,bid,buyout,deposit,cut,read` (t = sent, read = when you read the mail,
   1.15.13 on): on Forever `bid` is the sale total
-  (`buyout` holds the quantity for commodity sales). A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
+  (`buyout` holds the quantity for commodity sales). A commodity purchase of more than 16 stacks has several `buyer`
+  lines, one per mail (FRV-113: a mail holds 16 stacks, 320 of an item that stacks to 20; the first ones full).
+  A mail is logged once (1.38, FRV-106): `mailSeen` is keyed
   `char|kind|item||qty|bid|buyout` without the other player's name, which the client gives only a moment after the
   mail is first listed; until 1.37 the name was part of the key and the same mail, read again with its name, was
   logged a second time. An entry of `mailSeen` stands for a mail that is still in the mailbox: it goes when its mail
@@ -1269,9 +1292,10 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   mailbox shows all its mail (1.24)
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
   bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
-  a chat line says them): every commodity purchase sends one buyer mail with its units and real total (`invoices`), so a
-  line takes the total of its purchase's mail (the same character, item and units, sent within 15 minutes, the
-  nearest one; a line without a character takes one of any character, as the Profit tab matches it); a mail of an
+  a chat line says them): every commodity purchase sends a buyer mail with its units and real total (`invoices`;
+  several for more than 16 stacks, FRV-113), so a line takes the total of its purchase's mail (the same character,
+  item and units, sent within 15 minutes, the nearest one; a line without a character takes one of any character, as
+  the Profit tab matches it; since 1.40.6 a line no such mail takes takes the several mails of its purchase); a mail of an
   item the log has lines of, sent after its first line, with no line is a purchase never logged and is added at its
   time; a line without a mail of an item the sniper buys, above its sniper price per unit, gets that price (an upper
   bound). Then the craft log (`crafts`, 1.36.4): every craft's material basis was worked out from the log as it was,
@@ -1286,7 +1310,20 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   was added as a second line. 1.36.5 gives such a line its mail's total and drops that copy (the mail's exact minute,
   character and total; `buysRepaired` = { t, fixed, dropped, after = 1 }); the craft log stays as it was, because the
   totals it was worked out from are gone (a backup from before 1.36.3 gets the whole repair). On the maintainer's
-  data both ways end in the same purchase log
+  data both ways end in the same purchase log.
+  `buysRepair` = 3 since 1.40.6 (FRV-113): the repair had left some purchases in the log twice. A mail logged twice
+  until 1.37 got a line of its own next to its purchase's line, and a purchase of more than 16 stacks, which comes as
+  several mails (`invoices`), got a line per mail next to its own line, which no mail of its units took. A bucket at 1
+  or 2 loses those copies once: the lines the repair added sit on their mail's minute and are no newer than the repair
+  (`buysRepaired.t`; a bucket the repair marked while its log was empty has none and keeps every line); the logged purchases take their mails first, then those lines (the nearest mail of the same
+  character, item and units within 15 minutes); an added line without a mail left goes when another line of the same
+  character, item, units and total lies within 15 minutes, and a line without a mail goes when two or more added
+  lines of its item, each on its mail's minute within 2 minutes of it, add up to its units. `buysCopies` = { t,
+  dropped, total (their copper), mails (how many were a purchase's several mails) }, a chat line says them. On the
+  maintainer's saved variables of 2026-11-22 22:49 and of 2026-11-23: 6 lines, 6g 15s 30c (18 and 5 Heavy Leather and
+  1 Medium Leather copied from mails logged twice; 480 Ruined Leather Scraps, 403 Medium Leather and 407 Light Leather
+  that came as 320 + the rest). A bucket the repair has not mended yet gets it with the AH mail mended first (a mail
+  logged twice counts once) and a line taking the several mails of its purchase, so neither copy comes about
 * `gear` lines `t|wearer|id|units|value|ref|item|how` (1.31, FRV-93): AH purchases equipped as own gear, one line
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
   item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
@@ -1296,7 +1333,17 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
   craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
-  and 5000 lines at most
+  and 5000 lines at most. Worked out again once per bucket (1.40.6, FRV-112, `craftsRepair` = 1, the counts in
+  `craftsRepaired` = { t, lines, mats }, a chat line says them): the maintainer's lines of before 2026-11-22 were
+  worked out from the purchase log as it was then, before FRV-102 mended it, and that repair's replay
+  (`FM.RepairCraftBasis`) never ran on his bucket (the first build, 1.36.3, marked it before the replay existed, and
+  1.36.5 leaves the craft log of such a bucket); so 75 Heavy Leather of Hillman's Cloak x15 on 11/21 17:47 read
+  5g 56s 84c, 7s 42c a unit, from sniper purchases logged at the quote before. Each character's crafts are replayed
+  in time order with the purchase log as it is, and a material whose used units the log's lots cover in full gets
+  the replay's copper (that cloak line 1g 61s 81c, 2s 16c a unit); one that used units no lot covers keeps its copper
+  (those were priced at the vendor or AH price of that moment, which no log keeps). On his saved variables: 40 lines,
+  all from before the repair of 2026-11-22 12:18 (every later line replays to what it recorded), 51g 65s 36c of
+  materials became 34g 32s 98c
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line

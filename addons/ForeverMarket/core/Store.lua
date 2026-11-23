@@ -613,6 +613,41 @@ function FM.Log(listName, record, max)
     FM.CapList(list, max)
 end
 
+-- The mails of one purchase (FRV-113). A mail holds at most ATTACHMENTS_MAX_RECEIVE (16, Blizzard_MailFrame) stacks:
+-- a commodity purchase of more units arrives as several "buyer" mails sent together, the first ones full, each with
+-- its part of the total (seen in the maintainer's mail of 2026-11-20 and 21: 480 Ruined Leather Scraps as 320 + 160,
+-- 403 Medium Leather as 320 + 83, 407 Light Leather as 320 + 87; 16 stacks of 20). The purchase log has one line for
+-- such a purchase and no mail of its units. The Profit tab (trade/Performance.lua) and the purchase log's repair
+-- (trade/Cost.lua) give a line those mails
+local SPLIT_WINDOW = 2 * 60 -- the mails of one purchase are sent within this of its line
+
+-- Of `candidates` ({ qty, sent }, the caller's mails not taken yet), the mails of a purchase of qty units logged at t
+-- that came as several: two or more sent within SPLIT_WINDOW of t whose units add up to qty, the largest first (the
+-- full mails), or nil
+function FM.SplitMails(candidates, qty, t)
+    local near = {}
+    for _, m in ipairs(candidates or {}) do
+        if type(m.qty) == "number" and m.qty > 0 and m.qty < qty and type(m.sent) == "number"
+            and math_abs(m.sent - t) <= SPLIT_WINDOW then
+            near[#near + 1] = m
+        end
+    end
+    if #near < 2 then return nil end
+    table.sort(near, function(a, b)
+        if a.qty ~= b.qty then return a.qty > b.qty end
+        return math_abs(a.sent - t) < math_abs(b.sent - t)
+    end)
+    local out, sum = {}, 0
+    for _, m in ipairs(near) do
+        if sum + m.qty <= qty then
+            out[#out + 1] = m
+            sum = sum + m.qty
+            if sum == qty then return #out >= 2 and out or nil end
+        end
+    end
+    return nil
+end
+
 -- 1.1.1: every source keys items by plain item ID. Older Auctionator browse records were keyed
 -- "itemID:suffixID" (one key per random suffix variant): fold their "b" records into the item ID key,
 -- merging records of the same scan (lowest price, summed quantity). Runs once per realm bucket.

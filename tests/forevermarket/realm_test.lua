@@ -198,6 +198,57 @@ H.test("realm: a stray bucket of the realm's own character gives its logs to the
     H.eq(env2.printed[#env2.printed]:find("holds market data", 1, true) ~= nil, true, "and the chat says so")
 end)
 
+-- Rule (FRV-114): the AH mail log of a realm bucket is mended once (FRV-106, FM.RepairMailLog). With two characters a
+-- stray bucket is folded only in a later session, once both are known in the realm's charInfo: its own mails from
+-- before 1.38 that were logged twice (without the other player's name, then with it) are paired by the repair's rule
+-- before they join the mended log, and the realm's mailSeen is made again from the joined log at the next look into
+-- the mailbox, keyed without the name. A fold before the repair leaves both to the repair, as before
+H.test("realm: a stray bucket folded into a mended AH mail log brings each of its mails once", function()
+    local LEDGER = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua" }
+    local SECOND = "Player-6842-00CB83C4"
+    local twice = { "a07z,Tester,seller,Tasty Lion Steak,,r,8b9,r,190,ey,a07z",
+        "a07z,Tester,seller,Tasty Lion Steak,Buyer B,r,8b9,r,190,ey,a080" }
+    local once = "a07z,Tester,seller,Tasty Lion Steak,Buyer B,r,8b9,r,190,ey,a07z"
+    local silk = "a05z,Tester,seller,Silk Cloth,Buyer A,5,2s,5,0,5,a060"
+    local function Session(mailRepair)
+        local main = Bucket(GUID)
+        main.charInfo.Second = { guid = SECOND } -- the second character logged in since
+        main.invoices = { silk }
+        main.mailSeen = { ["Tester|seller|Silk Cloth||5|2s|5"] = "a05z" }
+        main.mailRepair = mailRepair
+        local stray = { charInfo = { Tester = { guid = GUID }, Second = { guid = SECOND } },
+            invoices = { twice[1], twice[2] },
+            mailSeen = { ["Tester|seller|Tasty Lion Steak||r|8b9|r"] = "a07z",
+                ["Tester|seller|Tasty Lion Steak|Buyer B|r|8b9|r"] = "a07z" } }
+        local FM, env = H.LoadAddon("addons/ForeverMarket", LEDGER)
+        env.ForeverMarketDB = { realms = { ["Old Realm-Alliance"] = main, ["-Alliance"] = stray } }
+        env.GetRealmName = function() return "" end
+        env.UnitGUID = function() return GUID end
+        env.UnitFactionGroup = function() return "Alliance", "Alliance" end
+        FM.InitializeSavedData()
+        return FM, env, FM.R()
+    end
+    -- the fold in a later session: the realm's log was mended already
+    local FM, env, r = Session(3)
+    H.eq(env.ForeverMarketDB.realms["-Alliance"], nil, "the stray bucket is gone")
+    H.same(r.invoices, { silk, once }, "its mail once, with its name, after the realm's by when it was read")
+    H.eq(r.mailRepair, 3, "the realm's log is not mended again")
+    H.eq(r.mailSeen, nil, "the mails already logged are worked out again from the joined log")
+    env.GetInboxNumItems = function() return 0, 0 end
+    env.GetInboxHeaderInfo = function() end
+    env.GetInboxItem = function() end
+    env.GetInboxInvoiceInfo = function() end
+    env.FireEvent("MAIL_INBOX_UPDATE") -- the next look into the mailbox
+    env.FlushTimers()
+    H.same(r.mailSeen, { ["Tester|seller|Silk Cloth||5|2s|5"] = "a05z", ["Tester|seller|Tasty Lion Steak||r|8b9|r"] = "a07z" },
+        "one entry per logged mail, none keyed with a name")
+    -- the fold in the session of the repair (a realm not mended yet): the repair mends the joined log, as before
+    local _, _, r2 = Session(nil)
+    H.same(r2.invoices, { silk, once }, "the repair pairs the joined log")
+    H.eq(r2.mailRepair, 3, "and marks it")
+    H.eq(r2.mailSeen, nil, "the repair makes the entries again")
+end)
+
 -- Rule (FRV-106): a learned recipe alone does not say that you craft the item; ForeverArtisan's count of your crafts
 -- of it does, added up over the character's entries (the one from before the realm name went missing and the new one)
 H.test("realm: the crafts ForeverArtisan counted of a recipe add up over the character's entries", function()

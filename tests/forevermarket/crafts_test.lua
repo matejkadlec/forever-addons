@@ -274,6 +274,50 @@ H.test("crafts: lines older than a year go, the log keeps its newest 5000", func
     H.eq(r.crafts[1], Line(NOW - 100, "200", 1, 1, 904, "1:2:2"), "the oldest one made room")
 end)
 
+-- FRV-112: Hillman's Cloak (3719) from Heavy Leather (4234) and Fine Thread (2321, from a vendor), the maintainer's
+-- saved variables of 2026-11-21 with the character's name replaced. The craft lines were worked out from the purchase
+-- log as it was then: FRV-102 mended it later (sniper purchases logged with the quote before: 16 at 9815, 1 at 3680,
+-- 31 at 34374, 75 at 29819 ...), so the cloaks of 17:47 read 75 Heavy Leather at 5g 56s 84c, 7s 42c a unit; the
+-- replay that should have followed the repair never ran on his bucket. Rules of FM.RepairCrafts, once per bucket:
+--   * each character's crafts replayed in time order with the purchase log as it is (the units held are the newest
+--     lots, the craft uses the oldest first, units no lot covers are older still and go first)
+--   * a material whose used units the lots cover in full gets the replay's copper
+--   * one that used units no lot covers keeps its copper: they were priced at the AH or vendor price of that moment
+H.test("crafts: the repair works the material cost out again from the mended purchase log (FRV-112)", function()
+    local FM, env, r = Load()
+    r.buys = {
+        "1795269409,4234,34,7786,Tester", -- 11/21 14:56, 229 a unit
+        "1795269414,4234,18,4122,Tester", -- 229
+        "1795275194,4234,16,3680,Tester", -- 16:33, 230
+        "1795275197,4234,1,230,Tester",
+        "1795275222,4234,3,690,Tester",
+        "1795275727,4234,31,6430,Tester", -- 16:42, 207.4
+        "1795275729,4234,25,5150,Tester", -- 206
+        "1795275733,4234,75,16425,Tester", -- 219
+        "1795275742,4234,80,17204,Tester", -- 215.05
+    }
+    r.crafts = {
+        "1795271228,3719,6,6,Tester,3760,4234:30:4351:59/2321:12:1080:20",
+        "1795271413,3719,4,4,Tester,3760,4234:20:5107:29/2321:8:720:8",
+        "1795279675,3719,15,15,Tester,3760,4234:75:55684:240/2321:30:2700:30",
+    }
+    r.craftsRepair = nil -- FM.R() above marked the new bucket
+    local result = FM.RepairCrafts(r)
+    H.same(r.crafts, {
+        -- 15:27: held 59, the lots cover 52 (34 + 18): the 7 older units went first, at the AH price then: kept
+        "1795271228,3719,6,6,Tester,3760,4234:30:4351:59/2321:12:1080:20",
+        -- 15:30: held 29 = what is left of the lots (11 of the 34 and the 18): 20 x 229
+        "1795271413,3719,4,4,Tester,3760,4234:20:4580:29/2321:8:720:8",
+        -- 17:47: held 240 = the 9 left of the 18 and the purchases of 16:33 and 16:42; the oldest 75: 9 x 229 +
+        -- 16 x 230 + 230 + 3 x 230 + 6430 + 15 x 206 = 16181, 2s 16c a unit
+        "1795279675,3719,15,15,Tester,3760,4234:75:16181:240/2321:30:2700:30",
+    }, "the cloaks' Heavy Leather from the mended purchases, the thread (no purchase) as it was")
+    H.same({ result.lines, result.mats }, { 2, 2 }, "two lines, one material each")
+    env.FlushTimers()
+    H.eq(env.printed[#env.printed]:find("material cost of 2 crafts", 1, true) ~= nil, true, "the chat says so")
+    H.eq(FM.RepairCrafts(r), nil, "once per bucket")
+end)
+
 H.test("cost: crafted units show their materials now and the basis their crafts recorded", function()
     local FM, env, r = Load()
     r.crafts = { Line(NOW - 3600, "100", 3, 3, 900, "1:6:300/2:3:600") }

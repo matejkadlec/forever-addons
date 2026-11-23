@@ -13,7 +13,9 @@ local _, FM = ...
 --                     auction's sold rows of these units and price the line is: a second part of the same size and
 --                     price is nth 2, a line written again after a list that lacked the row has the nth of the first;
 --                     mail (1.38.8) = when the row's mail goes out (the list's time + its seconds left): the row is
---                     listed until then, so only before it can the same line come again)
+--                     listed until then, so only before it can the same line come again. Since 1.40.6 (FRV-118) a
+--                     new sale whose row takes the place of a row of the same units and price whose mail went out
+--                     has that row's nth: the same line is the same sale only with a mail time within 2 minutes)
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
@@ -32,7 +34,8 @@ local _, FM = ...
 --            unit like a running one's; lists without v hold the total there. full (1.38.5, FRV-109) = what
 --            C_AuctionHouse.HasFullOwnedAuctionResults said of the list: 1 complete, 0 taken as it was after 5 s of
 --            no, nil the client cannot tell. Every sold row the list before did not have (by auction ID, units and
---            price) is one osold line marked "s"; the running row's fall beyond the units of those rows is an opart
+--            price; of that list only the rows whose seconds left reach past the gap between the two, FRV-118) is one
+--            osold line marked "s"; the running row's fall beyond the units of those rows is an opart
 
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
@@ -120,8 +123,18 @@ local function ParseOwned(list)
     return out, sold
 end
 
--- The rows of a list per auction: { run = its running row, sold = { ["qty:buyout"] = { n = rows, row = one, qty } } }.
--- oldFormat: a list from before 1.38 (no v = 2), whose sold rows hold the sale's total in the price
+-- A row's seconds left for ordering: one the client did not give (or a secret value) sorts last
+local function LeftOrder(row)
+    local left = row.left
+    if type(left) ~= "number" or FM.IsSecret(left) then return math.huge end
+    return left
+end
+
+-- The rows of a list per auction: { run = its running row, sold = { ["qty:buyout"] = { n = rows, row = one, qty,
+-- lefts = each row's seconds left, rows = the rows, the soonest mail first } } }. The older sales of one units and
+-- price leave the list first, so the k-th row of that order is the sale of nth k and its line takes that row's mail
+-- time (FRV-118, review round 1: every line took the first row's). oldFormat: a list from before 1.38 (no v = 2),
+-- whose sold rows hold the sale's total in the price
 local function OwnedRows(running, sold, oldFormat)
     local rows = {}
     local function Of(aid)
@@ -136,10 +149,27 @@ local function OwnedRows(running, sold, oldFormat)
         if oldFormat and qty > 1 then buyout = Enc(math_floor((Dec(buyout) or 0) / qty + 0.5)) end
         local id = row.qty .. ":" .. buyout
         local of = Of(row.aid).sold
-        of[id] = of[id] or { n = 0, row = row, qty = qty }
+        of[id] = of[id] or { n = 0, row = row, qty = qty, lefts = {}, rows = {} }
         of[id].n = of[id].n + 1
+        of[id].lefts[of[id].n] = row.left
+        of[id].rows[of[id].n] = row
+    end
+    for _, r in pairs(rows) do
+        for _, of in pairs(r.sold) do
+            table.sort(of.rows, function(a, b) return LeftOrder(a) < LeftOrder(b) end)
+        end
     end
     return rows
+end
+
+-- How many of an auction's sold rows of one units and price (OwnedRows' entry) a list taken gap seconds later can
+-- still show: a row is listed until its mail goes out, its seconds left (FRV-118)
+local function StillListed(of, gap)
+    local n = 0
+    for _, left in ipairs(of and of.lefts or {}) do
+        if type(left) == "number" and left > gap then n = n + 1 end
+    end
+    return n
 end
 
 -- full: what the client said of the list (1 complete, 0 taken after waiting for it in vain, nil it cannot tell)
@@ -209,14 +239,17 @@ local function SnapshotOwned(full)
             FM.Log("events", table_concat(fields, ","), FM.LIMITS.eventsMax)
         end
         -- each sold row the list before did not have is one sale: rows of the same units and price are counted, so
-        -- two parts of 5 at one price are two sales, the second one's line with nth 2 (FRV-109)
+        -- two parts of 5 at one price are two sales, the second one's line with nth 2 (FRV-109). Of the list before
+        -- only the rows that can still be listed count (FRV-118): a row whose mail went out between the two lists is
+        -- gone, and a row of the same units and price in its place is a new sale (its line gets the nth the gone one
+        -- had; readers tell the two apart by their mail times)
         local soldNow = {} -- aid -> the units of its new sold rows
         for aid, cur in pairs(rows) do
             local old = before[aid]
             local units = 0
             for id, s in pairs(cur.sold) do
-                for nth = (old and old.sold[id] and old.sold[id].n or 0) + 1, s.n do
-                    log("osold", aid, s.row, nil, true, nth)
+                for nth = StillListed(old and old.sold[id], gap) + 1, s.n do
+                    log("osold", aid, s.rows[nth] or s.row, nil, true, nth)
                     units = units + s.qty
                 end
             end
@@ -624,14 +657,12 @@ end
 -- again
 local MAIL_REPAIR = 3
 local TWIN_MINUTES = 1
+FM.MAIL_REPAIR = MAIL_REPAIR -- core/Core.lua: a stray bucket folded into a mended log (FRV-114)
 
-function FM.RepairMailLog(r)
-    if type(r) ~= "table" or r.mailRepair == MAIL_REPAIR then return nil end
-    local mended = r.mailRepair == 1 or r.mailRepair == 2
-    r.mailRepair = MAIL_REPAIR
-    r.mailSeen = nil
-    if mended then return nil end
-    local invoices = type(r.invoices) == "table" and r.invoices or {}
+-- The pairing of the repair on one log (R.invoices, changed in place): returns the lines dropped and the money of the
+-- sales among them. core/Core.lua runs it on a stray bucket's own log before it joins a realm's log that was mended
+-- already (FRV-114); never twice on one log, a second pass would pair mails of their own
+local function PairMailTwins(invoices)
     local blanks, named = {}, {} -- base -> its lines without a name, in log order; the lines with one
     for i, line in ipairs(invoices) do
         local f = type(line) == "string" and FM.Split(line, ",") or {}
@@ -680,6 +711,17 @@ function FM.RepairMailLog(r)
         end
         for i = 1, math.max(#invoices, #out) do invoices[i] = out[i] end
     end
+    return dropped, sales
+end
+FM.PairMailTwins = PairMailTwins
+
+function FM.RepairMailLog(r)
+    if type(r) ~= "table" or r.mailRepair == MAIL_REPAIR then return nil end
+    local mended = r.mailRepair == 1 or r.mailRepair == 2
+    r.mailRepair = MAIL_REPAIR
+    r.mailSeen = nil
+    if mended then return nil end
+    local dropped, sales = PairMailTwins(type(r.invoices) == "table" and r.invoices or {})
     local result = { t = FM.Now(), dropped = dropped, sales = sales }
     r.mailRepaired = result
     if dropped > 0 and C_Timer and FM.Print then

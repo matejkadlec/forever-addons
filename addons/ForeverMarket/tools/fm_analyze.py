@@ -1422,9 +1422,11 @@ def cmd_room(m, args):
         if t and len(f) > 2 and now - PICKS_WINDOW < t <= now and (f[2] not in first_post or t < first_post[f[2]]):
             first_post[f[2]] = t
     # Picks' own rate until 1.39 counted each sale once (OwnSales in trade/Picks.lua, FRV-109): an osold line written again (the
-    # same character, auction, units, price and nth; a sold row's line only until the mail time the first one carries,
-    # without one within 61 minutes of it) counts nothing, nor does one without "s" of an auction that is in the newest
-    # list after all with more units than were posted
+    # same character, auction, units, price and nth; a sold row's line with its mail time only when an earlier line's
+    # mail time is within 2 minutes of its own, FRV-118, an earlier one without a mail time within 61 minutes of it;
+    # a line without a mail time until the mail time of the newest earlier one, else within 61 minutes of it) counts
+    # nothing, nor does one without "s" of an auction that is in the newest list after all with more units than were
+    # posted (the Profit tab's rule, Repeats in scan/Worth.lua)
     posted, listed, logged = {}, {}, {}
     for post in as_list(m.r.get('posts')):
         f = post.split(',')
@@ -1445,11 +1447,19 @@ def cmd_room(m, args):
             if f[2] == 'osold' and aid:
                 shown = len(f) > 8 and f[8] == 's'
                 ident = (f[1], aid, f[4], f[5] if len(f) > 5 else '', f[9] if len(f) > 9 else '')
-                ref = logged.get(ident)
-                if ref and not (shown and t and t > (ref[1] + 60 if ref[1] else ref[0] + 61 * 60)):
+                mail = stamp_to_epoch(f[10]) if len(f) > 10 else None
+                refs = logged.get(ident)
+                if refs and shown and mail:
+                    again = any(abs(ref[1] - mail) <= 120 if ref[1] else (t or 0) <= ref[0] + 61 * 60 for ref in refs)
+                elif refs:
+                    ref = refs[-1]
+                    again = not (shown and t and t > (ref[1] + 60 if ref[1] else ref[0] + 61 * 60))
+                else:
+                    again = False
+                if again:
                     counts = False
                 else:
-                    logged[ident] = (t or 0, stamp_to_epoch(f[10]) if len(f) > 10 else None)
+                    logged.setdefault(ident, []).append((t or 0, mail))
                 there = not shown and listed.get(aid)
                 if there and (aid not in posted or qty + there > posted[aid]):
                     counts = False

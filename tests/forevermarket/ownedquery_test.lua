@@ -143,8 +143,8 @@ H.test("owned query: a second list in one visit logs a run-out auction as gone, 
 end)
 
 -- The client's list of your auctions for the tests below (Silk Cloth, a commodity at 1s a unit): rows of
--- { id, qty, sold }; a sold row holds its sale's total, as the client gives it. full = what
--- HasFullOwnedAuctionResults answers, onAsk(n) runs before its n-th answer
+-- { id, qty, sold, left }; a sold row holds its sale's total, as the client gives it, and its mail goes out in left
+-- seconds (3000 when not given). full = what HasFullOwnedAuctionResults answers, onAsk(n) runs before its n-th answer
 local function OwnedList(FM, env, ah)
     local list = { rows = {}, full = true, asks = 0 }
     ah.GetNumOwnedAuctions = function() return #list.rows end
@@ -152,7 +152,8 @@ local function OwnedList(FM, env, ah)
         local row = list.rows[i]
         if not row then return nil end
         return { auctionID = row[1], itemLink = "|cffffffff|Hitem:4306:0|h[Silk Cloth]|h|r", status = row[3] and 1 or 0,
-            quantity = row[2], buyoutAmount = row[3] and row[2] * 100 or 100, timeLeftSeconds = row[3] and 3000 or 80000 }
+            quantity = row[2], buyoutAmount = row[3] and row[2] * 100 or 100,
+            timeLeftSeconds = row[3] and (row[4] or 3000) or 80000 }
     end
     ah.HasFullOwnedAuctionResults = function()
         list.asks = list.asks + 1
@@ -262,4 +263,58 @@ H.test("owned list: a stack sold in parts writes an osold line per part, the run
         { "osold", 5, 8, true, 1 },
         { "osold", 5, 8, true, 2 },
     }, "each part once with its own units: 6 + 2 + 3 of auction 7, 5 + 5 of auction 8")
+end)
+
+-- Rule (FRV-118): of the list before only the sold rows it can still show count, a row is listed until its mail goes
+-- out (its seconds left): a row whose mail went out between the two lists is gone, and a row of the same units and
+-- price in its place is a new sale (its line has the nth the gone row had and a mail time of its own). The ticket's
+-- reproduction: an auction of 10; a list shows its running 5 and a sold row of 5 (sale A, its mail 4 minutes away);
+-- the other 5 sell to one buyer (sale B) and A's mail goes out; the next list shows only B's row
+H.test("owned list: a sale whose row takes the place of a gone row of the same size and price is logged", function()
+    local FM, env, ah = Load()
+    local list = OwnedList(FM, env, ah)
+    OpenAH(FM, env)
+    env.FlushTimers()
+    list.Read({ { 9, 10 } })
+    list.Read({ { 9, 5 }, { 9, 5, true, 240 } })
+    local mailA = FM.Stamp(env.clock + 240)
+    list.Read({ { 9, 5, true, 3300 } }) -- 5 minutes later
+    local mailB = FM.Stamp(env.clock + 3300)
+    H.same(OwnedLines(FM), { { "osold", 5, 9, true, 1 }, { "osold", 5, 9, true, 1 } },
+        "A's line and B's, no cancel of the rest: B's row holds it")
+    H.same({ FM.Split(FM.R().events[1], ",")[11], FM.Split(FM.R().events[2], ",")[11] }, { mailA, mailB },
+        "each with its own mail time")
+    -- a list that lacks B's row (taken while loading), then one that shows it again: its line again, the same mail time
+    list.Read({})
+    list.Read({ { 9, 5, true, 2700 } })
+    H.eq(#FM.R().events, 3, "the line written again")
+    H.eq(FM.Split(FM.R().events[3], ",")[11], mailB, "with B's mail time: the readers take it for B's")
+    -- a row the list before can still show is that row, as before: no line
+    list.Read({ { 9, 5, true, 2400 } })
+    H.eq(#FM.R().events, 3, "B's row again, nothing new")
+end)
+
+-- Rule (FRV-118, review round 1): with several sold rows of one units and price, each line takes its own row's mail
+-- time: the older sales leave the list first, so the sale of nth k is the row with the k-th soonest mail, whatever
+-- order the client lists them in
+H.test("owned list: each sold row of one size and price logs its own mail time", function()
+    local FM, env, ah = Load()
+    local list = OwnedList(FM, env, ah)
+    OpenAH(FM, env)
+    env.FlushTimers()
+    list.Read({ { 9, 15 } })
+    list.Read({ { 9, 5 }, { 9, 5, true, 1800 }, { 9, 5, true, 240 } }) -- sales A (mail in 4 min) and B, B listed first
+    local t2 = env.clock
+    list.Read({ { 9, 5, true, 1500 }, { 9, 5, true, 3300 } })            -- A's mail went out, B listed, sale C
+    local t3 = env.clock
+    local mails, nths = {}, {}
+    for i, e in ipairs(FM.R().events) do
+        local f = FM.Split(e, ",")
+        mails[i], nths[i] = f[11], FM.Dec(f[10])
+    end
+    H.same(nths, { 1, 2, 2 }, "A nth 1, B nth 2, C takes the place of a gone row: nth 2 again")
+    H.same(mails, { FM.Stamp(t2 + 240), FM.Stamp(t2 + 1800), FM.Stamp(t3 + 3300) },
+        "A's and B's mail times, and C's own, not B's (listed before it)")
+    H.same(OwnedLines(FM), { { "osold", 5, 9, true, 1 }, { "osold", 5, 9, true, 2 }, { "osold", 5, 9, true, 2 } },
+        "no cancel: C sold the rest")
 end)
