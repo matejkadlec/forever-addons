@@ -1315,7 +1315,7 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   until 1.37 got a line of its own next to its purchase's line, and a purchase of more than 16 stacks, which comes as
   several mails (`invoices`), got a line per mail next to its own line, which no mail of its units took. A bucket at 1
   or 2 loses those copies once: the lines the repair added sit on their mail's minute and are no newer than the repair
-  (`buysRepaired.t`); the logged purchases take their mails first, then those lines (the nearest mail of the same
+  (`buysRepaired.t`; a bucket the repair marked while its log was empty has none and keeps every line); the logged purchases take their mails first, then those lines (the nearest mail of the same
   character, item and units within 15 minutes); an added line without a mail left goes when another line of the same
   character, item, units and total lies within 15 minutes, and a line without a mail goes when two or more added
   lines of its item, each on its mail's minute within 2 minutes of it, add up to its units. `buysCopies` = { t,

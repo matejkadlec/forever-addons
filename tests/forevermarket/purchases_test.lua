@@ -293,6 +293,24 @@ H.test("purchases: the repair gives a purchase that came as several mails their 
     H.same(r.buys, { "1795275731,2318,407,29819,Tester" }, "one line at the mails' total")
 end)
 
+-- Rule (FRV-113, review round 2): a bucket the FRV-102 repair marked while its log was empty (a new install or realm
+-- first loaded by 1.36.5 to 1.40.5: buysRepair = 2, no buysRepaired) holds no line that repair added; every line is a
+-- logged purchase and stays, also one that fell on a whole minute next to a purchase of the same size and total
+H.test("purchases: a bucket the repair marked with an empty log keeps every purchase (FRV-113)", function()
+    local FM, env = Load()
+    local r = FM.R()
+    r.names = { [tostring(LEATHER)] = "Medium Leather" }
+    r.snipe = { saved = {} }
+    r.buys = { "1795400040,2319,1,55,Tester", "1795400130,2319,1,55,Tester" } -- the first on a whole minute
+    r.invoices = { Mail(FM, 1795400100, "Medium Leather", 1, 55) }           -- the other one's mail still in the mailbox
+    r.buysRepair, r.buysRepaired = 2, nil
+    env.clock = 1795400200
+    FM.RepairBuys(r)
+    H.same(r.buys, { "1795400040,2319,1,55,Tester", "1795400130,2319,1,55,Tester" }, "both purchases stay")
+    H.eq(r.buysCopies, nil, "nothing removed")
+    H.eq(r.buysRepair, 3, "marked")
+end)
+
 H.test("purchases: the AH mail is mended before the purchase log, a mail logged twice gives no copy (FRV-113)", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
         "scan/Ledger.lua", "trade/Crafts.lua", "trade/Cost.lua" })

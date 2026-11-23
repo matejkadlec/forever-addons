@@ -371,8 +371,9 @@ function FM.RepairBuys(r)
     local was = r.buysRepair
     r.buysRepair = BUYS_REPAIR
     if was == 1 or was == 2 then
-        -- the time of the repair that mended it: the lines it added are no newer
-        local before = type(r.buysRepaired) == "table" and tonumber(r.buysRepaired.t) or FM.Now()
+        -- the time of the repair that mended it: the lines it added are no newer. A bucket it marked with an empty log
+        -- has no r.buysRepaired: it added nothing, and every line since is a logged purchase (review round 2)
+        local before = type(r.buysRepaired) == "table" and tonumber(r.buysRepaired.t) or nil
         local result = was == 1 and RepairAfterFirst(r) or nil
         DropCopies(r, before)
         return result
