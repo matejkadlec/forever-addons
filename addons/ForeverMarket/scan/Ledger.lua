@@ -756,8 +756,10 @@ local function SurnameSeparator()
     return consts and consts.CHARACTERNAME_SURNAME_SEPARATOR or " "
 end
 
+-- Returns the mails this read logged (ReadMail's tables)
 local function ScanInbox()
-    if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
+    local logged = {}
+    if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return logged end
     local r = FM.R()
     if type(r.mailSeen) ~= "table" then SeedMailSeen(r) end
     local now = FM.Now()
@@ -833,6 +835,7 @@ local function ScanInbox()
                 -- an invoice also notes when you read it: its money reaches you then
                 if mail.list == "invoices" then line = line .. "," .. FM.Stamp(now) end
                 FM.Log(mail.list, line, limit)
+                logged[#logged + 1] = mail
             end
         end
         local keep = {}
@@ -860,6 +863,7 @@ local function ScanInbox()
         end
         r.mailSeen[base] = #keep > 0 and table_concat(keep, ",") or nil
     end
+    return logged
 end
 
 local inboxPending = false -- the inbox changed and the read of it is still to come (a second later)
@@ -942,16 +946,99 @@ local function WatchedGone()
     end
 end
 
--- After a call that takes the mail at index out: its kind's mails are watched
+-- What the reads at the take-out calls saw (FRV-108), so one visit to the mailbox shows in game whether a hooked call
+-- still finds its mail listed: R.mailTakes = { since = the first counted call, calls = take-out calls with the
+-- mailbox open, ah = those on an AH mail, logged = AH mails first logged by the read at their own call (the read a
+-- second after the inbox changed would have come too late or found nothing new), gone = calls whose mail had already
+-- left the list when the hook ran: its index lists no mail or another one than the list held there before the call
+-- (Open All takes nearly every mail at index 1, where the next mail moves up; such a mail cannot be logged, so any
+-- gone means the hook comes too late) }. `/fm status` shows it
+local function Takes(r)
+    local takes = r.mailTakes
+    if type(takes) ~= "table" then
+        takes = { since = FM.Now() }
+        r.mailTakes = takes
+    end
+    for _, field in ipairs({ "calls", "ah", "logged", "gone" }) do takes[field] = tonumber(takes[field]) or 0 end
+    return takes
+end
+
+-- The mails the inbox listed at its last change or take-out call, by index (false: no mail there), for telling at a
+-- call whether its index still holds the mail it held before: { base, minutes, mail = ReadMail's table of an AH mail };
+-- n = how many it listed (identical sales a minute apart read as the same mail: a list that got shorter within the
+-- call tells those apart)
+local listedAt = {}
+
+-- The mail at an inbox index as listedAt keeps it: { subject, minutes (sent), base and mail (an AH mail's key and
+-- ReadMail's table, nil while its invoice has not come) }; nil when the index lists no mail
+local function MailAt(i, char, clock)
+    local _, _, _, subject, _, _, daysLeft = GetInboxHeaderInfo(i)
+    if type(daysLeft) ~= "number" or FM.IsSecret(daysLeft) then return nil end
+    local mail = ReadMail(i, char, clock)
+    local sent = clock - math.max(0, MAIL_DAYS - daysLeft) * 86400
+    return { subject = (type(subject) == "string" and not FM.IsSecret(subject)) and subject or "",
+        minutes = math_floor((sent - FM.EPOCH) / 60), base = mail and mail.base, mail = mail }
+end
+
+-- Whether two readings are the same mail (the sent minute of one mail can move by one between two reads); when one
+-- of them has no invoice yet, by its subject
+local function SameMail(a, b)
+    if not (a and b) or math.abs(a.minutes - b.minutes) > 1 then return false end
+    if a.base and b.base then return a.base == b.base end
+    return a.subject == b.subject
+end
+
+-- How many mails the inbox lists (nil when the client does not say)
+local function ListedCount()
+    local shown = GetInboxNumItems()
+    if type(shown) ~= "number" or FM.IsSecret(shown) then return nil end
+    return shown
+end
+
+local function KeepListed(char, clock)
+    listedAt = { n = ListedCount() }
+    for i = 1, (listedAt.n or 0) do listedAt[i] = MailAt(i, char, clock) or false end
+end
+
+-- After a call that takes the mail at index out: the inbox is read, and its kind's mails are watched
 local function WatchMail(index)
     if not mailOpen or type(index) ~= "number" or not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
-    -- a mail taken out within the second before the inbox was read is logged before it leaves
-    if inboxPending then ScanInbox() end
+    local takes = Takes(FM.R())
+    takes.calls = takes.calls + 1
+    local before, countBefore = listedAt[index], listedAt.n -- what the list held before the call
+    -- every call reads the inbox before its mail leaves (FRV-108): a mail taken out within the second before the read
+    -- after a change of the inbox, and one that read could not log yet (its invoice not there), are logged at the
+    -- call. Until 1.39.1 only while that read was still to come
+    local logged = ScanInbox()
     WatchedGone()
     local now, char = FM.Now(), FM.PlayerName()
     local clock = InboxClock(now)
-    local mail = ReadMail(index, char, clock)
-    if mail then watch[mail.base] = { minutes = ListedByBase(char, clock)[mail.base] or {}, t = now } end
+    local found, count = MailAt(index, char, clock), ListedCount()
+    if not found or (countBefore and count and count < countBefore) or (before and not SameMail(before, found)) then
+        -- the call's mail had left already: the list got shorter within the call, or the index holds another mail
+        takes.gone = takes.gone + 1
+    elseif found.mail then
+        local mail = found.mail
+        takes.ah = takes.ah + 1
+        for _, other in ipairs(logged) do
+            if other.base == mail.base and other.minutes == mail.minutes then
+                takes.logged = takes.logged + 1
+                break
+            end
+        end
+        watch[mail.base] = { minutes = ListedByBase(char, clock)[mail.base] or {}, t = now }
+    end
+    KeepListed(char, clock)
+end
+
+-- The line of `/fm status` about the reads at the take-out calls (nil before the first call)
+function FM.MailTakesText()
+    local takes = FM.R().mailTakes
+    if type(takes) ~= "table" or not tonumber(takes.calls) then return nil end
+    local since = tonumber(takes.since)
+    return string.format("%d take-out calls since %s, %d on AH mails, %d of those logged at the call, %d no longer listed",
+        tonumber(takes.calls) or 0, since and date("%m/%d %H:%M", since) or "?", tonumber(takes.ah) or 0,
+        tonumber(takes.logged) or 0, tonumber(takes.gone) or 0)
 end
 
 local function HookMailbox()
@@ -971,18 +1058,28 @@ FM.On("PLAYER_LOGIN", HookMailbox)
 FM.On("MAIL_SHOW", function()
     mailOpen, mailListed = true, false
     watch = {}
+    -- the list the client still holds from the visit before, if any: a new one comes with MAIL_INBOX_UPDATE
+    local ok, err = pcall(function()
+        listedAt = {}
+        if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
+        local now = FM.Now()
+        KeepListed(FM.PlayerName(), InboxClock(now))
+    end)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
 end)
 FM.On("MAIL_CLOSED", function()
     mailOpen, mailListed = false, false
     watch = {}
+    listedAt = {}
 end)
 
 FM.On("MAIL_INBOX_UPDATE", function()
-    -- at once: the time this list counts from, and a watched mail that just left
+    -- at once: the time this list counts from, a watched mail that just left, and what each index holds now
     local ok, err = pcall(function()
         if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
-        InboxClock(FM.Now())
+        local clock = InboxClock(FM.Now())
         WatchedGone()
+        KeepListed(FM.PlayerName(), clock)
     end)
     if not ok and geterrorhandler then geterrorhandler()(err) end
     if inboxPending then return end

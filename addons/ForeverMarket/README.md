@@ -14,7 +14,7 @@ tooltips and the sniper, all in the game.
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
 | Your posts | every PostItem / PostCommodity | item, qty, unit price, duration, auction ID |
 | Your auctions | when the AH lists them: ForeverMarket asks once per AH visit and after your posts (1.23), Blizzard's Auctions tab asks too | sold, partly sold, cancelled, gone while away (sold or expired, the mail tells) |
-| Chat + mailbox | AH system messages, sale invoices, expired mail | real sales with buyer, price, AH cut (every mail once, also identical ones) |
+| Chat + mailbox | AH system messages, sale invoices, expired mail; the inbox again at every call that takes a mail out (1.39.1) | real sales with buyer, price, AH cut (every mail once, also identical ones, also one taken out at once) |
 | Gold | scans, AH/mail close, logout | per character |
 
 Two deep scans in a row are diffed per item: vanished auctions that could not have expired are sold,
@@ -1181,8 +1181,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   already"; a mail matches an entry within 2 minutes of its sent time (10 until 1.38.3). The sent time comes from the
   days the mail has left, which are the server's from when it sent the list and stand still while the client keeps
   it: every read of the same list counts from the time that list was first read (1.38.4; before, a mailbox left
-  open moved the sent times forward). A mail taken out within the second before its first read is logged at the
-  call. Mended once per
+  open moved the sent times forward). Every call that takes a mail out reads the inbox before the mail leaves
+  (1.39.1, FRV-108; 1.38.4 to 1.39.0 only within the second before the read that follows a change of the inbox): a
+  mail taken out before that read, or one whose invoice that read did not find yet, is logged at the call. Mended once per
   bucket (`mailRepair` = 3 since 1.38.3, the counts in `mailRepaired` = { t, dropped, sales }, a chat line says
   them): of two lines of the same character, kind, item, units and money, one without the name and one with it, the
   nameless one logged first, the second goes and the first gets its name; lines sent in the same minute pair first,
@@ -1193,6 +1194,12 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   rest); `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's total
   there); `full` (1.38.5): what `C_AuctionHouse.HasFullOwnedAuctionResults()` said of the list, 1 complete, 0 taken
   as it was after 5 s of no, missing when the client cannot tell
+* `mailTakes` (1.39.1, FRV-108) `{ since, calls, ah, logged, gone }`: what the reads at the take-out calls saw since
+  the first one, for checking in game that a call still finds its mail listed: the calls with the mailbox open, those
+  on an AH mail, the AH mails first logged by the read at their own call, and the calls whose mail had already left the
+  list when the read ran (the list got shorter within the call, or the call's index holds another mail than before it:
+  Open All takes nearly every mail at index 1, where the next mail moves up; such a mail is not logged, so any number
+  above 0 means the read comes too late); `/fm status` prints it as its "AH mail" line
 * `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,

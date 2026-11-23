@@ -363,11 +363,16 @@ local function Mailbox(env, c)
         return nil, nil, nil, "Auction successful", mail.money, 0, mail.days, nil
     end
     env.GetInboxItem = function() end
+    -- a mail with noInvoice set is listed, but the client has no invoice of it yet
     env.GetInboxInvoiceInfo = function(i)
-        if not box.inbox[i] then return end
+        if not box.inbox[i] or box.inbox[i].noInvoice then return end
         return "seller", c.name, nil, c.money, c.money, c.deposit, c.cut, nil, nil, nil, 1
     end
-    env.TakeInboxMoney = function() box.calls = box.calls + 1 end
+    -- leaveAtCall: a client that drops the mail inside the call, before the AddOn's hook runs
+    env.TakeInboxMoney = function(i)
+        box.calls = box.calls + 1
+        if box.leaveAtCall and box.inbox[i] then table.remove(box.inbox, i) end
+    end
     -- the server sends the list: every mail's days left as of now
     function box.Load(sentTimes)
         box.inbox = {}
@@ -517,6 +522,71 @@ H.test("held: a mail taken out before the inbox was first read is still logged",
     box.Changed()
     H.eq(#r.invoices, 1, "logged at the call, while it was still listed")
     H.eq(next(r.mailSeen), nil, "and forgotten when it left")
+    H.same(r.mailTakes, { since = t, calls = 1, ah = 1, logged = 1, gone = 0 }, "counted as logged at its call")
+end)
+
+-- Rule (FRV-108): every take-out call reads the inbox, not only while the read after a change is still to come: a
+-- mail whose invoice that read did not find yet is logged when it is taken out, once; a call whose mail no longer
+-- lists counts as gone, so a visit to the mailbox shows whether the hook still finds its mail
+H.test("held: a mail the read after a change could not log yet is logged at the call that takes it out", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    env.FireEvent("MAIL_SHOW")
+    box.inbox = {
+        { sent = t - 900, money = C.cloak.money, days = 30 - 900 / 86400 },
+        { sent = t - 600, money = C.cloak.money, days = 30 - 600 / 86400, noInvoice = true },
+    }
+    box.Changed() -- the list came and was read a second later: the second mail's invoice was not there yet
+    H.eq(#r.invoices, 1, "the read logged the first mail only")
+    H.eq(r.mailTakes, nil, "no take-out call yet")
+    -- seconds later the invoice is there, with no change of the inbox, and the mail is taken out
+    env.clock = t + 20
+    box.inbox[2].noInvoice = nil
+    box.Take(2)
+    H.eq(#r.invoices, 2, "logged at the call, before it left")
+    H.eq(FM.Split(r.invoices[2], ",")[11], FM.Stamp(t + 20), "read at the call")
+    -- the first mail, logged before, taken out with the next call: logged once
+    box.Take(1)
+    H.eq(#r.invoices, 2, "the mail logged before is not logged again")
+    H.eq(next(r.mailSeen), nil, "both entries went with their mails")
+    H.same(r.mailTakes, { since = t + 20, calls = 2, ah = 2, logged = 1, gone = 0 }, "one of the two logged at its call")
+    -- a call whose mail had already left the list (the client took it out before the hook ran)
+    env.TakeInboxMoney(1)
+    H.same(r.mailTakes, { since = t + 20, calls = 3, ah = 2, logged = 1, gone = 1 }, "counted as gone")
+    H.eq(FM.MailTakesText(), "3 take-out calls since " .. os.date("%m/%d %H:%M", t + 20)
+        .. ", 2 on AH mails, 1 of those logged at the call, 1 no longer listed", "the line of /fm status")
+    -- a closed mailbox counts nothing
+    env.FireEvent("MAIL_CLOSED")
+    env.TakeInboxMoney(1)
+    H.eq(r.mailTakes.calls, 3, "no call counted with the mailbox closed")
+end)
+
+-- Rule (FRV-108): a call whose mail left the list before the hook ran counts as gone, also when the next mail moved up
+-- into its index (Open All takes nearly every mail at index 1) and is a sale of the same item and price a minute later
+H.test("held: a take-out call whose mail left before the hook counts as gone, not as the next mail", function()
+    local t = DAY1 + 16 * 3600
+    local FM, env, _, r = Session(nil, t)
+    local box = Mailbox(env, C.cloak)
+    box.Open({ t - 300, t - 240, t - 60 })
+    H.eq(#r.invoices, 3, "three mails logged")
+    box.leaveAtCall = true
+    for _ = 1, 3 do
+        env.TakeInboxMoney(1)
+        box.Changed()
+    end
+    H.same(r.mailTakes, { since = t, calls = 3, ah = 0, logged = 0, gone = 3 }, "every call counted as gone")
+    H.eq(#r.invoices, 3, "nothing logged again")
+    H.eq(next(r.mailSeen), nil, "the entries went with the mails")
+    -- the same calls on a client that keeps the mail until the inbox changes: nothing gone
+    env.FireEvent("MAIL_CLOSED")
+    env.clock = t + 600
+    box.leaveAtCall = false
+    box.Open({ t + 300, t + 360 })
+    H.eq(#r.invoices, 5, "two new mails logged")
+    box.Take(1)
+    box.Take(1)
+    H.same(r.mailTakes, { since = t, calls = 5, ah = 2, logged = 0, gone = 3 }, "found at their calls")
 end)
 
 -- Rule: twins have the same sent minute, or one a minute off; lines of the same minute pair first, so a named line

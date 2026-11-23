@@ -69,6 +69,9 @@ local function Status()
     FM.Print("Scans in the last 24h:", deep24 .. " deep, " .. browse24 .. " Auctionator")
     FM.Print("Last deep scan:", r.last and r.last.t and (FM.FormatAge(now - r.last.t) .. " ago") or "never")
     FM.Print("Your posts / sales logged:", #r.posts .. " / " .. #r.invoices)
+    -- what the reads at the mail take-out calls saw (scan/Ledger.lua, FRV-108)
+    local takes = FM.MailTakesText and FM.MailTakesText()
+    if takes then FM.Print("AH mail:", takes) end
 end
 
 local function ItemSummary(rest)
