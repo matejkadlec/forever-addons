@@ -1396,3 +1396,22 @@ H.test("picks: a pick has the market numbers of its row for On AH, C/8h and C/24
     H.eq(pick.sold12, 43 / 2, "the measured rate")
     H.eq(pick.soldWide, true, "from the 3 day window")
 end)
+
+-- FRV-110: a recipe of a Leatherworking specialization you have not chosen is never a pick (nor Level for), and the
+-- reason names the specialization; its twin without one is a pick that learns it
+H.test("picks: a recipe of a specialization you have not chosen is no pick, the reason names it", function()
+    local FM, env = Setup({ ["730"] = 9, ["731"] = 9 })
+    local function Recipe(key, spec)
+        local row = Craft(key, 60)
+        row.learned = false
+        row.craft.learn = { { kind = "ah", key = "739", req = 0 } } -- its pattern on the AH for 1g
+        row.craft.spec, row.craft.specNeed = spec, spec
+        return row
+    end
+    local out = { crafts = { Recipe("730", "Tribal"), Recipe("731", nil) } }
+    local picks = Compute(FM, env, out)
+    H.eq(picks["730"], nil, "the Tribal recipe is no pick")
+    H.eq(out.pickWhy["730"], "needs the Tribal Leatherworking specialization", "the reason")
+    for _, p in ipairs(out.pickLevels or {}) do H.eq(p.key ~= "730", true, "and no Level for row") end
+    H.eq(picks["731"] and picks["731"].kind, "learn", "the recipe without a specialization: a pick that learns it")
+end)

@@ -12,7 +12,9 @@ local _, FM = ...
 --             message for 5 seconds (FRV-41)
 --   list      the sniped items in Blizzard's ScrollBox (8 rows, a scroll bar with more): item, max price, cheapest
 --             now (with the units at or under your price), bought today, the state in words, a Buy button on a
---             row with an offer (FRV-40), x = stop sniping it; a click loads the item into the add row
+--             row with an offer (FRV-40), pause / resume (FRV-101: a paused row is greyed with "paused"), x = stop
+--             sniping it, the two at the row's right end; a click loads the item into the add row. Without the
+--             scroll bar the rows reach the end of the header line (FRV-101)
 --   budget    "Automatically refresh budget", "Budget [%] [bar] [refresh]", "Set budget manually [] [g s c]"
 --             (FRV-94); hovering the budget row says what it is, what the sniper spent today and what is left
 -- It opens next to the AH (until it is dragged), hides when the AH closes and comes back with it unless it was closed
@@ -39,19 +41,27 @@ local MANUAL_NAME = "ForeverMarketSnipeManual"
 local W, H = 620, 428
 local ROW_H, ROWS = 22, 8
 local LIST_LEFT, LIST_TOP = 14, -142
-local LIST_W = W - LIST_LEFT - 34 -- room for the scroll bar at the right
+local LIST_RIGHT = 16     -- the list's right end without its scroll bar: the end of the header line
+local LIST_RIGHT_BAR = 34 -- with the scroll bar (more than 8 items), which sits in the room between
+local SCROLL_BAR_X = 26   -- the scroll bar's left edge, from the frame's right
+local LIST_W = W - LIST_LEFT - LIST_RIGHT_BAR -- the narrower list, with its scroll bar
 local HINT_ROWS, HINT_H, HINT_W = 8, 20, 340
 local MESSAGE_SECONDS = 5
 local BAR_WARN = 0.75 -- the budget bar turns yellow from this share spent
 
--- Columns of a list row (x and width inside the row) and of the header above it
+-- Columns of a list row (x and width inside the row) and of the header above it; at the right of the row the Buy
+-- button, pause / resume and remove take the last 90 px (FRV-101), so the state ends left of Buy also with the bar
 local COL = {
-    name = 24, nameW = 140,
-    price = 168, priceW = 72,
-    cheap = 244, cheapW = 100,
-    bought = 348, boughtW = 86,
-    state = 438, stateW = 62,
+    name = 24, nameW = 128,
+    price = 156, priceW = 72,
+    cheap = 232, cheapW = 100,
+    bought = 336, boughtW = 78,
+    state = 418, stateW = 62,
 }
+
+-- Blizzard's own play / pause pair (the stopwatch's, Blizzard_TimeManager)
+local PAUSE_TEXTURE = "Interface\\TimeManager\\PauseButton"
+local RESUME_TEXTURE = "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up"
 
 local GREY = "|cFF9D9D9D"
 local WHITE = "|cFFFFFFFF"
@@ -501,6 +511,9 @@ local function RowTooltip(self)
     if state.kind == "item" then
         GameTooltip:AddLine("Sold per auction: only stackable items can be sniped.", 1, 0.35, 0.35, true)
     end
+    if state.paused then
+        GameTooltip:AddLine("Paused: not searched or bought until you resume it.", 0.6, 0.6, 0.6, true)
+    end
     if state.n then
         local v = state.done and 0.6 or 1
         GameTooltip:AddLine(string_format("Bought %s of %s for %s%s", FM.FormatCount(state.got), FM.FormatCount(state.n),
@@ -523,10 +536,12 @@ local function RowTooltip(self)
     GameTooltip:Show()
 end
 
--- The state in words and its look: text, color, tint of the row (r, g, b) or nil, dim (greyed out)
+-- The state in words and its look: text, color, tint of the row (r, g, b) or nil, dim (greyed out). A done item
+-- says "done" also while it is paused (FRV-101)
 local function RowState(state)
     if state.kind == "item" then return "not stackable", GREY, nil, true end
     if state.done then return "done", GREY, nil, true end
+    if state.paused then return "paused", GREY, nil, true end
     if state.confirm then return "confirm", GREEN, { 0.1, 0.6, 0.2 } end
     if state.buying then return "buying", "|cFF66CCFF", { 0.1, 0.35, 0.7 } end
     if state.hit then return "at your price", GREEN, { 0.1, 0.6, 0.2 } end
@@ -572,6 +587,21 @@ local function FillRow(row)
     row.buy:SetText(state.confirm and "Confirm" or "Buy")
     row.buy:SetShown(canBuy and true or false)
     row.buy:SetEnabled(state.confirm or not state.buying)
+    -- pause shows what a click does: pause while it snipes, resume while it is paused
+    local texture = state.paused and RESUME_TEXTURE or PAUSE_TEXTURE
+    row.pause:SetNormalTexture(texture)
+    row.pause:SetPushedTexture(texture)
+end
+
+-- The pause button's tooltip: what a click does now
+local function PauseTooltip(self)
+    local key = self:GetParent().key
+    if not key then return end
+    if FM.SnipePaused(key) then
+        Tooltip(self, "ANCHOR_RIGHT", "Resume sniping this item", "It is searched and bought again at its price and limits.")
+    else
+        Tooltip(self, "ANCHOR_RIGHT", "Pause sniping this item", "Not searched or bought until you resume it; its price, limits and what it bought stay.")
+    end
 end
 
 local function BuildRow(row)
@@ -603,10 +633,10 @@ local function BuildRow(row)
     row:SetScript("OnReceiveDrag", TakeCursorItem)
     row:SetScript("OnEnter", RowTooltip)
     row:SetScript("OnLeave", HideTooltip)
-    -- the row's own Buy: that row's offer, through the same checks as a wheel step (FRV-40)
+    -- the row's own Buy: that row's offer, through the same checks as a wheel step (FRV-40); left of pause and remove
     local buy = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     buy:SetSize(50, 18)
-    buy:SetPoint("RIGHT", row, "RIGHT", -22, 0)
+    buy:SetPoint("RIGHT", row, "RIGHT", -40, 0)
     buy:SetNormalFontObject("GameFontNormalSmall")
     buy:SetHighlightFontObject("GameFontHighlightSmall")
     buy:SetDisabledFontObject("GameFontDisableSmall")
@@ -630,6 +660,23 @@ local function BuildRow(row)
         Tooltip(self, "ANCHOR_RIGHT", "Stop sniping " .. Name(row.key), "Its price and number are remembered for next time.")
     end)
     remove:SetScript("OnLeave", HideTooltip)
+    -- pause / resume (FRV-101), left of remove: the item stays in the list with its price and limits
+    local pause = CreateFrame("Button", nil, row)
+    pause:SetSize(20, 20)
+    pause:SetPoint("RIGHT", remove, "LEFT", 0, 0)
+    pause:SetNormalTexture(PAUSE_TEXTURE)
+    pause:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    pause:SetScript("OnClick", function(self)
+        local key = row.key
+        if not key then return end
+        local on = not FM.SnipePaused(key)
+        FM.SnipeSetPaused(key, on)
+        Message((on and "Paused sniping " or "Resumed sniping ") .. Name(key) .. ".", WHITE)
+        if GameTooltip:IsOwned(self) then PauseTooltip(self) end
+    end)
+    pause:SetScript("OnEnter", PauseTooltip)
+    pause:SetScript("OnLeave", HideTooltip)
+    row.pause = pause
 end
 
 -- The scroll box's initializer: rows are reused, so a row gets its parts once
@@ -953,16 +1000,20 @@ local function CreateList(f)
     line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -138)
 
     local box = CreateFrame("Frame", nil, f, "WowScrollBoxList")
-    box:SetPoint("TOPLEFT", f, "TOPLEFT", LIST_LEFT, LIST_TOP)
-    box:SetSize(LIST_W, ROWS * ROW_H)
+    local bottom = LIST_TOP - ROWS * ROW_H
     local bar = CreateFrame("EventFrame", nil, f, "MinimalScrollBar")
-    bar:SetPoint("TOPLEFT", box, "TOPRIGHT", 8, 0)
-    bar:SetPoint("BOTTOMLEFT", box, "BOTTOMRIGHT", 8, 0)
-    bar:SetHideIfUnscrollable(true)
+    bar:SetPoint("TOPLEFT", f, "TOPRIGHT", -SCROLL_BAR_X, LIST_TOP)
+    bar:SetPoint("BOTTOMLEFT", f, "TOPRIGHT", -SCROLL_BAR_X, bottom)
     local view = CreateScrollBoxListLinearView()
     view:SetElementExtent(ROW_H)
     view:SetElementInitializer("Button", InitRow)
     ScrollUtil.InitScrollBoxListWithScrollBar(box, bar, view)
+    -- the bar shows only with more than 8 items; without it the list (and every row's remove button) reaches the end
+    -- of the header line (FRV-101), with it the list makes room for it (Blizzard's managed visibility, ScrollUtil.lua)
+    local topLeft = CreateAnchor("TOPLEFT", f, "TOPLEFT", LIST_LEFT, LIST_TOP)
+    ScrollUtil.AddManagedScrollBarVisibilityBehavior(box, bar,
+        { topLeft, CreateAnchor("BOTTOMRIGHT", f, "TOPRIGHT", -LIST_RIGHT_BAR, bottom) },
+        { topLeft, CreateAnchor("BOTTOMRIGHT", f, "TOPRIGHT", -LIST_RIGHT, bottom) })
     f.scrollBox = box
     f.scrollBar = bar
 

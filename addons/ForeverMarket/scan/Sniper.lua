@@ -37,10 +37,14 @@ local addonName, FM = ...
 -- bought. A new number starts the count again, a new price keeps it, the daily reset doesn't touch it.
 -- A purchase's total and units are counted the moment it is confirmed and only given back when the server
 -- reports that it failed; when no answer comes at all, they stay counted (better too careful than too much spent).
+-- Paused (FRV-101, saved[key].paused, the window's pause button): the item stays in the list with its price, its
+-- "buy at most" and what it bought, but it is not searched, has no hit and is never bought until it is resumed. The
+-- pause is saved, so it outlasts closing the window, a /reload and a relog; an item added to the list starts unpaused.
 --
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
---   saved  = { [key] = { p = copper, n, got, paid } }  price and "buy at most" of an item, kept after removal
+--   saved  = { [key] = { p = copper, n, got, paid, paused } }  price and "buy at most" of an item, kept after
+--                                                      removal; paused = true while it is paused (FRV-101)
 --                                                      (the pct of an item from before 1.25 is left unused)
 --   budget = { [character] = { base, since, reset, total, day, spent = { [key] = copper }, units = { [key] = n } } }
 -- }
@@ -204,6 +208,13 @@ local function Left(key)
     local got = tonumber(saved.got) or 0
     return math_max(0, n - got), n
 end
+
+-- A sniped item paused in the window (FRV-101): not searched, no hit, never bought
+local function Paused(key)
+    local saved = FM.SnipeSaved(key)
+    return saved ~= nil and saved.paused == true
+end
+FM.SnipePaused = Paused
 
 ---------------------------------------------------------------- gold
 
@@ -405,7 +416,10 @@ function FM.SnipeSet(key, price, units)
         S.numberSet[key] = (S.numberSet[key] or 0) + 1
     end
     s.saved[key] = saved
-    if not IndexOf(s.list, key) then s.list[#s.list + 1] = key end
+    if not IndexOf(s.list, key) then
+        s.list[#s.list + 1] = key
+        saved.paused = nil -- an item added to the list snipes; one already in it keeps its pause
+    end
     S.hits[key] = nil -- an old hit was sized for the old price
     if S.buy and S.buy.key == key and S.buy.stage ~= "confirm" then CancelBuy() end
     EvaluateHeld(key) -- the new price may already have offers in the results the client holds
@@ -424,6 +438,24 @@ function FM.SnipeRemove(key)
     Refresh()
 end
 
+-- Pause (on) or resume a sniped item (FRV-101, the window's pause button). Pausing takes its hit and stops a purchase
+-- of it that is not confirmed yet (a confirmed one only the server's answer ends); resuming looks at the results the
+-- client already holds, so an offer at its price shows without waiting for its next search. Returns true when done
+function FM.SnipeSetPaused(key, on)
+    local saved = FM.IsSniped(key) and FM.SnipeSaved(key)
+    if not saved then return false end
+    saved.paused = on and true or nil
+    if on then
+        S.hits[key] = nil
+        if S.seen[key] then S.seen[key].short = nil end
+        if S.buy and S.buy.key == key and S.buy.stage ~= "confirm" then CancelBuy() end
+    else
+        EvaluateHeld(key)
+    end
+    Refresh()
+    return true
+end
+
 -- One snipe from the market table: true, or false and why ("price", "auction"). The number a sniped item already
 -- has (the same pick clicked again) keeps what is bought of it; another number, or an item removed from the list
 -- and added again, starts the count again
@@ -438,13 +470,18 @@ local function AddFromTable(key, price, units)
     return true
 end
 
--- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat
+-- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat; "(paused)" after
+-- it while the item is paused in the window (FRV-101)
 local function Describe(key)
     local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
     local left, n = Left(key)
-    if not n then return text end
-    if left == n then return FM.FormatCount(n) .. " " .. text end
-    return text .. string_format(" (%s / %s bought%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and ", done" or "")
+    if n and left == n then
+        text = FM.FormatCount(n) .. " " .. text
+    elseif n then
+        text = text .. string_format(" (%s / %s bought%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and ", done" or "")
+    end
+    if Paused(key) then text = text .. " (paused)" end
+    return text
 end
 
 -- The window opens with the item loaded when the AH is open; away from it the snipes wait for the window there
@@ -574,7 +611,7 @@ local function DeepScanBusy()
 end
 
 local function Searchable(key, b)
-    if Kind(key) == "item" or not Limit(key) then return false end
+    if Kind(key) == "item" or not Limit(key) or Paused(key) then return false end
     local left = Left(key)
     if left and left <= 0 then return false end -- done: its number is bought
     return Room(b) > 0
@@ -608,7 +645,7 @@ local function SendSearch(key)
     end
 end
 
--- Items sniping searches now (not sold per auction, with a price, not done, budget left)
+-- Items sniping searches now (not sold per auction, with a price, not paused, not done, budget left)
 local function CountSearchable(b)
     local n = 0
     for _, key in ipairs(FM.SnipeList()) do
@@ -696,7 +733,7 @@ local function TakeUnits(rows, room, maxQty)
 end
 
 -- Units of others at or under the price, cheapest first, as many as the budget and the item's units still to
--- buy allow: the hit
+-- buy allow: the hit (none while the item is paused, FRV-101: its cheapest price is still shown)
 Evaluate = function(itemID)
     local key = tostring(itemID)
     if not FM.IsSniped(key) then return end
@@ -732,11 +769,13 @@ Evaluate = function(itemID)
     local b = Budget(true)
     local room = b and Room(b) or 0
     local left = Left(key)
+    local paused = Paused(key)
     local qty, total, top, taken = TakeUnits(atPrice, room, left)
-    seen.short = seen.units > 0 and qty == 0 and not (left and left <= 0) -- offers at your price, but not enough budget left
+    -- offers at your price, but not enough budget left
+    seen.short = seen.units > 0 and qty == 0 and not (left and left <= 0) and not paused
     local hit
     -- no hit for an item that is being bought right now, its units are on their way
-    if qty > 0 and not (S.buy and S.buy.key == key) then
+    if qty > 0 and not paused and not (S.buy and S.buy.key == key) then
         hit = { key = key, itemID = itemID, qty = qty, total = total, top = top, rows = taken, t = GetTime() }
     end
     local had = S.hits[key] ~= nil
@@ -813,6 +852,7 @@ local function QuoteOK(buy, total, unit)
     -- which the next search finds)
     if total < buy.minUnit * buy.qty then return false, "the server's price does not match this purchase" end
     if BlizzardBuying() then return false, "Blizzard's buy window is open" end
+    if Paused(buy.key) then return false, "you paused it" end
     local limit = Limit(buy.key)
     if not limit or unit > limit or total > limit * buy.qty then return false, "above your price" end
     local left = Left(buy.key)
@@ -1359,16 +1399,20 @@ function FM.SnipeStatus()
             end
         end
         if not any then
-            -- an item that could still be bought waits for the budget; else every item is done or no commodity
-            local waits = false
+            -- an item that could still be bought waits for the budget; else every item is done, paused or no commodity
+            local waits, paused = false, false
             for _, key in ipairs(list) do
                 local left = Left(key)
-                if Kind(key) ~= "item" and Limit(key) and not (left and left <= 0) then
+                if Paused(key) then
+                    paused = true
+                elseif Kind(key) ~= "item" and Limit(key) and not (left and left <= 0) then
                     waits = true
                     break
                 end
             end
-            if not waits then
+            if not waits and paused then
+                return "Every item is paused, done (its number bought) or cannot be sniped. Resume one or add another.", "idle"
+            elseif not waits then
                 return "Every item is done (its number bought) or cannot be sniped. Give one a new number or add another.", "idle"
             end
             local remaining, cap = Allowance(b)
@@ -1386,7 +1430,10 @@ function FM.SnipeStatus()
         end
     end
     local pageItem = BuyPageItem()
-    if pageItem then
+    if pageItem and Paused(tostring(pageItem)) then
+        -- the Buy page keeps sniping to its item, which is paused: nothing is searched
+        return "Paused: " .. Name(tostring(pageItem)) .. " is paused. Resume it, or go back to the item list for the others.", "paused"
+    elseif pageItem then
         -- the Buy page of a sniped item: only that one is searched
         return "Watching " .. Name(tostring(pageItem)) .. " on its Buy page" .. (#list > 1 and
             ". Go back to the item list for the others." or " ..."), "watching"
@@ -1405,7 +1452,7 @@ end
 
 -- State of one sniped item for the window's list: hit, seen, kind, budget info, what the sniper bought of it today
 -- (units, spent; FRV-40), whether its quote waits for a confirm (confirm), its "buy at most" (n, got, paid, left,
--- done; n nil without a number)
+-- done; n nil without a number), whether it is paused (paused, FRV-101)
 function FM.SnipeItemState(key)
     local hit = FreshHit(key)
     local seen = S.seen[key]
@@ -1427,6 +1474,7 @@ function FM.SnipeItemState(key)
         got = n and (n - left) or nil,
         paid = n and saved and tonumber(saved.paid) or nil,
         left = left,
-        done = left ~= nil and left <= 0
+        done = left ~= nil and left <= 0,
+        paused = Paused(key)
     }
 end

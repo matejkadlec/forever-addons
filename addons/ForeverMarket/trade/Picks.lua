@@ -21,7 +21,8 @@ local _, FM = ...
 --   * no loss: at the lowest sell price of the last 3 days, minus deposits lost on relists, still a profit
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan. One you
 --     cannot learn yet (its skill or its character level above yours, within the caps of "Over skill level" and
---     "Over character level", FRV-91) is "Level for" information, never a step of the plan
+--     "Over character level", FRV-91) is "Level for" information, never a step of the plan; one of a Leatherworking
+--     specialization you have not chosen (FRV-110, craft.specNeed) is neither: its reason names the specialization
 --   * after the plan: further good picks, each judged on its own with one pick's share of the plan's gold ("out
 --     of scope"), so each can take the place of a plan pick
 --   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
@@ -1481,6 +1482,9 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif row.craft.specNeed then
+            -- a recipe of a Leatherworking specialization you have not chosen can't be learned yet (FRV-110)
+            why[row.key] = string_format("needs the %s Leatherworking specialization", row.craft.specNeed)
         elseif listedWhy then
             why[row.key] = listedWhy
         elseif not row.sell then

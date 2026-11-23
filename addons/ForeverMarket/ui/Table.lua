@@ -210,6 +210,19 @@ local function LearnCostText(row)
     return Money(cost, seen and GREY or nil)
 end
 
+-- The Leatherworking specialization a recipe needs while you have none (FRV-110), of a recipe row or a favorite's
+-- best use: nil else
+local function SpecNeed(row)
+    local craft = row.craft or (row.src and row.src.craft)
+    return craft and craft.specNeed or nil
+end
+
+-- " Tribal" in grey after the name of such a recipe, so it shows without hovering
+local function SpecMark(row)
+    local spec = SpecNeed(row)
+    return spec and (" " .. GREY .. spec .. "|r") or ""
+end
+
 -- A recipe still to learn (Craft): grey name, a blue "learn" and what learning it costs
 local function NameCell(row)
     local text = QualityColor(row.key) .. Name(row.key) .. "|r"
@@ -217,7 +230,7 @@ local function NameCell(row)
         local cost = LearnCostText(row)
         text = GREY .. Name(row.key) .. "|r " .. BLUE .. "learn|r" .. (cost and (" " .. cost) or "")
     end
-    return text .. Marks(row)
+    return text .. SpecMark(row) .. Marks(row)
 end
 
 -- The recipes the picks would take once you have the skill (FM.trade.pickLevels, up to 3)
@@ -230,7 +243,7 @@ end
 
 -- Learn: every row is a recipe to learn, so its quality color and no "learn"; a green arrow on the ones worth leveling for
 local function LearnNameCell(row)
-    return QualityColor(row.key) .. Name(row.key) .. "|r" .. (LevelFor(row.key) and LEVEL_MARK or "") .. Marks(row)
+    return QualityColor(row.key) .. Name(row.key) .. "|r" .. (LevelFor(row.key) and LEVEL_MARK or "") .. SpecMark(row) .. Marks(row)
 end
 
 local function MaxMatCell(row)
@@ -913,6 +926,10 @@ end
 
 local function CraftTooltip(row, past)
     local craft = row.craft
+    if craft.specNeed then
+        -- right under the recipe's name: you can't learn it before you choose this specialization (FRV-110)
+        Note(string_format("Requires %s specialization", craft.specNeed), RED)
+    end
     Note(string_format("%s, %s%s", craft.recipe or "?", craft.profName or craft.prof or "?",
         (craft.makes or 1) > 1 and string_format(", makes %d", craft.makes) or ""), LABEL)
     if row.learned == false then

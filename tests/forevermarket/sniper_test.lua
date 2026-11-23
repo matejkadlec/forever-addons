@@ -15,6 +15,9 @@
 --     sniping goes on; a hit lives until its item's next result, at most 30 s; the banner names a purchase for 3 s;
 --     "Try again" after a stop starts sniping again
 --   * FRV-45: the sounds follow their setting
+--   * FRV-101: a paused item is not searched, has no hit and is not bought (a purchase waiting for its quote is
+--     cancelled); its price and number stay, the pause is saved, a new price keeps it, an item added again starts
+--     unpaused; "Watching N items" leaves it out; a done item stays done
 -- The server's answers are faked here; whether the live client sends them like this is the in-game test's job.
 
 local H = require("harness")
@@ -521,4 +524,104 @@ H.test("sniper: with the sounds off neither the hit nor the purchase plays one",
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     H.same(played, {}, "off: none")
     H.eq(FM.SnipeItemState(tostring(LEATHER)).units, 10, "the purchase is booked all the same")
+end)
+
+-- FRV-101: a paused item stays in the list with its price and limits, but is not searched, has no hit and is not
+-- bought; resumed, it snipes again; the pause is saved, the "Watching N items" count leaves it out
+local function Searching(env, ah)
+    local searched = {}
+    ah.MakeItemKey = function(id) return { itemID = id } end
+    ah.SendSearchQuery = function(itemKey) searched[#searched + 1] = itemKey.itemID end
+    local tick
+    env.C_Timer.NewTicker = function(_, fn)
+        tick = fn
+        return { Cancel = function() end }
+    end
+    -- a round of n searches, each answered at once (no results: nothing listed)
+    local function Round(n)
+        for _ = 1, n do
+            env.clock = env.clock + 1
+            tick()
+            env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", searched[#searched])
+        end
+    end
+    return searched, Round
+end
+
+H.test("sniper: a paused item is not searched, gets no hit and is not bought; resumed it snipes again (FRV-101)", function()
+    local FM, env, ah = Load()
+    local searched, Round = Searching(env, ah)
+    FM.SnipeStop()
+    FM.SnipeStart()
+    FM.SnipeSet(tostring(LEATHER), 100, 50)
+    FM.SnipeSet(tostring(THICK), 300)
+    Offer(env, ah, LEATHER, 90, 20)
+    H.eq(Hit(FM, LEATHER), 20, "a hit before the pause")
+    H.eq(FM.SnipeSetPaused(tostring(LEATHER), true), true, "paused")
+    H.eq(Hit(FM, LEATHER), 0, "the pause takes its hit")
+    FM.SnipeBuyClick()
+    H.eq(#ah.started, 0, "the wheel buys nothing")
+    Offer(env, ah, LEATHER, 80, 30)
+    H.eq(Hit(FM, LEATHER), 0, "a new result of it makes no hit")
+    ah.results[LEATHER] = nil
+    Round(4)
+    for _, id in ipairs(searched) do H.eq(id, THICK, "only the item not paused is searched") end
+    H.eq(#searched, 4, "and it is searched every time")
+    local text = FM.SnipeStatus()
+    H.eq(text:find("Watching 1 item", 1, true) ~= nil, true, "the count leaves the paused item out: " .. text)
+    local state = FM.SnipeItemState(tostring(LEATHER))
+    H.eq(state.paused, true, "the window sees it paused")
+    H.eq(FM.SnipeSaved(tostring(LEATHER)).p, 100, "its price stays")
+    H.eq(state.n, 50, "and its number")
+    H.eq(FM.R().snipe.saved[tostring(LEATHER)].paused, true, "the pause is saved (a /reload keeps it)")
+    FM.SnipeSetPaused(tostring(LEATHER), false)
+    H.eq(FM.SnipeItemState(tostring(LEATHER)).paused, false, "resumed")
+    Offer(env, ah, LEATHER, 90, 20)
+    H.eq(Hit(FM, LEATHER), 20, "a hit again at its price and limits")
+    H.eq(Buy(FM, env, ah, 90), 20, "and it buys")
+    H.eq(FM.R().snipe.saved[tostring(LEATHER)].paused, nil, "nothing saved for a resumed item")
+end)
+
+H.test("sniper: pausing stops a purchase of the item that waits for its quote (FRV-101)", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    Offer(env, ah, LEATHER, 90, 5)
+    FM.SnipeBuyClick()
+    H.eq(#ah.started, 1, "a purchase started")
+    local cancelled = 0
+    ah.CancelCommoditiesPurchase = function() cancelled = cancelled + 1 end
+    FM.SnipeSetPaused(tostring(LEATHER), true)
+    H.eq(cancelled, 1, "the pause cancels it")
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 90, 450)
+    H.eq(#ah.confirmed, 0, "its quote is not confirmed")
+end)
+
+H.test("sniper: a paused item keeps its pause when its price changes, one added again starts unpaused (FRV-101)", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100)
+    FM.SnipeSetPaused(tostring(LEATHER), true)
+    FM.SnipeSet(tostring(LEATHER), 120)
+    H.eq(FM.SnipePaused(tostring(LEATHER)), true, "a new price keeps the pause")
+    FM.SnipeRemove(tostring(LEATHER))
+    H.eq(FM.SnipeSetPaused(tostring(LEATHER), true), false, "an item not in the list is not paused")
+    FM.SnipeSet(tostring(LEATHER), 120)
+    H.eq(FM.SnipePaused(tostring(LEATHER)), false, "added again it snipes")
+    FM.SnipeSetPaused(tostring(LEATHER), true)
+    env.clock = env.clock + 4
+    H.eq((FM.SnipeStatus()):find("Every item is paused", 1, true) ~= nil, true, "the banner says why nothing runs")
+end)
+
+H.test("sniper: a done item that is paused still reads done (FRV-101)", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(LEATHER), 100, 5)
+    Offer(env, ah, LEATHER, 90, 5)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    FM.SnipeSetPaused(tostring(LEATHER), true)
+    local state = FM.SnipeItemState(tostring(LEATHER))
+    H.eq(state.done, true, "done")
+    H.eq(state.paused, true, "and paused")
+    FM.SnipeSetPaused(tostring(LEATHER), false)
+    Offer(env, ah, LEATHER, 50, 100)
+    H.eq(Hit(FM, LEATHER), 0, "resumed, a done item still gets no hit")
 end)
