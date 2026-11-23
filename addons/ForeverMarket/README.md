@@ -1327,7 +1327,8 @@ python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5]
 hold, the analysis behind its constants (FRV-111, FRV-115; the Confluence page
 [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)):
 - every post's outcome (sold, expired, cancelled, running) by the rules of `trade/Listings.lua` (`ListingsBook`, held
-  to the same cases by `tests/tools/test_listings.py`), per item with what is proven now
+  to the same cases by `tests/tools/test_listings.py`), per item with what is proven now; commodity posts before
+  2026-11-19 12:00 (logged by older versions without an auction ID, so their outcome cannot be read) stay out of it
 - the episodes (your 8h posts of one item within 8h of the first) with the market at each post, the cost of a unit
   (the craft log's material basis, a material over 2.5 times its usual basis set to it; else your purchases, the
   vendor price, the recipe at the cheaper of vendor and AH), the 8h deposit and the age curve of a listing

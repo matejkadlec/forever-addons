@@ -1,6 +1,6 @@
 # Your own listings and what each sold: trade/Listings.lua (FM.ListingsRecord, FRV-103) and its port ListingsBook in
 # addons/ForeverMarket/tools/fm_analyze.py (FRV-125) read every case and must reach the outcomes below
-# (tests/forevermarket/listings_test.lua, tests/tools/test_listings.py). One character, "Tester"; now = minute 400000
+# (tests/forevermarket/listing_outcomes_test.lua, tests/tools/test_listings.py). One character, "Tester"; now = minute 400000
 # since the stamps' epoch; ago = minutes before now; an item's name is "item:<key>".
 #
 #   case <name>

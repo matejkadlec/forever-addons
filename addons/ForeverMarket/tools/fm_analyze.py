@@ -2184,7 +2184,14 @@ def _plans(m, book, last):
 
 def cmd_listings(m, args):
     now = minutes_of(m.saved_at)
-    book = ListingsBook(m.r, now, since=-math.inf)
+    # commodity posts before LST_COMMODITY_FROM have no auction ID: their outcome cannot be read, so they stay out of
+    # the book itself (as in the reference), not only out of the tables; ListingsBook's rules stay the AddOn's
+    cutoff = minutes_of(LST_COMMODITY_FROM)
+    realm = dict(m.r)
+    realm['posts'] = [line for line in as_list(m.r.get('posts'))
+                      if not (len(str(line).split(',')) > 6 and str(line).split(',')[6] == 'c'
+                              and (b36(str(line).split(',')[0]) or 0) < cutoff)]
+    book = ListingsBook(realm, now, since=-math.inf)
     settings = m.settings or {}
     room = (settings.get('tableCircPct') or 25) / 100
     first_share = (settings.get('tableFirstPct') or 2) / 100
