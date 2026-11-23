@@ -12,7 +12,9 @@ local _, FM = ...
 --   * commodity post (its events by auction ID), in this order: an ocancel (sold = n - its units, the listing ends
 --     then), an expiry mail sent within 25 minutes of its end (its count at most n, each mail once: sold = n - count),
 --     an ogone (sold = n - its units); none of them and the post is over: sold out; still running: the larger of its
---     opart units and its purchase entries (an osold of 1 unit, or whose buyout is not the unit price: the purchase's
+--     opart units and its purchase entries. Over = its character's auction list was read after its end (the last look
+--     at your auctions, as the analysis counts "now" of your own data): before that read a commodity post that ended
+--     while you were away is still taken as running, never as sold out (an osold of 1 unit, or whose buyout is not the unit price: the purchase's
 --     total; an osold of more units at the unit price is the list's mark of a running auction, no sale). opart and
 --     purchase entries happened in the middle of (prev, t]
 --   * units sold without a known moment spread evenly over the listing's life
@@ -126,8 +128,8 @@ local function RealSale(e, unit)
     return e.kind == "osold" and (e.qty == 1 or e.buyout ~= unit)
 end
 
--- The commodity posts, each by its auction's events
-local function CommodityOutcomes(posts, byAid, expiries, now)
+-- The commodity posts, each by its auction's events; looked[char] = the minute its auction list was last read
+local function CommodityOutcomes(posts, byAid, expiries, looked)
     local mailUsed = {}
     for _, L in ipairs(posts) do
         if L.kind == "c" then
@@ -172,7 +174,8 @@ local function CommodityOutcomes(posts, byAid, expiries, now)
             end
             if returned then
                 L.sold = L.n - returned
-            elseif now < L.finish then
+            elseif (looked[L.char] or -math.huge) < L.finish then
+                -- running, or over by the clock while no list of yours was read since: what is known to have sold
                 L.open = true
                 L.sold = math_min(L.n, math_max(partSum, buySum))
             else
@@ -271,8 +274,13 @@ function FM.ListingsRecord(now)
     local function ByTime(a, b) return a.t < b.t end
     for _, list in pairs(events) do table_sort(list, ByTime) end
     for _, list in pairs(byAid) do table_sort(list, ByTime) end
+    -- the last look at each character's auctions (R.owned[char].t, seconds)
+    local looked = {}
+    for char, snap in pairs(type(r.owned) == "table" and r.owned or {}) do
+        if type(snap) == "table" and type(snap.t) == "number" then looked[char] = (snap.t - FM.EPOCH) / 60 end
+    end
     ItemOutcomes(posts, sales, events, now)
-    CommodityOutcomes(posts, byAid, expiries, now)
+    CommodityOutcomes(posts, byAid, expiries, looked)
     for _, L in ipairs(posts) do table_sort(L.times, function(a, b) return a[1] < b[1] end) end
 
     local book = { listings = posts, byKey = byKey, now = now }

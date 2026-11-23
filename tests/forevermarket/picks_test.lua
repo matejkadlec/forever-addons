@@ -516,7 +516,8 @@ end
 -- Rule: one listing = one post. An item post (kind i) sold the larger of its sale mails (1 unit at its unit price,
 -- each once) and its distinct auctions with an osold at that buyout; a commodity post (kind c) sold n less what came
 -- back (an ocancel, else the expiry mail of its end, else an ogone), sold out when none came back and it is over,
--- while running the larger of its opart units and its purchase entries. proven = the most of your units sold within 8h
+-- while running the larger of its opart units and its purchase entries; it is over once its character's auction list
+-- was read after its end (before that it is still taken as running). proven = the most of your units sold within 8h
 -- of a post of the last 72h, ranOut = your units were gone in that time
 
 local DURATION = { [2] = "1", [8] = "2", [24] = "3" }
@@ -547,6 +548,11 @@ end
 
 local function Book(FM)
     return FM.ListingsRecord(NOW_MINUTES)
+end
+
+-- Your auction list, read `ago` minutes before now, with no auction running
+local function ListRead(FM, r, ago)
+    r.owned.Tester = { t = FM.EPOCH + (NOW_MINUTES - ago) * 60, list = "", v = 2 }
 end
 
 H.test("listings: a commodity post's false sold lines count nothing, its expiry mail tells what came back", function()
@@ -584,14 +590,22 @@ H.test("listings: a commodity post that sold nothing, one that sold part, one ca
     Event(r, "opart", "853", 1700, 4, 500, "c3", 1710)
     Event(r, "opart", "853", 1600, 26, 500, "c3", 1610)
     Event(r, "ocancel", "853", 1500, 72, 500, "c3", 1510)
-    -- 100, over, no event and no mail
+    -- 100, over, no event and no mail, your auction list read after its end
     Post(r, "854", 1800, 100, 500, 24, "c", "c4")
+    ListRead(FM, r, 300)
     local book = Book(FM)
     H.eq(book.byKey["851"][1].sold, 0, "nothing sold")
     H.eq(book.byKey["852"][1].sold, 70, "70 sold")
     H.same({ book.byKey["853"][1].sold, book.byKey["853"][1].cancelled }, { 30, 72 }, "30 sold, 72 cancelled")
     H.eq(book.byKey["853"][1].finish, NOW_MINUTES - 1500, "the cancel ends it")
     H.eq(book.byKey["854"][1].sold, 100, "sold out")
+    -- the same post, your auction list last read before its end: not known to be sold, taken as running
+    FM, _, r = Setup({})
+    Post(r, "854", 1800, 100, 500, 24, "c", "c4")
+    Event(r, "opart", "854", 1700, 30, 500, "c4", 1710)
+    ListRead(FM, r, 1600)
+    local L = Book(FM).byKey["854"][1]
+    H.same({ L.sold, L.open }, { 30, true }, "over by the clock, no list since: what is known to have sold")
 end)
 
 H.test("listings: a commodity post's purchase entries count while it runs, sold out once it is over", function()
@@ -603,6 +617,7 @@ H.test("listings: a commodity post's purchase entries count while it runs, sold 
         Event(r, "opart", "855", ago - 60, 9, 500, "c1", ago - 70)
         Event(r, "opart", "855", ago - 90, 4, 500, "c1", ago - 100)
         Event(r, "osold", "855", ago - 100, 51, 51 * 500, "c1", ago - 110)
+        ListRead(FM, r, 60)
         return Book(FM).byKey["855"][1]
     end
     local L = Run(1800)
@@ -688,6 +703,8 @@ local function ProvenCommodity(FM, r, key, n, unit, sold, hours)
         left, step = left - q, step + 1
     end
     if sold < n then ExpiryMail(FM, r, key, 2400 - (hours or 24) * 60, n - sold) end
+    -- your auction list read after its end, before what is listed now
+    ListRead(FM, r, 900)
 end
 
 local function Steps(pick)
@@ -1012,6 +1029,43 @@ H.test("wait: it ends a day after the price was last at 95% of usual, then the p
     -- units that cost 10s: a Stock pick at the price now
     pick = Run(1000, 40)
     H.same({ pick.kind, pick.wait, pick.listAt }, { "stock", nil, 1398 }, "Stock at 13s 98c")
+end)
+
+---------------------------------------------------------------- confidence (FRV-103)
+-- Rule: a scarce material of the plan (under 10 units within 5% of its cheapest price) x 0.9 once, the note naming
+-- it; stock listed by others over 4 days of buyers x 0.85; a price swing over 30% is a note only
+
+-- The note of a pick's tooltip that starts with `prefix`, or nil
+local function NoteStarting(pick, prefix)
+    for _, r in ipairs(pick.reasons) do
+        if r[1] == "n" and r[2]:sub(1, #prefix) == prefix then return r[2] end
+    end
+    return nil
+end
+
+H.test("confidence: a scarce material x 0.9 with its name, 5 days of stock x 0.85, a price swing only a note", function()
+    -- the base: 108 buyers a day, 50 listed by others, materials plentiful, no price history: 70%
+    local FM, env = Setup({ ["840"] = 27 })
+    local base = Compute(FM, env, { crafts = { Craft("840", 400) } })["840"]
+    H.eq(base.conf, 0.7, "little price history only")
+    -- the material: 8 within 5% of its cheapest price
+    FM, env = Setup({ ["841"] = 27 })
+    local view = View({ ["900"] = { ladder = { { 1000, 8 }, { 2000, 100000 } }, qty = 100008, own = 0 } })
+    local pick = Compute(FM, env, { crafts = { Craft("841", 400) } }, view)["841"]
+    H.eq(math.abs(pick.conf - 0.7 * 0.9) < 1e-9, true, "x 0.9: " .. tostring(pick.conf))
+    H.eq(NoteStarting(pick, "few "), "few " .. FM.GetName("900") .. " at this price", "the note names it")
+    -- 8 buyers a day and 50 listed by others: 6 days of stock
+    FM, env = Setup({ ["842"] = 2 })
+    pick = Compute(FM, env, { crafts = { Craft("842", 400) } })["842"]
+    H.eq(math.abs(pick.conf - 0.7 * 0.85) < 1e-9, true, "x 0.85: " .. tostring(pick.conf))
+    H.eq(NoteStarting(pick, "6 days of stock listed") ~= nil, true, "the note")
+    -- a 40% swing with price history: no factor, a note
+    FM, env = Setup({ ["843"] = 27 })
+    local craft = Craft("843", 400)
+    craft.avgN, craft.rawMin, craft.rawMax = 5, 8000, 12000
+    pick = Compute(FM, env, { crafts = { craft } })["843"]
+    H.eq(pick.conf, 1, "no factor")
+    H.eq(NoteStarting(pick, "price swung"), "price swung 40% in 3 days", "the note")
 end)
 
 ---------------------------------------------------------------- the order and the plan log (FRV-103)

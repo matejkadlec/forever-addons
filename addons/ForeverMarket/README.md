@@ -408,7 +408,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and its distinct auctions with an `osold` at that buyout; a sale's moment is its mail's, else the middle between
     the two list reads; an `ogone` is a sale only through its mail. A commodity post (one auction) sold n less what
     came back: an `ocancel`, else the expiry mail of its end (its count, sent within 25 minutes of the end), else an
-    `ogone`; none of them and the post is over: sold out; still running, the larger of its `opart` units and its
+    `ogone`; none of them and the post is over (its character's auction list was read after its end: before that it
+    still counts as running): sold out; still running, the larger of its `opart` units and its
     purchase entries (an `osold` of one unit, or whose buyout is a purchase's total; an `osold` of more units at the
     unit price is the list's mark of a running auction, no sale). **Proven** = the most of your units of the item
     sold within 8h of a post of yours of the last 72h (all your listings of it count); **your units ran out** when
@@ -1321,9 +1322,9 @@ python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25
 
 `room` (1.22, FRV-56) puts Picks' room on the AH next to your real sales: per item you listed in the window, your
 listings as Picks counts them (auction lists + posts since, and their age), C/24h, the cap and the room, your sales
-by mail and how many you sold per day you had it listed (and that as a share of C/24h), the buyers/2 rate Picks
-plans with and your own pace as Picks reads it; at the end the median share of C/24h you sold, for items sold per
-auction and for commodities.
+by mail and how many you sold per day you had it listed (and that as a share of C/24h), the buyers/2 rate and the
+own pace Picks planned with until 1.39 (since 1.40 its batch comes from your proven listings, FRV-103); at the end
+the median share of C/24h you sold, for items sold per auction and for commodities.
 
 Sales rates (sold/day) appear once there are 2 hours of deep scans or searches at most 8 hours apart;
 `price --rate <sold/day>` simulates with your own estimate before that. `flips` lists cheap listings
