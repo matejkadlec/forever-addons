@@ -552,7 +552,7 @@ function ns.ApplySettings(changedNow)
     end
     if changedNow then
         -- does nothing in combat (Share.lua), the scheduled check then waits for the fight to end
-        ns.UpdateChannel()
+        ns.UpdateChannel(true)
     end
     ns.ScheduleChannel()
     if ns.ApplyAlertStyle then

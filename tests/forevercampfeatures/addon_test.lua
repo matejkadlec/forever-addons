@@ -391,6 +391,20 @@ H.test("the channel: switching off both sharing options leaves at once, one of t
     H.eq(env.channel, 5, "joined at once")
 end)
 
+H.test("the channel: switching sharing off and on many times still leaves at once every time (FRV-119)", function()
+    local ns, env = Load()
+    ns.SetOption("share", false)
+    -- more toggles than the 5 tries a join or a leave that does not take gets
+    for round = 1, 7 do
+        ns.SetOption("showShared", false)
+        H.eq(env.channel, 0, "left at once, round " .. round)
+        ns.SetOption("showShared", true)
+        H.eq(env.channel, 5, "joined at once, round " .. round)
+    end
+    env.SlashCmdList.FCF("off")
+    H.eq(env.channel, 0, "/fcf off after it all")
+end)
+
 H.test("sharing: without the channel the guild gets it, the chat lockdown holds it back, off means off", function()
     local ns, env, seen = Load({ noChannel = true })
     env.inGuild = true

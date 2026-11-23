@@ -31,6 +31,7 @@ local CHANNEL_NAME = "ForeverCampFeatures"
 -- Join the channel this long after entering the world, so the game's own channels (General, Trade) keep their numbers
 local JOIN_DELAY = 10
 -- Try to join (or leave) again this often while it fails (seconds), at most this many times each per session
+-- and again after each change of the settings by the player
 local JOIN_RETRY = 60
 local MAX_JOIN_TRIES = 5
 -- One entry is sent at most this often (seconds): an object you stay in range of goes out again after it
@@ -102,10 +103,16 @@ local function InLockdown()
 end
 
 -- Join or leave the channel to match the settings; returns true when it should be checked again later (in
--- combat nothing is tried, and a join or a leave is checked once more to see whether it took)
-function ns.UpdateChannel()
+-- combat nothing is tried, and a join or a leave is checked once more to see whether it took). changedNow: the
+-- player just changed the settings, so the tries start over (the limit stops retries of a join or a leave that
+-- does not take, never the player's own clicks; a call the game blocked stays stopped)
+function ns.UpdateChannel(changedNow)
     if not (JoinPermanentChannel and GetChannelName) then
         return false
+    end
+    if changedNow then
+        stats.joinTries = 0
+        stats.leaveTries = 0
     end
     if InCombatLockdown() then
         return true
