@@ -385,8 +385,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
     3+ sales; each sale once since 1.38.5, FRV-109, as the Profit tab counts it: an `osold` line written again after
-    a list that lacked its row, or of an auction that was merely gone from a list but is in the newest one after
-    all, counts nothing). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
+    a list that lacked its row (within the hour after the first), or of an auction that was merely gone from a list
+    but is in the newest one after all, counts nothing). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
     says (1.22, FRV-66): nothing cut your sales short, so it is what buyers take at your price; the reason then
     names it ("you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h") and the tooltip's
     "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
@@ -474,7 +474,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     list of one visit counts as cancelled only when it could not have run out between the two lists (else `ogone`,
     the mail tells). A list still loading lacks running auctions (1.38.5, FRV-109): while
     `C_AuctionHouse.HasFullOwnedAuctionResults()` says no, it is read again every half second, after 5 s taken as
-    it is (what the client said is kept as `owned[char].full`). Every sold row the list before did not have is one
+    it is (what the client said is kept as `owned[char].full`); once such a wait ran out without the client ever
+    saying yes in the session, later lists are taken at once (1.38.6), so a short AH visit still gets its list. Every sold row the list before did not have is one
     `osold` line, by auction, units and price (a stack sold in parts has a sold row per part next to its running
     rest; until 1.38.5 one row per auction was compared, so a part was missed or a sold-out rest logged as gone),
     and the running rest's fall beyond those rows is an `opart`. Until
@@ -835,6 +836,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     never gone (its units and the running ones are more than were posted), and the same line logged twice counts
     once; since 1.38.5 a sold row's line carries which of its auction's rows of those units and price it is (`nth`),
     so two parts of 5 at one price are two sales and a line written again after a list that lacked its row is not.
+    A line can only come again while its row is listed (at most an hour after the sale): the same sold row's line
+    more than 61 minutes after the first is another sale (1.38.6; `nth` starts at 1 again once the rows before it
+    left the list).
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
     list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,

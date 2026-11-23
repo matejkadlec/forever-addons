@@ -155,6 +155,7 @@ end
 -- nor does an osold line of an auction that was merely gone from a list (no "s") but is in its character's newest
 -- list after all, running or shown sold, with more units than were posted. A count that fell (opart) is never
 -- written twice
+local SOLD_ROW_MINUTES = 61 -- a sold row is listed until its mail goes out, at most an hour after the sale
 local function OwnSales(nowMinutes)
     local r = FM.R()
     local since = nowMinutes - WINDOW
@@ -185,8 +186,14 @@ local function OwnSales(nowMinutes)
             local aid = f[7]
             if f[3] == "osold" and aid and aid ~= "" then
                 local id = table_concat({ f[2], aid, f[5], f[6], f[10] or "" }, ":")
-                if logged[id] then counts = false end
-                logged[id] = true
+                -- a sold row's line comes again only while its row is listed, within the hour after the first one
+                -- (its mail goes out then); a line of the same auction, units and price later is a sale of its own
+                local ref = logged[id]
+                if ref and not (f[9] == "s" and minutes and minutes - ref > SOLD_ROW_MINUTES) then
+                    counts = false
+                else
+                    logged[id] = minutes or 0
+                end
                 local there = f[9] ~= "s" and listed[aid]
                 if there and (not posted[aid] or qty + there > posted[aid]) then counts = false end
             end

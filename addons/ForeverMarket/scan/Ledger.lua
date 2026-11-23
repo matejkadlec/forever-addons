@@ -481,11 +481,14 @@ end
 
 -- A list still loading lacks running auctions, which would then be logged as gone or sold (seen on 2026-11-20 11:16,
 -- FRV-109). C_AuctionHouse.HasFullOwnedAuctionResults tells (Blizzard's Auctions tab hands it to its list): while it
--- says no the list is read again every OWNED_FULL_STEP, after OWNED_FULL_WAIT it is taken as it is, so a client that
--- never says yes behaves as before 1.38.5. Verified against the forever branch only (docs/forever-api-notes.md); what
--- it said is kept with the list (R.owned[char].full)
+-- says no the list is read again every OWNED_FULL_STEP, after OWNED_FULL_WAIT it is taken as it is. Once a wait ran out
+-- without the client ever having said yes this session, later lists are taken at once, so a client that never says
+-- yes behaves as before 1.38.5 (a short AH visit still gets its list). Verified against the forever branch only
+-- (docs/forever-api-notes.md); what it said is kept with the list (R.owned[char].full)
 local OWNED_FULL_STEP = 0.5
 local OWNED_FULL_WAIT = 5
+local ownedSaidFull = false  -- the client said a list was complete this session: it tells, so it is waited for
+local ownedNeverFull = false -- a wait ran out and it never said yes: it may not tell at all
 
 -- true / false as the client says, nil when it cannot tell
 local function OwnedListFull()
@@ -499,9 +502,13 @@ end
 local ownedPending = false
 local function TakeOwned(waited)
     local full = OwnedListFull()
-    if full == false and waited < OWNED_FULL_WAIT and FM.ahOpen then
-        C_Timer.After(OWNED_FULL_STEP, function() TakeOwned(waited + OWNED_FULL_STEP) end)
-        return
+    if full == true then ownedSaidFull = true end
+    if full == false and not ownedNeverFull and FM.ahOpen then
+        if waited < OWNED_FULL_WAIT then
+            C_Timer.After(OWNED_FULL_STEP, function() TakeOwned(waited + OWNED_FULL_STEP) end)
+            return
+        end
+        if not ownedSaidFull then ownedNeverFull = true end
     end
     ownedPending = false
     local ok, err = pcall(SnapshotOwned, full == true and 1 or full == false and 0 or nil)

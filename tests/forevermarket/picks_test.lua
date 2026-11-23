@@ -550,6 +550,12 @@ H.test("picks: your pace counts each sale once", function()
     Compute(FM, env, out)
     H.eq(out.pickWhy[key], "you list 80 and sell 14 a day yourself (12 sold in 3 days): they cover 5d",
         "12 sold: the two parts, once each")
+    -- a line comes again only while its row is listed, within the hour after the first: 6 more sold 100 minutes later,
+    -- after the first rows' mails went out (nth 1 again), are a sale of their own
+    Sold(500, "a1", 6, true, 1)
+    out = { crafts = { Craft(key, 400) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy[key]:find("(18 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
 end)
 
 H.test("picks: what you list covers a day at your pace: no pick, and the reason names your pace", function()

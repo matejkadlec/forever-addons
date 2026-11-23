@@ -227,6 +227,14 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     r.owned.Ada = { t = listT, list = table.concat({ "r1", "8172", B(80), B(994), "a", B(60000) }, ":"), v = 2 }
     _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "both parts once each, the line written again adds nothing")
+    -- a line comes again only while its row is listed, within the hour after the first: a part of the same size and
+    -- price whose line comes more than an hour later (the first row's mail went out, nth starts at 1 again) is a sale
+    r.events = {}
+    Part(4000, 1)
+    Part(300, 1)
+    Part(60, 1)
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "the part 62 minutes later counts, its repeat does not")
 end)
 
 -- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two

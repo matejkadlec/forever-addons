@@ -214,6 +214,22 @@ H.test("owned list: a list still loading is read again once complete, a client t
     H.eq(FM.R().owned.Tester.full, 0, "taken without the client saying it was complete")
 end)
 
+-- Rule: a client that has never said yes this session and let a wait run out may not tell at all: its later lists
+-- are taken at once, as before 1.38.5, so a short AH visit still gets its list
+H.test("owned list: once a wait ran out on a client that never said yes, later lists are taken at once", function()
+    local FM, env, ah = Load()
+    local list = OwnedList(FM, env, ah)
+    list.full = false
+    OpenAH(FM, env)
+    env.FlushTimers()
+    list.Read({ { 1, 80 }, { 2, 88 } })
+    H.eq(list.asks, 11, "the first list waited 5 s")
+    list.asks = 0
+    list.Read({ { 1, 80 } })
+    H.eq(list.asks, 1, "the next one is taken at once")
+    H.same(OwnedLines(FM), { { "ocancel", 88, 2, false } }, "and compared as before")
+end)
+
 -- Rule (FRV-109): every sold row the list before did not have is one sale, by auction, units and price: a stack sold
 -- in parts writes an osold line per part with its units (two parts of the same size and price: nth 1 and 2); the
 -- running rest's fall beyond those rows is an opart, and a rest that sold out is its row's sale, nothing more
