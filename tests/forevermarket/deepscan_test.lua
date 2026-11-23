@@ -19,7 +19,8 @@
 
 local H = require("harness")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/AHTraffic.lua", "scan/DeepScan.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/AHTraffic.lua", "scan/DeepScan.lua",
+    "core/SlashCommands.lua" }
 
 local function Load()
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
@@ -460,4 +461,37 @@ H.test("deep scan: /fm scanlog prints the last attempts with their state and out
         Settle(env)
     end
     H.eq(#FM.R().scanLog, 50, "the last 50 attempts are kept")
+end)
+
+H.test("deep scan: /fm scanlog prints the last 10, /fm scanlog n the last n (FRV-130)", function()
+    local FM, env = Load()
+    FM.RegisterSlashCommands()
+    local slash = env.SlashCmdList.FOREVERMARKET
+    local log = {}
+    for i = 1, 12 do log[i] = { t = env.clock - (12 - i) * 900, how = "auto", out = "ok", n = i } end
+    FM.R().scanLog = log
+    local function Lines()
+        local lines = {}
+        for _, line in ipairs(env.printed) do
+            if Has(line, "saved, ") then lines[#lines + 1] = line end
+        end
+        return lines
+    end
+
+    env.printed = {}
+    slash("scanlog")
+    H.eq(Printed(env, "The last 10 deep scan attempts"), true, "the header names 10")
+    local lines = Lines()
+    H.eq(#lines, 10, "ten lines")
+    H.eq(Has(lines[1], "saved, 3 auctions"), true, "from the third of twelve: " .. tostring(lines[1]))
+    H.eq(Has(lines[10], "saved, 12 auctions"), true, "to the newest")
+
+    env.printed = {}
+    slash("SCANLOG 2")
+    H.eq(Printed(env, "The last 2 deep scan attempts"), true, "the header names 2")
+    lines = Lines()
+    H.eq(#lines, 2, "two lines")
+    H.eq(Has(lines[1], "saved, 11 auctions"), true, "the two newest, oldest first")
+    H.eq(Has(lines[2], "saved, 12 auctions"), true, "the newest last")
+    H.eq(Printed(env, "the Auction House is closed"), true, "and what it does now")
 end)
