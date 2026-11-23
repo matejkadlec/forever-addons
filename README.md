@@ -21,6 +21,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - [ForeverRangeIndicator](#foreverrangeindicator)
   - [ForeverHawkTimer](#foreverhawktimer)
   - [ForeverMarket](#forevermarket)
+  - [ForeverCampFeatures](#forevercampfeatures)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
   - [Skada](#skada)
@@ -156,6 +157,26 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - Settings panel: `Jim's Forever AddOns -> Market`
 - Optional Battle.net feed: a server collects the auction house from the Battle.net API around the clock, a Windows task downloads it every 30 minutes and ForeverMarket imports it at login; without the server the Windows task reads the API itself while the PC is on ([`services/forever-market-feed`](services/forever-market-feed/README.md))
 - Algorithm details and the data format: [`addons/ForeverMarket/README.md`](addons/ForeverMarket/README.md)
+
+### ForeverCampFeatures
+
+🔥 Tells you when a camp object of Forever's camping is near (campfires, Cookie's Feast, the Iron Oven, the Tanning Rack, the forges, the loom, every profession's camp features), where it is, and puts a TomTom waypoint on it.
+
+- Three ways to find an object, because the game gives AddOns no list of the objects around you:
+  - In range: a recipe you know that needs the object nearby ("Requires: Iron Oven") is asked once a second whether that requirement is met; it learns your recipes while a profession window is open (anvils are skipped, a city anvil answers the same)
+  - Hover: an object's tooltip under your cursor names it (the game gives its name, not its place, so the place shown is where you stood)
+  - Shared: the objects other players running the AddOn placed or found in range, through a hidden chat channel the AddOn joins by itself, or your guild and group when the channel cannot be joined
+- The alert, for an object in your zone: a text in the upper middle of the screen ("Iron Oven at 38.5, 73.6, Ironforge", with the distance and the age for a shared one) and a sound, then a TomTom waypoint (without TomTom the coordinates in the chat); once per object, again after it moved or you left the zone and came back
+- Placed objects expire after 15 minutes (the camping wiki's number; `/fcf debug objects` prints each placement spell's own text)
+- Privacy: with "Share the objects I place or find" on (default), placing an object or finding one in range (again every 5 minutes while you stay at it) sends which object, the map, its coordinates and when it was placed or seen; nothing else
+- Slash commands:
+  - `/fcf` (or `/campfeatures`) lists the known objects of your zone with coordinates, distance and age
+  - `/fcf on` and `/fcf off` enable/disable it without reloading the UI
+  - `/fcf test` shows a test alert, `/fcf options` opens the settings
+  - `/fcf debug` prints what each way of finding objects sees right now (the recipes asked and their answers, the last world tooltip, the last placement, the channel and what was sent and received); `/fcf debug objects` prints every object with its item and placement spell
+  - `/fcf help` shows help
+- Settings panel: `Jim's Forever AddOns -> Camp Features`: the alert text, sound and waypoint, sharing and showing shared objects, and each object on or off
+- Standalone, TomTom optional; MIT licensed and written for CurseForge, with a player README: [`addons/ForeverCampFeatures/README.md`](addons/ForeverCampFeatures/README.md)
 
 ## 🧩 Backported AddOns
 

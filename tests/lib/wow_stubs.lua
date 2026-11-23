@@ -57,6 +57,8 @@ function Stubs.NewEnvironment()
         if type(name) == "string" then env[name] = frame end
         function frame:SetScript(name, fn) self.scripts[name] = fn end
         function frame:RegisterEvent(event) self.events[event] = true end
+        -- the unit filter is not kept: a test fires only the units it means
+        function frame:RegisterUnitEvent(event) self.events[event] = true end
         function frame:UnregisterEvent(event) self.events[event] = nil end
         function frame:Show() self.shown = true end
         function frame:Hide()
@@ -106,6 +108,29 @@ function Stubs.NewEnvironment()
     env.issecretvalue = function() return false end -- the client's secret values do not exist outside it
     env.geterrorhandler = function() return function(err) error(err, 0) end end
     env.SlashCmdList = {}
+    -- wipe(t) empties a table and returns it
+    env.wipe = function(t)
+        for key in pairs(t) do t[key] = nil end
+        return t
+    end
+    -- WoW's string helpers: strtrim trims whitespace; strsplit splits at a one-character delimiter into at most
+    -- pieces parts (the last keeps the rest)
+    env.strtrim = function(s)
+        s = s:gsub("^%s+", "")
+        s = s:gsub("%s+$", "")
+        return s
+    end
+    env.strsplit = function(delimiter, s, pieces)
+        local parts, start = {}, 1
+        while not (pieces and #parts == pieces - 1) do
+            local at = s:find(delimiter, start, true)
+            if not at then break end
+            parts[#parts + 1] = s:sub(start, at - 1)
+            start = at + 1
+        end
+        parts[#parts + 1] = s:sub(start)
+        return unpack(parts)
+    end
     env.GetRealmName = function() return "TestRealm" end
     env.UnitFactionGroup = function() return "Alliance" end
     env.UnitName = function() return "Tester" end

@@ -1,0 +1,20 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Camp Features
+## Notes: Alerts you to camp objects nearby (Iron Oven, Tanning Rack, campfires, ...) with their coordinates, a TomTom waypoint and sharing between players.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\Spell_Fire_Fire
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.0
+## X-License: MIT
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## OptionalDeps: TomTom
+## SavedVariables: ForeverCampFeaturesSettings
+
+Locale.lua
+Data.lua
+Core.lua
+ForeverCampFeatures.lua
+Alert.lua
+Detect.lua
+Share.lua
+SettingsPanel.lua
