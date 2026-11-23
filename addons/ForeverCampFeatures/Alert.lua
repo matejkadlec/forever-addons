@@ -242,6 +242,14 @@ end
 
 local AlertText
 
+-- Draw the alerts above Blizzard's settings window (HIGH, centered, over the default place) while Move runs or
+-- the AddOn's settings page is open, so the preview and the Test button's alert show over it; else among the
+-- other HIGH alerts of the screen
+function ns.UpdateAlertStrata()
+    local onTop = moving or (ns.IsSettingsShown ~= nil and ns.IsSettingsShown())
+    frame:SetFrameStrata(onTop and "FULLSCREEN_DIALOG" or "HIGH")
+end
+
 -- Fill the boxes: in Move mode a sample alert and the hint, else the shown alerts; the holder takes the newest
 -- box's size (the area that is dragged and kept on the screen)
 local function Layout()
@@ -267,6 +275,7 @@ local function Layout()
     end
     if texts[1] then
         frame:SetSize(boxes[1].width, boxes[1].height)
+        ns.UpdateAlertStrata()
         frame:Show()
     else
         frame:Hide()
@@ -391,7 +400,7 @@ function ns.SetMoving(on)
         StopDrag()
     end
     moving = on
-    frame:SetFrameStrata(moving and "FULLSCREEN_DIALOG" or "HIGH")
+    ns.UpdateAlertStrata()
     PlaceFrame()
     Layout()
     if ns.RefreshSettingsPanel then

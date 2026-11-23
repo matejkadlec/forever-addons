@@ -668,6 +668,26 @@ H.test("look: Move shows a preview until Done, switching the text or the AddOn o
     H.eq(ns.IsMoving(), false, "AddOn off")
 end)
 
+H.test("look: while the settings page shows, the alert draws above the settings window, else with the HUD (FRV-122)", function()
+    local ns, env = Load()
+    local frame = env.ForeverCampFeaturesAlertFrame
+    frame.SetFrameStrata = function(self, strata) self.strata = strata end
+    env.SlashCmdList.FCF("test")
+    H.eq(frame.strata, "HIGH", "no settings open")
+    -- the settings page is open: its Test button's alert must not hide behind the window (HIGH, centered)
+    local shown = true
+    ns.IsSettingsShown = function() return shown end
+    env.SlashCmdList.FCF("test")
+    H.eq(frame.strata, "FULLSCREEN_DIALOG", "over the settings window")
+    shown = false
+    ns.UpdateAlertStrata()
+    H.eq(frame.strata, "HIGH", "back when the page closes")
+    ns.SetMoving(true)
+    H.eq(frame.strata, "FULLSCREEN_DIALOG", "the Move preview")
+    ns.SetMoving(false)
+    H.eq(frame.strata, "HIGH", "Move done")
+end)
+
 H.test("look: the font list is the game's fonts and LibSharedMedia's others, named in the settings (FRV-122)", function()
     local ns, env = Load()
     local names = {}

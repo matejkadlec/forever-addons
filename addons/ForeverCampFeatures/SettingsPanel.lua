@@ -42,6 +42,11 @@ local function GetCategoryID(settingsCategory)
     return (settingsCategory.GetID and settingsCategory:GetID()) or settingsCategory.ID
 end
 
+-- True while this AddOn's settings page is on the screen (the alerts then draw above the settings window)
+function ns.IsSettingsShown()
+    return panel ~= nil and panel:IsVisible() == true
+end
+
 -- Open a settings category (not possible in combat)
 local function OpenCategory(settingsCategory)
     if InCombatLockdown() then
@@ -577,9 +582,12 @@ local function RegisterSettingsPanel()
     panel.OnRefresh = RefreshSettingsPanel
     panel.OnDefault = ns.ResetToDefaults
     panel:SetScript("OnShow", RefreshSettingsPanel)
+    -- alerts showing while the page opens or closes move above or back below the settings window
+    panel:HookScript("OnShow", ns.UpdateAlertStrata)
     -- leaving the page ends Move (the preview cannot stay without its Done button)
     panel:HookScript("OnHide", function()
         ns.SetMoving(false)
+        ns.UpdateAlertStrata()
     end)
 
     local parentPanel = EnsureForeverAddOnsCategory()
