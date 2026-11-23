@@ -752,7 +752,6 @@ end
 local SUBCOMMANDS = {
     ["on"] = { handler = EnableAddon, minArgs = 0, maxArgs = 0 },
     ["off"] = { handler = DisableAddon, minArgs = 0, maxArgs = 0 },
-    ["list"] = { handler = PrintList, minArgs = 0, maxArgs = 0 },
     ["test"] = { handler = ShowTest, minArgs = 0, maxArgs = 0 },
     ["options"] = { handler = OpenOptions, minArgs = 0, maxArgs = 0 },
     ["debug"] = { handler = PrintDebug, minArgs = 0, maxArgs = 1, values = { objects = true } },
