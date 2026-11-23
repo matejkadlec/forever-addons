@@ -7,9 +7,11 @@ local _, FM = ...
 -- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID]"    kind: i item, c commodity, b bid only
 -- R.events   "t,char,kind,..."
 --              chat:  sold | expired | removed | won | outbid  ,itemName
---              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s]  (prev = the list before, 1.15.14
---                     on; "s" (1.38) = an osold line of a row the list showed sold, without it the auction was gone
---                     from the list and could not have run out)
+--              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s[,nth]]  (prev = the list before,
+--                     1.15.14 on; "s" (1.38) = an osold line of a row the list showed sold, without it the auction was
+--                     gone from the list and could not have run out; nth (1.38.5, FRV-109) = which of the auction's
+--                     sold rows of these units and price the line is: a second part of the same size and price is
+--                     nth 2, a line written again after a list that lacked the row has the nth of the first)
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
@@ -25,7 +27,10 @@ local _, FM = ...
 --            status "s" = sold, its mail not sent yet (secondsLeft = until it is): the client gives such a row the
 --            sale's units and its total, and a stack sold in parts one row per part, all with the auction's ID (seen
 --            in the maintainer's lists of 2026-11-22). v = 2 (1.38, FRV-106): a sold row's buyout is stored per
---            unit like a running one's; lists without v hold the total there
+--            unit like a running one's; lists without v hold the total there. full (1.38.5, FRV-109) = what
+--            C_AuctionHouse.HasFullOwnedAuctionResults said of the list: 1 complete, 0 taken as it was after 5 s of
+--            no, nil the client cannot tell. Every sold row the list before did not have (by auction ID, units and
+--            price) is one osold line marked "s"; the running row's fall beyond the units of those rows is an opart
 
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
@@ -93,20 +98,50 @@ end)
 
 local OWNED_SOLD = (Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold) or 1
 
+-- A saved list -> aid -> its running row, else its first sold row (one entry per auction, for the readers that only
+-- ask whether an auction is listed and what still runs), and the sold rows one by one, each with its aid: a stack
+-- sold in parts has a sold row per part, all with the auction's ID, next to its running rest (FRV-109; until 1.38.5
+-- the last row of an auction replaced the others)
 local function ParseOwned(list)
-    local out = {}
+    local out, sold = {}, {}
     for _, entry in ipairs(FM.Split(list or "", ",")) do
         local f = FM.Split(entry, ":")
         if f[1] and f[1] ~= "" then
             -- aid:key:qty:buyout:status:left, read from the end (keys before 1.1.1 could contain ":")
             local n = #f
-            out[f[1]] = { key = table_concat(f, ":", 2, n - 4), qty = f[n - 3], buyout = f[n - 2], status = f[n - 1], left = Dec(f[n]) or 0 }
+            local row = { aid = f[1], key = table_concat(f, ":", 2, n - 4), qty = f[n - 3], buyout = f[n - 2],
+                status = f[n - 1], left = Dec(f[n]) or 0 }
+            if row.status == "s" then sold[#sold + 1] = row end
+            if not out[f[1]] or (out[f[1]].status == "s" and row.status ~= "s") then out[f[1]] = row end
         end
     end
-    return out
+    return out, sold
 end
 
-local function SnapshotOwned()
+-- The rows of a list per auction: { run = its running row, sold = { ["qty:buyout"] = { n = rows, row = one, qty } } }.
+-- oldFormat: a list from before 1.38 (no v = 2), whose sold rows hold the sale's total in the price
+local function OwnedRows(running, sold, oldFormat)
+    local rows = {}
+    local function Of(aid)
+        rows[aid] = rows[aid] or { sold = {} }
+        return rows[aid]
+    end
+    for aid, row in pairs(running) do
+        if row.status ~= "s" then Of(aid).run = row end
+    end
+    for _, row in ipairs(sold) do
+        local qty, buyout = Dec(row.qty) or 1, row.buyout
+        if oldFormat and qty > 1 then buyout = Enc(math_floor((Dec(buyout) or 0) / qty + 0.5)) end
+        local id = row.qty .. ":" .. buyout
+        local of = Of(row.aid).sold
+        of[id] = of[id] or { n = 0, row = row, qty = qty }
+        of[id].n = of[id].n + 1
+    end
+    return rows
+end
+
+-- full: what the client said of the list (1 complete, 0 taken after waiting for it in vain, nil it cannot tell)
+local function SnapshotOwned(full)
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumOwnedAuctions and ah.GetOwnedAuctionInfo) then return end
     -- only while the AH is open: an update that arrives as it closes hands out an empty list (seen in the maintainer's
@@ -119,7 +154,7 @@ local function SnapshotOwned()
     local now = FM.Now()
     local stamp = FM.Stamp(now)
     local entries = {}
-    local current = {}
+    local current, currentSold = {}, {}
     for i = 1, n do
         local info = ah.GetOwnedAuctionInfo(i)
         if type(info) == "table" and info.auctionID then
@@ -135,13 +170,15 @@ local function SnapshotOwned()
                     buyout = math_floor(buyout / quantity + 0.5)
                 end
                 local entry = {
+                    aid = aid,
                     key = key,
                     qty = Enc(quantity),
                     buyout = Enc(buyout),
                     status = status,
                     left = info.timeLeftSeconds or 0
                 }
-                current[aid] = entry
+                if status == "s" then currentSold[#currentSold + 1] = entry end
+                if not current[aid] or (current[aid].status == "s" and status ~= "s") then current[aid] = entry end
                 entries[#entries + 1] = table_concat({ aid, key, entry.qty, entry.buyout, status, Enc(entry.left) }, ":")
             end
         end
@@ -149,44 +186,63 @@ local function SnapshotOwned()
 
     local previous = r.owned[char]
     if type(previous) == "table" and previous.t then
-        local before = ParseOwned(previous.list)
+        local beforeRun, beforeSold = ParseOwned(previous.list)
+        local before = OwnedRows(beforeRun, beforeSold, previous.v ~= 2)
+        local rows = OwnedRows(current, currentSold, false)
         local gap = now - previous.t
         -- the previous list was read during this AH visit: you were watching, so a vanished auction
         -- was cancelled (sold ones stay in the list with the sold status until their mail goes out)
         local watching = FM.ahOpen and FM.ahOpenedAt and previous.t >= FM.ahOpenedAt
-        local function log(kind, aid, e, qty, shown)
-            -- prev: the list before this one, the change happened between the two; shown: the list shows the sale
+        local function log(kind, aid, e, qty, shown, nth)
+            -- prev: the list before this one, the change happened between the two; shown: the list shows the sale;
+            -- nth: which of the auction's sold rows of these units and price it is
             local fields = { stamp, char, kind, e.key, qty or e.qty, e.buyout, aid, FM.Stamp(previous.t) }
             if shown then fields[9] = "s" end
+            if nth then fields[10] = Enc(nth) end
             FM.Log("events", table_concat(fields, ","), FM.LIMITS.eventsMax)
         end
-        for aid, e in pairs(current) do
+        -- each sold row the list before did not have is one sale: rows of the same units and price are counted, so
+        -- two parts of 5 at one price are two sales, the second one's line with nth 2 (FRV-109)
+        local soldNow = {} -- aid -> the units of its new sold rows
+        for aid, cur in pairs(rows) do
             local old = before[aid]
-            if e.status == "s" and (not old or old.status ~= "s") then
-                log("osold", aid, e, nil, true)
-            elseif old and old.status ~= "s" then
-                local was, left = Dec(old.qty) or 0, Dec(e.qty) or 0
-                if left < was then log("opart", aid, e, Enc(was - left)) end
+            local units = 0
+            for id, s in pairs(cur.sold) do
+                for nth = (old and old.sold[id] and old.sold[id].n or 0) + 1, s.n do
+                    log("osold", aid, s.row, nil, true, nth)
+                    units = units + s.qty
+                end
+            end
+            soldNow[aid] = units
+            -- the running rest fell by more than its new rows sold: a part bought whose row is gone already
+            if cur.run and old and old.run then
+                local fell = (Dec(old.run.qty) or 0) - (Dec(cur.run.qty) or 0) - units
+                if fell > 0 then log("opart", aid, cur.run, Enc(fell)) end
             end
         end
         for aid, old in pairs(before) do
-            if not current[aid] and old.status ~= "s" then
-                local kind
-                if watching and not (old.left > 0 and old.left <= gap + 120) then
-                    -- you were at the AH the whole time and it could not have run out: you cancelled it
-                    kind = "ocancel"
-                elseif watching then
-                    kind = "ogone" -- it could have run out between the two lists of this visit (FRV-57 asks twice)
-                elseif old.left > gap + 120 then
-                    kind = "osold" -- gone while you were away, but it could not have run out yet
-                else
-                    kind = "ogone"
+            local cur = rows[aid]
+            if old.run and not (cur and cur.run) then
+                -- the running row went: what its new sold rows hold was sold, the rest is gone
+                local rest = (Dec(old.run.qty) or 1) - (soldNow[aid] or 0)
+                if rest > 0 then
+                    local kind
+                    if watching and not (old.run.left > 0 and old.run.left <= gap + 120) then
+                        -- you were at the AH the whole time and it could not have run out: you cancelled it
+                        kind = "ocancel"
+                    elseif watching then
+                        kind = "ogone" -- it could have run out between the two lists of this visit (FRV-57 asks twice)
+                    elseif old.run.left > gap + 120 then
+                        kind = "osold" -- gone while you were away, but it could not have run out yet
+                    else
+                        kind = "ogone"
+                    end
+                    log(kind, aid, old.run, Enc(rest))
                 end
-                log(kind, aid, old)
             end
         end
     end
-    r.owned[char] = { t = now, list = table_concat(entries, ","), v = 2 }
+    r.owned[char] = { t = now, list = table_concat(entries, ","), v = 2, full = full }
     FM.listingsVersion = (FM.listingsVersion or 0) + 1 -- the picks plan again (FM.EnsureTrade)
 end
 
@@ -423,15 +479,39 @@ function FM.OwnListings(cutT)
     return byKey, info
 end
 
+-- A list still loading lacks running auctions, which would then be logged as gone or sold (seen on 2026-11-20 11:16,
+-- FRV-109). C_AuctionHouse.HasFullOwnedAuctionResults tells (Blizzard's Auctions tab hands it to its list): while it
+-- says no the list is read again every OWNED_FULL_STEP, after OWNED_FULL_WAIT it is taken as it is, so a client that
+-- never says yes behaves as before 1.38.5. Verified against the forever branch only (docs/forever-api-notes.md); what
+-- it said is kept with the list (R.owned[char].full)
+local OWNED_FULL_STEP = 0.5
+local OWNED_FULL_WAIT = 5
+
+-- true / false as the client says, nil when it cannot tell
+local function OwnedListFull()
+    local ah = C_AuctionHouse
+    if not (ah and ah.HasFullOwnedAuctionResults) then return nil end
+    local ok, full = pcall(ah.HasFullOwnedAuctionResults)
+    if not ok or FM.IsSecret(full) or type(full) ~= "boolean" then return nil end
+    return full
+end
+
 local ownedPending = false
+local function TakeOwned(waited)
+    local full = OwnedListFull()
+    if full == false and waited < OWNED_FULL_WAIT and FM.ahOpen then
+        C_Timer.After(OWNED_FULL_STEP, function() TakeOwned(waited + OWNED_FULL_STEP) end)
+        return
+    end
+    ownedPending = false
+    local ok, err = pcall(SnapshotOwned, full == true and 1 or full == false and 0 or nil)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
+end
+
 FM.On("OWNED_AUCTIONS_UPDATED", function()
     if ownedPending then return end
     ownedPending = true
-    C_Timer.After(0.5, function()
-        ownedPending = false
-        local ok, err = pcall(SnapshotOwned)
-        if not ok and geterrorhandler then geterrorhandler()(err) end
-    end)
+    C_Timer.After(0.5, function() TakeOwned(0) end)
 end)
 
 ---------------------------------------------------------------- chat messages

@@ -111,8 +111,11 @@ have no marks, so its records stay as they were).
     bank) are taken before the first cast, and after every bag update crafts done = the fewest of (a material's
     units gone / its units per craft) and units made = the product's count now - before, so Create All batches,
     multi-unit recipes and random amounts count as they came out. One line per batch, written again as it goes; a
-    batch ends once its crafts are done and nothing changed for 3 s, after 30 s without a change, or with the next
-    craft. A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
+    batch ends once its crafts are done and nothing changed for 3 s, after 30 s without a change (plus the recipe's
+    cast time) while no profession cast is running (`UnitCastingInfo("player")`'s `isTradeskill`), or with the next
+    craft. A craft casts long on Forever (Dusky Boots 45 s): until 1.38.5 a batch ended after 30 s, before such a
+    craft took its reagents, so the higher leatherworking recipes (Comfortable Leather Hat, Turtle Scale Bracers,
+    Tough Scorpid Breastplate, Dusky Boots, Shadowskin Gloves) never got a line (FRV-107). A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
     already left your bags) and a craft uses the oldest first: your purchases (`R.buys`, at what you paid) and your
     own crafts of it (`R.crafts`, at their recorded basis, so an intermediate like Cured Thick Hide passes its basis
     on), less what your earlier crafts used of them (replayed in time order by the same rule, with the units you held
@@ -381,7 +384,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Buyers per day: units that left the AH while nothing cheaper stayed (soldLow), relist bursts capped;
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
-    3+ sales). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
+    3+ sales; each sale once since 1.38.5, FRV-109, as the Profit tab counts it: an `osold` line written again after
+    a list that lacked its row, or of an auction that was merely gone from a list but is in the newest one after
+    all, counts nothing). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
     says (1.22, FRV-66): nothing cut your sales short, so it is what buyers take at your price; the reason then
     names it ("you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h") and the tooltip's
     "Your sales" line shows the pace with the note "Yours are still listed: your own pace is the rate.". Once you
@@ -467,7 +472,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     deep scan waits for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s
     until the AH closes) or Blizzard's Auctions tab is shown (it asks itself). An auction missing from the second
     list of one visit counts as cancelled only when it could not have run out between the two lists (else `ogone`,
-    the mail tells). Until
+    the mail tells). A list still loading lacks running auctions (1.38.5, FRV-109): while
+    `C_AuctionHouse.HasFullOwnedAuctionResults()` says no, it is read again every half second, after 5 s taken as
+    it is (what the client said is kept as `owned[char].full`). Every sold row the list before did not have is one
+    `osold` line, by auction, units and price (a stack sold in parts has a sold row per part next to its running
+    rest; until 1.38.5 one row per auction was compared, so a part was missed or a sold-out rest logged as gone),
+    and the running rest's fall beyond those rows is an `opart`. Until
     1.19 Picks took the lists or your auctions in the latest snapshot, whichever was more: what you posted after
     both was not counted. Units last seen more than 10 minutes before the latest deep scan (2 hours before a feed
     snapshot: it carries the newer time of the API's item and commodity lists, one of which can be an hour older)
@@ -823,7 +833,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     as long as its post can still be running, also after a look into the mailbox that brings nothing of it back; a
     sale's or a return's mail of the item takes them. An `osold` or `ogone` line of an auction that is running in the last list was
     never gone (its units and the running ones are more than were posted), and the same line logged twice counts
-    once.
+    once; since 1.38.5 a sold row's line carries which of its auction's rows of those units and price it is (`nth`),
+    so two parts of 5 at one price are two sales and a line written again after a list that lacked its row is not.
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
     list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
@@ -1115,7 +1126,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
-  gone from the list), chat `sold|expired|removed|won|outbid,item`, mail
+  gone from the list; since 1.38.5 a line of a sold row ends in `,s,nth`: which of its auction's sold rows of those
+  units and price it is), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
 * `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
   1.30 drops the list at load
@@ -1140,9 +1152,11 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   nameless one logged first, the second goes and the first gets its name; lines sent in the same minute pair first,
   then lines a minute apart; `mailSeen` is made again from the mended log. A bucket that 1.38.0 to 1.38.2 mended
   keeps its log and only gets its `mailSeen` made again
-* `owned[char]` = `{ t, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2 }`: status `s` = sold, its mail
-  not sent yet; `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's
-  total there)
+* `owned[char]` = `{ t, list = "aid:key:qty:buyout:status:secondsLeft,...", v = 2, full }`: status `s` = sold, its
+  mail not sent yet (a stack sold in parts: a sold row per part, all with the auction's ID, next to its running
+  rest); `v = 2` (1.38): a sold row's buyout per unit, like a running row's (lists without `v` hold the sale's total
+  there); `full` (1.38.5): what `C_AuctionHouse.HasFullOwnedAuctionResults()` said of the list, 1 complete, 0 taken
+  as it was after 5 s of no, missing when the client cannot tell
 * `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,

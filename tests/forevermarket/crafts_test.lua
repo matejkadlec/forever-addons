@@ -177,6 +177,85 @@ H.test("crafts: a finished batch ends once nothing changed for 3 s, later bag ch
     H.same(r.crafts, { Line(NOW, "200", 1, 1, 904, "1:2:100:6") }, "line")
 end)
 
+-- Timers that keep their delay (the harness's C_Timer.After only queues): the returned Run(seconds) moves the clock
+-- on and runs every timer that falls due on the way, at its time
+local function Timed(env)
+    local due = {}
+    env.C_Timer.After = function(delay, callback) due[#due + 1] = { at = env.clock + delay, fn = callback } end
+    return function(seconds)
+        local stop = env.clock + seconds
+        while true do
+            local first, index
+            for i, timer in ipairs(due) do
+                if timer.at <= stop and (not first or timer.at < first.at) then first, index = timer, i end
+            end
+            if not first then break end
+            table.remove(due, index)
+            env.clock = math.max(env.clock, first.at)
+            first.fn()
+        end
+        env.clock = stop
+    end
+end
+
+-- The player's cast bar: a profession cast running until castEnd (UnitCastingInfo's sixth value, isTradeskill)
+local function CastBar(env)
+    local bar = {}
+    env.UnitCastingInfo = function(unit)
+        if unit == "player" and bar.castEnd and env.clock < bar.castEnd then
+            return "Dusky Boots", "Dusky Boots", 0, 0, bar.castEnd * 1000, true
+        end
+    end
+    return bar
+end
+
+-- Rule (FRV-107): a craft casts long on Forever (Dusky Boots 45 s in the maintainer's TradeskillQueue log of
+-- 2026-11-22); while a profession cast runs the batch waits for it, so its line is written when the cast ends. Until
+-- 1.38.5 the batch ended after 30 s without a change, before the first craft took its reagents
+H.test("crafts: a craft that casts 45 s writes its line, the batch waits while the cast runs", function()
+    local FM, env, r = Load()
+    local Run, bar = Timed(env), CastBar(env)
+    env.counts = { ["1"] = 16, ["3"] = 4 }
+    env.schematics[906] = Schematic(100, { { 1, 8 }, { 3, 2 } })
+    env.C_TradeSkillUI.CraftRecipe(906, 2)
+    bar.castEnd = env.clock + 45
+    Run(45)
+    Bags(env, { ["1"] = -8, ["3"] = -2, ["100"] = 1 }) -- the first cast ends, the second starts at once
+    H.same(r.crafts, { Line(NOW, "100", 1, 1, 906, "1:8::16/3:2:60:4") }, "the first craft's line")
+    bar.castEnd = env.clock + 45
+    Run(45)
+    Bags(env, { ["1"] = -8, ["3"] = -2, ["100"] = 1 })
+    Run(10)
+    Bags(env, { ["1"] = -4, ["100"] = 1 }) -- after the batch: not its own
+    H.same(r.crafts, { Line(NOW, "100", 2, 2, 906, "1:16::16/3:4:120:4") }, "both crafts, the batch ended after them")
+end)
+
+-- Rule: without a cast bar to tell, the recipe's cast time (C_Spell.GetSpellInfo castTime, FM.CraftSeconds) is
+-- added to the 30 s; a batch that never moves (interrupted, nothing cast) still ends, after 30 s without either
+H.test("crafts: a batch waits 30 s plus the recipe's cast time, then an interrupted one ends", function()
+    local FM, env, r = Load()
+    local Run = Timed(env)
+    env.C_Spell = { GetSpellInfo = function(spell) return spell == 906 and { castTime = 45000 } or nil end }
+    env.counts = { ["1"] = 16, ["3"] = 4 }
+    env.schematics[906] = Schematic(100, { { 1, 8 }, { 3, 2 } })
+    env.schematics[907] = Schematic(100, { { 1, 8 } }) -- a recipe whose cast time the client does not give
+    env.C_TradeSkillUI.CraftRecipe(906, 1)
+    Run(45)
+    Bags(env, { ["1"] = -8, ["3"] = -2, ["100"] = 1 })
+    H.same(r.crafts, { Line(NOW, "100", 1, 1, 906, "1:8::16/3:2:60:4") }, "logged after the 45 s cast")
+    -- interrupted: nothing moves for 30 s + 45.5 s, the batch ends and a later change is not its own
+    env.C_TradeSkillUI.CraftRecipe(906, 1)
+    Run(76)
+    Bags(env, { ["1"] = -8, ["3"] = -2, ["100"] = 1 })
+    H.eq(#r.crafts, 1, "the interrupted batch wrote nothing")
+    -- without a cast time and without a cast running, 30 s as before
+    env.counts["1"] = 8
+    env.C_TradeSkillUI.CraftRecipe(907, 1)
+    Run(31)
+    Bags(env, { ["1"] = -8, ["100"] = 1 })
+    H.eq(#r.crafts, 1, "ended after 30 s")
+end)
+
 H.test("crafts: lines older than a year go, the log keeps its newest 5000", function()
     local FM, env, r = Load()
     r.crafts = { Line(NOW - 366 * 86400, "200", 1, 1, 904, "1:2:100") }

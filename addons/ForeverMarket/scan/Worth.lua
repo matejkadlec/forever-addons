@@ -298,8 +298,9 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 -- left out: an auction that is in the list after all, running or shown sold (its units there and the
                 -- line's are more than were posted, or no post tells), and the same line written twice by two lists
                 -- around a broken one (a count that fell, opart, is never written twice: the same line again is
-                -- another sale)
-                local id = table_concat({ kind, aid or "", qty, unit }, ":")
+                -- another sale; since 1.38.5 a sold row's line carries which of the auction's rows of these units
+                -- and price it is, so a second part of the same size and price is a sale of its own, FRV-109)
+                local id = table_concat({ kind, aid or "", qty, unit, f[10] or "" }, ":")
                 local runs = (kind == "osold" or kind == "ogone") and aid and runningAid[aid]
                 -- for a line of an auction that was merely gone, the sales the list shows of it count as there too:
                 -- its sold rows are those units

@@ -214,6 +214,19 @@ H.test("held: an auction gone from a list holds its units until a list showed it
     _, held, _, _, _, parts = FM.WorthNow(true)
     H.eq(#parts.own.sold, 2, "the two sold rows")
     H.eq(held, Round(80 * 700 + 10 * 994 * 0.95), "the 10 units once: as the sale's money, not held as well")
+    -- since 1.38.5 a sold row's line says which of the auction's rows of its units and price it is (FRV-109): two parts
+    -- of 5 at one price are two sales, the first one's line written again after a list that lacked its row is not
+    r.events = {}
+    local function Part(ago, nth)
+        r.events[#r.events + 1] = table.concat({ FM.Stamp(listT - ago), "Ada", "osold", "8172", B(5), B(994), "x9",
+            FM.Stamp(listT - ago - 120), "s", B(nth) }, ",")
+    end
+    Part(300, 1)
+    Part(120, 2)
+    Part(60, 1)
+    r.owned.Ada = { t = listT, list = table.concat({ "r1", "8172", B(80), B(994), "a", B(60000) }, ":"), v = 2 }
+    _, held, _, _, _, parts = FM.WorthNow(true)
+    H.eq(Round(SoldMoney(parts)), Round(10 * 994 * 0.95), "both parts once each, the line written again adds nothing")
 end)
 
 -- The Cured Thick Hide auction of 11/21 (120 posted at 9s 94c): one list saw its count fall by 105 and showed the two

@@ -149,22 +149,49 @@ local function NearMin(key)
     return n
 end
 
--- Your sales per item in the window (events osold / opart) and when you started listing it (posts)
+-- Your sales per item in the window (events osold / opart) and when you started listing it (posts). Each sale once
+-- (FRV-109), as the Profit tab counts them (Auctions in scan/Worth.lua): an osold line written again by a later list
+-- (the same auction, units, price and nth, a list read while it was still loading lacked the row) counts nothing,
+-- nor does an osold line of an auction that was merely gone from a list (no "s") but is in its character's newest
+-- list after all, running or shown sold, with more units than were posted. A count that fell (opart) is never
+-- written twice
 local function OwnSales(nowMinutes)
     local r = FM.R()
     local since = nowMinutes - WINDOW
-    local sold, first = {}, {}
-    for _, e in ipairs(r.events or EMPTY) do
-        local f = FM.Split(e, ",")
-        if (f[3] == "osold" or f[3] == "opart") and f[4] then
-            local minutes = Dec(f[1])
-            if minutes and minutes > since then sold[f[4]] = (sold[f[4]] or 0) + (Dec(f[5]) or 1) end
-        end
-    end
+    local sold, first, posted, listed = {}, {}, {}, {}
     for _, post in ipairs(r.posts or EMPTY) do
         local f = FM.Split(post, ",")
         local minutes = Dec(f[1])
         if minutes and minutes > since and f[3] and (not first[f[3]] or minutes < first[f[3]]) then first[f[3]] = minutes end
+        if f[8] and f[8] ~= "" then posted[f[8]] = Dec(f[4]) or 1 end
+    end
+    -- the units of each auction in its character's newest list, its running and its sold rows
+    -- (aid:key:qty:buyout:status:left)
+    for _, snap in pairs(type(r.owned) == "table" and r.owned or EMPTY) do
+        if type(snap) == "table" and type(snap.list) == "string" then
+            for entry in snap.list:gmatch("[^,]+") do
+                local f = FM.Split(entry, ":")
+                if #f >= 6 then listed[f[1]] = (listed[f[1]] or 0) + (Dec(f[#f - 3]) or 1) end
+            end
+        end
+    end
+    local logged = {}
+    for _, e in ipairs(r.events or EMPTY) do
+        local f = FM.Split(e, ",")
+        if (f[3] == "osold" or f[3] == "opart") and f[4] then
+            local minutes = Dec(f[1])
+            local qty = Dec(f[5]) or 1
+            local counts = true
+            local aid = f[7]
+            if f[3] == "osold" and aid and aid ~= "" then
+                local id = table_concat({ f[2], aid, f[5], f[6], f[10] or "" }, ":")
+                if logged[id] then counts = false end
+                logged[id] = true
+                local there = f[9] ~= "s" and listed[aid]
+                if there and (not posted[aid] or qty + there > posted[aid]) then counts = false end
+            end
+            if counts and minutes and minutes > since then sold[f[4]] = (sold[f[4]] or 0) + qty end
+        end
     end
     local out = {}
     for key, units in pairs(sold) do
