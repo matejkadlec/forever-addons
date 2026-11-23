@@ -647,6 +647,19 @@ H.test("listings: an item post sold its sale mails, or its sold auctions when th
     H.eq(L.times[5][1], NOW_MINUTES - 510, "an auction without its mail sold between the two list reads")
 end)
 
+-- Rule (FRV-109, kept): an osold line without "s" of an auction that is in its character's newest list after all is
+-- no sale: the list before it came back incomplete
+H.test("listings: an auction merely gone from a list that is running in the newest one is not sold", function()
+    local FM, _, r = Setup({})
+    Post(r, "861", 600, 3, 1000, 24, "i")
+    Event(r, "osold", "861", 500, 1, 1000, "d1", 510)  -- gone from a list while you were away
+    Event(r, "osold", "861", 480, 1, 1000, "d2", 490)
+    r.events[#r.events] = r.events[#r.events] .. ",s" -- d2: a sold row the list showed
+    r.owned.Tester = { t = FM.EPOCH + (NOW_MINUTES - 400) * 60, v = 2,
+        list = table.concat({ "d1", "861", B(1), B(1000), "a", B(50000) }, ":") }
+    H.eq(Book(FM).byKey["861"][1].sold, 1, "d1 runs in the newest list: only d2 sold")
+end)
+
 H.test("listings: proven is the most sold within 8h of a post of yours, ranOut whether your units were gone", function()
     -- posts of 6, 4 and 15 within 2.5h, each sold within 11 minutes: proven 25, your units ran out
     local FM, _, r = Setup({})

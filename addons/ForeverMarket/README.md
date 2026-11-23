@@ -411,7 +411,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     `ogone`; none of them and the post is over (its character's auction list was read after its end: before that it
     still counts as running): sold out; still running, the larger of its `opart` units and its
     purchase entries (an `osold` of one unit, or whose buyout is a purchase's total; an `osold` of more units at the
-    unit price is the list's mark of a running auction, no sale). **Proven** = the most of your units of the item
+    unit price is the list's mark of a running auction, no sale). As the Profit tab: an `osold` without `s` (an
+    auction merely gone from a list) of an auction that is in its character's newest list after all, with more units
+    than were posted, is no sale (FRV-109: a list that came back incomplete). **Proven** = the most of your units of the item
     sold within 8h of a post of yours of the last 72h (all your listings of it count); **your units ran out** when
     nothing of yours was listed at the end of that time or nothing for 15+ minutes inside it. The tooltip's "Your
     sales" is what sold in the 72h.

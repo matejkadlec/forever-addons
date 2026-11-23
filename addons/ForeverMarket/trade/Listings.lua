@@ -18,7 +18,10 @@ local _, FM = ...
 --     total; an osold of more units at the unit price is the list's mark of a running auction, no sale). opart and
 --     purchase entries happened in the middle of (prev, t]
 --   * units sold without a known moment spread evenly over the listing's life
--- The rules stay as they are after FRV-108 and FRV-109: they cost nothing when the lines are right
+-- The rules stay as they are after FRV-108 and FRV-109: they cost nothing when the lines are right. As the Profit tab
+-- and Picks' pace before 1.40 (FRV-109): an osold line without "s" (an auction that was merely gone from a list) of an
+-- auction that is in its character's newest list after all, with more units than were posted, is no sale (a list
+-- that came back incomplete)
 -- All times are minutes since FM.EPOCH
 
 local Dec = FM.Dec
@@ -244,6 +247,20 @@ function FM.ListingsRecord(now)
         end
     end
     for _, list in pairs(sales) do table_sort(list, function(a, b) return a.t < b.t end) end
+    -- the units of each auction in its character's newest list, its running and its sold rows
+    -- (aid:key:qty:buyout:status:left), and the units each auction was posted with
+    local inList, posted = {}, {}
+    for _, snap in pairs(type(r.owned) == "table" and r.owned or {}) do
+        if type(snap) == "table" and type(snap.list) == "string" then
+            for entry in snap.list:gmatch("[^,]+") do
+                local f = FM.Split(entry, ":")
+                if #f >= 6 then inList[f[1]] = (inList[f[1]] or 0) + (Dec(f[#f - 3]) or 1) end
+            end
+        end
+    end
+    for _, L in ipairs(posts) do
+        if L.aid then posted[L.aid] = L.n end
+    end
     local events, byAid, expiries = {}, {}, {}
     for _, line in ipairs(type(r.events) == "table" and r.events or {}) do
         local f = FM.Split(line, ",")
@@ -253,6 +270,9 @@ function FM.ListingsRecord(now)
             if kind == "osold" or kind == "opart" or kind == "ocancel" or kind == "ogone" or kind == "oexpire" then
                 local e = { t = t, kind = kind, key = f[4], qty = Dec(f[5]) or 1, buyout = Dec(f[6]) or 0,
                     aid = (f[7] and f[7] ~= "") and f[7] or nil, prev = Dec(f[8]) }
+                -- an auction merely gone from a list that is in the newest one after all was not sold
+                local there = kind == "osold" and f[9] ~= "s" and e.aid and inList[e.aid]
+                if there and (not posted[e.aid] or e.qty + there > posted[e.aid]) then e.key = nil end
                 if e.key and byKey[e.key] then
                     events[e.key] = events[e.key] or {}
                     table.insert(events[e.key], e)
