@@ -13,17 +13,20 @@ Usage (from anywhere):
   python3 fm_analyze.py craft --prof Leatherworking
   python3 fm_analyze.py flips --budget 5g
   python3 fm_analyze.py room [item ...] [--days 7] [--share 25]
+  python3 fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5]
 
 Paths are found automatically (the game's WTF folder next to the AddOns folder, or one mounted at
 ~/mnt/WTF); override with --sv <ForeverMarket.lua> and --addon <AddOns/ForeverMarket folder>.
 """
 
 import argparse
+import bisect
 import glob
 import math
 import os
 import random
 import re
+import statistics
 import sys
 import time
 
@@ -1495,6 +1498,825 @@ def cmd_room(m, args):
                      values[0] * 100, values[-1] * 100, len(values)))
 
 
+# --------------------------------------------------------------------------- your listings (FRV-125)
+# `listings`: every post's outcome, the backtest in gold of the Picks batch (1.40, FRV-103) and the ranges of its
+# constants, measured again on the days the saved variables hold; the plan log (R.plans) against what sold. The port
+# of the analysis behind the formula (FRV-111, FRV-115; the Confluence page "ForeverMarket Picks: the formula"):
+# https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786
+# ListingsBook is trade/Listings.lua's FM.ListingsRecord, rule for rule and in its minutes since EPOCH, so
+# tests/tools/test_listings.py holds both to the same fixture (tests/fixtures/listings_cases.txt)
+
+LST_WINDOW = 72 * 60       # minutes: your posts of the last 72 hours
+LST_LONGEST = 24 * 60      # a 24h listing: posts this much before the window still run inside it
+LST_SLACK = 15             # the clocks of mail stamps and list reads against the post's own
+LST_EXPIRY_SLACK = 25      # an expiry mail of a commodity post goes out this close to the post's end
+LST_PROVEN = 8 * 60        # "proven": what your listings sold within 8 hours of a post of yours
+LST_GAP = 15               # nothing of yours listed for this long inside that time: your units ran out
+# commodity posts before it were logged by older versions (no auction ID): the report leaves them out
+LST_COMMODITY_FROM = time.mktime((2026, 11, 19, 12, 0, 0, 0, 0, -1))
+
+
+def _split_count(name):
+    """'Cured Thick Hide (23)' -> ('Cured Thick Hide', 23); 'Insignia Cap' -> ('Insignia Cap', None)"""
+    m = re.match(r'^(.*?) \((\d+)\)$', name)
+    return (m.group(1), int(m.group(2))) if m else (name, None)
+
+
+def _by_time(x):
+    return (x['t'], x['i'])
+
+
+class ListingsBook:
+    """Your listings and what each sold, at minute `now` (minutes since EPOCH): trade/Listings.lua. `since` = the
+    first minute of the posts read (None: the AddOn's 72h window and the 24h before it). Each listing: i, t, finish,
+    key, n, unit, hours, kind, aid, char, sold, times [(minute, units)], cancelled, expired, open"""
+
+    def __init__(self, r, now, since=None, name_of=None):
+        self.now = now
+        since = now - LST_WINDOW - LST_LONGEST if since is None else since
+        raw_names = r.get('names') or {}
+        name_of = name_of or (lambda key: raw_names.get(key) or 'item:%s' % key)
+        posts, by_key, names = [], {}, {}
+        for i, line in enumerate(as_list(r.get('posts')), start=1):
+            f = str(line).split(',')
+            t = b36(f[0]) if f else None
+            kind = f[6] if len(f) > 6 else None
+            if t is not None and since < t <= now and len(f) > 2 and kind in ('i', 'c'):
+                hours = POST_HOURS.get(f[5] if len(f) > 5 else '', 24)
+                L = {'i': i, 't': t, 'char': f[1], 'key': f[2], 'n': b36(f[3]) or 1, 'unit': b36(f[4]) or 0,
+                     'hours': hours, 'kind': kind, 'aid': f[7] if len(f) > 7 and f[7] else None, 'finish': t + hours * 60,
+                     'sold': 0, 'times': [], 'cancelled': 0, 'expired': 0, 'open': False}
+                posts.append(L)
+                by_key.setdefault(L['key'], []).append(L)
+                names.setdefault(L['key'], name_of(L['key']))
+        posts.sort(key=_by_time)
+        key_of = {name: key for key, name in names.items()}
+        longest = sorted(names.values(), key=len, reverse=True)
+
+        def key_of_name(name):
+            if not isinstance(name, str):
+                return None
+            if name in key_of:
+                return key_of[name]
+            for n in longest:
+                if name[:len(n) + 1] == n + ' ':
+                    return key_of[n]
+            return None
+
+        sales = {}
+        for i, line in enumerate(as_list(r.get('invoices')), start=1):
+            f = str(line).split(',')
+            t = b36(f[0]) if f else None
+            if len(f) > 2 and f[2] == 'seller' and t is not None and t > since - LST_SLACK:
+                key = key_of_name(f[3] if len(f) > 3 else None)
+                if key:
+                    sales.setdefault(key, []).append({'i': i, 't': t, 'qty': (b36(f[5]) if len(f) > 5 else None) or 1,
+                                                      'total': (b36(f[6]) if len(f) > 6 else None) or 0})
+        for lst in sales.values():
+            lst.sort(key=_by_time)
+        # the units of each auction in its character's newest list, and the units each auction was posted with
+        in_list, posted, looked = {}, {}, {}
+        for char, snap in (r.get('owned') or {}).items():
+            if isinstance(snap, dict) and isinstance(snap.get('list'), str):
+                for entry in [x for x in snap['list'].split(',') if x]:
+                    f = entry.split(':')
+                    if len(f) >= 6:
+                        in_list[f[0]] = in_list.get(f[0], 0) + (b36(f[-4]) or 1)
+            if isinstance(snap, dict) and isinstance(snap.get('t'), (int, float)):
+                looked[char] = (snap['t'] - EPOCH) / 60
+        for L in posts:
+            if L['aid']:
+                posted[L['aid']] = L['n']
+        events, by_aid, expiries = {}, {}, {}
+        for i, line in enumerate(as_list(r.get('events')), start=1):
+            f = str(line).split(',')
+            t = b36(f[0]) if f else None
+            kind = f[2] if len(f) > 2 else None
+            if t is None or t <= since:
+                continue
+            if kind in ('osold', 'opart', 'ocancel', 'ogone', 'oexpire'):
+                e = {'i': i, 't': t, 'kind': kind, 'key': f[3] if len(f) > 3 else None,
+                     'qty': (b36(f[4]) if len(f) > 4 else None) or 1, 'buyout': (b36(f[5]) if len(f) > 5 else None) or 0,
+                     'aid': f[6] if len(f) > 6 and f[6] else None, 'prev': b36(f[7]) if len(f) > 7 else None}
+                # an auction merely gone from a list that is in the newest one after all was not sold (FRV-109)
+                there = kind == 'osold' and (f[8] if len(f) > 8 else None) != 's' and e['aid'] and in_list.get(e['aid'])
+                if there and (e['aid'] not in posted or e['qty'] + there > posted[e['aid']]):
+                    e['key'] = None
+                if e['key'] and e['key'] in by_key:
+                    events.setdefault(e['key'], []).append(e)
+                    if e['aid']:
+                        by_aid.setdefault(e['aid'], []).append(e)
+            elif kind == 'mexpired' and len(f) > 3 and f[3]:
+                name, count = _split_count(f[3])
+                key = key_of_name(name)
+                if key:
+                    expiries.setdefault(key, []).append({'t': t, 'qty': count or 1})
+        for lst in list(events.values()) + list(by_aid.values()):
+            lst.sort(key=_by_time)
+        self._items(posts, sales, events, now)
+        self._commodities(posts, by_aid, expiries, looked)
+        for L in posts:
+            L['times'].sort(key=lambda m: m[0])
+        self.listings, self.by_key = posts, by_key
+        self._proven = {}
+
+    @staticmethod
+    def _mid(e):
+        return ((e['prev'] if e['prev'] is not None else e['t']) + e['t']) / 2
+
+    def _items(self, posts, sales, events, now):
+        used = set()
+        for L in posts:
+            if L['kind'] != 'i':
+                continue
+            for s in sales.get(L['key'], []):
+                if L['sold'] >= L['n']:
+                    break
+                if id(s) not in used and s['qty'] == 1 and abs(s['total'] - L['unit']) <= 0.5 \
+                        and L['t'] - LST_SLACK <= s['t'] <= L['finish'] + LST_SLACK:
+                    used.add(id(s))
+                    L['sold'] += 1
+                    L['times'].append((s['t'], 1))
+        aid_used = set()
+        for L in posts:
+            if L['kind'] != 'i':
+                continue
+            sold_list, cancels, seen = [], [], set()
+            for e in events.get(L['key'], []):
+                prev = e['prev'] if e['prev'] is not None else e['t']
+                if e['aid'] and e['aid'] not in aid_used and e['buyout'] == L['unit'] and e['t'] >= L['t'] - LST_SLACK \
+                        and prev <= L['finish'] + LST_SLACK:
+                    if e['kind'] == 'osold' and e['aid'] not in seen and len(sold_list) < L['n']:
+                        seen.add(e['aid'])
+                        sold_list.append(e)
+                    elif e['kind'] == 'ocancel':
+                        cancels.append(e)
+            for e in sold_list:
+                aid_used.add(e['aid'])
+            extra = len(sold_list) - L['sold']
+            if extra > 0:
+                for e in sold_list[len(sold_list) - extra:]:
+                    L['times'].append((self._mid(e), 1))
+                L['sold'] += extra
+            rest = L['n'] - L['sold']
+            cancel_aids, last = set(), None
+            for e in cancels:
+                if e['aid'] not in cancel_aids and rest > 0:
+                    cancel_aids.add(e['aid'])
+                    aid_used.add(e['aid'])
+                    L['cancelled'] += 1
+                    rest -= 1
+                    if last is None or e['t'] > last:
+                        last = e['t']
+            if last is not None:
+                L['finish'] = min(L['finish'], last)
+            if rest > 0:
+                if now < L['finish']:
+                    L['open'] = True
+                else:
+                    L['expired'] = rest
+
+    def _commodities(self, posts, by_aid, expiries, looked):
+        used = set()
+        for L in posts:
+            if L['kind'] != 'c':
+                continue
+            evs = by_aid.get(L['aid'], []) if L['aid'] else []
+            parts, buys, part_sum, buy_sum = [], [], 0, 0
+            cancel = gone = None
+            for e in evs:
+                if e['kind'] == 'opart':
+                    parts.append(e)
+                    part_sum += e['qty']
+                elif e['kind'] == 'osold' and (e['qty'] == 1 or e['buyout'] != L['unit']):
+                    buys.append(e)
+                    buy_sum += e['qty']
+                elif e['kind'] == 'ocancel' and cancel is None:
+                    cancel = e
+                if e['kind'] in ('ogone', 'oexpire'):
+                    gone = e
+            returned = None
+            if cancel:
+                returned = min(L['n'], cancel['qty'])
+                L['cancelled'] = returned
+                L['finish'] = cancel['t']
+            else:
+                best, gap = None, None
+                for mail in expiries.get(L['key'], []):
+                    if id(mail) not in used and mail['qty'] <= L['n']:
+                        d = abs(mail['t'] - L['finish'])
+                        if d <= LST_EXPIRY_SLACK and (gap is None or d < gap):
+                            best, gap = mail, d
+                if best:
+                    used.add(id(best))
+                    returned = best['qty']
+                    L['expired'] = returned
+                elif gone:
+                    returned = min(L['n'], gone['qty'])
+                    L['expired'] = returned
+            if returned is not None:
+                L['sold'] = L['n'] - returned
+            elif looked.get(L['char'], -math.inf) < L['finish']:
+                L['open'] = True
+                L['sold'] = min(L['n'], max(part_sum, buy_sum))
+            else:
+                L['sold'] = L['n']
+            left = L['sold']
+            for e in (parts if part_sum >= buy_sum else buys):
+                q = min(e['qty'], left)
+                if q > 0:
+                    L['times'].append((self._mid(e), q))
+                    left -= q
+
+    # ---- the questions Picks asks (trade/Listings.lua)
+    @staticmethod
+    def sold_before(L, t):
+        if t <= L['t']:
+            return 0
+        if t >= L['finish']:
+            return L['sold']
+        known = done = 0
+        for m, q in L['times']:
+            known += q
+            if m <= t:
+                done += q
+        rest = L['sold'] - known
+        if rest > 0:
+            done += rest * (t - L['t']) / max(1, L['finish'] - L['t'])
+        return done
+
+    def listed(self, key, t):
+        return sum(L['n'] - self.sold_before(L, t) for L in self.by_key.get(key, []) if L['t'] < t < L['finish'])
+
+    def listed_minutes(self, key, a, b):
+        spans = []
+        for L in self.by_key.get(key, []):
+            s, e = max(L['t'], a), min(L['finish'], b)
+            if L['sold'] >= L['n'] and L['times']:
+                e = min(e, L['times'][-1][0])
+            if e > s:
+                spans.append((s, e))
+        spans.sort()
+        total, cur = 0, None
+        for s, e in spans:
+            if cur and s <= cur[1]:
+                cur[1] = max(cur[1], e)
+            else:
+                if cur:
+                    total += cur[1] - cur[0]
+                cur = [s, e]
+        if cur:
+            total += cur[1] - cur[0]
+        return total
+
+    def sold_in(self, key, a, b):
+        return sum(self.sold_before(L, b) - self.sold_before(L, a) for L in self.by_key.get(key, []))
+
+    def proven(self, key, at=None):
+        """{proven, ranOut, at, sold72} at minute `at` (default: now): the most of your units of the key sold within
+        (p.t, min(p.t + 8h, at)] over your posts p of the 72h before it"""
+        now = self.now if at is None else at
+        if at is None and key in self._proven:
+            return self._proven[key]
+        got = {'proven': 0, 'ranOut': False, 'at': None, 'sold72': 0}
+        if key in self.by_key:
+            got['sold72'] = self.sold_in(key, now - LST_WINDOW, now)
+            for L in self.by_key[key]:
+                if now - LST_WINDOW <= L['t'] < now:
+                    a, b = L['t'], min(L['t'] + LST_PROVEN, now)
+                    s = self.sold_in(key, a, b)
+                    if s > got['proven'] + 1e-9:
+                        got['proven'], got['at'] = s, a
+                        got['ranOut'] = self.listed(key, b - 1) < 0.5 or self.listed_minutes(key, a, b) < (b - a) - LST_GAP
+        if at is None:
+            self._proven[key] = got
+        return got
+
+
+def minutes_of(epoch):
+    return (epoch - EPOCH) / 60
+
+
+def epoch_of(minutes):
+    return EPOCH + minutes * 60
+
+class MarketAt:
+    """One item's deep records up to the epoch t, as the AddOn could know the market then (FRV-111 signals.At)"""
+
+    def __init__(self, recs, t):
+        times = [x['t'] for x in recs]
+        self.t = t
+        self.recs = recs[:bisect.bisect_right(times, t)]
+        self.last = self.recs[-1] if self.recs else None
+
+    def window(self, hours):
+        since = self.t - hours * 3600
+        return [x for x in self.recs if x['t'] > since]
+
+    def history_hours(self):
+        return (self.t - self.recs[0]['t']) / 3600 if self.recs else 0
+
+    def price(self, rec=None):
+        rec = rec or self.last
+        return (rec.get('minOther') or rec.get('min')) if rec else None
+
+    def circ12(self, hours):
+        sold = cover = 0.0
+        for x in self.window(hours):
+            gap = x.get('gap')
+            if gap and 0 < gap <= CLEAN_GAP_MIN:
+                cover += gap
+                if not x.get('unchanged'):
+                    sold += (x.get('sold') or 0) + 0.5 * (x.get('amb') or 0)
+        return (sold * 720 / cover) if cover >= MIN_COVER_H * 60 else None
+
+    def c24(self):
+        rate = self.circ12(12)
+        if rate is None:
+            rate = self.circ12(72)
+        return rate * 2 if rate is not None else None
+
+    def demand(self, hours=72):
+        """trade/Picks.lua Demand: buyers per day from soldLow, relist bursts capped"""
+        bought = cover = 0.0
+        intervals = auctions = 0
+        prev_qty = None
+        since = self.t - hours * 3600
+        for x in self.recs:
+            if x['t'] > since:
+                gap = x.get('gap')
+                if gap and 0 < gap <= CLEAN_GAP_MIN:
+                    cover += gap
+                    if not x.get('unchanged'):
+                        sold = x.get('sold') or 0
+                        units = x.get('soldLow')
+                        if units is None:
+                            units = sold * 0.3
+                        if prev_qty and sold > 0.3 * prev_qty and (x.get('new') or 0) >= 0.5 * sold:
+                            units = min(units, 0.15 * prev_qty)
+                        if units > 0:
+                            bought += units
+                            intervals += 1
+                            auctions += x.get('soldN') or 0
+            prev_qty = x.get('qty') or 0
+        if cover < MIN_COVER_H * 60:
+            return None, False
+        return bought / cover * 1440, intervals >= 3 and auctions >= 5
+
+
+# the Picks batch of 1.40 (trade/Picks.lua Batch): items, commodities
+LST_RULE = {'i': dict(first=0.5, floor=10, grow=1.25, hold=0.75, lo=0.5, hi=1.0, hi_at=4.0, units=100),
+            'c': dict(first=0.06, floor=0, grow=1.25, hold=0.75, lo=0.5, hi=2.0, hi_at=4.0, units=200)}
+LST_VIEWS = ('cut', 'none', 'mid', 'curve')
+LST_AGE_EDGES = [0, 0.25, 0.5, 1, 2, 4, 8]
+
+
+def _listing_rows(m, book, settings):
+    """Every listing with the market at its post, its cost, its 8h deposit and its proven record (FRV-115 b0)"""
+    r = m.r
+    recs_of = {}
+
+    def recs(key):
+        if key not in recs_of:
+            recs_of[key] = [x for x in m.records(key) if x['kind'] == 'r' and x['t']]
+        return recs_of[key]
+
+    # the craft log: the materials' basis per unit made, a material over 2.5 times its usual basis set to it (FRV-112)
+    crafts = []
+    for line in as_list(r.get('crafts')):
+        f = str(line).split(',')
+        if len(f) < 3:
+            continue
+        mats = []
+        for part in (f[6].split('/') if len(f) > 6 and f[6] else []):
+            b = part.split(':')
+            if len(b) >= 3:
+                mats.append((b[0], int(b[1] or 0), int(b[2]) if b[2] else None))
+        crafts.append((int(f[0]), f[1], int(f[2] or 0), mats))
+    per_mat = {}
+    for _, _, _, mats in crafts:
+        for key, units, copper in mats:
+            if copper is not None and units:
+                per_mat.setdefault(key, []).append(copper / units)
+    med = {k: statistics.median(v) for k, v in per_mat.items()}
+    craft_lines = {}
+    for t, key, units, mats in crafts:
+        if not units or any(c is None or not u for _, u, c in mats):
+            continue
+        total = 0.0
+        for k, u, c in mats:
+            per = c / u
+            total += (med[k] if per > 2.5 * med[k] else per) * u
+        craft_lines.setdefault(key, []).append((t, total / units, units))
+    buys = []
+    for line in as_list(r.get('buys')):
+        f = str(line).split(',')
+        if len(f) >= 4:
+            buys.append((int(f[0]), f[1], int(f[2]), int(f[3])))
+    vendor = {}
+    for k, line in (r.get('vendorSeen') or {}).items():
+        try:
+            vendor[str(k)] = float(str(line).split(',')[0])
+        except ValueError:
+            pass
+    recipes = {}
+    for _, _, _, rs in load_reagent_dbs(m.sv_dir, None):
+        for rname, rc in (rs or {}).items():
+            if isinstance(rc, dict) and rc.get('itemId'):
+                mats = [(str(g.get('id')), g.get('n') or 1) for g in as_list(rc.get('reagents')) if isinstance(g, dict) and g.get('id')]
+                if mats:
+                    recipes.setdefault(str(rc['itemId']), {'makes': rc.get('makes') or 1, 'mats': mats})
+
+    def mat_price(key, t):
+        v = vendor.get(key)
+        ah = MarketAt(recs(key), t).price()
+        return v if v is not None and (ah is None or v <= ah) else ah
+
+    def cost_of(key, t):
+        lines = craft_lines.get(key)
+        if lines:
+            near = [(c, u) for ct, c, u in lines if t - 48 * 3600 <= ct <= t + 900] or [(c, u) for _, c, u in lines]
+            return sum(c * u for c, u in near) / sum(u for _, u in near), 'craft'
+        mine = [b for b in buys if b[1] == key and b[0] <= t + 900]
+        if mine:
+            near = [b for b in mine if b[0] >= t - 72 * 3600] or mine
+            return sum(b[3] for b in near) / sum(b[2] for b in near), 'bought'
+        if key in vendor:
+            return vendor[key], 'vendor'
+        rc = recipes.get(key)
+        if rc:
+            total = 0.0
+            for mk, n in rc['mats']:
+                p = mat_price(mk, t)
+                if p is None:
+                    return None, 'none'
+                total += p * n
+            return total / rc['makes'], 'recipe'
+        return None, 'none'
+
+    # the 8h deposit of a unit: your sale mails' median, the measured one, else the median share of the price
+    dep_mail = {}
+    names = r.get('names') or {}
+    key_of = {v: k for k, v in names.items()}
+    for line in as_list(r.get('invoices')):
+        f = str(line).split(',')
+        if len(f) > 8 and f[2] == 'seller' and f[3] in key_of:
+            qty, dep = b36(f[5]) or 1, b36(f[8]) or 0
+            if dep:
+                dep_mail.setdefault(key_of[f[3]], []).append(dep / qty)
+    dep_mail = {k: statistics.median(v) for k, v in dep_mail.items()}
+    dep_meas = {}
+    for k, e in (r.get('deposits') or {}).items():
+        d2 = e.get(2) if isinstance(e, dict) else (e[1] if isinstance(e, list) and len(e) > 1 else None)
+        v = d2.get(1) if isinstance(d2, dict) else (d2[0] if isinstance(d2, list) and d2 else None)
+        if isinstance(v, (int, float)) and v > 0:
+            dep_meas[str(k)] = v
+
+    rows = []
+    for L in book.listings:
+        t = epoch_of(L['t'])
+        if L['kind'] == 'c' and t < LST_COMMODITY_FROM:
+            continue
+        at = MarketAt(recs(L['key']), t - 60)
+        if not at.last or at.history_hours() < 10:
+            continue
+        buyers, trusted = at.demand()
+        p = book.proven(L['key'], at=L['t'])
+        row = dict(L)
+        row.update({'name': m.name(L['key']), 'tE': t, 'buyers': buyers, 'trusted': trusted, 'c24': at.c24(),
+                    'others': (at.last.get('qty') or 0) - (at.last.get('own') or 0),
+                    'listed': book.listed(L['key'], L['t'] - 1), 'depth': p['proven'], 'depth_out': p['ranOut'],
+                    'h_times': [((mm - L['t']) / 60, q) for mm, q in L['times']]})
+        row['cost'], row['cost_src'] = cost_of(L['key'], t)
+        rows.append(row)
+    shares = {'i': [], 'c': []}
+    for row in rows:
+        if row['key'] in dep_mail and row['unit']:
+            shares[row['kind']].append(dep_mail[row['key']] / row['unit'])
+    kind_share = {k: (statistics.median(v) if v else 0.04) for k, v in shares.items()}
+    for row in rows:
+        if row['key'] in dep_mail:
+            row['dep8'], row['dep_src'] = dep_mail[row['key']], 'mail'
+        elif row['key'] in dep_meas:
+            row['dep8'], row['dep_src'] = dep_meas[row['key']], 'measured'
+        else:
+            row['dep8'], row['dep_src'] = kind_share[row['kind']] * row['unit'], 'share'
+        row['net'] = row['unit'] * (1 - AH_CUT)
+        row['margin'] = row['net'] - row['cost'] if row['cost'] is not None else None
+        known = sum(q for _, q in row['h_times'])
+        row['tau'] = (max(h for h, _ in row['h_times']) if row['sold'] >= row['n'] and row['h_times']
+                      and known >= 0.9 * row['sold'] else None)
+    return rows
+
+
+def _hours_of_buyers(tau, curve):
+    tot, prev = 0.0, 0.0
+    for edge, share in curve:
+        if tau <= prev:
+            break
+        tot += (min(tau, edge) - prev) * share
+        prev = edge
+    return tot
+
+
+def _age_curve(rs):
+    """the share of the average buyer rate a listing gets, by its age (FRV-111 a2b)"""
+    out = []
+    for a, b in zip(LST_AGE_EDGES, LST_AGE_EDGES[1:]):
+        num = den = 0.0
+        for x in rs:
+            times = sorted(h for h, q in x['h_times'] for _ in range(int(q)))
+            sold_out = x['sold'] >= x['n']
+            last = times[-1] if sold_out and times else 8
+            if sold_out and times:
+                times = times[:-1]
+            hi = min(b, last)
+            if hi > a:
+                den += x['buyers'] / 24 * (hi - a)
+            num += sum(1 for h in times if a < h <= b)
+        out.append((b, num / den if den else 0.0))
+    return out
+
+
+def _episodes(rows):
+    """your posts of one item within 8h of the first of them, 8h listings (FRV-115 b1): N listed, S sold, the margin and
+    the deposit by units, and the demand D under four views (cut, none, curve, mid)"""
+    def timed(x):
+        return x['sold'] == 0 or sum(q for _, q in x['h_times']) >= 0.9 * x['sold']
+    closed = [x for x in rows if not x['open'] and not x['cancelled'] and x['hours'] == 8]
+    curve = {'i': _age_curve([x for x in closed if x['kind'] == 'i' and x['buyers']]),
+             'c': _age_curve([x for x in closed if x['kind'] == 'c' and x['buyers'] and timed(x)])}
+    h8 = {k: _hours_of_buyers(8, curve[k]) for k in curve}
+    eight = sorted([x for x in rows if x['hours'] == 8], key=lambda x: (x['key'], x['t']))
+    eps = []
+    i = 0
+    while i < len(eight):
+        first = eight[i]
+        group = [first]
+        j = i + 1
+        while j < len(eight) and eight[j]['key'] == first['key'] and eight[j]['t'] <= first['t'] + 8 * 60:
+            group.append(eight[j])
+            j += 1
+        i = j
+        if any(x['open'] or x['cancelled'] for x in group):
+            continue
+        N, S = sum(x['n'] for x in group), sum(x['sold'] for x in group)
+        e = {'key': first['key'], 'name': first['name'], 'kind': first['kind'], 't': first['tE'], 'posts': group,
+             'N': N, 'S': S, 'first': first, 'listed0': first['listed'], 'exact': any(x['sold'] < x['n'] for x in group)}
+        e['unit'] = sum(x['unit'] * x['n'] for x in group) / N
+        e['dep'] = sum(x['dep8'] * x['n'] for x in group) / N
+        costs = [x for x in group if x['margin'] is not None]
+        e['margin'] = sum(x['margin'] * x['n'] for x in costs) / sum(x['n'] for x in costs) if costs else None
+        if e['margin'] is not None and abs(e['margin']) > 3 * e['unit']:
+            e['margin'] = None  # a recipe that does not fit the item
+        if e['exact']:
+            e['D'] = {v: S for v in LST_VIEWS}
+        else:
+            k = first['kind']
+            cur = None
+            if all(x['tau'] is not None for x in group):
+                expo = sum(_hours_of_buyers(max(x['tau'], 5 / 60), curve[k]) for x in group)
+                cur = max(N, N * h8[k] / expo) if expo > 0 else N
+            e['D'] = {'cut': N, 'none': N, 'curve': cur if cur is not None else N,
+                      'mid': math.sqrt(N * cur) if cur is not None else N}
+        eps.append(e)
+    return eps, curve, h8
+
+
+def _cost(e):
+    return e['unit'] * (1 - AH_CUT) - e['margin']
+
+
+def _min_profit(e):
+    return e['margin'] >= max(10, 0.03 * _cost(e))
+
+
+def _rule(params, room, first_share):
+    """the batch limit at the episode's first post (trade/Picks.lua Batch, before what you list), 0 = no pick"""
+    def rule(e):
+        x = e['first']
+        k = LST_RULE[x['kind']] if params is None else params[x['kind']]
+        if not _min_profit(e):
+            return 0.0
+        rho = e['margin'] / e['dep'] if e['dep'] > 0 else 99.0
+        b8 = x['buyers'] * 8 / 24 if x['buyers'] and x['trusted'] else None
+        first = False
+        if x['depth'] > 0:
+            base = (k['grow'] if x['depth_out'] else k['hold']) * x['depth']
+        elif b8:
+            base = max(k['first'] * b8, k['floor'])
+            first = True
+        else:
+            return 0.0
+        eco = k['lo'] if rho < 1 else (k['hi'] if rho >= k['hi_at'] else 1.0)
+        lim = base * eco
+        if x['c24']:
+            lim = min(lim, int(room * x['c24'] + 0.5))
+            if first and x['kind'] == 'c':
+                lim = min(lim, first_share * x['c24'])
+        if k.get('units'):
+            lim = min(lim, k['units'])
+        return lim
+    return rule
+
+
+def _as_listed(e):
+    return e['N'] + e['listed0']
+
+
+def _gold(es, rule, view):
+    t = {'L': 0.0, 'S': 0.0, 'U': 0.0, 'profit': 0.0, 'dep': 0.0}
+    for e in es:
+        L = max(0.0, math.floor(rule(e) - e['listed0'] + 1e-9))
+        if view == 'cut':
+            L = min(e['N'], L)
+        S = min(e['D'][view], L)
+        t['L'] += L
+        t['S'] += S
+        t['U'] += L - S
+        t['profit'] += S * e['margin']
+        t['dep'] += (L - S) * e['dep']
+    t['net'] = t['profit'] - t['dep']
+    return t
+
+
+def _plans(m, book, last):
+    """the plan log (R.plans) against what was listed and sold of each pick's item after its plan"""
+    plans = {}
+    for line in as_list(m.r.get('plans')):
+        f = str(line).split(',')
+        if len(f) >= 9:
+            plans.setdefault(b36(f[0]), []).append({'char': f[1], 'key': f[2], 'kind': f[3], 'batch': int(f[4] or 0),
+                                                    'invest': int(f[5] or 0), 'expected': int(f[6] or 0),
+                                                    'conf': int(f[7] or 0), 'rank': int(f[8] or 0),
+                                                    'extra': len(f) > 9 and f[9] == 'x'})
+    if not plans:
+        print('\nThe plan log is empty: Picks logs every plan since 1.40 (FRV-103).')
+        return
+    rows, tot = [], {}
+    for t in sorted(plans):
+        for p in sorted(plans[t], key=lambda p: p['rank']):
+            # your posts of its item within 12h after the plan, and what each sold within its first 8h
+            posts = [L for L in book.by_key.get(p['key'], []) if t <= L['t'] < t + 12 * 60]
+            listed = sum(L['n'] for L in posts)
+            sold = sum(book.sold_before(L, L['t'] + 8 * 60) for L in posts)
+            value = sum(book.sold_before(L, L['t'] + 8 * 60) * L['unit'] for L in posts)
+            p.update({'t': t, 'listed': listed, 'sold': sold, 'value': value})
+            g = tot.setdefault((p['kind'], 'also good' if p['extra'] else 'plan'), [0, 0, 0, 0.0, 0.0])
+            g[0] += 1
+            g[1] += 1 if listed else 0
+            g[2] += p['batch']
+            g[3] += listed
+            g[4] += sold
+            rows.append(p)
+    print('\nThe plan log (%d plans, %d picks): what you listed of each pick\'s item within 12h of its plan, and what '
+          'those listings sold within 8h' % (len(plans), len(rows)))
+    table([[k, part, n, done, b, '%.0f' % li, '%.0f' % so, '%.0f%%' % (100 * so / li) if li else '-']
+           for (k, part), (n, done, b, li, so) in sorted(tot.items())],
+          ['kind', 'part', 'picks', 'listed', 'batches', 'units listed', 'sold in 8h', 'sold of listed'])
+    shown = [p for p in rows if p['t'] in sorted(plans)[-last:]]
+    print('  the last %d plans:' % min(last, len(plans)))
+    table([[when(epoch_of(p['t'])), p['rank'], ('(also) ' if p['extra'] else '') + m.name(p['key'])[:26], p['kind'], p['batch'],
+            money(p['invest']), money(p['expected']), '%d%%' % p['conf'], p['listed'], '%.0f' % p['sold'], money(p['value'])]
+           for p in shown],
+          ['planned', '#', 'item', 'kind', 'batch', 'invest', 'expected', 'conf', 'listed', 'sold 8h', 'sold value'])
+
+
+def cmd_listings(m, args):
+    now = minutes_of(m.saved_at)
+    book = ListingsBook(m.r, now, since=-math.inf)
+    settings = m.settings or {}
+    room = (settings.get('tableCircPct') or 25) / 100
+    first_share = (settings.get('tableFirstPct') or 2) / 100
+    # ---- every post's outcome
+    by = {}
+    for L in book.listings:
+        if L['kind'] == 'c' and epoch_of(L['t']) < LST_COMMODITY_FROM:
+            continue
+        by.setdefault((L['kind'], L['key']), []).append(L)
+    print('Your listings (posts since %s; commodity posts from %s on):' % (
+        when(epoch_of(min(L['t'] for L in book.listings))) if book.listings else '-', when(LST_COMMODITY_FROM)))
+    for kind, label in (('i', 'items'), ('c', 'commodities')):
+        ls = [L for (k, _), lst in by.items() if k == kind for L in lst]
+        print('  %s: %d posts, %d units, sold %d, expired %d, cancelled %d, running %d' % (
+            label, len(ls), sum(L['n'] for L in ls), round(sum(L['sold'] for L in ls)), sum(L['expired'] for L in ls),
+            sum(L['cancelled'] for L in ls), round(sum(L['n'] - L['sold'] for L in ls if L['open']))))
+    out = []
+    for (kind, key), ls in sorted(by.items(), key=lambda kv: -sum(L['n'] for L in kv[1])):
+        closed = [L for L in ls if not L['open']]
+        p = book.proven(key)
+        out.append([m.name(key)[:28], kind, len(ls), sum(L['n'] for L in ls), round(sum(L['sold'] for L in ls)),
+                    sum(L['expired'] for L in ls), sum(L['cancelled'] for L in ls),
+                    round(sum(L['n'] - L['sold'] for L in ls if L['open'])),
+                    '%.0f%%' % (100 * sum(L['sold'] for L in closed) / sum(L['n'] for L in closed)) if closed else '-',
+                    ('%.0f %s' % (p['proven'], 'ran out' if p['ranOut'] else 'left')) if p['proven'] else '-'])
+    table(out[:args.rows], ['item', 'k', 'posts', 'units', 'sold', 'exp', 'can', 'running', 'sold of closed', 'proven now'])
+
+    # ---- the backtest in gold
+    rows = _listing_rows(m, book, settings)
+    eps, curve, h8 = _episodes(rows)
+    priced = [e for e in eps if e['margin'] is not None]
+    print('\nEpisodes (your 8h posts of one item within 8h of the first, with 10h+ of records before): %d, items %d, '
+          'commodities %d; with a cost %d (%s); units left %d, sold out %d' % (
+              len(eps), sum(1 for e in eps if e['kind'] == 'i'), sum(1 for e in eps if e['kind'] == 'c'), len(priced),
+              ', '.join('%s %d' % (s, sum(1 for x in rows if x['cost_src'] == s)) for s in ('craft', 'bought', 'vendor', 'recipe', 'none')),
+              sum(1 for e in eps if e['exact']), sum(1 for e in eps if not e['exact'])))
+    for k in ('i', 'c'):
+        print('  age curve %s: %s -> %.2f hours of buyers in 8h' % (k, ' '.join('%sh:%.2f' % (a, s) for a, s in curve[k]), h8[k]))
+    if not priced:
+        print('  no episode with a known cost yet: the gold table needs your 8h listings with records before them')
+    else:
+        formula = _rule(None, room, first_share)
+        rules = (('as listed', _as_listed), ('the formula', formula))
+        print('\nThe gold table (the 1.40 batch against what you listed; a rule lists its limit less what you list, of the '
+              'demand it sells what it can, every unsold unit pays its 8h deposit):')
+        for v, title in (('cut', 'cut only (a rule may only shorten what you listed)'),
+                         ('none', 'nothing more (a sold-out episode had no further demand)'),
+                         ('mid', 'middle (between nothing more and the speed of the sell-out)'),
+                         ('curve', 'speed (demand from how fast it sold out)')):
+            print('  ' + title)
+            tab = []
+            for kind, label in (('i', 'Items'), ('c', 'Commodities'), (None, 'Together')):
+                es = [e for e in priced if kind is None or e['kind'] == kind]
+                for name, rule in rules:
+                    t = _gold(es, rule, v)
+                    tab.append([label, name, '%.0f' % t['L'], '%.0f' % t['S'], '%.0f' % t['U'], money(t['profit']),
+                                money(t['dep']), money(t['net'])])
+            table(tab, ['', 'rule', 'listed', 'sold', 'unsold', 'profit of sold', 'deposits lost', 'net'])
+        rnd = random.Random(21)
+        keys = sorted({e['key'] for e in priced})
+        byk = {k: [e for e in priced if e['key'] == k] for k in keys}
+        samples = [[e for k in (rnd.choice(keys) for _ in keys) for e in byk[k]] for _ in range(args.resamples)]
+        n = len(samples)
+        print('\nThe formula against what you listed, net gold (90%% of %d resamples of the %d items; share above 0):' % (n, len(keys)))
+        for v in LST_VIEWS:
+            diffs = sorted(_gold(s, formula, v)['net'] - _gold(s, _as_listed, v)['net'] for s in samples)
+            print('  %-5s %12s  (%s .. %s; above 0 in %.0f%%)' % (v, money(_gold(priced, formula, v)['net'] - _gold(priced, _as_listed, v)['net']),
+                                                               money(diffs[int(0.05 * n)]), money(diffs[int(0.95 * n)]), 100 * sum(1 for x in diffs if x > 0) / n))
+        print('\nThe share of the listed units that sells under the formula (Expected counts 75% of an item\'s, 40% of a commodity\'s):')
+        for kind in ('i', 'c'):
+            for v in LST_VIEWS:
+                t = _gold([e for e in priced if e['kind'] == kind], formula, v)
+                qs = sorted(tt['S'] / tt['L'] for tt in (_gold([e for e in s if e['kind'] == kind], formula, v) for s in samples) if tt['L'])
+                if t['L'] and qs:
+                    print('  %s %-5s %.0f%%  (%.0f%% .. %.0f%%)' % (kind, v, 100 * t['S'] / t['L'], 100 * qs[int(0.05 * len(qs))], 100 * qs[int(0.95 * len(qs))]))
+        # ---- the batch constants: the value that earns the most per resample
+        print('\nThe batch constants: the value that earns the most per resample (share of resamples), views none and mid:')
+        grids = [('i', 'first', (0.25, 0.5, 1.0, 2.0)), ('i', 'floor', (0, 5, 10, 15, 20, 30)), ('i', 'grow', (1.0, 1.25, 1.5, 2.0)),
+                 ('i', 'hold', (0.5, 0.75, 1.0, 1.25)), ('i', 'lo', (0.25, 0.5, 0.75, 1.0)),
+                 ('c', 'first', (0.03, 0.06, 0.09, 0.12)), ('c', 'grow', (1.0, 1.25, 1.5, 2.0)), ('c', 'hold', (0.5, 0.75, 1.0, 1.25)),
+                 ('c', 'lo', (0.25, 0.5, 0.75, 1.0)), ('c', 'hi', (1.0, 1.5, 2.0, 3.0)), ('c', 'units', (100, 200, 400, None))]
+        for kind, name, vals in grids:
+            es_all = [e for e in priced if e['kind'] == kind]
+            if not es_all:
+                continue
+            rules_v = []
+            for val in vals:
+                params = {k: dict(LST_RULE[k]) for k in LST_RULE}
+                params[kind][name] = val
+                rules_v.append(_rule(params, room, first_share))
+            parts = []
+            for v in ('none', 'mid'):
+                wins = {val: 0 for val in vals}
+                for s in samples:
+                    ss = [e for e in s if e['kind'] == kind]
+                    nets = [_gold(ss, rl, v)['net'] for rl in rules_v]
+                    wins[vals[max(range(len(vals)), key=lambda i: nets[i])]] += 1
+                parts.append('%s: %s' % (v, ' '.join('%s:%.0f%%' % (val, 100 * wins[val] / n) for val in vals)))
+            print('  %s %-5s (now %s)  %s' % (kind, name, LST_RULE[kind][name], ' | '.join(parts)))
+        # ---- measured shares, resampled by item
+        print('\nMeasured shares (5th .. 95th percentile over resamples of the items):')
+        closed = [x for x in rows if not x['open'] and not x['cancelled'] and x['hours'] == 8]
+
+        def boot(rs, label):
+            ks = sorted({x['key'] for x in rs})
+            if not ks:
+                return
+            byr = {k: [x for x in rs if x['key'] == k] for k in ks}
+            vals = []
+            for _ in range(n):
+                s = [x for k in (rnd.choice(ks) for _ in ks) for x in byr[k]]
+                den = sum(x['n'] for x in s)
+                if den:
+                    vals.append(sum(x['sold'] for x in s) / den)
+            vals.sort()
+            full = sum(x['sold'] for x in rs) / max(1, sum(x['n'] for x in rs))
+            print('  %-56s %4.0f%%  (%.0f%% .. %.0f%%)  %d listings, %d items' % (
+                label, 100 * full, 100 * vals[int(0.05 * len(vals))], 100 * vals[int(0.95 * len(vals)) - 1], len(rs), len(ks)))
+        it = [x for x in closed if x['kind'] == 'i']
+        co = [x for x in closed if x['kind'] == 'c']
+        boot(it, 'items, every 8h listing: units sold')
+        boot(co, 'commodities, every 8h listing: units sold')
+        boot([x for x in it if x['depth'] > 0 and x['depth_out'] and (x['n'] + x['listed']) <= x['depth'] * 1.25],
+             'items, up to 1.25 x the proven (ran out): units sold')
+        boot([x for x in it if x['depth'] > 0 and not x['depth_out'] and (x['n'] + x['listed']) <= x['depth'] * 0.75],
+             'items, up to 0.75 x the proven (units left): units sold')
+        boot([x for x in it if x['buyers'] and x['others'] / x['buyers'] > 4], 'items, over 4 days of stock of others: units sold')
+        boot([x for x in it if x['buyers'] and x['others'] / x['buyers'] <= 4], 'items, up to 4 days of stock of others: units sold')
+        print('  (the wait table and the materials threshold are measured on the price dips, not on your listings)')
+    _plans(m, book, args.plans)
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -1538,13 +2360,17 @@ def main(argv=None):
     p.add_argument('items', nargs='*', help='items to show (default: every item you listed in the window)')
     p.add_argument('--days', type=int, default=7, help='window for your sales and listings')
     p.add_argument('--share', type=float, help='share of C/24h in %% (default: your setting, else 25)')
+    p = sub.add_parser('listings', help='your listings, the Picks batch backtested in gold, its constants, the plan log')
+    p.add_argument('--rows', type=int, default=40, help='items in the outcome table')
+    p.add_argument('--resamples', type=int, default=1000, help='resamples of the items for the ranges')
+    p.add_argument('--plans', type=int, default=5, help='the last N plans of the plan log, pick by pick')
     args = ap.parse_args(argv)
 
     addon, sv = find_paths(args)
     args.addon, args.sv = addon, sv
     market = Market(sv, args.realm)
     {'summary': cmd_summary, 'item': cmd_item, 'price': cmd_price, 'movers': cmd_movers, 'sales': cmd_sales,
-     'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room}[args.cmd](market, args)
+     'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room, 'listings': cmd_listings}[args.cmd](market, args)
 
 
 if __name__ == '__main__':

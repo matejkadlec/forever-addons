@@ -1320,7 +1320,25 @@ python3 tools/fm_analyze.py sales --days 14
 python3 tools/fm_analyze.py craft --prof Leatherworking
 python3 tools/fm_analyze.py flips --budget 5g
 python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
+python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5]
 ```
+
+`listings` (1.40.3, FRV-125) measures the Picks formula of 1.40 (FRV-103) again on the days your saved variables
+hold, the analysis behind its constants (FRV-111, FRV-115; the Confluence page
+[ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)):
+- every post's outcome (sold, expired, cancelled, running) by the rules of `trade/Listings.lua` (`ListingsBook`, held
+  to the same cases by `tests/tools/test_listings.py`), per item with what is proven now
+- the episodes (your 8h posts of one item within 8h of the first) with the market at each post, the cost of a unit
+  (the craft log's material basis, a material over 2.5 times its usual basis set to it; else your purchases, the
+  vendor price, the recipe at the cheaper of vendor and AH), the 8h deposit and the age curve of a listing
+- the gold table: the 1.40 batch (your settings' share of C/24h and first batch share) against what you listed,
+  under four views of the demand a sold-out episode had (cut only, nothing more, middle, speed), the difference
+  with the 90% range of resamples of the items, and the share of the listed units that sells (Expected's 75% / 40%)
+- the batch constants: the value that earns the most per resample (views nothing more and middle), and the measured
+  shares that sell (your proven listings, days of stock of others); the wait table and the materials threshold rest
+  on the price dips and are not part of it
+- the plan log (`plans`): per kind what you listed of each pick's item within 12h of its plan and what those
+  listings sold within 8h, and the last plans pick by pick
 
 `room` (1.22, FRV-56) puts Picks' room on the AH next to your real sales: per item you listed in the window, your
 listings as Picks counts them (auction lists + posts since, and their age), C/24h, the cap and the room, your sales

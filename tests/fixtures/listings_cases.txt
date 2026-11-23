@@ -1,0 +1,172 @@
+# Your own listings and what each sold: trade/Listings.lua (FM.ListingsRecord, FRV-103) and its port ListingsBook in
+# addons/ForeverMarket/tools/fm_analyze.py (FRV-125) read every case and must reach the outcomes below
+# (tests/forevermarket/listings_test.lua, tests/tools/test_listings.py). One character, "Tester"; now = minute 400000
+# since the stamps' epoch; ago = minutes before now; an item's name is "item:<key>".
+#
+#   case <name>
+#   post <ago> <key> <units> <unit price> <hours 2|8|24> <kind i|c> [auction ID]
+#   event <osold|opart|ocancel|ogone> <key> <ago> <units> <buyout> <auction ID|-> <ago of the list before|-> [s]
+#   mail <key> <ago> <total>                       a sale mail of one unit
+#   expiry <key> <ago> [count]                     an expiry mail ("item:<key> (count)")
+#   list <ago> [aid:key:units:buyout:status:secondsLeft ...]   your auction list, read then
+#   expect <key> <n> sold <units> expired <units> cancelled <units> open <0|1>   the n-th post of the key, in log order
+#   proven <key> <units> <ranOut 0|1> sold72 <units>
+
+case commodity-false-sold-lines
+# 155 at 5s: opart 1, 24 and 54, osold 130 at the unit price twice (the list's mark), the expiry mail of 23, ogone 23
+post 1800 850 155 500 24 c c1
+event opart 850 1700 1 500 c1 1710
+event opart 850 1600 24 500 c1 1610
+event osold 850 1500 130 500 c1 1510
+event osold 850 1400 130 500 c1 1410
+event opart 850 1300 54 500 c1 1310
+expiry 850 355 23
+event ogone 850 300 23 500 c1 310
+expect 850 1 sold 132 expired 23 cancelled 0 open 0
+
+case commodity-nothing-part-cancelled-sold-out
+post 1800 851 120 500 24 c c1
+event osold 851 1500 120 500 c1 1510
+event ogone 851 300 120 500 c1 310
+expiry 851 360 120
+post 1800 852 80 500 24 c c2
+event osold 852 1700 80 500 c2 1710
+event opart 852 1600 70 500 c2 1610
+event osold 852 1500 10 500 c2 1510
+expiry 852 370 10
+event ogone 852 300 10 500 c2 310
+post 1800 853 102 500 24 c c3
+event opart 853 1700 4 500 c3 1710
+event opart 853 1600 26 500 c3 1610
+event ocancel 853 1500 72 500 c3 1510
+post 1800 854 100 500 24 c c4
+list 300
+expect 851 1 sold 0 expired 120 cancelled 0 open 0
+expect 852 1 sold 70 expired 10 cancelled 0 open 0
+expect 853 1 sold 30 expired 0 cancelled 72 open 0
+expect 854 1 sold 100 expired 0 cancelled 0 open 0
+
+case commodity-over-without-a-list-since
+# over by the clock, your auction list last read before its end: running with what is known to have sold
+post 1800 854 100 500 24 c c4
+event opart 854 1700 30 500 c4 1710
+list 1600
+expect 854 1 sold 30 expired 0 cancelled 0 open 1
+
+case commodity-purchase-entries
+# 120 at 5s: opart 105, 9 and 4; an osold of 51 whose buyout is one purchase's total; running, then over
+post 120 855 120 500 24 c c1
+event opart 855 90 105 500 c1 80
+event opart 855 60 9 500 c1 50
+event opart 855 30 4 500 c1 20
+event osold 855 20 51 25500 c1 10
+post 1800 856 120 500 24 c c2
+event opart 856 1770 105 500 c2 1760
+event opart 856 1740 9 500 c2 1730
+event opart 856 1710 4 500 c2 1700
+event osold 856 1700 51 25500 c2 1690
+list 60
+expect 855 1 sold 118 expired 0 cancelled 0 open 1
+expect 856 1 sold 120 expired 0 cancelled 0 open 0
+
+case item-mails-and-lists
+# 15 at 14s 34c: 3 osold, 12 ogone, 15 sale mails within 9 minutes; 6: 6 osold, 4 sale mails
+post 600 857 15 1434 24 i
+event osold 857 590 1 1434 a1 600
+event osold 857 590 1 1434 a2 600
+event osold 857 590 1 1434 a3 600
+event ogone 857 300 1 1434 a4 310
+mail 857 599 1434
+mail 857 598 1434
+mail 857 598 1434
+mail 857 597 1434
+mail 857 597 1434
+mail 857 596 1434
+mail 857 596 1434
+mail 857 595 1434
+mail 857 595 1434
+mail 857 594 1434
+mail 857 594 1434
+mail 857 593 1434
+mail 857 593 1434
+mail 857 592 1434
+mail 857 591 1434
+post 600 858 6 1000 24 i
+event osold 858 500 1 1000 b1 520
+event osold 858 500 1 1000 b2 520
+event osold 858 500 1 1000 b3 520
+event osold 858 500 1 1000 b4 520
+event osold 858 500 1 1000 b5 520
+event osold 858 500 1 1000 b6 520
+mail 858 550 1000
+mail 858 550 1000
+mail 858 550 1000
+mail 858 550 1000
+expect 857 1 sold 15 expired 0 cancelled 0 open 0
+expect 858 1 sold 6 expired 0 cancelled 0 open 0
+
+case item-merely-gone-running-in-the-newest-list
+# d1 gone from a list while you were away but running in the newest one; d2 a sold row the list showed
+post 600 861 3 1000 24 i
+event osold 861 500 1 1000 d1 510
+event osold 861 480 1 1000 d2 490 s
+list 400 d1:861:1:1000:a:50000
+expect 861 1 sold 1 expired 0 cancelled 0 open 1
+
+case item-posts-of-one-minute
+# two posts of the same item and price in the same minute, 3 mails: the post logged first takes its 2 first
+post 600 862 2 1000 24 i
+post 600 862 2 1000 24 i
+mail 862 590 1000
+mail 862 580 1000
+mail 862 570 1000
+expect 862 1 sold 2 expired 0 cancelled 0 open 0
+expect 862 2 sold 1 expired 0 cancelled 0 open 1
+
+case proven-ran-out-and-units-left
+# posts of 6, 4 and 15 within 2.5h, each sold within 11 minutes: proven 25, ran out; 100 posted, 12 sold within
+# 8h, 88 expired: proven 12, units left
+post 1800 863 6 1000 24 i
+mail 863 1799 1000
+mail 863 1798 1000
+mail 863 1797 1000
+mail 863 1796 1000
+mail 863 1795 1000
+mail 863 1790 1000
+post 1740 863 4 1000 24 i
+mail 863 1739 1000
+mail 863 1738 1000
+mail 863 1735 1000
+mail 863 1730 1000
+post 1650 863 15 1000 24 i
+mail 863 1649 1000
+mail 863 1649 1000
+mail 863 1648 1000
+mail 863 1648 1000
+mail 863 1647 1000
+mail 863 1647 1000
+mail 863 1646 1000
+mail 863 1645 1000
+mail 863 1644 1000
+mail 863 1643 1000
+mail 863 1642 1000
+mail 863 1641 1000
+mail 863 1640 1000
+mail 863 1640 1000
+mail 863 1639 1000
+post 2400 864 100 1000 24 i
+mail 864 2370 1000
+mail 864 2340 1000
+mail 864 2310 1000
+mail 864 2280 1000
+mail 864 2250 1000
+mail 864 2220 1000
+mail 864 2190 1000
+mail 864 2160 1000
+mail 864 2130 1000
+mail 864 2100 1000
+mail 864 2070 1000
+mail 864 2040 1000
+proven 863 25 1 sold72 25
+proven 864 12 0 sold72 12
+expect 864 1 sold 12 expired 88 cancelled 0 open 0
