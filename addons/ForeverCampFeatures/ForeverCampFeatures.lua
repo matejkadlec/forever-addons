@@ -395,12 +395,18 @@ end
 
 local currentZone
 
+-- True when the settings show this known object: its object is on, and a shared one only with
+-- "Show objects others found" on (switching either off also hides what is known already)
+function ns.IsEntryShown(entry)
+    return ns.IsObjectEnabled(entry.key) and not (entry.source == ns.SOURCE_SHARED and not db.showShared)
+end
+
 -- Alert the objects of your zone that have not alerted yet (Alert.lua)
 local function AlertDue()
     if not (db and db.enabled) or not currentZone then
         return
     end
-    for _, entry in ipairs(ns.TakeAlerts(db.known, currentZone)) do
+    for _, entry in ipairs(ns.TakeAlerts(db.known, currentZone, ns.IsEntryShown)) do
         ns.ShowAlert(entry)
     end
 end
@@ -636,7 +642,7 @@ local function PrintList()
     local zone = ns.PlayerPosition()
     local entries, distances = {}, {}
     for _, entry in ipairs(db.known) do
-        if entry.map == zone then
+        if entry.map == zone and ns.IsEntryShown(entry) then
             entries[#entries + 1] = entry
             distances[entry] = ns.DistanceTo(entry) or math.huge
         end

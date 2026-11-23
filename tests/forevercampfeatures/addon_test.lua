@@ -402,6 +402,34 @@ H.test("zones: an object alerts again only after you left its zone and came back
     H.eq(#ns.Known(), 2, "both known")
 end)
 
+H.test("settings: an object switched off and shared objects while they are hidden leave the list and the alerts", function()
+    local ns, env, seen = Load()
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", IRON_OVEN_PLACE)
+    H.eq(#seen.waypoints, 1, "the loom alerted")
+    ns.SetObjectEnabled("loom", false)
+    env.playerMap = DUN_MOROGH
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+    env.playerMap = IRONFORGE
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+    -- back in Ironforge: your oven alerts again, the loom switched off does not
+    H.eq(#seen.waypoints, 2, "one more alert")
+    H.eq(seen.waypoints[2].title, "Iron Oven", "the oven's")
+    env.printed = {}
+    env.SlashCmdList.FCF("")
+    H.eq(#Printed(env, "Loom"), 0, "not in the list")
+    H.eq(#Printed(env, "Iron Oven"), 1, "your oven is")
+    ns.SetObjectEnabled("loom", true)
+    ns.SetOption("showShared", false)
+    env.printed = {}
+    env.SlashCmdList.FCF("")
+    H.eq(#Printed(env, "Loom"), 0, "a shared object while shared ones are hidden")
+    ns.SetOption("showShared", true)
+    env.printed = {}
+    env.SlashCmdList.FCF("")
+    H.eq(#Printed(env, "Loom"), 1, "shown again")
+end)
+
 H.test("off: no checks, no alerts, the channel is left; on brings them back", function()
     local ns, env, seen = Load()
     env.SlashCmdList.FCF("off")

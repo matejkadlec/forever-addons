@@ -254,11 +254,12 @@ function ns.Prune(list, now)
     return removed
 end
 
--- The entries of one map that have not alerted yet, marked as alerted
-function ns.TakeAlerts(list, map)
+-- The entries of one map that have not alerted yet, marked as alerted; isShown(entry), when given, leaves out
+-- the entries the settings hide now (they stay unmarked and alert once they are shown again)
+function ns.TakeAlerts(list, map, isShown)
     local due = {}
     for _, entry in ipairs(list) do
-        if entry.map == map and not entry.alerted then
+        if entry.map == map and not entry.alerted and (not isShown or isShown(entry)) then
             entry.alerted = true
             due[#due + 1] = entry
         end

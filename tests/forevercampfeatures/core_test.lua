@@ -233,6 +233,22 @@ H.test("an object alerts again after you left its zone and came back, not while 
     H.eq(#ns.TakeAlerts(list, 1455), 1, "back in Ironforge")
 end)
 
+H.test("an entry the settings hide does not alert and stays due until it is shown again", function()
+    local ns = Load()
+    local list = {}
+    ns.AddFind(list, Find("anvil", 0.5, 0.5, 1000, "p"), 900, SizeOf)
+    ns.AddFind(list, Find("loom", 0.2, 0.2, 1000, "p"), 900, SizeOf)
+    local hidden = { anvil = true }
+    local function IsShown(entry) return not hidden[entry.key] end
+    local due = ns.TakeAlerts(list, 1455, IsShown)
+    H.eq(#due, 1, "only the loom")
+    H.eq(due[1].key, "loom", "the loom")
+    hidden.anvil = nil
+    due = ns.TakeAlerts(list, 1455, IsShown)
+    H.eq(#due, 1, "the anvil once it is shown")
+    H.eq(due[1].key, "anvil", "the anvil")
+end)
+
 H.test("saved entries are checked before they are kept", function()
     local ns = Load()
     local good = { key = "ironoven", map = 1455, x = 0.5, y = 0.5, time = 1, expires = 901, kind = "p", source = "shared" }
