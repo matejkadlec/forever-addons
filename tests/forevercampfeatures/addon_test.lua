@@ -273,6 +273,21 @@ H.test("placed: your own Iron Oven alerts once when it is in range, your own Tan
     H.eq(#ns.Known(), 2, "one oven, one rack")
 end)
 
+H.test("placed: your placement in a spot already known goes out at once with its new time", function()
+    local ns, env, seen = Load()
+    -- an oven shared 14 minutes ago, right where you place yours
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,ironoven,1455,385,736,p,840", "CHANNEL", "Someone")
+    H.eq(#seen.sent, 0, "a shared report is not passed on")
+    env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", IRON_OVEN_PLACE)
+    H.eq(#ns.Known(), 1, "merged into the known oven")
+    H.eq(seen.sent[1] and seen.sent[1].text, "1,ironoven,1455,385,736,p,0", "sent with its new time")
+    -- you stand at it, so in range sends again only after 5 minutes
+    OvenInRange(env, true)
+    env.clock = env.clock + 1
+    env.tick()
+    H.eq(#seen.sent, 1, "no second message")
+end)
+
 H.test("placed: a cast named like an object is learned as its placement spell", function()
     local ns, env = Load()
     env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 1263031) -- "Tanning Rack" is a recipe here

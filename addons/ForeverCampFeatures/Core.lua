@@ -201,8 +201,9 @@ function ns.FindEntry(list, find, sizeOf)
 end
 
 -- Add a find (key, map, x, y, time, kind, source) to the list or merge it into the entry of the same object;
--- returns the entry and true when it is a new one. A placement time is exact, a sighting only says the object
--- stood there then, so it lasts at most its lifetime from the latest sighting.
+-- returns the entry, true when it is a new one, and true when the find's placement time became the entry's (a
+-- new object in a known spot). A placement time is exact, a sighting only says the object stood there then, so
+-- it lasts at most its lifetime from the latest sighting.
 function ns.AddFind(list, find, duration, sizeOf)
     local entry = ns.FindEntry(list, find, sizeOf)
     if not entry then
@@ -218,14 +219,16 @@ function ns.AddFind(list, find, duration, sizeOf)
             alerted = false
         }
         list[#list + 1] = entry
-        return entry, true
+        return entry, true, find.kind == "p"
     end
+    local placed = false
     if find.kind == "p" then
         -- a later placement is a new object in the same spot
         if entry.kind ~= "p" or find.time > entry.time then
             entry.kind = "p"
             entry.time = find.time
             entry.expires = find.time + duration
+            placed = true
         end
     elseif entry.kind == "s" and find.time > entry.time then
         entry.time = find.time
@@ -236,7 +239,7 @@ function ns.AddFind(list, find, duration, sizeOf)
         entry.x, entry.y = find.x, find.y
         entry.source = find.source
     end
-    return entry, false
+    return entry, false, placed
 end
 
 -- Remove the expired entries; returns them

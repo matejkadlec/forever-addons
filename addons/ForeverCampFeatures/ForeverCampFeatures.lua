@@ -412,7 +412,8 @@ local function AlertDue()
 end
 
 -- Take a find of one of the three ways: find = { key, map, x, y, time, kind ("p"/"s"), source };
--- returns the entry and true when it is new. New finds alert in your zone. Your own placement is shared once;
+-- returns the entry and true when it is new. New finds alert in your zone. Your own placement is shared once
+-- (also one that merged into a known entry);
 -- an object in range is shared when found and again every few minutes while you stay at it (Share.lua), so
 -- players who come later hear of it too; only players at the object send, so reports never loop.
 function ns.ReportFind(find)
@@ -420,7 +421,7 @@ function ns.ReportFind(find)
         return nil, false
     end
     local object = ns.OBJECT_BY_KEY[find.key]
-    local entry, isNew = ns.AddFind(db.known, find, object.duration, ns.MapSize)
+    local entry, isNew, placed = ns.AddFind(db.known, find, object.duration, ns.MapSize)
     if isNew and find.source == ns.SOURCE_PLACED then
         -- you just placed it: no alert now, but finding it in range or by hovering alerts like any object
         entry.alerted = true
@@ -429,7 +430,10 @@ function ns.ReportFind(find)
         entry.placedByYou = nil
         entry.alerted = false
     end
-    if (isNew and find.source == ns.SOURCE_PLACED) or find.source == ns.SOURCE_RANGE then
+    if find.source == ns.SOURCE_PLACED and placed then
+        -- your placement, also one in a spot already known: the others' copy must get its new time at once
+        ns.ShareEntry(entry, true)
+    elseif find.source == ns.SOURCE_RANGE then
         ns.ShareEntry(entry)
     end
     AlertDue()

@@ -185,6 +185,23 @@ H.test("a later sighting moves the expiry, a placement time is exact", function(
     H.eq(entry.expires, 2600, "new expiry")
 end)
 
+H.test("a find says whether its placement time became the entry's", function()
+    local ns = Load()
+    local list = {}
+    local _, isNew, placed = ns.AddFind(list, Find("tanningrack", 0.5, 0.5, 1000, "s"), 900, SizeOf)
+    H.eq(isNew, true, "a new sighting")
+    H.eq(placed, false, "a sighting is no placement")
+    _, isNew, placed = ns.AddFind(list, Find("tanningrack", 0.5, 0.5, 1100, "p"), 900, SizeOf)
+    H.eq(isNew, false, "merged")
+    H.eq(placed, true, "placed in the known spot")
+    _, _, placed = ns.AddFind(list, Find("tanningrack", 0.5, 0.5, 1050, "p"), 900, SizeOf)
+    H.eq(placed, false, "an older placement report")
+    _, _, placed = ns.AddFind(list, Find("tanningrack", 0.5, 0.5, 1200, "p"), 900, SizeOf)
+    H.eq(placed, true, "placed again later")
+    _, isNew, placed = ns.AddFind(list, Find("loom", 0.1, 0.1, 1200, "p"), 900, SizeOf)
+    H.eq(isNew and placed, true, "a new placement")
+end)
+
 H.test("a hover merges from 100 yards and takes the exact place of a later find without alerting again", function()
     local ns = Load()
     local list = {}

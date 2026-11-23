@@ -140,14 +140,15 @@ local function Send(text, distribution, target)
     stats.results[distribution] = ok and EnumName(Enum and Enum.SendAddonMessageResult, result) or "error"
 end
 
--- Share one entry you placed or found in range (at most once per RESEND_INTERVAL per entry)
-function ns.ShareEntry(entry)
+-- Share one entry you placed or found in range: at most once per RESEND_INTERVAL per entry, except with
+-- force (your new placement goes out at once)
+function ns.ShareEntry(entry, force)
     local db = ns.GetDB()
     if not (db.enabled and db.share) or not (C_ChatInfo and C_ChatInfo.SendAddonMessage) then
         return
     end
     local now = time()
-    if lastSent[entry] and now - lastSent[entry] < RESEND_INTERVAL then
+    if not force and lastSent[entry] and now - lastSent[entry] < RESEND_INTERVAL then
         return
     end
     if InLockdown() then
