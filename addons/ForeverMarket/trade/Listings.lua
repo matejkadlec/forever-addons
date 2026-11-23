@@ -203,12 +203,12 @@ function FM.ListingsRecord(now)
     local r = FM.R()
     local since = now - WINDOW - LONGEST
     local posts, byKey, names = {}, {}, {}
-    for _, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
+    for i, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
         local f = FM.Split(line, ",")
         local t = Dec(f[1])
         if t and t > since and t <= now and f[3] and (f[7] == "i" or f[7] == "c") then
             local hours = DURATION_HOURS[f[6]] or 24
-            local L = { t = t, char = f[2], key = f[3], n = Dec(f[4]) or 1, unit = Dec(f[5]) or 0, hours = hours,
+            local L = { i = i, t = t, char = f[2], key = f[3], n = Dec(f[4]) or 1, unit = Dec(f[5]) or 0, hours = hours,
                 kind = f[7], aid = (f[8] and f[8] ~= "") and f[8] or nil, finish = t + hours * 60, sold = 0, times = {},
                 cancelled = 0, expired = 0 }
             posts[#posts + 1] = L
@@ -217,7 +217,13 @@ function FM.ListingsRecord(now)
             names[L.key] = names[L.key] or FM.GetName(L.key)
         end
     end
-    table_sort(posts, function(a, b) return a.t < b.t end)
+    -- in time order, a line logged earlier first within the same minute (a stable order: tools/fm_analyze.py's port
+    -- reaches the same matches, FRV-125)
+    local function ByTime(a, b)
+        if a.t ~= b.t then return a.t < b.t end
+        return a.i < b.i
+    end
+    table_sort(posts, ByTime)
     -- the item names of your posts: a mail names the item (a random suffix "of the Falcon" after it), never its key
     local keyOf, longest = {}, {}
     for key, name in pairs(names) do
@@ -235,18 +241,18 @@ function FM.ListingsRecord(now)
         return nil
     end
     local sales = {}
-    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+    for i, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
         local f = FM.Split(line, ",")
         local t = Dec(f[1])
         if f[3] == "seller" and t and t > since - SLACK then
             local key = KeyOfName(f[4])
             if key then
                 sales[key] = sales[key] or {}
-                table.insert(sales[key], { t = t, qty = Dec(f[6]) or 1, total = Dec(f[7]) or 0 })
+                table.insert(sales[key], { i = i, t = t, qty = Dec(f[6]) or 1, total = Dec(f[7]) or 0 })
             end
         end
     end
-    for _, list in pairs(sales) do table_sort(list, function(a, b) return a.t < b.t end) end
+    for _, list in pairs(sales) do table_sort(list, ByTime) end
     -- the units of each auction in its character's newest list, its running and its sold rows
     -- (aid:key:qty:buyout:status:left), and the units each auction was posted with
     local inList, posted = {}, {}
@@ -262,13 +268,13 @@ function FM.ListingsRecord(now)
         if L.aid then posted[L.aid] = L.n end
     end
     local events, byAid, expiries = {}, {}, {}
-    for _, line in ipairs(type(r.events) == "table" and r.events or {}) do
+    for i, line in ipairs(type(r.events) == "table" and r.events or {}) do
         local f = FM.Split(line, ",")
         local t = Dec(f[1])
         local kind = f[3]
         if t and t > since then
             if kind == "osold" or kind == "opart" or kind == "ocancel" or kind == "ogone" or kind == "oexpire" then
-                local e = { t = t, kind = kind, key = f[4], qty = Dec(f[5]) or 1, buyout = Dec(f[6]) or 0,
+                local e = { i = i, t = t, kind = kind, key = f[4], qty = Dec(f[5]) or 1, buyout = Dec(f[6]) or 0,
                     aid = (f[7] and f[7] ~= "") and f[7] or nil, prev = Dec(f[8]) }
                 -- an auction merely gone from a list that is in the newest one after all was not sold
                 local there = kind == "osold" and f[9] ~= "s" and e.aid and inList[e.aid]
@@ -291,7 +297,6 @@ function FM.ListingsRecord(now)
             end
         end
     end
-    local function ByTime(a, b) return a.t < b.t end
     for _, list in pairs(events) do table_sort(list, ByTime) end
     for _, list in pairs(byAid) do table_sort(list, ByTime) end
     -- the last look at each character's auctions (R.owned[char].t, seconds)
