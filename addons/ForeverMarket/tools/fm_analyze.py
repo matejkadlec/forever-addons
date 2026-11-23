@@ -1418,11 +1418,40 @@ def cmd_room(m, args):
         t = stamp_to_epoch(f[0])
         if t and len(f) > 2 and now - PICKS_WINDOW < t <= now and (f[2] not in first_post or t < first_post[f[2]]):
             first_post[f[2]] = t
+    # Picks' own rate counts each sale once (OwnSales in trade/Picks.lua, FRV-109): an osold line written again (the
+    # same character, auction, units, price and nth; a sold row's line only until the mail time the first one carries,
+    # without one within 61 minutes of it) counts nothing, nor does one without "s" of an auction that is in the newest
+    # list after all with more units than were posted
+    posted, listed, logged = {}, {}, {}
+    for post in as_list(m.r.get('posts')):
+        f = post.split(',')
+        if len(f) > 7 and f[7]:
+            posted[f[7]] = b36(f[3]) or 1
+    for snap in (m.r.get('owned') or {}).values():
+        if isinstance(snap, dict):
+            for entry in (snap.get('list') or '').split(','):
+                f = entry.split(':')  # aid:key:qty:buyout:status:left
+                if len(f) >= 6 and f[0]:
+                    listed[f[0]] = listed.get(f[0], 0) + (b36(f[-4]) or 1)
     for e in as_list(m.r.get('events')):
         f = e.split(',')
         t = stamp_to_epoch(f[0])
-        if len(f) > 4 and f[2] in ('osold', 'opart') and t and now - PICKS_WINDOW < t <= now:
-            sold3[f[3]] = sold3.get(f[3], 0) + (b36(f[4]) or 1)
+        if len(f) > 4 and f[2] in ('osold', 'opart'):
+            qty, counts = b36(f[4]) or 1, True
+            aid = f[6] if len(f) > 6 else ''
+            if f[2] == 'osold' and aid:
+                shown = len(f) > 8 and f[8] == 's'
+                ident = (f[1], aid, f[4], f[5] if len(f) > 5 else '', f[9] if len(f) > 9 else '')
+                ref = logged.get(ident)
+                if ref and not (shown and t and t > (ref[1] + 60 if ref[1] else ref[0] + 61 * 60)):
+                    counts = False
+                else:
+                    logged[ident] = (t or 0, stamp_to_epoch(f[10]) if len(f) > 10 else None)
+                there = not shown and listed.get(aid)
+                if there and (aid not in posted or qty + there > posted[aid]):
+                    counts = False
+            if counts and t and now - PICKS_WINDOW < t <= now:
+                sold3[f[3]] = sold3.get(f[3], 0) + qty
     keys = set(spans) | set(listings)
     if args.items:
         keys = {k for q in args.items for k in m.find(q)[:1]}

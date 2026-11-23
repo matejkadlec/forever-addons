@@ -250,6 +250,8 @@ H.test("owned list: a stack sold in parts writes an osold line per part, the run
     env.FlushTimers()
     list.Read({ { 7, 11 }, { 8, 10 } })
     list.Read({ { 7, 5 }, { 7, 6, true }, { 8, 10 } })            -- 6 of 7 sold
+    -- the line also says when the row's mail goes out: the list's time plus the row's 3000 seconds left
+    H.eq(FM.Split(FM.R().events[1], ",")[11], FM.Stamp(env.clock + 3000), "the sold row's mail time")
     list.Read({ { 7, 6, true }, { 7, 3 }, { 8, 10 } })            -- 2 more bought, their row already gone
     list.Read({ { 7, 6, true }, { 7, 3, true }, { 8, 5 }, { 8, 5, true } }) -- 7 sold out, 5 of 8 sold
     list.Read({ { 8, 5, true }, { 7, 3, true }, { 8, 5, true } }) -- 8 sold out in a part of the same size and price

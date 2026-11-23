@@ -7,11 +7,13 @@ local _, FM = ...
 -- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID]"    kind: i item, c commodity, b bid only
 -- R.events   "t,char,kind,..."
 --              chat:  sold | expired | removed | won | outbid  ,itemName
---              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s[,nth]]  (prev = the list before,
---                     1.15.14 on; "s" (1.38) = an osold line of a row the list showed sold, without it the auction was
---                     gone from the list and could not have run out; nth (1.38.5, FRV-109) = which of the auction's
---                     sold rows of these units and price the line is: a second part of the same size and price is
---                     nth 2, a line written again after a list that lacked the row has the nth of the first)
+--              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s[,nth[,mail]]]  (prev = the list
+--                     before, 1.15.14 on; "s" (1.38) = an osold line of a row the list showed sold, without it the
+--                     auction was gone from the list and could not have run out; nth (1.38.5, FRV-109) = which of the
+--                     auction's sold rows of these units and price the line is: a second part of the same size and
+--                     price is nth 2, a line written again after a list that lacked the row has the nth of the first;
+--                     mail (1.38.8) = when the row's mail goes out (the list's time + its seconds left): the row is
+--                     listed until then, so only before it can the same line come again)
 --                     opart ,key,qtySold,buyout,auctionID (part of a commodity auction bought)
 --                     ogone = vanished while you were away and could have expired: the mail tells which
 --                     (oexpire in data from before 1.2.0 meant the same as ogone)
@@ -195,10 +197,15 @@ local function SnapshotOwned(full)
         local watching = FM.ahOpen and FM.ahOpenedAt and previous.t >= FM.ahOpenedAt
         local function log(kind, aid, e, qty, shown, nth)
             -- prev: the list before this one, the change happened between the two; shown: the list shows the sale;
-            -- nth: which of the auction's sold rows of these units and price it is
+            -- nth: which of the auction's sold rows of these units and price it is, and when the row's mail goes out
+            -- (its seconds left, 1.38.8): the row is listed until then, so the same line can only come again before
             local fields = { stamp, char, kind, e.key, qty or e.qty, e.buyout, aid, FM.Stamp(previous.t) }
             if shown then fields[9] = "s" end
-            if nth then fields[10] = Enc(nth) end
+            if nth then
+                fields[10] = Enc(nth)
+                local left = e.left
+                if type(left) == "number" and not FM.IsSecret(left) and left > 0 then fields[11] = FM.Stamp(now + left) end
+            end
             FM.Log("events", table_concat(fields, ","), FM.LIMITS.eventsMax)
         end
         -- each sold row the list before did not have is one sale: rows of the same units and price are counted, so

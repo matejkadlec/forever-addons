@@ -535,9 +535,11 @@ H.test("picks: your pace counts each sale once", function()
     local key = "504"
     r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 1200), "Tester", key, B(12), B(10000), "2", "c", "a1" }, ",")
     r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 900), "Tester", key, B(80), B(10000), "3", "c", "r1" }, ",")
-    local function Sold(ago, aid, qty, shown, nth)
+    -- mailIn: minutes after the line when its row's mail goes out (the line's mail time, 1.38.8), nil for none
+    local function Sold(ago, aid, qty, shown, nth, mailIn)
         local fields = { B(NOW_MINUTES - ago), "Tester", "osold", key, B(qty), B(10000), aid, B(NOW_MINUTES - ago - 2) }
         if shown then fields[9], fields[10] = "s", B(nth) end
+        if mailIn then fields[11] = B(NOW_MINUTES - ago + mailIn) end
         r.events[#r.events + 1] = table.concat(fields, ",")
     end
     Sold(600, "a1", 6, true, 1)
@@ -556,6 +558,14 @@ H.test("picks: your pace counts each sale once", function()
     out = { crafts = { Craft(key, 400) } }
     Compute(FM, env, out)
     H.eq(out.pickWhy[key]:find("(18 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
+    -- with the mail time on the line: a part seen late in a list (its mail 20 minutes after its line), the same line 5
+    -- minutes later (the row again), and another part 30 minutes later, after that mail went out: a sale of its own
+    Sold(400, "a2", 3, true, 1, 20)
+    Sold(395, "a2", 3, true, 1, 15)
+    Sold(370, "a2", 3, true, 1, 50)
+    out = { crafts = { Craft(key, 400) } }
+    Compute(FM, env, out)
+    H.eq(out.pickWhy[key]:find("(24 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
 end)
 
 H.test("picks: what you list covers a day at your pace: no pick, and the reason names your pace", function()

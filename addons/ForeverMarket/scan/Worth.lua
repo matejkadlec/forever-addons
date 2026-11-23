@@ -310,11 +310,12 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                     if rows then runs = (runs or 0) + rows end
                 end
                 local again = runs and (not post or qty + runs > post.qty)
-                -- a sold row's line comes again only while its row is listed, within the hour after the first one
-                -- (its mail goes out then): the same line later is another sale of the same size and price
+                -- a sold row's line comes again only while its row is listed: until the mail time the first line
+                -- carries (1.38.8; a row seen late in a list leaves it well within the hour after its line), without
+                -- one within the hour after it; the same line later is another sale of the same size and price
                 local ref = kind ~= "opart" and aid and aid ~= "" and logged[id]
-                local twice = ref and not (shown and t - ref > SOLD_ROW_LIFE)
-                if not twice then logged[id] = t end
+                local twice = ref and not (shown and t > (ref.mail and ref.mail + 60 or ref.t + SOLD_ROW_LIFE))
+                if not twice then logged[id] = { t = t, mail = FM.Unstamp(f[11]) } end
                 if not again and not twice then
                     -- money on its way only for a sale that was seen: a row shown sold, or a count that fell. A
                     -- vanished auction counts with its units, like an ended one, until the mail tells which it was

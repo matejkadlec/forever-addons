@@ -186,13 +186,15 @@ local function OwnSales(nowMinutes)
             local aid = f[7]
             if f[3] == "osold" and aid and aid ~= "" then
                 local id = table_concat({ f[2], aid, f[5], f[6], f[10] or "" }, ":")
-                -- a sold row's line comes again only while its row is listed, within the hour after the first one
-                -- (its mail goes out then); a line of the same auction, units and price later is a sale of its own
+                -- a sold row's line comes again only while its row is listed: until the mail minute the first line
+                -- carries (1.38.8), without one within the hour after it; a line of the same auction, units and price
+                -- later is a sale of its own
                 local ref = logged[id]
-                if ref and not (f[9] == "s" and minutes and minutes - ref > SOLD_ROW_MINUTES) then
+                if ref and not (f[9] == "s" and minutes
+                    and minutes > (ref.mail and ref.mail + 1 or ref.at + SOLD_ROW_MINUTES)) then
                     counts = false
                 else
-                    logged[id] = minutes or 0
+                    logged[id] = { at = minutes or 0, mail = Dec(f[11]) }
                 end
                 local there = f[9] ~= "s" and listed[aid]
                 if there and (not posted[aid] or qty + there > posted[aid]) then counts = false end

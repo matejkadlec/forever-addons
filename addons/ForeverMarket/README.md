@@ -385,7 +385,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     older records: early-gone x0.3. Trusted after 3+ intervals with buys and 5+ auctions seen. You get half
     of the buyers, or your own pace (osold/opart over the time since your first post in the 3 days, at least 12h;
     3+ sales; each sale once since 1.38.5, FRV-109, as the Profit tab counts it: an `osold` line written again after
-    a list that lacked its row (within the hour after the first), or of an auction that was merely gone from a list
+    a list that lacked its row (before the first one's mail went out), or of an auction that was merely gone from a list
     but is in the newest one after all, counts nothing). While units of yours are still listed (`Yours() > 0`), your pace is the rate whatever the market
     says (1.22, FRV-66): nothing cut your sales short, so it is what buyers take at your price; the reason then
     names it ("you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h") and the tooltip's
@@ -837,9 +837,11 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     never gone (its units and the running ones are more than were posted), and the same line logged twice counts
     once; since 1.38.5 a sold row's line carries which of its auction's rows of those units and price it is (`nth`),
     so two parts of 5 at one price are two sales and a line written again after a list that lacked its row is not.
-    A line can only come again while its row is listed (at most an hour after the sale): the same sold row's line
-    more than 61 minutes after the first is another sale (1.38.6; `nth` starts at 1 again once the rows before it
-    left the list).
+    A line can only come again while its row is listed: since 1.38.8 a sold row's line carries when its row's mail
+    goes out (the list's time plus the row's seconds left), and a line of the same auction, units, price and `nth`
+    after that is another sale (`nth` starts at 1 again once the rows before it left the list); a line without it
+    counts again more than 61 minutes after the first (1.38.6: a row is listed at most an hour after the sale).
+    The analysis tool's `room` reads the pace the same way.
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
     list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).
 * Only the span all logs cover counts (`FM.CoveredFrom`): a log at its cap (`invoices` and `posts` 10000 lines,
@@ -1132,7 +1134,8 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
   gone from the list; since 1.38.5 a line of a sold row ends in `,s,nth`: which of its auction's sold rows of those
-  units and price it is), chat `sold|expired|removed|won|outbid,item`, mail
+  units and price it is; since 1.38.8 in `,s,nth,mail`: when the row's mail goes out, the list's time plus its
+  seconds left), chat `sold|expired|removed|won|outbid,item`, mail
   `mexpired|mcancelled,item`, `blocked,function`
 * `ahev` (1.25 to 1.29) held the AH purchase events of the FRV-54 test (`t,char,event,arguments,ms`); the test is over,
   1.30 drops the list at load
