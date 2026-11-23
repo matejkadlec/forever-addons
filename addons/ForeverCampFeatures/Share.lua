@@ -30,7 +30,7 @@ local PREFIX = "ForeverCampFeat"
 local CHANNEL_NAME = "ForeverCampFeatures"
 -- Join the channel this long after entering the world, so the game's own channels (General, Trade) keep their numbers
 local JOIN_DELAY = 10
--- Try to join again this often while it fails (seconds), at most this many times per session
+-- Try to join (or leave) again this often while it fails (seconds), at most this many times each per session
 local JOIN_RETRY = 60
 local MAX_JOIN_TRIES = 5
 -- One entry is sent at most this often (seconds): an object you stay in range of goes out again after it
@@ -48,7 +48,8 @@ local stats = {
     ignored = 0,     -- "Show objects others found" off, or the object switched off
     lockdown = 0,    -- chat lockdown
     noRoute = 0,     -- no channel, no guild, no group
-    joinTries = 0
+    joinTries = 0,
+    leaveTries = 0
 }
 local senders = {}
 -- When each entry was last sent (weak keys: expired entries leave it with the list)
@@ -100,10 +101,14 @@ local function InLockdown()
     return IsSecret(lockdown) or lockdown == true
 end
 
--- Join or leave the channel to match the settings (never in combat: retried by the next call)
+-- Join or leave the channel to match the settings; returns true when it should be checked again later (in
+-- combat nothing is tried, and a join or a leave is checked once more to see whether it took)
 function ns.UpdateChannel()
-    if not (JoinPermanentChannel and GetChannelName) or InCombatLockdown() then
-        return
+    if not (JoinPermanentChannel and GetChannelName) then
+        return false
+    end
+    if InCombatLockdown() then
+        return true
     end
     local id = ChannelID()
     if WantsChannel() then
@@ -112,13 +117,18 @@ function ns.UpdateChannel()
             -- no chat window: the channel and its notices show nowhere (Blizzard's channel list joins the same way)
             local ok, zoneChannel = pcall(JoinPermanentChannel, CHANNEL_NAME)
             joinResult = ok and Show(zoneChannel) or "error"
+            return true
         end
-    elseif id > 0 and LeaveChannelByName then
+    elseif id > 0 and LeaveChannelByName and stats.leaveTries < MAX_JOIN_TRIES then
+        stats.leaveTries = stats.leaveTries + 1
         pcall(LeaveChannelByName, CHANNEL_NAME)
+        return true
     end
+    return false
 end
 
--- Join a while after entering the world, and try again while it fails
+-- Join or leave a while after entering the world or a change of the settings, and try again after combat and
+-- while a join or a leave has not taken
 function ns.ScheduleChannel()
     if joinScheduled then
         return
@@ -126,8 +136,7 @@ function ns.ScheduleChannel()
     joinScheduled = true
     C_Timer.After(JOIN_DELAY, function()
         joinScheduled = false
-        ns.UpdateChannel()
-        if WantsChannel() and ChannelID() == 0 and stats.joinTries < MAX_JOIN_TRIES and not blockedCall then
+        if ns.UpdateChannel() then
             C_Timer.After(JOIN_RETRY, ns.ScheduleChannel)
         end
     end)

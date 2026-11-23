@@ -351,6 +351,19 @@ H.test("the channel: a join that does not take is tried 5 times a session, a blo
         "debug line")
 end)
 
+H.test("the channel: /fcf off in combat leaves the channel once the fight is over", function()
+    local _, env = Load()
+    H.eq(env.channel, 5, "joined")
+    local fighting = 2 -- the next two checks are in combat
+    env.InCombatLockdown = function()
+        fighting = fighting - 1
+        return fighting >= 0
+    end
+    env.SlashCmdList.FCF("off")
+    env.FlushTimers()
+    H.eq(env.channel, 0, "left after the fight")
+end)
+
 H.test("sharing: without the channel the guild gets it, the chat lockdown holds it back, off means off", function()
     local ns, env, seen = Load({ noChannel = true })
     env.inGuild = true
