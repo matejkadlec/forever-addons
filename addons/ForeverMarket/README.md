@@ -1320,7 +1320,7 @@ python3 tools/fm_analyze.py sales --days 14
 python3 tools/fm_analyze.py craft --prof Leatherworking
 python3 tools/fm_analyze.py flips --budget 5g
 python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
-python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5]
+python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5] [--older <ForeverMarket.lua copy> ...]
 ```
 
 `listings` (1.40.3, FRV-125) measures the Picks formula of 1.40 (FRV-103) again on the days your saved variables
@@ -1328,8 +1328,13 @@ hold, the analysis behind its constants (FRV-111, FRV-115; the Confluence page
 [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)):
 - every post's outcome (sold, expired, cancelled, running) by the rules of `trade/Listings.lua` (`ListingsBook`, held
   to the same cases by `tests/tools/test_listings.py`), per item with what is proven now; commodity posts before
-  2026-11-19 12:00 (logged by older versions without an auction ID, so their outcome cannot be read) stay out of it
-- the episodes (your 8h posts of one item within 8h of the first) with the market at each post, the cost of a unit
+  2026-11-19 12:00 (logged by older versions without an auction ID, so their outcome cannot be read) stay out of it,
+  and so do posts from before the first line of your auctions in the events log (it keeps its newest 4,000 lines,
+  about two weeks: an older post can have lost its cancels, parts and sales)
+- the episodes (your 8h posts of one item within 8h of the first) with the market at each post: a post needs 10h of
+  an item's deep records before it, which the AddOn keeps 72h, so one file covers about the last 3 days; `--older`
+  (repeatable) adds the deep records an older copy of `ForeverMarket.lua` still had (the backups in `untracked/`, a
+  copy saved days ago), and the output says which days the backtest covers. Then the cost of a unit
   (the craft log's material basis, a material over 2.5 times its usual basis set to it; else your purchases, the
   vendor price, the recipe at the cheaper of vendor and AH), the 8h deposit and the age curve of a listing
 - the gold table: the 1.40 batch (your settings' share of C/24h and first batch share) against what you listed,

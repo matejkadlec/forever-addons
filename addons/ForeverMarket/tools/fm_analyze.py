@@ -13,7 +13,7 @@ Usage (from anywhere):
   python3 fm_analyze.py craft --prof Leatherworking
   python3 fm_analyze.py flips --budget 5g
   python3 fm_analyze.py room [item ...] [--days 7] [--share 25]
-  python3 fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5]
+  python3 fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5] [--older <ForeverMarket.lua copy> ...]
 
 Paths are found automatically (the game's WTF folder next to the AddOns folder, or one mounted at
 ~/mnt/WTF); override with --sv <ForeverMarket.lua> and --addon <AddOns/ForeverMarket folder>.
@@ -1871,14 +1871,23 @@ LST_VIEWS = ('cut', 'none', 'mid', 'curve')
 LST_AGE_EDGES = [0, 0.25, 0.5, 1, 2, 4, 8]
 
 
-def _listing_rows(m, book, settings):
-    """Every listing with the market at its post, its cost, its 8h deposit and its proven record (FRV-115 b0)"""
+def _listing_rows(m, book, settings, older=()):
+    """Every listing with the market at its post, its cost, its 8h deposit and its proven record (FRV-115 b0). The
+    AddOn keeps an item's deep records 72h (FM.LIMITS.detailHours): older copies of the saved variables (`older`,
+    newest first) add the records they still had from before the main file's first one, as the analysis did"""
     r = m.r
     recs_of = {}
 
     def recs(key):
         if key not in recs_of:
-            recs_of[key] = [x for x in m.records(key) if x['kind'] == 'r' and x['t']]
+            out = [x for x in m.records(key) if x['kind'] == 'r' and x['t']]
+            first = out[0]['t'] if out else math.inf
+            for om in older:
+                extra = [x for x in om.records(key) if x['kind'] == 'r' and x['t'] and x['t'] < first - 30]
+                if extra:
+                    out = extra + out
+                    first = out[0]['t']
+            recs_of[key] = out
         return recs_of[key]
 
     # the craft log: the materials' basis per unit made, a material over 2.5 times its usual basis set to it (FRV-112)
@@ -2191,7 +2200,18 @@ def cmd_listings(m, args):
     realm['posts'] = [line for line in as_list(m.r.get('posts'))
                       if not (len(str(line).split(',')) > 6 and str(line).split(',')[6] == 'c'
                               and (b36(str(line).split(',')[0]) or 0) < cutoff)]
-    book = ListingsBook(realm, now, since=-math.inf)
+    # the events log keeps its newest lines only (FM.LIMITS.eventsMax): a post before its first line of your auctions
+    # (stamped when it was logged) can have lost its cancels, parts and sales, so the book starts there
+    start = -math.inf
+    for line in as_list(m.r.get('events')):
+        f = str(line).split(',')
+        if len(f) > 2 and f[2] in ('osold', 'opart', 'ocancel', 'ogone', 'oexpire') and b36(f[0]) is not None:
+            start = b36(f[0])
+            break
+    book = ListingsBook(realm, now, since=start)
+    older = []
+    for path in sorted(args.older or [], key=os.path.getmtime, reverse=True):
+        older.append(Market(path, m.realm_key))
     settings = m.settings or {}
     room = (settings.get('tableCircPct') or 25) / 100
     first_share = (settings.get('tableFirstPct') or 2) / 100
@@ -2201,7 +2221,7 @@ def cmd_listings(m, args):
         if L['kind'] == 'c' and epoch_of(L['t']) < LST_COMMODITY_FROM:
             continue
         by.setdefault((L['kind'], L['key']), []).append(L)
-    print('Your listings (posts since %s; commodity posts from %s on):' % (
+    print('Your listings (posts since %s, where the log of your auctions starts; commodity posts from %s on):' % (
         when(epoch_of(min(L['t'] for L in book.listings))) if book.listings else '-', when(LST_COMMODITY_FROM)))
     for kind, label in (('i', 'items'), ('c', 'commodities')):
         ls = [L for (k, _), lst in by.items() if k == kind for L in lst]
@@ -2220,8 +2240,13 @@ def cmd_listings(m, args):
     table(out[:args.rows], ['item', 'k', 'posts', 'units', 'sold', 'exp', 'can', 'running', 'sold of closed', 'proven now'])
 
     # ---- the backtest in gold
-    rows = _listing_rows(m, book, settings)
+    rows = _listing_rows(m, book, settings, older)
     eps, curve, h8 = _episodes(rows)
+    if eps:
+        print('\nThe backtest covers your 8h posts from %s to %s: an item\'s deep records are kept 72h, so a post needs '
+              '10h of them before it%s' % (when(min(e['t'] for e in eps)), when(max(e['t'] for e in eps)),
+                                         '; %d older copies add theirs' % len(older) if older else
+                                         ' (--older <copy of ForeverMarket.lua> adds the records of older copies)'))
     priced = [e for e in eps if e['margin'] is not None]
     print('\nEpisodes (your 8h posts of one item within 8h of the first, with 10h+ of records before): %d, items %d, '
           'commodities %d; with a cost %d (%s); units left %d, sold out %d' % (
@@ -2371,6 +2396,8 @@ def main(argv=None):
     p.add_argument('--rows', type=int, default=40, help='items in the outcome table')
     p.add_argument('--resamples', type=int, default=1000, help='resamples of the items for the ranges')
     p.add_argument('--plans', type=int, default=5, help='the last N plans of the plan log, pick by pick')
+    p.add_argument('--older', action='append', metavar='PATH',
+                   help='an older copy of ForeverMarket.lua whose deep records reach further back (repeatable)')
     args = ap.parse_args(argv)
 
     addon, sv = find_paths(args)
