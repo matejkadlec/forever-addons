@@ -289,7 +289,7 @@ H.test("every text the AddOn shows is in Locale.lua", function()
             missing[#missing + 1] = key .. " (" .. where .. ")"
         end
     end
-    for _, file in ipairs({ "ForeverCampFeatures.lua", "Alert.lua", "Detect.lua", "Share.lua", "SettingsPanel.lua" }) do
+    for _, file in ipairs({ "Core.lua", "ForeverCampFeatures.lua", "Alert.lua", "Detect.lua", "Share.lua", "SettingsPanel.lua" }) do
         local handle = assert(io.open(FOLDER .. "/" .. file))
         local source = handle:read("*a")
         handle:close()

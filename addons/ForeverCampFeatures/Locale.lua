@@ -23,6 +23,10 @@ local L = {
     ALERT_RANGE = "%s in range at %s",
     ALERT_HOVER = "%s in sight near %s",
     PLACED_AGO = "placed %s ago",
+    AGE_SECONDS = "%d s",
+    AGE_MINUTES = "%d min",
+    AGE_HOURS = "%d h %02d min",
+    DISTANCE_YARDS = "%d yd",
     SEEN_AGO = "seen %s ago",
     TEST_SUFFIX = "(test)",
 

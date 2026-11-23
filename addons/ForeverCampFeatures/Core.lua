@@ -1,5 +1,7 @@
 local _, ns = ...
 
+local L = ns.L
+
 -- Pure logic without game calls (tests/forevercampfeatures/ runs it outside the client): the shared message
 -- format and its validation, the rate limit per sender, the list of known objects (merging, expiry, alerting
 -- once), distances and the texts of coordinates, ages and distances.
@@ -155,22 +157,22 @@ function ns.FormatCoords(x, y)
     return string_format("%.1f, %.1f", x * 100, y * 100)
 end
 
--- "45 s", "3 min", "1 h 05 min"
+-- "45 s", "3 min", "1 h 05 min" (the units are in Locale.lua)
 function ns.FormatAge(seconds)
     seconds = math_max(0, math_floor(seconds))
     if seconds < 60 then
-        return string_format("%d s", seconds)
+        return string_format(L.AGE_SECONDS, seconds)
     end
     local minutes = math_floor(seconds / 60)
     if minutes < 60 then
-        return string_format("%d min", minutes)
+        return string_format(L.AGE_MINUTES, minutes)
     end
-    return string_format("%d h %02d min", math_floor(minutes / 60), minutes % 60)
+    return string_format(L.AGE_HOURS, math_floor(minutes / 60), minutes % 60)
 end
 
 -- "45 yd"
 function ns.FormatDistance(yards)
-    return string_format("%d yd", math_floor(yards + 0.5))
+    return string_format(L.DISTANCE_YARDS, math_floor(yards + 0.5))
 end
 
 --------------------------------------------------------------------------------
