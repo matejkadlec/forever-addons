@@ -314,6 +314,68 @@ H.test("every camp object has a unique key, item and recipe, a name, a professio
     H.eq(#ns.OBJECTS, 38, "objects")
 end)
 
+--------------------------------------------------------------------------------
+-- The alert's sound and look (FRV-121, FRV-122)
+--------------------------------------------------------------------------------
+
+H.test("a sound's key reads as words, a few short names stay in capitals", function()
+    local ns = Load()
+    H.eq(ns.SoundName("RAID_WARNING"), "Raid Warning", "raid warning")
+    H.eq(ns.SoundName("UI_EPICLOOT_TOAST"), "UI Epicloot Toast", "UI")
+    H.eq(ns.SoundName("IG_MAINMENU_OPEN"), "IG Mainmenu Open", "IG")
+    H.eq(ns.SoundName("READY_CHECK"), "Ready Check", "ready check")
+end)
+
+H.test("the sound list holds every sound of SOUNDKIT A-Z by its name, the key breaking a tie", function()
+    local ns = Load()
+    local list = ns.SoundList({ RAID_WARNING = 8959, READY_CHECK = 8960, AUCTION_WINDOW_OPEN = 5274,
+        ready_check = 1, BROKEN = "x" })
+    local keys = {}
+    for index, sound in ipairs(list) do
+        keys[index] = sound.key
+    end
+    H.same(keys, { "AUCTION_WINDOW_OPEN", "RAID_WARNING", "READY_CHECK", "ready_check" }, "order")
+    H.same({ list[2].name, list[2].id }, { "Raid Warning", 8959 }, "an entry")
+    H.same(ns.SoundList(nil), {}, "no SOUNDKIT")
+end)
+
+H.test("a saved color keeps channels 0-1 and is a new table; anything else is a copy of the default", function()
+    local ns = Load()
+    local default = { r = 0.2, g = 0.2, b = 0.2, a = 0.5 }
+    local saved = { r = 0.1, g = 0.5, b = 1, a = 0.3 }
+    local color = ns.CleanColor(saved, default, true)
+    H.same(color, saved, "kept")
+    H.eq(color ~= saved, true, "a new table")
+    H.same(ns.CleanColor({ r = 2, g = -1, b = 0.5, a = 1.5 }, default, true), { r = 1, g = 0, b = 0.5, a = 1 },
+        "clamped")
+    H.same(ns.CleanColor({ r = 1, g = 1, b = 1 }, default, true), default, "no opacity")
+    H.same(ns.CleanColor({ r = 1, g = 1, b = 1, a = 0.5 }, default, false), { r = 1, g = 1, b = 1 }, "no opacity kept")
+    H.same(ns.CleanColor({ r = 0 / 0, g = 1, b = 1, a = 1 }, default, true), default, "NaN")
+    H.same(ns.CleanColor("red", default, true), default, "not a table")
+    H.eq(ns.CleanColor(nil, default, true) ~= default, true, "the default is copied")
+end)
+
+H.test("a saved font size is a whole number from 10 to 40, else 20", function()
+    local ns = Load()
+    H.eq(ns.CleanFontSize(25.4), 25, "rounded")
+    H.eq(ns.CleanFontSize(5), 10, "too small")
+    H.eq(ns.CleanFontSize(99), 40, "too big")
+    H.eq(ns.CleanFontSize("big"), 20, "not a number")
+    H.eq(ns.CleanFontSize(0 / 0), 20, "NaN")
+    H.eq(ns.CleanFontSize(nil), 20, "missing")
+end)
+
+H.test("a saved position is two finite offsets, else the default place (nil)", function()
+    local ns = Load()
+    local saved = { x = -120.5, y = 300 }
+    local position = ns.CleanPosition(saved)
+    H.same(position, saved, "kept")
+    H.eq(position ~= saved, true, "a new table")
+    H.eq(ns.CleanPosition({ x = 1, y = "a" }), nil, "not a number")
+    H.eq(ns.CleanPosition({ x = math.huge, y = 0 }), nil, "infinite")
+    H.eq(ns.CleanPosition(nil), nil, "none")
+end)
+
 H.test("every text the AddOn shows is in Locale.lua", function()
     local ns = Load()
     local missing = {}

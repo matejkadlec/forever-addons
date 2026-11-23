@@ -115,6 +115,44 @@ local DEFAULTS = {
 }
 ns.DEFAULTS = DEFAULTS
 
+-- The alert's sound and look (not on/off switches): the sound's SOUNDKIT key, the font file ("" = the game's
+-- own font), its size, the text color and the background color with its opacity (0 = no background). The
+-- position (alertPosition, offsets of the newest alert from the screen center) has no entry: nil is the default
+-- place, a quarter of the screen above the center.
+local STYLE_DEFAULTS = {
+    alertSoundKit = "RAID_WARNING",
+    alertFont = "",
+    alertFontSize = ns.FONT_SIZE_DEFAULT,
+    alertTextColor = { r = 1, g = 0.82, b = 0 },
+    alertBackground = { r = 0.2, g = 0.2, b = 0.2, a = 0.5 }
+}
+ns.STYLE_DEFAULTS = STYLE_DEFAULTS
+
+-- The SOUNDKIT ID of a sound key, or nil when the client has no such sound
+function ns.SoundKitID(key)
+    local id = type(key) == "string" and type(SOUNDKIT) == "table" and SOUNDKIT[key]
+    return type(id) == "number" and id or nil
+end
+
+-- Each style setting's check: what SavedVariables or a control hands in becomes a valid value
+local STYLE_CHECKS = {
+    -- a sound the client no longer has falls back to the default
+    alertSoundKit = function(value)
+        return ns.SoundKitID(value) and value or STYLE_DEFAULTS.alertSoundKit
+    end,
+    alertFont = function(value)
+        return type(value) == "string" and value or STYLE_DEFAULTS.alertFont
+    end,
+    alertFontSize = ns.CleanFontSize,
+    alertTextColor = function(value)
+        return ns.CleanColor(value, STYLE_DEFAULTS.alertTextColor, false)
+    end,
+    alertBackground = function(value)
+        return ns.CleanColor(value, STYLE_DEFAULTS.alertBackground, true)
+    end,
+    alertPosition = ns.CleanPosition
+}
+
 local db
 
 -- Fill in and clean up ForeverCampFeaturesSettings (it can hold anything after an edit or an old version)
@@ -127,6 +165,9 @@ local function InitializeSavedData()
         if type(db[key]) ~= "boolean" then
             db[key] = value
         end
+    end
+    for key, check in pairs(STYLE_CHECKS) do
+        db[key] = check(db[key])
     end
     -- objects switched off: key -> false (a missing key is on)
     if type(db.objects) ~= "table" then
@@ -172,6 +213,14 @@ end
 -- The saved settings (defaults before ADDON_LOADED, so early calls never fail)
 function ns.GetDB()
     return db or DEFAULTS
+end
+
+-- One setting of the alert's sound and look (its default before ADDON_LOADED)
+function ns.GetStyle(key)
+    if db then
+        return db[key]
+    end
+    return STYLE_DEFAULTS[key]
 end
 
 -- True when the object is switched on in the settings
@@ -491,15 +540,24 @@ local function StopTicker()
     end
 end
 
--- Apply the enabled state and the settings to every part
-function ns.ApplySettings()
+-- Apply the enabled state and the settings to every part. changedNow: the player just changed what the channel
+-- depends on (/fcf on or off, a sharing option, Defaults), so out of combat it is joined or left at once and a
+-- player who reloads right after is not left in it; the scheduled check follows as always (Share.lua: never right
+-- at login, never in combat, again while a join or a leave has not taken)
+function ns.ApplySettings(changedNow)
     if db and db.enabled then
         StartTicker()
     else
         StopTicker()
     end
-    -- the channel follows a while later (Share.lua: never right at login, never in combat)
+    if changedNow then
+        -- does nothing in combat (Share.lua), the scheduled check then waits for the fight to end
+        ns.UpdateChannel(true)
+    end
     ns.ScheduleChannel()
+    if ns.ApplyAlertStyle then
+        ns.ApplyAlertStyle()
+    end
     if ns.RefreshSettingsPanel then
         ns.RefreshSettingsPanel()
     end
@@ -515,7 +573,7 @@ function ns.SetAddonEnabled(enabled)
     if not enabled then
         ns.HideAlerts()
     end
-    ns.ApplySettings()
+    ns.ApplySettings(true)
     ns.Print(string_format(enabled and L.ENABLED or L.DISABLED, ADDON_FULL_NAME))
 end
 
@@ -525,7 +583,26 @@ function ns.SetOption(key, value)
         return
     end
     db[key] = value and true or false
-    ns.ApplySettings()
+    if key == "alertText" and not db.alertText then
+        -- no text on the screen: the preview of the Move button goes too
+        ns.HideAlerts()
+    end
+    ns.ApplySettings(key == "share" or key == "showShared")
+end
+
+-- Change one setting of the alert's sound and look (STYLE_CHECKS keys); the value is checked like a saved one
+function ns.SetStyle(key, value)
+    local check = STYLE_CHECKS[key]
+    if not (db and check) then
+        return
+    end
+    db[key] = check(value)
+    if ns.ApplyAlertStyle then
+        ns.ApplyAlertStyle()
+    end
+    if ns.RefreshSettingsPanel then
+        ns.RefreshSettingsPanel()
+    end
 end
 
 -- Save one object's switch: off is stored as false, on as no entry
@@ -558,13 +635,17 @@ function ns.SetAllObjects(enabled)
     end
 end
 
--- Restore the default settings (every object on; the known objects stay)
+-- Restore the default settings (every object on, the alert's sound, look and place; the known objects stay)
 function ns.ResetToDefaults()
     for key, value in pairs(DEFAULTS) do
         db[key] = value
     end
+    for key, check in pairs(STYLE_CHECKS) do
+        -- the checks hand out fresh copies of the default colors; nil is the default position
+        db[key] = check(STYLE_DEFAULTS[key])
+    end
     db.objects = {}
-    ns.ApplySettings()
+    ns.ApplySettings(true)
     ns.Print(L.DEFAULTS_RESTORED)
 end
 

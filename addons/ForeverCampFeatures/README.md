@@ -11,7 +11,7 @@ The game gives AddOns no list of the objects around you, so the AddOn learns abo
 | Way | Range | What it needs | Limits |
 | --- | --- | --- | --- |
 | **In range** | Where you stand | A recipe you know that needs the object nearby ("Requires: Iron Oven") | Only objects a recipe of yours needs; open each profession window once so the AddOn learns your recipes. Anvils are skipped: a city anvil answers the same |
-| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown is where you stood. Anvils are skipped here too |
+| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown is where you stood, and the alert puts the coordinates in the chat instead of a TomTom waypoint. Anvils are skipped here too |
 | **Shared** | The whole zone and beyond | Other players who run the AddOn | Only what others placed or found in range |
 
 When you place a camp object yourself, or find one in range, the AddOn sends it to the other players who run the AddOn (see Privacy below); an object you stay in range of goes out again every 5 minutes, for players who arrive later.
@@ -20,8 +20,9 @@ When you place a camp object yourself, or find one in range, the AddOn sends it 
 
 For an object in your current zone:
 
-- A text in the upper middle of the screen, for example `Iron Oven at 38.5, 73.6, Ironforge`, with the distance and the age for a shared one, and a sound
-- With TomTom: a waypoint on it. Without TomTom: the coordinates in the chat
+- A text on a grey rounded background, a quarter of the screen above its center (above your character), for example `Iron Oven at 38.5, 73.6, Ironforge`, with the distance and the age for a shared one; the font, its size, both colors and the place can be changed in the settings
+- A sound, Raid Warning unless you pick another one of the game's sounds in the settings
+- With TomTom: a waypoint on it. Without TomTom: the coordinates in the chat. An object found by hovering always gets the chat line instead of a waypoint: the game only tells the AddOn where you stood
 - The same object alerts once. It alerts again when it moved, or after you left the zone and came back. An object that expired is dropped and its waypoint removed
 
 Placing an object does not alert you at once; finding it in range or by hovering it does, like any other object.
@@ -32,7 +33,7 @@ With "Share the objects I place or find" on (the default), the AddOn sends a sho
 
 The messages go through a hidden chat channel the AddOn joins by itself (`ForeverCampFeatures`; it appears in no chat window). When the channel cannot be joined, they go to your guild and your party or raid instead. Turn sharing off in the settings to send nothing; turn "Show objects others found" off to ignore what others send.
 
-Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the objects I place or find" or "Show objects others found" is on; with both off, or with `/fcf off`, it leaves the channel.
+Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the objects I place or find" or "Show objects others found" is on; with both off, or with `/fcf off`, it leaves the channel at once (in a fight, once the fight is over).
 
 Disabling or deleting the AddOn does not leave the channel by itself: the game keeps the channels you joined and joins them again at every login. Type `/fcf off` before you disable it, or `/leave ForeverCampFeatures` once afterwards.
 
@@ -54,6 +55,9 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 
 - Enable the AddOn
 - Alerts: the text in the middle of the screen, the sound, the TomTom waypoint (each on by default)
+  - Sound: a list of every sound of the game, A-Z, that scrolls; picking one plays it, resting the mouse on one plays it after a moment, and the ▶ button next to it plays the chosen one. Default: Raid Warning. Greyed out while "Sound" is off
+  - Under the text: Font (the game's fonts, plus LibSharedMedia's when another AddOn loaded it), Size (10-40, default 20), Text color, Background (color and opacity; opacity 0 shows no background; default grey at 50%). Move shows the alerts as a preview you drag anywhere; Done (or a right-click on the preview) keeps the place, Reset position puts it back a quarter of the screen above the center. Test shows a sample alert. All greyed out while the text is off
+  - The page scrolls; Defaults (top right) also resets the sound, the look and the place
 - Sharing: "Share the objects I place or find" and "Show objects others found" (both on by default)
 - Objects: every camp object of every profession, each on or off (all on by default)
 

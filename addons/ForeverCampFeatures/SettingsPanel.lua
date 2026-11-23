@@ -1,12 +1,15 @@
 local _, ns = ...
 
--- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Camp Features
+-- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Camp Features. The title and Defaults stay
+-- at the top, everything below scrolls (the alert's look made it taller than the page).
 
 local L = ns.L
 
 local CreateFrame = CreateFrame
 local ipairs = ipairs
 local pairs = pairs
+local math_floor = math.floor
+local tostring = tostring
 
 local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
 local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
@@ -15,11 +18,21 @@ local CHILD_DESCRIPTION = L.PANEL_DESCRIPTION
 -- The object grid: a profession label, then up to three objects per row
 local OBJECT_COLUMNS = { 150, 310, 470 }
 local OBJECT_ROW_HEIGHT = 20
+-- The scrolled page: its width, and the room left below the last line
+local CONTENT_WIDTH = 620
+local CONTENT_BOTTOM = 70
+-- The sound menu scrolls past this height (it lists every sound of the game)
+local SOUND_MENU_HEIGHT = 400
+-- Wait this long on a sound in the menu before its preview plays, so moving the mouse down the list stays quiet
+local HOVER_PREVIEW_DELAY = 0.35
 
 local panel
+local content
 local category
 local controls = { objects = {} }
 local refreshing = false
+-- Every sound of the game, A-Z (built once, when the sound menu first opens)
+local soundList
 
 -- Return the numeric ID of a settings category
 local function GetCategoryID(settingsCategory)
@@ -27,6 +40,11 @@ local function GetCategoryID(settingsCategory)
         return nil
     end
     return (settingsCategory.GetID and settingsCategory:GetID()) or settingsCategory.ID
+end
+
+-- True while this AddOn's settings page is on the screen (the alerts then draw above the settings window)
+function ns.IsSettingsShown()
+    return panel ~= nil and panel:IsVisible() == true
 end
 
 -- Open a settings category (not possible in combat)
@@ -89,19 +107,31 @@ local function AddOverviewEntry(parentPanel, settingsCategory)
     parentPanel.foreverEntries[index] = { name = CHILD_CATEGORY_NAME, button = button }
 end
 
+--------------------------------------------------------------------------------
+-- Controls (placed on the scrolled page)
+--------------------------------------------------------------------------------
+
 -- Create a section header
 local function CreateHeader(text, y)
-    local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y)
+    local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    header:SetPoint("TOPLEFT", content, "TOPLEFT", 18, y)
     header:SetText(text)
     return header
 end
 
+-- Create a small label (greyed with its control)
+local function CreateLabel(text, x, y)
+    local label = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    label:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+    label:SetText(text)
+    return label
+end
+
 -- Create a checkbox, small = indented child option
 local function CreateCheckbox(name, x, y, label, small, onClick)
-    local checkbox = CreateFrame("CheckButton", name, panel, "UICheckButtonTemplate")
+    local checkbox = CreateFrame("CheckButton", name, content, "UICheckButtonTemplate")
     checkbox:SetSize(small and 22 or 26, small and 22 or 26)
-    checkbox:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+    checkbox:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
     checkbox.Text:SetFontObject(small and "GameFontHighlightSmall" or "GameFontHighlight")
     checkbox.Text:SetText(label)
     checkbox.small = small
@@ -115,14 +145,126 @@ end
 
 -- Create a button
 local function CreateButton(name, x, y, width, text, onClick)
-    local button = CreateFrame("Button", name, panel, "UIPanelButtonTemplate")
+    local button = CreateFrame("Button", name, content, "UIPanelButtonTemplate")
     button:SetSize(width, 22)
-    button:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+    button:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
     button:SetText(text)
     button:SetScript("OnClick", function()
         onClick()
     end)
     return button
+end
+
+-- Show a tooltip with one line on a control
+local function AddTooltip(control, text)
+    control:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(text, 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    control:HookScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+end
+
+-- Open Blizzard's color picker on a color of the settings (with its opacity for the background)
+local function OpenColorPicker(key, hasOpacity)
+    if not (ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow) then
+        return
+    end
+    local color = ns.GetStyle(key)
+    local previous = { r = color.r, g = color.g, b = color.b, a = color.a }
+    -- every change of the color or the opacity shows on the alert at once
+    local function Apply()
+        local r, g, b = ColorPickerFrame:GetColorRGB()
+        local a = hasOpacity and ColorPickerFrame.GetColorAlpha and ColorPickerFrame:GetColorAlpha() or nil
+        ns.SetStyle(key, { r = r, g = g, b = b, a = a })
+    end
+    ColorPickerFrame:SetupColorPickerAndShow({
+        r = color.r,
+        g = color.g,
+        b = color.b,
+        hasOpacity = hasOpacity,
+        opacity = color.a,
+        swatchFunc = Apply,
+        opacityFunc = hasOpacity and Apply or nil,
+        cancelFunc = function()
+            ns.SetStyle(key, previous)
+        end
+    })
+end
+
+-- Create a color swatch with its label: a click opens the color picker
+local function CreateColorSwatch(name, key, hasOpacity, x, y, labelText)
+    local swatch = CreateFrame("Button", name, content)
+    swatch:SetSize(22, 22)
+    swatch:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+
+    local background = swatch:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(0.1, 0.1, 0.1, 0.9)
+
+    local preview = swatch:CreateTexture(nil, "ARTWORK")
+    preview:SetPoint("CENTER")
+    preview:SetSize(16, 16)
+    swatch.preview = preview
+
+    local highlight = swatch:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.15)
+
+    local label = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    label:SetPoint("LEFT", swatch, "RIGHT", 8, 0)
+    label:SetText(labelText)
+    swatch.label = label
+    swatch.key = key
+
+    swatch:SetScript("OnClick", function()
+        OpenColorPicker(key, hasOpacity)
+    end)
+    return swatch
+end
+
+-- Create a dropdown of the game's menu style
+local function CreateDropdown(name, x, y, width)
+    local dropdown = CreateFrame("DropdownButton", name, content, "WowStyle1DropdownTemplate")
+    dropdown:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+    dropdown:SetWidth(width)
+    return dropdown
+end
+
+-- Show a text on a dropdown (the saved choice; the dropdown never works it out itself)
+local function SetDropdownText(dropdown, text)
+    if dropdown.OverrideText then
+        dropdown:OverrideText(text)
+    end
+end
+
+-- Create the font size slider with its value next to it
+local function CreateFontSizeSlider(x, y)
+    local slider = CreateFrame("Slider", "ForeverCampFeaturesSettingsFontSize", content, "UISliderTemplateWithLabels")
+    slider:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+    slider:SetWidth(150)
+    slider:SetHeight(17)
+    slider:SetMinMaxValues(ns.FONT_SIZE_MIN, ns.FONT_SIZE_MAX)
+    slider:SetValueStep(1)
+    slider:SetObeyStepOnDrag(true)
+    slider.Low:SetText(tostring(ns.FONT_SIZE_MIN))
+    slider.High:SetText(tostring(ns.FONT_SIZE_MAX))
+    slider.Text:SetText("")
+
+    local value = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    value:SetPoint("LEFT", slider, "RIGHT", 10, 0)
+    slider.value = value
+
+    slider:SetScript("OnValueChanged", function(self, number)
+        local size = ns.CleanFontSize(number)
+        value:SetText(tostring(size))
+        if not refreshing then
+            ns.SetStyle("alertFontSize", size)
+        end
+    end)
+    return slider
 end
 
 -- Enable or disable a control and grey out its text
@@ -138,13 +280,95 @@ local function SetControlEnabled(control, enabled)
     end
 end
 
--- The boolean settings with their checkbox
+-- Grey out a small label with its control
+local function SetLabelEnabled(label, enabled)
+    label:SetFontObject(enabled and "GameFontHighlightSmall" or "GameFontDisableSmall")
+end
+
+--------------------------------------------------------------------------------
+-- Sound and font menus
+--------------------------------------------------------------------------------
+
+-- The game's sounds, A-Z (SOUNDKIT does not change while the game runs)
+local function SoundList()
+    if not soundList then
+        soundList = ns.SoundList(SOUNDKIT)
+    end
+    return soundList
+end
+
+-- The sound menu: every sound of the game A-Z, scrolling; picking one plays it, resting the mouse on one plays it
+-- after a moment (one preview at a time)
+local function SetupSoundMenu(dropdown)
+    local hoverTimer
+    local function CancelHover()
+        if hoverTimer then
+            hoverTimer:Cancel()
+            hoverTimer = nil
+        end
+    end
+    local function IsSelected(key)
+        return ns.GetStyle("alertSoundKit") == key
+    end
+    local function SetSelected(key)
+        CancelHover()
+        ns.SetStyle("alertSoundKit", key)
+        ns.PreviewSound(key)
+    end
+    local function OnEnter(_, description)
+        CancelHover()
+        local key = description:GetData()
+        if C_Timer and C_Timer.NewTimer then
+            hoverTimer = C_Timer.NewTimer(HOVER_PREVIEW_DELAY, function()
+                hoverTimer = nil
+                ns.PreviewSound(key)
+            end)
+        end
+    end
+    dropdown:SetupMenu(function(_, root)
+        for _, sound in ipairs(SoundList()) do
+            local radio = root:CreateRadio(sound.name, IsSelected, SetSelected, sound.key)
+            radio:SetOnEnter(OnEnter)
+            radio:SetOnLeave(CancelHover)
+        end
+        root:SetScrollMode(SOUND_MENU_HEIGHT)
+    end)
+end
+
+-- The font menu: the client's own font, the game's fonts, then LibSharedMedia's when another AddOn loaded it
+local function SetupFontMenu(dropdown)
+    local function IsSelected(path)
+        return ns.GetStyle("alertFont") == path
+    end
+    local function SetSelected(path)
+        ns.SetStyle("alertFont", path)
+    end
+    dropdown:SetupMenu(function(_, root)
+        root:CreateRadio(L.FONT_DEFAULT, IsSelected, SetSelected, "")
+        local sharedTitle = false
+        for _, font in ipairs(ns.FontChoices()) do
+            if font.shared and not sharedTitle then
+                sharedTitle = true
+                root:CreateDivider()
+                root:CreateTitle(L.FONT_SHARED)
+            end
+            root:CreateRadio(font.name, IsSelected, SetSelected, font.path)
+        end
+        root:SetScrollMode(SOUND_MENU_HEIGHT)
+    end)
+end
+
+--------------------------------------------------------------------------------
+-- Refresh
+--------------------------------------------------------------------------------
+
+-- The boolean settings with their checkbox (y on the scrolled page)
 local OPTIONS = {
-    { key = "alertText", label = "OPTION_ALERT_TEXT", x = 32, y = -130 },
-    { key = "alertSound", label = "OPTION_ALERT_SOUND", x = 300, y = -130 },
-    { key = "waypoint", label = "OPTION_WAYPOINT", x = 32, y = -152 },
-    { key = "share", label = "OPTION_SHARE", x = 32, y = -206 },
-    { key = "showShared", label = "OPTION_SHOW_SHARED", x = 32, y = -228 }
+    { key = "alertText", label = "OPTION_ALERT_TEXT", x = 32, y = -86 },
+    { key = "alertSound", label = "OPTION_ALERT_SOUND", x = 300, y = -86 },
+    { key = "waypoint", label = "OPTION_WAYPOINT", x = 32, y = -222 },
+    { key = "share", label = "OPTION_SHARE", x = 32, y = -276 },
+    { key = "showShared", label = "OPTION_SHOW_SHARED", x = 32, y = -298 }
 }
 
 -- Sync every control with the saved settings
@@ -155,11 +379,41 @@ local function RefreshSettingsPanel()
     refreshing = true
     local db = ns.GetDB()
     local enabled = db.enabled
+    local textOn = enabled and db.alertText
+    local soundOn = enabled and db.alertSound
     controls.enabled:SetChecked(enabled)
     for key, checkbox in pairs(controls.options) do
         checkbox:SetChecked(db[key])
         SetControlEnabled(checkbox, enabled)
     end
+
+    -- the sound: its dropdown and the play button follow "Sound"
+    SetDropdownText(controls.sound, ns.SoundName(ns.GetStyle("alertSoundKit")))
+    controls.sound:SetEnabled(soundOn)
+    controls.playSound:SetEnabled(soundOn)
+
+    -- the text's look and place follow "Text in the middle of the screen"
+    SetDropdownText(controls.font, ns.FontName(ns.GetStyle("alertFont")))
+    controls.font:SetEnabled(textOn)
+    controls.fontSize:SetValue(ns.GetStyle("alertFontSize"))
+    controls.fontSize.value:SetText(tostring(ns.GetStyle("alertFontSize")))
+    controls.fontSize:SetEnabled(textOn)
+    for _, label in ipairs({ controls.fontLabel, controls.fontSizeLabel, controls.fontSize.value,
+        controls.fontSize.Low, controls.fontSize.High }) do
+        SetLabelEnabled(label, textOn)
+    end
+    for _, swatch in ipairs(controls.swatches) do
+        local color = ns.GetStyle(swatch.key)
+        swatch.preview:SetColorTexture(color.r, color.g, color.b, color.a or 1)
+        swatch:SetEnabled(textOn)
+        swatch:SetAlpha(textOn and 1 or 0.4)
+        SetLabelEnabled(swatch.label, textOn)
+    end
+    controls.move:SetText(ns.IsMoving() and L.PANEL_MOVE_DONE or L.PANEL_MOVE)
+    controls.move:SetEnabled(textOn)
+    controls.resetPosition:SetEnabled(textOn and ns.GetStyle("alertPosition") ~= nil)
+    controls.test:SetEnabled(textOn)
+
     for key, checkbox in pairs(controls.objects) do
         -- the client's names load after login
         checkbox.Text:SetText(ns.ObjectName(ns.OBJECT_BY_KEY[key]))
@@ -190,6 +444,53 @@ local function ObjectsByProfession()
     return groups
 end
 
+--------------------------------------------------------------------------------
+-- The panel
+--------------------------------------------------------------------------------
+
+-- The alert's sound and look: the sound menu with its play button next to "Sound", and under "Text in the middle
+-- of the screen" the font, its size, the colors, Move, Reset position and Test
+local function CreateAlertControls()
+    controls.sound = CreateDropdown("ForeverCampFeaturesSettingsSound", 372, -84, 180)
+    SetupSoundMenu(controls.sound)
+
+    -- ▶: the spellbook's next page arrow
+    local play = CreateFrame("Button", "ForeverCampFeaturesSettingsPlaySound", content)
+    play:SetSize(24, 24)
+    play:SetPoint("LEFT", controls.sound, "RIGHT", 6, 0)
+    play:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up")
+    play:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Down")
+    play:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-NextPage-Disabled")
+    play:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    play:SetScript("OnClick", function()
+        ns.PreviewSound(ns.GetStyle("alertSoundKit"))
+    end)
+    AddTooltip(play, L.PANEL_PLAY_SOUND)
+    controls.playSound = play
+
+    controls.fontLabel = CreateLabel(L.PANEL_FONT, 56, -122)
+    controls.font = CreateDropdown("ForeverCampFeaturesSettingsFont", 92, -116, 170)
+    SetupFontMenu(controls.font)
+    controls.fontSizeLabel = CreateLabel(L.PANEL_FONT_SIZE, 290, -122)
+    controls.fontSize = CreateFontSizeSlider(322, -120)
+
+    controls.swatches = {
+        CreateColorSwatch("ForeverCampFeaturesSettingsTextColor", "alertTextColor", false, 56, -158, L.PANEL_TEXT_COLOR),
+        CreateColorSwatch("ForeverCampFeaturesSettingsBackground", "alertBackground", true, 200, -158,
+            L.PANEL_BACKGROUND)
+    }
+
+    controls.move = CreateButton("ForeverCampFeaturesSettingsMove", 56, -190, 100, L.PANEL_MOVE, function()
+        ns.SetMoving(not ns.IsMoving())
+    end)
+    AddTooltip(controls.move, L.PANEL_MOVE_TOOLTIP)
+    controls.resetPosition = CreateButton("ForeverCampFeaturesSettingsResetPosition", 162, -190, 120,
+        L.PANEL_RESET_POSITION, function()
+            ns.SetStyle("alertPosition", nil)
+        end)
+    controls.test = CreateButton("ForeverCampFeaturesSettingsTest", 288, -190, 80, L.PANEL_TEST, ns.ShowTestAlert)
+end
+
 -- Build the panel and register it under "Jim's Forever AddOns"
 local function RegisterSettingsPanel()
     if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterCanvasLayoutSubcategory) then
@@ -207,10 +508,6 @@ local function RegisterSettingsPanel()
     version:SetPoint("BOTTOMLEFT", title, "BOTTOMRIGHT", 8, 1)
     version:SetText("v" .. ns.GetVersion())
 
-    local header = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
-    header:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -52)
-    header:SetText(L.PANEL_USER_SETTINGS)
-
     -- canvas pages get no Blizzard "Defaults" button, so the panel has its own
     local defaultsButton = CreateFrame("Button", "ForeverCampFeaturesSettingsDefaults", panel, "UIPanelButtonTemplate")
     defaultsButton:SetSize(110, 22)
@@ -218,11 +515,23 @@ local function RegisterSettingsPanel()
     defaultsButton:SetText(L.PANEL_DEFAULTS)
     defaultsButton:SetScript("OnClick", ns.ResetToDefaults)
 
-    controls.enabled = CreateCheckbox("ForeverCampFeaturesSettingsEnabled", 14, -76, L.OPTION_ENABLED, false,
+    -- the page below the title scrolls with the mouse wheel and Blizzard's scroll bar
+    local scroll = CreateFrame("ScrollFrame", "ForeverCampFeaturesSettingsScroll", panel, "ScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -44)
+    scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -26, 4)
+    content = CreateFrame("Frame", "ForeverCampFeaturesSettingsContent", scroll)
+    content:SetSize(CONTENT_WIDTH, 1)
+    scroll:SetScrollChild(content)
+
+    local header = content:CreateFontString(nil, "ARTWORK", "GameFontNormalMed3")
+    header:SetPoint("TOPLEFT", content, "TOPLEFT", 18, -8)
+    header:SetText(L.PANEL_USER_SETTINGS)
+
+    controls.enabled = CreateCheckbox("ForeverCampFeaturesSettingsEnabled", 14, -32, L.OPTION_ENABLED, false,
         ns.SetAddonEnabled)
 
-    CreateHeader(L.PANEL_ALERTS, -110)
-    CreateHeader(L.PANEL_SHARING, -186)
+    CreateHeader(L.PANEL_ALERTS, -66)
+    CreateHeader(L.PANEL_SHARING, -256)
     controls.options = {}
     for _, option in ipairs(OPTIONS) do
         local key = option.key
@@ -231,20 +540,21 @@ local function RegisterSettingsPanel()
                 ns.SetOption(key, checked)
             end)
     end
+    CreateAlertControls()
 
     -- one row per profession (two for Cooking), each object switched on or off
-    CreateHeader(L.PANEL_OBJECTS, -262)
-    controls.allOn = CreateButton("ForeverCampFeaturesSettingsAllOn", 310, -258, 80, L.PANEL_ALL_ON, function()
+    CreateHeader(L.PANEL_OBJECTS, -332)
+    controls.allOn = CreateButton("ForeverCampFeaturesSettingsAllOn", 310, -328, 80, L.PANEL_ALL_ON, function()
         ns.SetAllObjects(true)
     end)
-    controls.allOff = CreateButton("ForeverCampFeaturesSettingsAllOff", 400, -258, 80, L.PANEL_ALL_OFF, function()
+    controls.allOff = CreateButton("ForeverCampFeaturesSettingsAllOff", 400, -328, 80, L.PANEL_ALL_OFF, function()
         ns.SetAllObjects(false)
     end)
     controls.professionLabels = {}
-    local y = -284
+    local y = -354
     for _, group in ipairs(ObjectsByProfession()) do
-        local label = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        label:SetPoint("TOPLEFT", panel, "TOPLEFT", 36, y - 5)
+        local label = content:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+        label:SetPoint("TOPLEFT", content, "TOPLEFT", 36, y - 5)
         label:SetText(L["PROFESSION_" .. group.profession])
         controls.professionLabels[#controls.professionLabels + 1] = label
         for index, object in ipairs(group.objects) do
@@ -261,16 +571,24 @@ local function RegisterSettingsPanel()
         y = y - OBJECT_ROW_HEIGHT
     end
 
-    local note = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y - 12)
+    local note = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    note:SetPoint("TOPLEFT", content, "TOPLEFT", 18, y - 12)
     note:SetWidth(580)
     note:SetJustifyH("LEFT")
     note:SetText(L.PANEL_NOTE)
+    content:SetHeight(math_floor(-(y - 12)) + CONTENT_BOTTOM)
 
     -- optional Settings callbacks: refresh when shown, "Restore All Defaults"
     panel.OnRefresh = RefreshSettingsPanel
     panel.OnDefault = ns.ResetToDefaults
     panel:SetScript("OnShow", RefreshSettingsPanel)
+    -- alerts showing while the page opens or closes move above or back below the settings window
+    panel:HookScript("OnShow", ns.UpdateAlertStrata)
+    -- leaving the page ends Move (the preview cannot stay without its Done button)
+    panel:HookScript("OnHide", function()
+        ns.SetMoving(false)
+        ns.UpdateAlertStrata()
+    end)
 
     local parentPanel = EnsureForeverAddOnsCategory()
     category = Settings.RegisterCanvasLayoutSubcategory(parentPanel.foreverCategory, panel, CHILD_CATEGORY_NAME)
