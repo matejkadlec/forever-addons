@@ -1,11 +1,25 @@
 local _, FM = ...
 
 -- Picks: what to do after a deep scan, ranked, with the reasons. Built on the market table's rows
--- (trade/Calc.lua); the design was reviewed by a second, independent agent against real data:
+-- (trade/Calc.lua). The formula (1.40, FRV-103, measured in FRV-111 and FRV-115) is on the Confluence page
+-- "ForeverMarket Picks: the formula":
+-- https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786
+-- Change that page together with the formula (its constants, the batch, Expected, the wait table):
+--   * the batch: what one 8h listing sells (Batch). Your own record first: "proven" = the most of your units sold
+--     within 8h of a post of yours in the last 72h (trade/Listings.lua reads your posts, auctions and mail), x 1.25
+--     when your units ran out in that time, x 0.75 when units were left; without one a first batch (an item: half
+--     the buyers of 8h, at least 10; a commodity: 6% of them, at most the settings panel's first batch share of
+--     C/24h). Half that when the margin is under the 8h deposit, twice for a commodity whose margin is 4 deposits
+--     or more; at most the room on the AH and 100 units (an item) or 200 (a commodity), less what you list
 --   * buyers per day come from units that left the AH while nothing cheaper stayed listed (soldLow,
---     since 1.4; older records: early-gone units x0.3 with relist bursts capped), or from your own sales: with 3+
---     of them your pace is the rate while units of yours are still listed (1.22, FRV-66), the market share counts
---     only once you sold out
+--     since 1.4; older records: early-gone units x0.3 with relist bursts capped); the first batch and the stock
+--     check use them
+--   * Expected: one 8h listing of the batch sells 75% (an item) or 40% (a commodity) of it; what does not sell loses
+--     its 8h deposit. The plan is ordered by score per gold put in (at least a quarter of one pick's share counts)
+--   * Craft and wait (WaitInfo): the price is 15%+ under its usual level, it was back at 95% of it within the last
+--     24h, and the wait table says it comes back: make now only with materials 10%+ under their usual cost and list
+--     later at 95% of the usual price; units you hold wait as "Stock, wait". The gold is tied up longer: the score
+--     counts 8 / (8 + the hours it takes)
 --   * one plan for a budget: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]" (1.20; 1.35, FRV-95: Y = its picks at most,
 --     default 3; the budget X % of your gold, default and at most 90, or an amount set by hand, capped at 90% of your
 --     gold unless "Allow picks budget over current gold" (settings panel; % up to 999 then); with "Gold of all
@@ -18,23 +32,21 @@ local _, FM = ...
 --     the pick's own (1.29, FRV-89: it makes or buys only the rest and lists them all; when they cover it, the pick
 --     stays as "Stock": list them); your own materials are used first unless "Exclude stock for crafting" (FRV-90;
 --     valued at what they would sell for), nothing is bought that you are selling
---   * no loss: at the lowest sell price of the last 3 days, minus deposits lost on relists, still a profit
+--   * no loss: at the usual low price (or the lowest of the last 3 days) still a profit
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan. One you
 --     cannot learn yet (its skill or its character level above yours, within the caps of "Over skill level" and
 --     "Over character level", FRV-91) is "Level for" information, never a step of the plan; one of a Leatherworking
 --     specialization you have not chosen (FRV-110, craft.specNeed) is neither: its reason names the specialization
 --   * after the plan: further good picks, each judged on its own with one pick's share of the plan's gold ("out
 --     of scope"), so each can take the place of a plan pick
---   * Expected 8h / 24h: one listing of the pick's units for 8h or 24h - what buyers take in that time earns
---     its profit, the deposit of the rest is lost when the auction expires (smaller deposit and fewer buyers
---     in time vs. bigger deposit and more buyers); the table shows the better one (pick.expected, listHours)
 --   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: the Picks filters
 --     (FM.TableFilters("picks"): its own or the global ones, FRV-89), "Invest [X] % across [Y] picks", the profession
 --     (crafts and recipes only) and the settings panel's minimum profit per item and share of C/24h
---   * room on the AH (1.19): a pick plans at most a share of what circulates of the item in 24h (the table's
---     C/24h, default 25%), less what you already list on all your characters (FM.OwnListings: the auction lists
---     and the posts since). No room for one craft or one unit = no pick. Your bags and bank do not touch it.
---   * pick.steps: what to do, in order (learn > use > buy > make > list), shown under the pick
+--   * room on the AH (1.19): a batch is at most a share of what circulates of the item in 24h (the table's
+--     C/24h, default 25%); what you already list on all your characters (FM.OwnListings: the auction lists and the
+--     posts since) comes off the batch. No room for one craft or one unit = no pick. Your bags and bank do not touch it
+--   * pick.steps: what to do, in order (learn > use > buy > make > wait > list), shown under the pick
+--   * every plan is logged (R.plans, LogPlan), so the order can be measured against what sold later
 
 local Dec = FM.Dec
 local type = type
@@ -55,7 +67,6 @@ local GOLD_SHARE = 0.9          -- of your gold goes into the plan (the rest pay
 local PCT_MAX = 90              -- the highest "[X] %" (GOLD_SHARE)...
 local OVER_PCT_MAX = 999        -- ...and with "Allow picks budget over current gold" (FRV-95)
 local PICK_SLOTS = 3            -- default "across [Y] picks": the plan has up to this many picks
-local SHARE_OF_BUYERS = 0.5     -- of the buyers you get while you are the cheapest only part of the time
 local OLD_RECORD_FACTOR = 0.3   -- records from before soldLow: share of early-gone units that were bought
 local BURST_SHARE = 0.3         -- over this share of the listings gone in one interval, with relists...
 local BURST_KEEP = 0.15         -- ...counts as at most this share bought
@@ -65,7 +76,44 @@ local MIN_SCORE = 200           -- 2s expected profit, or 1% of one pick's share
 local MAX_PICKS = 12
 local MAX_SHOWN = 20            -- plan picks and further good ones together
 local MAX_LEVEL = 3
-local MAX_UNITS = 100           -- per pick and day
+-- the batch (FRV-103, Batch; the Confluence page has why these values)
+local ITEM_LIMIT = 100          -- units of an item one pick lists at most...
+local COMMODITY_LIMIT = 200     -- ...and of a commodity
+local GROW = 1.25               -- your units ran out within 8h: one listing of a quarter more
+local HOLD = 0.75               -- units were left: three quarters of what sold
+local FIRST_ITEM_SHARE = 0.5    -- a first batch of an item: half the buyers of 8h...
+local FIRST_ITEM_MIN = 10       -- ...at least 10
+local FIRST_COMMODITY_SHARE = 0.06 -- of a commodity: 6% of the buyers of 8h (its buyers are mostly relists)
+local ECO_HALF = 0.5            -- the margin under the 8h deposit: an unsold unit costs more than a sold one earns
+local ECO_TWICE = 2             -- a commodity whose margin is 4 deposits or more: an unsold unit costs next to nothing
+local ECO_DEPOSITS = 4
+-- Expected (FRV-103): the share of one 8h listing that sells
+local SELLS_ITEM = 0.75
+local SELLS_COMMODITY = 0.40
+local LISTING_HOURS = 8
+local FEW_AT_PRICE = 10         -- a material with fewer units within 5% of its cheapest price: confidence x 0.9
+local STOCK_DAYS = 4            -- stock listed by others over this many days of buyers: confidence x 0.85
+-- Craft and wait (FRV-103, WaitInfo)
+local DIP = 0.85                -- the price is at most 85% of its usual level...
+local FRESH = 0.95              -- ...and was at 95% of it within the last 24h (FRESH_MINUTES)
+local FRESH_MINUTES = 24 * 60
+local TARGET = 0.95             -- list later at 95% of the usual price
+local MIN_GAIN = 0.05           -- what waiting must earn over selling now, against the risk
+local MISS_LOSS = 0.15          -- what a price that does not come back costs
+local CHEAP_MATERIALS = 0.90    -- craft now only with materials at 90% of their usual cost or less
+local MISS_PRICE = 0.85         -- the price a wait that misses sells at (of the price now)
+local UPSIDE = 3                -- the chance of the upside must outweigh the downside three times
+-- the chance the price is back within 2 days and the hours it takes: by item or commodity, the share of the listed
+-- units at the dip price (under 5%, 5 to 25%, 25%+) and a flood (1.5 times the usual units listed)
+local WAIT_TABLE = {
+    item = { { 0.89, 3 }, { 0.84, 3 }, { 0.81, 12 }, { 0.80, 15 }, { 0.77, 16 }, { 0.72, 22 } },
+    commodity = { { 0.95, 2 }, { 0.90, 2 }, { 0.90, 5 }, { 0.87, 11 }, { 0.81, 13 }, { 0.76, 19 } },
+}
+local FLOOD = 1.5
+local RATE_FLOOR = 0.25         -- the order: score per gold, a pick needing less counts as a quarter of one share
+local PLAN_DAYS = 14            -- the plan log (LogPlan)
+local PLAN_MAX = 6000
+local PLAN_SAME_MINUTES = 60    -- the same plan again within the hour is not logged again
 local CIRC_PCT = 25             -- default share of an item's C/24h one pick may add to the AH (tableCircPct)
 local FIRST_PCT = 2             -- default share of a commodity's C/24h a first batch may plan (tableFirstPct, FRV-71)
 local LONGEST_LISTING = 86400   -- a 24h auction: an auction list older than this holds nothing still running
@@ -73,7 +121,7 @@ local SNAPSHOT_LAG = 600        -- what you listed up to 10 min before a deep sc
 local FEED_LAG = 7200           -- a feed snapshot: 2h (it carries the newer time of the API's item and commodity
                                 -- lists, each renewed about hourly, so one half can be an hour older)
 local VENDOR_LISTED_SHARE = 0.2 -- vendor goods: at most 20% of what others list
-local DEPOSIT_SHARE = 0.12      -- deposit per listing as a share of the price when invoices don't tell
+local DEPOSIT_SHARE = 0.12      -- deposit of a 24h listing as a share of the price when invoices don't tell
 local LIST_HOURS = 24
 local CLEAN_GAP = 480
 local MIN_COVER = 120
@@ -87,6 +135,11 @@ FM.PICKS_MAX = MAX_PICKS -- the most "across [Y] picks" takes
 
 local function M(copper)
     return (FM.MoneyShort or FM.FormatMoney)(copper)
+end
+
+local function Signed(copper)
+    if math.abs(copper) < 0.5 then return M(0) end -- rounds to 0c: no sign
+    return (copper < 0 and "-" or "+") .. M(math.abs(copper))
 end
 
 local function Name(key)
@@ -150,65 +203,9 @@ local function NearMin(key)
     return n
 end
 
--- Your sales per item in the window (events osold / opart) and when you started listing it (posts). Each sale once
--- (FRV-109), as the Profit tab counts them (Auctions in scan/Worth.lua): an osold line written again by a later list
--- (the same auction, units, price and nth, a list read while it was still loading lacked the row) counts nothing,
--- nor does an osold line of an auction that was merely gone from a list (no "s") but is in its character's newest
--- list after all, running or shown sold, with more units than were posted. A count that fell (opart) is never
--- written twice
-local SOLD_ROW_MINUTES = 61 -- a sold row is listed until its mail goes out, at most an hour after the sale
-local function OwnSales(nowMinutes)
-    local r = FM.R()
-    local since = nowMinutes - WINDOW
-    local sold, first, posted, listed = {}, {}, {}, {}
-    for _, post in ipairs(r.posts or EMPTY) do
-        local f = FM.Split(post, ",")
-        local minutes = Dec(f[1])
-        if minutes and minutes > since and f[3] and (not first[f[3]] or minutes < first[f[3]]) then first[f[3]] = minutes end
-        if f[8] and f[8] ~= "" then posted[f[8]] = Dec(f[4]) or 1 end
-    end
-    -- the units of each auction in its character's newest list, its running and its sold rows
-    -- (aid:key:qty:buyout:status:left)
-    for _, snap in pairs(type(r.owned) == "table" and r.owned or EMPTY) do
-        if type(snap) == "table" and type(snap.list) == "string" then
-            for entry in snap.list:gmatch("[^,]+") do
-                local f = FM.Split(entry, ":")
-                if #f >= 6 then listed[f[1]] = (listed[f[1]] or 0) + (Dec(f[#f - 3]) or 1) end
-            end
-        end
-    end
-    local logged = {}
-    for _, e in ipairs(r.events or EMPTY) do
-        local f = FM.Split(e, ",")
-        if (f[3] == "osold" or f[3] == "opart") and f[4] then
-            local minutes = Dec(f[1])
-            local qty = Dec(f[5]) or 1
-            local counts = true
-            local aid = f[7]
-            if f[3] == "osold" and aid and aid ~= "" then
-                local id = table_concat({ f[2], aid, f[5], f[6], f[10] or "" }, ":")
-                -- a sold row's line comes again only while its row is listed: until the mail minute the first line
-                -- carries (1.38.8), without one within the hour after it; a line of the same auction, units and price
-                -- later is a sale of its own
-                local ref = logged[id]
-                if ref and not (f[9] == "s" and minutes
-                    and minutes > (ref.mail and ref.mail + 1 or ref.at + SOLD_ROW_MINUTES)) then
-                    counts = false
-                else
-                    logged[id] = { at = minutes or 0, mail = Dec(f[11]) }
-                end
-                local there = f[9] ~= "s" and listed[aid]
-                if there and (not posted[aid] or qty + there > posted[aid]) then counts = false end
-            end
-            if counts and minutes and minutes > since then sold[f[4]] = (sold[f[4]] or 0) + qty end
-        end
-    end
-    local out = {}
-    for key, units in pairs(sold) do
-        local start = first[key] or since
-        out[key] = { units = units, perDay = units / math_max(720, nowMinutes - start) * 1440 }
-    end
-    return out
+-- Your own record of an item (trade/Listings.lua, FRV-103): { proven, ranOut, at, sold72 }
+local function OwnRecord(key)
+    return P.book.Proven(key)
 end
 
 -- Deposit as a share of the sale, from your invoices of the item (deposit / sale total)
@@ -267,38 +264,24 @@ local function ListingSeen(key, listed)
 end
 
 -- Room for new units of an item on the AH: a share of what circulates of it in 24h (the table's C/24h =
--- sold12 x 2; the share is the settings panel's "share of C/24h"), less what you list already. Units you hold take
--- their room as the pick's own (they are listed with it). need = one craft's units, or 1. first = the market rate
--- of a commodity without sales of yours (FRV-71, d.firstBatch): a first batch only, at most the settings panel's
--- first batch share of C/24h and what one 8h listing at that rate sells.
--- Returns { circ, cap, listed, room, pct, first, batch8 }, or nil and why the item is no pick
-local function Room(row, need, first)
+-- sold12 x 2; the share is the settings panel's "share of C/24h"): the upper limit of every batch (Batch, where what
+-- you list already comes off). firstCap: the settings panel's first batch share of C/24h, the upper limit of a
+-- commodity's first batch (FRV-71). need = one craft's units, or 1.
+-- Returns { circ, cap, pct, firstCap, firstPct }, or nil and why the item is no pick
+local function Room(row, need)
     if type(row.sold12) ~= "number" then return nil, "circulation not known yet (C/24h)" end
     local circ = row.sold12 * 2
-    local pct = math_floor((first and P.firstShare or P.circShare) * 100 + 0.5)
-    local share = circ * (first and P.firstShare or P.circShare)
-    local batch8 = first and first * 8 / 24 or nil
-    if batch8 and batch8 < share then share = batch8 end
-    local cap = math_floor(share + 0.5)
-    local craft = need > 1 and string_format(", one craft makes %d", need) or ""
+    local pct = math_floor(P.circShare * 100 + 0.5)
+    local share = circ * P.circShare
     -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
     if share < need then
         -- not rounded: "is 5, one craft makes 5" would contradict itself
         local shown = share < 1 and "<1" or (string_format("%.1f", math_floor(share * 10) / 10):gsub("%.0$", ""))
-        if first then
-            return nil, string_format("no sales of your own yet: a first batch is %s (%d%% of C/24h %s, one 8h listing at "
-                .. "the market rate %s)%s", shown, pct, Count(circ), Count(batch8), craft)
-        end
-        return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown, craft)
+        return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown,
+            need > 1 and string_format(", one craft makes %d", need) or "")
     end
-    local listed = Yours(row.key)
-    if cap - listed < need then
-        -- with how fresh that number is: what sold since it was last seen still counts
-        return nil, string_format("you list %s already (%s): the cap is %s (%s%d%% of C/24h %s)%s", Count(listed),
-            ListingSeen(row.key, listed), Count(cap), first and "a first batch, " or "", pct, Count(circ), craft)
-    end
-    return { circ = circ, cap = cap, listed = listed, room = cap - listed, pct = pct, first = first and true or nil,
-        batch8 = batch8 }
+    return { circ = circ, cap = math_floor(share + 0.5), pct = pct, firstCap = circ * P.firstShare,
+        firstPct = math_floor(P.firstShare * 100 + 0.5) }
 end
 
 -- How "you list" is known, never a silent 0: the auction lists (as old as the last look at the AH's Auctions
@@ -330,35 +313,25 @@ local function ListingNote(key, listed)
     return string_format("Your listings: none known (auctions last read %s ago, posts since counted).", FM.FormatAge(age)), GREY
 end
 
--- The tooltip's account of the room: "C/24h 43, cap 11 (25%), you list 0 -> make 11", then how "you list" is known
-local function RoomLines(list, row, room, verb, n)
-    list[#list + 1] = { "h", "Room on the AH" }
-    -- a commodity's first batch (FRV-71): the smaller of its share of C/24h and one 8h listing at the market rate
-    local batch = room.first and string_format("first batch: %d%%, one 8h listing %s", room.pct, Count(room.batch8))
-    list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%s), you list %s -> %s %s", Count(room.circ),
-        row.soldWide and " (3 day rate)" or "", Count(room.cap), batch or (room.pct .. "%"), Count(room.listed), verb,
-        Count(n)), WHITE }
-    list[#list + 1] = { "n", ListingNote(row.key, room.listed) }
-end
-
 local function DepositPerItem(key, price)
     local share = P.deposits[Name(key)] or DEPOSIT_SHARE
     return share * price
 end
 
--- One listing of n units for 8h and for 24h: buyers in that time (after the queue ahead of you) take units
--- at unitProfit each, the deposit of what is left is lost when the auction expires. Returns both, per listing.
-local LISTINGS = { { 8, 2 }, { 24, 3 } } -- hours, deposit duration index
-local function ListingOutcome(key, n, queue, perHour, unitProfit, price)
-    local result = {}
-    for _, listing in ipairs(LISTINGS) do
-        local hours, duration = listing[1], listing[2]
-        local sold = math_max(0, math_min(n, perHour * hours - queue))
-        local deposit = FM.Deposit and FM.Deposit(key, n, duration)
-        if not deposit then deposit = DepositPerItem(key, price) * n * hours / LIST_HOURS end
-        result[hours] = sold * unitProfit - deposit * (n - sold) / n
-    end
-    return result[8], result[24]
+-- The 8h deposit of one unit (FRV-103): what an unsold unit of one listing costs (FM.Deposit: the deposits you paid,
+-- else the vendor price; without either the share of the price your invoices show, for 8 of 24 hours)
+local function Deposit8(key, price)
+    local d = FM.Deposit and FM.Deposit(key, 1, 2)
+    if type(d) == "number" then return d end
+    return DepositPerItem(key, price) * LISTING_HOURS / LIST_HOURS
+end
+
+-- One 8h listing of n units at margin m per unit sold: the share that sells (75% of an item's, 40% of a
+-- commodity's) earns m, the rest loses its deposit dep. Returns the profit and the units that sell
+local function ListingExpected(n, m, dep, commodity)
+    local q = commodity and SELLS_COMMODITY or SELLS_ITEM
+    local sold = q * n
+    return sold * m - (n - sold) * dep, sold
 end
 
 -- Buyers of an item from the deep scan records of the last 3 days
@@ -411,63 +384,141 @@ local function Demand(key)
     end
     d.avgQty = qtyN > 0 and qtySum / qtyN or nil
     d.todayMedian = Median(todayMins)
-    d.own = P.ownSales[key]
+    -- a commodity (FRV-71: it stacks) sells from one auction per post; Forever hides sellers, so every cancel and relist
+    -- of its cheapest stacks looks like a purchase: its buyers run far above anyone's sales
+    d.commodity = (FM.ItemStacks and FM.ItemStacks(key, P.view.Get(key))) and true or false
     return d
 end
 
--- Units per day you can expect to sell: your own record, or half the buyers of a well documented market.
--- With 3+ sales of yours in the window and units of yours still listed, nothing cut your sales short: your pace is
--- what buyers take at your price, so it is the rate (FRV-66; d.paceListed). Once you sold out, your pace was capped
--- by what you listed, so the market share counts when it is more: for items sold per auction. A commodity (FRV-71,
--- d.commodity: it stacks) plans with your pace whenever you have that record, listed or sold out: Forever hides
--- sellers, so every cancel and relist of its cheapest stacks looks like a purchase and its buyers run far above
--- anyone's sales (4 to 900 times your pace in FRV-56's data). Without a record of yours a commodity plans a first
--- batch only (d.firstBatch, Room).
-local function SellRate(key)
-    local d = Demand(key)
-    local market = (d.perDay and d.trusted) and SHARE_OF_BUYERS * d.perDay or nil
-    d.commodity = (FM.ItemStacks and FM.ItemStacks(key, P.view.Get(key))) and true or false
-    d.firstBatch = nil
-    if d.own and d.own.units >= 3 then
-        d.paceListed = Yours(key) > 0
-        if not d.commodity and not d.paceListed and market and market > d.own.perDay then return market, d.source, d end
-        return d.own.perDay, "your sales", d
-    end
-    if market then
-        d.firstBatch = d.commodity or nil
-        return market, d.source, d
-    end
-    return nil, nil, d
+-- A number of units of a batch as the reasons show it: whole units, never rounded up ("<1" under one)
+local function Units(n)
+    if n > 0 and n < 1 then return "<1" end
+    return Count(math_floor(n + 1e-9))
 end
 
--- A rate per day for the reasons: one decimal under 10 ("3.3"), whole units above
-local function PerDay(n)
-    if n < 10 then return (string_format("%.1f", n):gsub("%.0$", "")) end
-    return Count(n)
+-- A factor as the reasons show it: 1.25, 0.75, 2
+local function Factor(x)
+    local text = string_format("%.2f", x):gsub("0+$", ""):gsub("%.$", "")
+    return text
 end
 
--- Why nothing is left to add: what you list already covers a day of the rate (what you hold is the pick's own)
-local function Covered(d, yours, V)
-    if d.paceListed then
-        return string_format("you list %s and sell %s a day yourself (%s sold in 3 days): they cover %s", Count(yours),
-            PerDay(V), Count(d.own.units), FM.FormatAge(yours / math_max(V, 0.01) * 86400))
+-- How many units one 8h listing of a pick has (FRV-103), what you hold included (the pick makes or buys only the
+-- rest), what you list already off. m = the margin of a unit that sells (after the cut), dep = its 8h deposit
+-- (Deposit8), room = Room's. Returns b = { batch (floor(cap - listed)), cap, base, source ("proven" | "first"), eco
+-- (0.5 | 1 | 2), limit (what set the cap: "base" | "room" | "first" | "most"), most, listed, own (OwnRecord), b8 (the
+-- buyers of 8h), m, dep, commodity, key }, or nil and why the item is no pick
+local function Batch(row, d, m, dep, room)
+    local own = OwnRecord(row.key)
+    local B = (d.perDay and d.trusted) and d.perDay or nil
+    local b = { own = own, b8 = B and B * LISTING_HOURS / 24, m = m, dep = dep, commodity = d.commodity, key = row.key }
+    if own.proven > 0 then
+        b.source = "proven"
+        b.base = own.proven * (own.ranOut and GROW or HOLD)
+    elseif b.b8 then
+        b.source = "first"
+        b.base = d.commodity and FIRST_COMMODITY_SHARE * b.b8 or math_max(FIRST_ITEM_SHARE * b.b8, FIRST_ITEM_MIN)
+    else
+        return nil, "too few scans with sales of it yet (needs 3 intervals with buys)"
     end
-    return "you already list what buyers take in a day"
+    b.eco = 1
+    if m < dep then
+        b.eco = ECO_HALF
+    elseif d.commodity and m >= ECO_DEPOSITS * dep then
+        b.eco = ECO_TWICE
+    end
+    local cap, limit = b.base * b.eco, "base"
+    if room.cap < cap then cap, limit = room.cap, "room" end
+    if b.source == "first" and d.commodity and room.firstCap < cap then cap, limit = room.firstCap, "first" end
+    b.most = d.commodity and COMMODITY_LIMIT or ITEM_LIMIT
+    if b.most < cap then cap, limit = b.most, "most" end
+    b.cap, b.limit = cap, limit
+    b.listed = Yours(row.key)
+    b.batch = math_max(0, math_floor(cap - b.listed + 1e-9))
+    return b
 end
 
--- The tooltip's account of your own sales: how many, your pace, and which rate the plan uses and why
-local function OwnSalesLines(list, d)
-    if d.firstBatch then
-        list[#list + 1] = { "n", "No sales of your own yet: a first batch (a commodity's buyers are mostly relists).", GREY }
-        return
+-- What set a batch's cap, in words: "one listing sells 55 (1.25 x the 44 you sold within 8h)", "a first batch is 3
+-- (6% of the 50 buyers of 8h)", "the cap is 11 (25% of C/24h 43)"
+local function CapText(b, room)
+    if b.limit == "room" then
+        return string_format("the cap is %s (%d%% of C/24h %s)", Units(b.cap), room.pct, Count(room.circ))
+    elseif b.limit == "first" then
+        return string_format("a first batch is %s (%d%% of C/24h %s)", Units(b.cap), room.firstPct, Count(room.circ))
+    elseif b.limit == "most" then
+        return string_format("one pick lists at most %d", b.most)
     end
-    if not d.own then return end
-    list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days, %s a day", Count(d.own.units), PerDay(d.own.perDay)) }
-    if d.paceListed then
-        list[#list + 1] = { "n", "Yours are still listed: your own pace is the rate.", GREY }
-    elseif d.commodity and d.own.units >= 3 then
-        list[#list + 1] = { "n", "A commodity: your own pace is the rate (its buyers are mostly relists).", GREY }
+    local eco = (b.eco == ECO_HALF and ", half: the margin is under the deposit")
+        or (b.eco == ECO_TWICE and ", twice: the margin is 4 deposits or more") or ""
+    if b.source == "proven" then
+        return string_format("one listing sells %s (%s x the %s you sold within 8h%s)", Units(b.cap),
+            Factor(b.own.ranOut and GROW or HOLD), Units(b.own.proven), eco)
+    elseif b.commodity then
+        return string_format("a first batch is %s (6%% of the %s buyers of 8h%s)", Units(b.cap), Count(b.b8), eco)
+    elseif FIRST_ITEM_SHARE * b.b8 >= FIRST_ITEM_MIN then
+        return string_format("a first batch is %s (half of the %s buyers of 8h%s)", Units(b.cap), Count(b.b8), eco)
     end
+    return string_format("a first batch is %s (at least %d%s)", Units(b.cap), FIRST_ITEM_MIN, eco)
+end
+
+-- Why a batch is no pick: under one craft or one unit, by itself or after what you list ("you list 70 already: one
+-- listing sells 55 (1.25 x the 44 you sold within 8h)"); need = one craft's units, or 1
+local function BatchShort(b, room, need)
+    local craft = need > 1 and string_format(", one craft makes %d", need) or ""
+    if b.listed > 0 and b.cap >= need then
+        return string_format("you list %s already (%s): %s%s", Count(b.listed), ListingSeen(b.key, b.listed),
+            CapText(b, room), craft)
+    end
+    return CapText(b, room) .. craft
+end
+
+-- The tooltip's account of the batch and the room on the AH (FRV-103): where the batch comes from (your proven
+-- listing or a first batch), the margin against the deposit, then "C/24h 43, cap 11 (25%), you list 0 -> make 11"
+-- and how "you list" is known
+local function RoomLines(list, row, room, b, verb, n)
+    list[#list + 1] = { "h", "Room on the AH" }
+    local own = b.own
+    if b.source == "proven" then
+        list[#list + 1] = { "n", string_format("Proven: %s sold within 8h (%s), %s: one listing %s (x %s)", Units(own.proven),
+            own.at and date("%d.%m. %H:%M", FM.EPOCH + own.at * 60) or "?",
+            own.ranOut and "your units ran out" or "units were left", Units(b.base), Factor(own.ranOut and GROW or HOLD)), WHITE }
+    elseif b.commodity then
+        list[#list + 1] = { "n", string_format("No sales of your own yet: a first batch, 6%% of the %s buyers of 8h = %s",
+            Count(b.b8), Units(b.base)), WHITE }
+    elseif FIRST_ITEM_SHARE * b.b8 >= FIRST_ITEM_MIN then
+        list[#list + 1] = { "n", string_format("No sales of your own yet: a first batch, half of the %s buyers of 8h = %s",
+            Count(b.b8), Units(b.base)), WHITE }
+    else
+        list[#list + 1] = { "n", string_format("No sales of your own yet: at least %d for a first batch (half of the %s buyers of 8h is less)",
+            FIRST_ITEM_MIN, Count(b.b8)), WHITE }
+    end
+    if b.eco == ECO_HALF then
+        list[#list + 1] = { "n", string_format("Margin %s under the deposit %s: half, %s", M(b.m), M(b.dep), Units(b.base * b.eco)), WHITE }
+    elseif b.eco == ECO_TWICE then
+        list[#list + 1] = { "n", string_format("Margin %s is %s deposits (%s): twice, %s", M(b.m),
+            Count(b.dep > 0 and b.m / b.dep or 0), M(b.dep), Units(b.base * b.eco)), WHITE }
+    end
+    local limit = ""
+    if b.limit == "first" then
+        limit = string_format(", a first batch at most %d%% of C/24h (%s)", room.firstPct, Units(room.firstCap))
+    elseif b.limit == "most" then
+        limit = string_format(", at most %d per pick", b.most)
+    end
+    list[#list + 1] = { "n", string_format("C/24h %s%s, cap %s (%d%%)%s, you list %s -> %s %s", Count(room.circ),
+        row.soldWide and " (3 day rate)" or "", Count(room.cap), room.pct, limit, Count(b.listed), verb, Count(n)), WHITE }
+    list[#list + 1] = { "n", ListingNote(row.key, b.listed) }
+end
+
+-- The tooltip's account of your own sales: how many of yours sold in the last 3 days
+local function OwnSalesLines(list, b)
+    if b.own.sold72 > 0 then
+        list[#list + 1] = { "l", "Your sales", string_format("%s in 3 days", Units(b.own.sold72)) }
+    end
+end
+
+-- Buyers per day of an item for the stock check: the market's, or your own pace without them
+local function BuyersPerDay(d, b)
+    if d.perDay then return d.perDay end
+    return b.own.sold72 / 3
 end
 
 -- What you own of an item, once per pass: { all (bags and bank), sellable (not soulbound), sellable in bags, all in bags }
@@ -690,10 +741,11 @@ local function Take(key, n, part, trial, depth)
     return value + cost, capital + cost
 end
 
--- Craft one by one until the margin, the gold or the buyers run out
-local function PlanCraft(row, cap, unitsCap)
+-- Craft one by one until the margin, the gold or the batch run out; sellAt = the price the units list at (row.sell,
+-- or a wait's target price)
+local function PlanCraft(row, cap, unitsCap, sellAt)
     local makes = row.craft.makes or 1
-    local sellNet = row.sell * (1 - AH_CUT)
+    local sellNet = (sellAt or row.sell) * (1 - AH_CUT)
     local trial = NewTrial()
     local plan = { runs = 0, value = 0, capital = 0, profit = 0, trial = trial }
     local maxRuns = math_floor(unitsCap / makes)
@@ -766,40 +818,47 @@ end
 
 ---------------------------------------------------------------- confidence
 
-local function Confidence(row, d, vSource, saturation, notes)
+-- How far a pick's numbers can be trusted (FRV-103): buyers estimated from older records behind a first batch x 0.6,
+-- little price history x 0.7, listings at 125%+ of usual ("maybe cornered") x 0.6, estimated prices x 0.8, stock
+-- listed by others over 4 days of buyers x 0.85, a material of the plan with under 10 units within 5% of its
+-- cheapest price x 0.9 (trial: the plan's purchases). A price swing over 30% is a note, no factor: the share that
+-- sells in Expected and the batch carry what your own record says
+local function Confidence(row, d, b, saturation, notes, trial)
     local c = 1
-    if vSource == "your sales" then
-        notes[#notes + 1] = "buyers from your own sales"
-    elseif vSource == "bought" then
-        c = c * 0.9
-    else
+    if b.source == "first" and d.source == "estimated" then
         c = c * 0.6
         notes[#notes + 1] = "buyers estimated from older records"
     end
     local base = row.usual or row.sell
     if (row.avgN or 0) >= 3 and row.rawMin and row.rawMax and base and base > 0 then
         local vol = (row.rawMax - row.rawMin) / base
-        c = c * Clamp(1 - vol, 0.4, 1)
         if vol > 0.3 then notes[#notes + 1] = string_format("price swung %d%% in 3 days", math_floor(vol * 100 + 0.5)) end
     else
         c = c * 0.7
         notes[#notes + 1] = "little price history"
     end
-    if row.usual and d.todayMedian and d.todayMedian < 0.8 * row.usual then
-        c = c * 0.6
-        notes[#notes + 1] = "price falling today"
-    end
     if row.capped then
         c = c * 0.6
         notes[#notes + 1] = string_format("listings now at %s+, usual %s: maybe cornered", M(row.capped), M(row.usual))
     end
-    if saturation > 3 then
-        c = c * 0.5
+    if saturation > STOCK_DAYS then
+        c = c * 0.85
         notes[#notes + 1] = string_format("%.0f days of stock listed", saturation)
     end
     if row.approx then
         c = c * 0.8
         notes[#notes + 1] = "some prices estimated"
+    end
+    if trial then
+        local few = {}
+        for key, n in pairs(trial.used) do
+            if n > 0 and NearMin(key) < FEW_AT_PRICE then few[#few + 1] = Name(key) end
+        end
+        if few[1] then
+            table_sort(few)
+            c = c * 0.9
+            notes[#notes + 1] = string_format("few %s at this price", table_concat(few, ", "))
+        end
     end
     return c
 end
@@ -1018,72 +1077,220 @@ local function NoGold()
     return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
 end
 
--- What you hold covers the pick (1.29, FRV-89): nothing to make or buy, list what you hold ("Stock", its Type).
--- Its profit per unit is the sale against unitCost, what one more unit would cost the pick now; conf and notes are
--- the candidate's own
-local function StockPick(c, row, held, listed, V, d, room, unitCost, conf, notes)
-    local sellNet = row.sell * (1 - AH_CUT)
-    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
-    local hours = (queue + held) / math_max(V / 24, 0.01)
-    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists
-    local unitProfit = sellNet - unitCost - depositLoss
-    if unitProfit < MIN_UNIT then return nil, "under 10c profit per item after deposits" end
-    local expected = unitProfit * held
-    local score = expected * conf
-    if score < P.minScore then
-        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
+---------------------------------------------------------------- waiting (FRV-103)
+
+-- What the materials of one unit usually cost: each material of the recipe at the smaller of its usual price (median
+-- daily low, last week) and its vendor price, one without a usual price at its price now
+local function CostUsual(row)
+    local total = 0
+    for _, part in ipairs(row.parts or EMPTY) do
+        local usual = P.usual[part.key]
+        if usual == nil then
+            usual = FM.UsualPrice and FM.UsualPrice(part.key, P.now) or false
+            P.usual[part.key] = usual
+        end
+        local unit = usual or nil
+        local vendor = FM.VendorUnit(part.key, false)
+        if vendor and (not unit or vendor < unit) then unit = vendor end
+        total = total + part.n * (unit or part.unit or 0)
     end
-    local pick = { key = row.key, kind = "stock", score = score, conf = conf, listAt = row.sell, invest = 0,
-        unitProfit = unitProfit, held = held, listUnits = held, cand = c, trial = NewTrial(), steps = {}, shopping = {} }
-    local e8, e24 = ListingOutcome(row.key, held, queue, V / 24, sellNet - unitCost, row.sell)
-    pick.exp8, pick.exp24 = e8 * conf, e24 * conf
+    return total / (row.craft and row.craft.makes or 1)
+end
+
+-- Whether waiting for the price beats listing now (FRV-103). The cheapest price of others p is at most 85% of the
+-- usual price U (row.usual), a record of the last 24h saw it at 95% of U or more ("fresh": waiting holds until 24h
+-- after that record, freshUntil), and the wait table gives the chance P48 that it is back within 2 days and the hours
+-- that takes, by the share of the listed units at the dip price (dipShare) and a flood of listings. gain = what
+-- listing later at T (95% of U) earns over listing now, less the risk that the price does not come back.
+-- Returns { pays, U, p, T, P48, hours, gain, dipShare, flood, freshUntil, stale }, or nil (no usual price, nothing
+-- listed)
+local function WaitInfo(row, d)
+    local U = row.usual
+    local ladder = Ladder(row.key)
+    if not U or U <= 0 or not ladder[1] then return nil end
+    local p = ladder[1][1]
+    local w = { U = U, p = p, T = math_floor(TARGET * U) }
+    if p > DIP * U then return w end
+    local freshAt
+    for _, f in ipairs(FM.DetailRecords(FM.R().items[row.key])) do
+        local minutes, price = Dec(string_sub(f[1], 2)), Dec(f[2])
+        if minutes and price and minutes > P.nowMinutes - FRESH_MINUTES and minutes <= P.nowMinutes
+            and price >= FRESH * U and (not freshAt or minutes > freshAt) then
+            freshAt = minutes
+        end
+    end
+    if not freshAt then
+        w.stale = true
+        return w
+    end
+    w.freshUntil = FM.EPOCH + (freshAt + FRESH_MINUTES) * 60
+    local listed = OthersListed(row.key)
+    w.dipShare = listed > 0 and NearMin(row.key) / listed or 0
+    w.flood = (d.avgQty and listed >= FLOOD * d.avgQty) and true or false
+    local band = w.dipShare < 0.05 and 0 or (w.dipShare < 0.25 and 1 or 2)
+    local cell = WAIT_TABLE[d.commodity and "commodity" or "item"][band * 2 + (w.flood and 2 or 1)]
+    w.P48, w.hours = cell[1], cell[2]
+    w.gain = w.P48 * (w.T / p - 1) - (1 - w.P48) * MISS_LOSS
+    w.pays = w.gain >= MIN_GAIN
+    return w
+end
+
+local function Pct(x)
+    return math_floor(x * 100 + 0.5)
+end
+
+-- "estimated 12h, 81% within 2 days"
+local function WaitChance(w)
+    return string_format("estimated %dh, %d%% within 2 days", w.hours, Pct(w.P48))
+end
+
+-- When waiting ends at the latest: "06:52 today", "06:52 tomorrow", "06:52 on 25.11."
+local function WhenText(t)
+    local days = DayOf(t) - P.today
+    local clock = date("%H:%M", t)
+    if days <= 0 then return clock .. " today" end
+    if days == 1 then return clock .. " tomorrow" end
+    return clock .. " on " .. date("%d.%m.", t)
+end
+
+-- The wait step: "wait until the price is 17s 52c (estimated 12h, 81% within 2 days; waits until 06:52 tomorrow at
+-- the latest)"
+local function WaitStep(w)
+    return string_format("wait until the price is %s (%s; waits until %s at the latest)", M(w.T), WaitChance(w),
+        WhenText(w.freshUntil))
+end
+
+-- Why a craft in a dip is no pick: "wait, craft later: the price is 24% under usual and comes back in about 12h (81%
+-- within 2 days); the materials are not cheap now"
+local function WaitLater(w, cheap)
+    return string_format("wait, craft later: the price is %d%% under usual and comes back in about %dh (%d%% within 2 "
+        .. "days); %s", Pct(1 - w.p / w.U), w.hours, Pct(w.P48),
+        cheap and string_format("crafting now would not pay at %s", M(w.T)) or "the materials are not cheap now")
+end
+
+-- The tooltip section "Why wait": the price now against the usual one, the units at the low price, the chance, the
+-- materials now against their usual cost, what listing now would earn, and when the wait ends
+local function WaitLines(list, row, w, costNow, costUsual, sellNow)
+    list[#list + 1] = { "h", "Why wait" }
+    list[#list + 1] = { "l", "Price now", M(w.p) .. GREY .. string_format("  %d%% under usual|r", Pct(1 - w.p / w.U)) }
+    list[#list + 1] = { "l", "Usual price", M(w.U) .. GREY .. "  median daily low, last week|r" }
+    list[#list + 1] = { "l", "At the low price", string_format("%s of %s listed%s", Count(NearMin(row.key)),
+        Count(OthersListed(row.key)), w.flood and ", more listed than usual" or "") }
+    list[#list + 1] = { "l", "Back at " .. M(w.T), WaitChance(w) }
+    if costNow and costUsual and costUsual > 0 then
+        list[#list + 1] = { "l", "Materials", string_format("%s now, %s usually (%d%%)", M(costNow), M(costUsual),
+            Pct(costNow / costUsual)) }
+    end
+    if sellNow then list[#list + 1] = { "l", "Listing now", Signed(sellNow) .. GREY .. "  at " .. M(row.sell) .. "|r" } end
+    list[#list + 1] = { "n", string_format("Waits until %s at the latest: the price was last back at 95%% of usual a day "
+        .. "before. Then the pick is judged again at that moment's price, as Craft and sell or a held stock, and stays "
+        .. "no pick while that price is under what its units cost.", WhenText(w.freshUntil)), GREY }
+end
+
+---------------------------------------------------------------- picks
+
+-- The reasons of a pick that does not reach the minimum score or whose Expected is not above 0
+local function TooSmall(score, conf)
+    return string_format("expected profit too small (%s for one 8h listing at %d%% confidence)", M(score), Pct(conf))
+end
+
+local function DepositsEat(commodity)
+    return string_format("the deposits of what does not sell eat the profit: about %d%% of %s listing sells",
+        Pct(commodity and SELLS_COMMODITY or SELLS_ITEM), commodity and "a commodity" or "an item's")
+end
+
+-- "Sells: about 23 of 31 in 8h"
+local function SellsLine(list, sold, n)
+    list[#list + 1] = { "l", "Sells", string_format("about %s of %s in 8h", Units(sold), Count(n)) }
+end
+
+-- What you hold covers the pick (1.29, FRV-89): nothing to make or buy, list n of what you hold (heldAll; "Stock",
+-- its Type). Its margin is the sale against unitCost, what one more unit would cost the pick now; conf and notes are
+-- the candidate's own. w (WaitInfo, waiting pays, FRV-103): "Stock, wait", listed at the target price once the
+-- price is back; its gold is tied up longer, the score counts 8 / (8 + the hours)
+local function StockPick(c, row, n, heldAll, d, room, b, unitCost, conf, notes, w)
+    local commodity = d.commodity
+    local q = commodity and SELLS_COMMODITY or SELLS_ITEM
+    local sellNet = row.sell * (1 - AH_CUT)
+    local m, expected, sold, listAt
+    if w then
+        -- the price is back at T (P48), or it is not and the units sell at 85% of the price now
+        m = w.T * (1 - AH_CUT) - unitCost
+        sold = q * n
+        expected = n * (q * (w.P48 * w.T + (1 - w.P48) * w.p * MISS_PRICE) * (1 - AH_CUT) - q * unitCost - (1 - q) * b.dep)
+        listAt = w.T
+    else
+        m = sellNet - unitCost
+        expected, sold = ListingExpected(n, m, b.dep, commodity)
+        listAt = row.sell
+    end
+    if m < math_max(MIN_UNIT, MIN_UNIT_SHARE * unitCost) then return nil, "under 10c profit per item" end
+    if expected <= 0 then return nil, DepositsEat(commodity) end
+    local score = expected * conf * (w and LISTING_HOURS / (LISTING_HOURS + w.hours) or 1)
+    if score < P.minScore then return nil, TooSmall(score, conf) end
+    local pick = { key = row.key, kind = "stock", wait = w, score = score, conf = conf, listAt = listAt, invest = 0,
+        unitProfit = m, held = n, listUnits = n, batch = n, expected = expected * conf, cand = c, trial = NewTrial(),
+        steps = {}, shopping = {} }
+    if w then pick.steps[1] = WaitStep(w) end
     local list = {
-        { "h", "Plan for the next 24h" },
-        { "l", "You hold", string_format("%s in %s", Count(held), StockWhere(held, OwnedOf(row.key)[3])) },
-        { "n", "What you hold covers the pick: nothing to make or buy, list them.", GREY },
+        { "h", "One listing" },
+        { "l", "You hold", string_format("%s in %s%s", Count(heldAll), StockWhere(heldAll, OwnedOf(row.key)[3]),
+            n < heldAll and string_format(", list %s", Count(n)) or "") },
+        { "n", w and "What you hold is the pick: nothing to make or buy, list it once the price is back."
+            or "What you hold covers the pick: nothing to make or buy, list them.", GREY },
         { "l", "Expected profit", M(expected) },
-        { "l", "Profit per item", M(unitProfit) .. GREY .. "  against " .. M(unitCost) .. " for one more now|r" },
-        { "h", "Sell" },
-        { "l", "List at", M(row.sell) },
-        { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) },
+        { "l", "Profit per item", M(m) .. GREY .. "  against " .. M(unitCost) .. " for one more now|r" },
     }
-    OwnSalesLines(list, d)
+    SellsLine(list, sold, n)
+    if w then WaitLines(list, row, w, nil, nil, (ListingExpected(n, sellNet - unitCost, b.dep, commodity))) end
+    list[#list + 1] = { "h", "Sell" }
+    list[#list + 1] = { "l", "List at", M(listAt) }
+    if d.perDay then list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay)) } end
+    OwnSalesLines(list, b)
     list[#list + 1] = { "l", "Listed by others", Count(row.qty - (row.own or 0)) }
-    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
-    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
-    RoomLines(list, row, room, "list", held)
+    if b.listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(b.listed) } end
+    RoomLines(list, row, room, b, "list", n)
     list[#list + 1] = { "h", "Confidence" }
-    list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
+    list[#list + 1] = { "l", "Confidence", string_format("%d%%", Pct(conf)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
     pick.reasons = list
     return pick
 end
 
--- A craft (learned, or learn = the recipe price goes into the plan, or level = info only). Units of it you hold
--- are the pick's own: it makes only the rest of what the buyers and the room allow, and lists them all
+-- A craft (learned, or learn = the recipe price goes into the plan, or level = info only). Units of it you hold are
+-- the pick's own: it makes only the rest of the batch and lists them all. A learned craft in a dip of its price is
+-- "Craft and wait" (kind wait) when its materials are cheap now, else no pick; units you hold of it are "Stock, wait"
 local function EvaluateCraft(c)
     local row = c.row
     local makes = row.craft.makes or 1
-    local V, vSource, d = SellRate(row.key)
-    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
-    local others = row.qty - (row.own or 0)
-    local room, noRoom = Room(row, makes, d.firstBatch and V)
+    local d = Demand(row.key)
+    local room, noRoom = Room(row, makes)
     if not room then return nil, noRoom end
-    local listed = Yours(row.key)
-    local vLeft = V - listed
-    if vLeft < makes then return nil, Covered(d, listed, V) end
-    local buyers = d.perDay or V
+    local others = row.qty - (row.own or 0)
+    local sellNet = row.sell * (1 - AH_CUT)
+    local tableCost = row.cost / makes
+    local dep = Deposit8(row.key, row.sell)
+    -- waiting: a learned craft and what you hold of it; a recipe still to learn (or to level for) never waits
+    local w = c.kind == "craft" and WaitInfo(row, d) or nil
+    local waiting = w and w.pays and w or nil
+    -- a craft that earns too little at the price now is a pick only as a wait
+    if c.dipOnly and not waiting then return nil, "under 10c profit per item" end
+    -- the batch's margin is the one of the price it lists at (a wait lists at its target)
+    local b, noBatch = Batch(row, d, (waiting and waiting.T * (1 - AH_CUT) or sellNet) - tableCost, dep, room)
+    if not b then return nil, noBatch end
+    local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 then return nil, "over 7 days of stock listed by others" end
-    local unitsCap = math_min(MAX_UNITS, vLeft, room.room)
+    local batch = b.batch
     local vendorOnly = true
     for _, part in ipairs(row.parts) do
         if part.src ~= "vendor" then vendorOnly = false end
     end
-    if vendorOnly then unitsCap = math_min(unitsCap, math_max(makes, VENDOR_LISTED_SHARE * others)) end
+    if vendorOnly then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
+    if batch < 1 then return nil, BatchShort(b, room, makes) end
     -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
-    local held = c.kind ~= "level" and math_min(HeldOf(row.key), math_floor(unitsCap)) or 0
+    local heldAll = c.kind ~= "level" and HeldOf(row.key) or 0
+    local held = math_min(heldAll, batch)
     local reasons = {}
     local cap = math_min(P.perPick, P.budgetLeft)
     local learnCost = 0
@@ -1094,16 +1301,17 @@ local function EvaluateCraft(c)
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
-    -- a Stock pick when what you hold covers it, or nothing more can be made
+    -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip)
     local function OnlyHeld(why)
-        if held <= 0 then return nil, why or Covered(d, listed, V) end
+        if held <= 0 then return nil, why end
         local notes = {}
-        local conf = Confidence(row, d, vSource, saturation, notes)
-        return StockPick(c, row, held, listed, V, d, room, row.cost / makes, conf, notes)
+        local conf = Confidence(row, d, b, saturation, notes)
+        return StockPick(c, row, held, heldAll, d, room, b, tableCost, conf, notes, waiting)
     end
-    if unitsCap - held < makes then return OnlyHeld() end
+    local runsMax = math_floor((batch - held) / makes)
+    if runsMax < 1 then return OnlyHeld(BatchShort(b, room, makes)) end
     if cap <= 0 then return OnlyHeld(NoGold()) end
-    local plan = PlanCraft(row, cap, unitsCap - held)
+    local plan = PlanCraft(row, cap, runsMax * makes, waiting and waiting.T or nil)
     if plan.runs == 0 then
         if plan.stop == "gold" then return OnlyHeld(NoGold()) end
         return OnlyHeld("no craft earns its margin with the materials on the AH now")
@@ -1111,45 +1319,59 @@ local function EvaluateCraft(c)
     local made = plan.items
     local items = made + held
     local costPerItem = plan.value / made
-    local sellNet = row.sell * (1 - AH_CUT)
-    -- what you hold at what one more costs now, the made ones at what they cost the plan (the same per unit)
-    local profit = plan.profit + held * (sellNet - costPerItem)
-    -- you list under the cheapest: only your own listings wait before these (at the 1s floor, all of them)
-    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
-    local hours = (queue + items) / math_max(V / 24, 0.01)
-    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists
-    -- worst case: selling at the usual low (median daily low, last week) when that is under the price now;
-    -- one dip in a scan is not the price you must take, you can wait it out
-    local pessSell = math_min(row.sell, row.usual or row.sellMin or row.sell)
-    local pessProfit = pessSell * (1 - AH_CUT) - costPerItem - depositLoss
-    if pessProfit <= 0 then return nil, "could lose money at its usual low price" end
-    local expected = profit - depositLoss * items
-    local unitProfit = expected / items
-    if unitProfit < MIN_UNIT then return nil, "under 10c profit per item after deposits" end
+    local commodity = d.commodity
+    local q = commodity and SELLS_COMMODITY or SELLS_ITEM
     local notes = {}
-    local conf = Confidence(row, d, vSource, saturation, notes) * toolConf
-    local score = expected * conf
+    local conf = Confidence(row, d, b, saturation, notes, plan.trial) * toolConf
+    local m, expected, sold, pessProfit, pessSell, costUsual, evu
+    if waiting then
+        -- craft now only with cheap materials, and only when the upside outweighs the downside three times
+        costUsual = CostUsual(row)
+        local cheap = costPerItem <= CHEAP_MATERIALS * costUsual
+        local up = waiting.T * (1 - AH_CUT) - costPerItem
+        local down = waiting.p * MISS_PRICE * (1 - AH_CUT) - costPerItem
+        evu = waiting.P48 * up + (1 - waiting.P48) * down
+        if not cheap or evu < math_max(MIN_UNIT, MIN_UNIT_SHARE * costPerItem)
+            or waiting.P48 * up < UPSIDE * (1 - waiting.P48) * math_max(0, -down) then
+            if held > 0 then return OnlyHeld() end
+            return nil, WaitLater(waiting, cheap)
+        end
+        m = up
+        sold = q * items
+        expected = items * (q * evu - (1 - q) * dep)
+    else
+        -- worst case: selling at the usual low (median daily low, last week) when that is under the price now; one
+        -- dip in a scan is not the price you must take, you can wait it out
+        pessSell = math_min(row.sell, row.usual or row.sellMin or row.sell)
+        pessProfit = pessSell * (1 - AH_CUT) - costPerItem
+        if pessProfit <= 0 then return nil, "could lose money at its usual low price" end
+        m = sellNet - costPerItem
+        if m < math_max(MIN_UNIT, MIN_UNIT_SHARE * costPerItem) then return nil, "under 10c profit per item" end
+        expected, sold = ListingExpected(items, m, dep, commodity)
+    end
+    if expected <= 0 then return nil, DepositsEat(commodity) end
+    local score = expected * conf * (waiting and LISTING_HOURS / (LISTING_HOURS + waiting.hours) or 1)
     if c.kind == "learn" then
         -- the recipe pays only through what you make: back within 3 days of their sales
-        if learnCost / unitProfit > LEARN_DAYS * made then return nil, "the recipe would not pay back within 3 days of sales" end
+        if learnCost / m > LEARN_DAYS * made then return nil, "the recipe would not pay back within 3 days of sales" end
         score = (LEARN_DAYS * expected * conf - learnCost) / LEARN_DAYS
     end
-    if score < P.minScore then return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5)) end
+    if score < P.minScore then return nil, TooSmall(score, conf) end
 
-    local pick = { key = row.key, kind = c.kind, score = score, conf = conf, listAt = row.sell,
-        invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = unitProfit, prof = row.craft.prof,
-        learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools, held = held, listUnits = items }
-    -- one 8h / 24h listing of the crafts and what you hold, at your confidence; a recipe to learn pays its price over 3 days
-    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, profit / items, row.sell)
-    local learnShare = c.kind == "learn" and learnCost / LEARN_DAYS or 0
-    pick.exp8, pick.exp24 = e8 * conf - learnShare, e24 * conf - learnShare
-    -- what to do, in order (Evaluate adds the listing): learn > use > buy > make
+    local pick = { key = row.key, kind = waiting and "wait" or c.kind, wait = waiting, score = score, conf = conf,
+        listAt = waiting and waiting.T or row.sell,
+        invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = m, prof = row.craft.prof,
+        learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools, held = held, listUnits = items,
+        batch = items }
+    -- one 8h listing of the crafts and what you hold, at your confidence; a recipe to learn pays its price over 3 days
+    pick.expected = expected * conf - (c.kind == "learn" and learnCost / LEARN_DAYS or 0)
+    -- what to do, in order (Evaluate adds the listing): learn > use > buy > make > wait
     local steps = {}
     if c.kind == "learn" then steps[#steps + 1] = LearnStep(c) end
     if c.kind ~= "level" then steps[#steps + 1] = UseStep(plan.trial) end
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
     steps[#steps + 1] = string_format("make %s", Count(made))
+    if waiting then steps[#steps + 1] = WaitStep(waiting) end
     pick.steps = steps
     -- Shift-click and the row menu snipe every AH purchase of the plan with its units (pick.buys); the sniper
     -- window opens on the main one
@@ -1171,37 +1393,44 @@ local function EvaluateCraft(c)
         if (c.level or 0) > 0 then
             list[#list + 1] = { "l", "Level", P.level and string_format("%d (you are %d)", c.level, P.level) or tostring(c.level) }
         end
-        list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / unitProfit)) }
+        list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / m)) }
     end
-    list[#list + 1] = { "h", c.kind == "level" and "Once learned, a day could look like" or "Plan for the next 24h" }
+    list[#list + 1] = { "h", c.kind == "level" and "Once learned, one listing could look like" or "One listing" }
     list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
     if held > 0 then
         list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held), StockWhere(held, OwnedOf(row.key)[3])) }
     end
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
-    list[#list + 1] = { "l", "Profit per item", M(unitProfit) }
-    list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell)
-        .. (relists > 0 and string_format(", %d relists", relists) or "") .. "|r" }
+    list[#list + 1] = { "l", "Profit per item", M(m) .. (waiting and (GREY .. "  at " .. M(waiting.T) .. "|r") or "") }
+    if pessProfit then
+        list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" }
+    end
+    SellsLine(list, sold, items)
     if plan.stop then
         local stops = { margin = "the next craft would earn too little", gold = "your gold share ends there",
             materials = "no more materials at a usable price" }
         list[#list + 1] = { "n", "Stops there: " .. (stops[plan.stop] or plan.stop) .. ".", GREY }
     end
+    if waiting then
+        WaitLines(list, row, waiting, costPerItem, costUsual,
+            (ListingExpected(items, sellNet - costPerItem, dep, commodity)))
+    end
     list[#list + 1] = { "h", string_format("Materials (per craft, %s for all)", c.kind == "level" and "sources" or "what to use") }
     MaterialLines(row, plan.trial, list)
     for _, r in ipairs(reasons) do list[#list + 1] = r end
     list[#list + 1] = { "h", "Sell" }
-    list[#list + 1] = { "l", "List at", M(row.sell) .. (row.capped and (GREY .. "  usual price; cheapest now " .. M(row.capped) .. "|r") or "") }
+    list[#list + 1] = { "l", "List at", M(pick.listAt) .. (row.capped and (GREY .. "  usual price; cheapest now " .. M(row.capped) .. "|r") or "") }
     if row.rawMin and row.rawMax then list[#list + 1] = { "l", "Last 3 days", M(row.rawMin) .. " - " .. M(row.rawMax) } end
-    list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay or V), d.source == "estimated" and " (estimated)" or "") }
-    OwnSalesLines(list, d)
+    if d.perDay then
+        list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay), d.source == "estimated" and " (estimated)" or "") }
+    end
+    OwnSalesLines(list, b)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
-    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
-    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
-    RoomLines(list, row, room, "make", made)
+    if b.listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(b.listed) } end
+    RoomLines(list, row, room, b, "make", made)
     list[#list + 1] = { "h", "Confidence" }
-    list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
+    list[#list + 1] = { "l", "Confidence", string_format("%d%%", Pct(conf)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
     pick.reasons = list
     -- the shopping list of a row click: the plan's AH purchases (FRV-79); a recipe to level for has no plan to buy
@@ -1210,7 +1439,7 @@ local function EvaluateCraft(c)
     else
         local shopping = {}
         if c.ah and c.pattern then shopping[#shopping + 1] = c.pattern end
-        for _, b in ipairs(pick.buys or EMPTY) do shopping[#shopping + 1] = b.key end
+        for _, buy in ipairs(pick.buys or EMPTY) do shopping[#shopping + 1] = buy.key end
         for _, name in ipairs(toolsToBuy) do shopping[#shopping + 1] = KeyOfName(name) end
         pick.shopping = shopping
     end
@@ -1218,74 +1447,75 @@ local function EvaluateCraft(c)
     return pick
 end
 
--- The confidence of a vendor resell: where its buyers come from, a falling price today, days of stock listed
-local function VendorConfidence(row, d, vSource, saturation, notes)
-    local conf = vSource == "your sales" and 1 or (vSource == "bought" and 0.8 or 0.5)
-    if vSource == "estimated" then notes[#notes + 1] = "buyers estimated from older records" end
-    if row.usual and d.todayMedian and d.todayMedian < 0.8 * row.usual then
+-- The confidence of a vendor resell or a flip (FRV-103): buyers estimated from older records behind a first batch
+-- x 0.6, stock listed by others over 4 days of buyers x 0.85
+local function TradeConfidence(d, b, saturation, notes)
+    local conf = 1
+    if b.source == "first" and d.source == "estimated" then
         conf = conf * 0.6
-        notes[#notes + 1] = "price falling today"
+        notes[#notes + 1] = "buyers estimated from older records"
     end
-    if saturation > 3 then
-        conf = conf * 0.5
+    if saturation > STOCK_DAYS then
+        conf = conf * 0.85
         notes[#notes + 1] = string_format("%.0f days of stock listed", saturation)
     end
     return conf
 end
 
+-- Vendor resells and flips never wait; units of their item you hold do, as "Stock, wait"
+local function HeldWait(row, d)
+    local w = WaitInfo(row, d)
+    return w and w.pays and w or nil
+end
+
 local function EvaluateVendor(c)
     local row = c.row
-    local V, vSource, d = SellRate(row.key)
-    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
-    local others = row.qty - (row.own or 0)
-    local room, noRoom = Room(row, 1, d.firstBatch and V)
+    local d = Demand(row.key)
+    local room, noRoom = Room(row, 1)
     if not room then return nil, noRoom end
-    local listed = Yours(row.key)
-    local vLeft = V - listed
-    if vLeft < 1 then return nil, Covered(d, listed, V) end
-    local saturation = (d.perDay or V) > 0 and others / (d.perDay or V) or 99
-    if saturation > 7 then return nil, "over 7 days of stock listed by others" end
+    local others = row.qty - (row.own or 0)
     local unit = row.vendorUnit
+    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - unit, Deposit8(row.key, row.sell), room)
+    if not b then return nil, noBatch end
+    local buyers = BuyersPerDay(d, b)
+    local saturation = buyers > 0 and others / buyers or 99
+    if saturation > 7 then return nil, "over 7 days of stock listed by others" end
+    -- the units the pick sells: what you hold first, the vendor's for the rest; vendor goods at most 20% of what
+    -- others list
+    local units = math_min(b.batch, math_max(1, math_floor(VENDOR_LISTED_SHARE * others)))
+    if units < 1 then return nil, BatchShort(b, room, 1) end
     local cap = math_min(P.perPick, P.budgetLeft)
-    -- the units the pick sells: what you hold first, the vendor's for the rest
-    local units = math_floor(math_min(MAX_UNITS, vLeft, room.room, math_max(1, VENDOR_LISTED_SHARE * others)))
-    local held = math_min(HeldOf(row.key), units)
+    local heldAll = HeldOf(row.key)
+    local held = math_min(heldAll, units)
     local n = math_floor(math_min(units - held, row.offer.limited or math.huge, cap / unit))
     if c.noBuy then n = 0 end -- no vendor of it in the place (FRV-99): only what you hold, as a Stock pick
     if n < 1 then
         if held <= 0 then return nil, NoGold() end
         local notes = {}
-        local conf = VendorConfidence(row, d, vSource, saturation, notes)
-        return StockPick(c, row, held, listed, V, d, room, unit, conf, notes)
+        local conf = TradeConfidence(d, b, saturation, notes)
+        return StockPick(c, row, held, heldAll, d, room, b, unit, conf, notes, HeldWait(row, d))
     end
     local items = n + held
-    local queue = (row.atFloor and NearMin(row.key) or 0) + listed
-    local hours = (queue + items) / math_max(V / 24, 0.01)
-    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists
     local pessSell = row.sell
     if row.usual then pessSell = math_min(pessSell, row.usual) end
-    local pessProfit = pessSell * (1 - AH_CUT) - unit - depositLoss
+    local pessProfit = pessSell * (1 - AH_CUT) - unit
     if pessProfit <= 0 then return nil, "could lose money at its usual price" end
-    local unitProfit = row.sell * (1 - AH_CUT) - unit - depositLoss
-    if unitProfit < MIN_UNIT or unitProfit < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item after deposits" end
-    local expected = unitProfit * items
+    local m = row.sell * (1 - AH_CUT) - unit
+    if m < MIN_UNIT or m < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item" end
+    local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
+    if expected <= 0 then return nil, DepositsEat(d.commodity) end
     local notes = {}
-    local conf = VendorConfidence(row, d, vSource, saturation, notes)
+    local conf = TradeConfidence(d, b, saturation, notes)
     local score = expected * conf
-    if score < P.minScore then
-        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
-    end
+    if score < P.minScore then return nil, TooSmall(score, conf) end
     local where = row.offer.where
     -- offer: the vendor the pick buys at; Track goes there, or with a place to trackOffer, the vendor there (FRV-99)
     local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
-        unitProfit = unitProfit, cand = c, trial = NewTrial(), held = held, listUnits = items, offer = row.offer,
-        trackOffer = row.trackOffer, placeOf = row.placeOf }
-    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unit, row.sell)
-    pick.exp8, pick.exp24 = e8 * conf, e24 * conf
+        unitProfit = m, cand = c, trial = NewTrial(), held = held, listUnits = items, batch = items, offer = row.offer,
+        trackOffer = row.trackOffer, placeOf = row.placeOf, expected = expected * conf }
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
     local list = {
-        { "h", "Plan for the next 24h" },
+        { "h", "One listing" },
         { "l", "Buy", string_format("%s at %s each", Count(n), M(unit)) },
         { "l", "Where", where or "?" },
     }
@@ -1295,18 +1525,18 @@ local function EvaluateVendor(c)
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
     list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" }
+    SellsLine(list, sold, items)
     if row.offer.limited then list[#list + 1] = { "n", "Limited stock: " .. row.offer.limited .. " at a time.", ORANGE } end
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(row.sell) }
     if row.usual then list[#list + 1] = { "l", "Usual price", M(row.usual) } end
-    list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) }
-    OwnSalesLines(list, d)
+    if d.perDay then list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay)) } end
+    OwnSalesLines(list, b)
     list[#list + 1] = { "l", "Listed by others", Count(others) }
-    if listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(listed) } end
-    list[#list + 1] = { "l", "Time to sell", string_format("%s h", Count(hours)) }
-    RoomLines(list, row, room, "buy", n)
+    if b.listed > 0 then list[#list + 1] = { "l", "Yours listed", Count(b.listed) } end
+    RoomLines(list, row, room, b, "buy", n)
     list[#list + 1] = { "h", "Confidence" }
-    list[#list + 1] = { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) }
+    list[#list + 1] = { "l", "Confidence", string_format("%d%%", Pct(conf)) }
     for _, note in ipairs(notes) do list[#list + 1] = { "n", note, ORANGE } end
     pick.reasons = list
     return pick
@@ -1315,20 +1545,27 @@ end
 local function EvaluateFlip(c)
     local row = c.row
     if Yours(row.key) > 0 then return nil, "you list it yourself" end
-    local V, vSource, d = SellRate(row.key)
-    if not V then return nil, "too few scans with sales of it yet (needs 3 intervals with buys)" end
+    local d = Demand(row.key)
     -- the usual price must still hold today: no falling price, no flood of new listings
     if d.todayMedian and d.todayMedian < 0.8 * row.usual then return nil, "price falling today" end
     if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
-    local room, noRoom = Room(row, 1, d.firstBatch and V)
+    local room, noRoom = Room(row, 1)
     if not room then return nil, noRoom end
-    -- what you hold first: the flip buys only the rest of the room
-    local held = math_min(HeldOf(row.key), math_floor(room.room))
+    local ladder = Ladder(row.key)
+    local cheapest = ladder[1] and ladder[1][1] or row.top
+    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, row.sell), room)
+    if not b then return nil, noBatch end
+    if b.batch < 1 then return nil, BatchShort(b, room, 1) end
+    local buyers = BuyersPerDay(d, b)
+    local saturation = buyers > 0 and (row.qty - (row.own or 0)) / buyers or 99
+    -- what you hold first: the flip buys only the rest of the batch
+    local heldAll = HeldOf(row.key)
+    local held = math_min(heldAll, b.batch)
     local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
     local skip = P.used[row.key] or 0
     local n, cost = 0, 0
-    for _, level in ipairs(Ladder(row.key)) do
+    for _, level in ipairs(ladder) do
         if level[1] > row.top then break end
         local q = level[2]
         if skip >= q then
@@ -1336,7 +1573,7 @@ local function EvaluateFlip(c)
         else
             q = q - skip
             skip = 0
-            local take = math_min(q, row.units - n, room.room - held - n, math_floor((cap - cost) / level[1]))
+            local take = math_min(q, row.units - n, b.batch - held - n, math_floor((cap - cost) / level[1]))
             if take <= 0 then break end
             n = n + take
             cost = cost + take * level[1]
@@ -1344,42 +1581,31 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
+    local notes = {}
+    local conf = TradeConfidence(d, b, saturation, notes)
     if n < 1 then
         if held <= 0 then return nil, NoGold() end
         -- what you hold at the cheapest price on the AH now, which a flip would pay for one more
-        local ladder = Ladder(row.key)
-        local conf = vSource == "your sales" and 1 or (vSource == "bought" and 0.9 or 0.6)
-        return StockPick(c, row, held, 0, V, d, room, ladder[1] and ladder[1][1] or row.top, conf, {})
+        return StockPick(c, row, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(row, d))
     end
     local items = n + held
-    local queue = row.atFloor and NearMin(row.key) or 0
-    local hours = (queue + items) / math_max(V / 24, 0.01)
-    local relists = math_max(0, math_ceil(hours / LIST_HOURS) - 1)
-    local depositLoss = DepositPerItem(row.key, row.sell) * relists * items
     -- what you hold at what the flip pays per unit now
     local unitCost = cost / n
-    local expected = items * (row.sell * (1 - AH_CUT) - unitCost) - depositLoss
+    local m = row.sell * (1 - AH_CUT) - unitCost
+    local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
     if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then
         return nil, "no profit left after the cut and deposits"
     end
-    local timeFactor = items <= V and 1 or (items <= 3 * V and 0.6 or 0.3)
-    local conf = (vSource == "your sales" and 1 or (vSource == "bought" and 0.9 or 0.6)) * timeFactor
     local score = expected * conf
-    if score < P.minScore then
-        return nil, string_format("expected profit too small (%s in 24h at %d%% confidence)", M(score), math_floor(conf * 100 + 0.5))
-    end
+    if score < P.minScore then return nil, TooSmall(score, conf) end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
-        unitProfit = expected / items, cand = c, trial = trial, held = held, listUnits = items }
-    -- the listing already counts only what buyers take in time: the source confidence, not the time factor
-    local e8, e24 = ListingOutcome(row.key, items, queue, V / 24, row.sell * (1 - AH_CUT) - unitCost, row.sell)
-    local sourceConf = conf / timeFactor
-    pick.exp8, pick.exp24 = e8 * sourceConf, e24 * sourceConf
+        unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf }
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
     pick.mainTop = trial.top[row.key]
     pick.buys = AHBuys(trial)
     pick.reasons = {
-        { "h", "Plan" },
+        { "h", "One listing" },
         { "l", "Buy", string_format("%s up to %s", Count(n), M(trial.top[row.key])) },
     }
     if held > 0 then
@@ -1390,16 +1616,17 @@ local function EvaluateFlip(c)
         { "l", "Gold needed", M(cost) },
         { "l", "List at", M(row.sell) .. GREY .. string_format("  %s others wait at %s", Count(row.support), M(row.wall)) .. "|r" },
         { "l", "Expected profit", M(expected) },
+        { "l", "Sells", string_format("about %s of %s in 8h", Units(sold), Count(items)) },
         { "h", "Market" },
         { "l", "Usual price", M(row.usual) .. GREY .. "  median daily low, last week|r" },
-        { "l", "Profit per item", M(expected / items) },
+        { "l", "Profit per item", M(m) },
         { "l", "Today", d.todayMedian and M(d.todayMedian) or "?" },
-        { "l", "Buyers", string_format("%s per day", Count(d.perDay or V)) },
-        { "l", "Time to sell", string_format("%s h", Count(hours)) },
-        { "l", "Confidence", string_format("%d%%", math_floor(conf * 100 + 0.5)) },
+        { "l", "Buyers", d.perDay and string_format("%s per day", Count(d.perDay)) or "?" },
+        { "l", "Confidence", string_format("%d%%", Pct(conf)) },
         { "n", "Cheap listings go fast: the AH search shows if they are still there.", ORANGE },
     }) do pick.reasons[#pick.reasons + 1] = line end
-    RoomLines(pick.reasons, row, room, "buy", n)
+    for _, note in ipairs(notes) do pick.reasons[#pick.reasons + 1] = { "n", note, ORANGE } end
+    RoomLines(pick.reasons, row, room, b, "buy", n)
     return pick
 end
 
@@ -1474,6 +1701,13 @@ local function ListedOut(key)
     return string_format("you list %s already, worth %s (Exclude already listed items)", Count(n), M(value))
 end
 
+-- A learned craft whose price is in a dip (its sell price at most 85% of the usual one) that would earn at least 10c a
+-- unit listed at 95% of the usual price: Craft and wait may make it a pick although it earns too little now
+local function MayWait(row)
+    if not (row.usual and row.sell and row.cost) or row.sell > DIP * row.usual then return false end
+    return math_floor(TARGET * row.usual) * (1 - AH_CUT) - row.cost / (row.craft.makes or 1) >= MIN_UNIT
+end
+
 local function Candidates(out, why)
     local list = {}
     local profSkill = {}
@@ -1491,13 +1725,15 @@ local function Candidates(out, why)
             why[row.key] = "no price to sell at"
         elseif row.missing or not row.cost or not row.parts then
             why[row.key] = "a material has no price"
-        elseif not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT then
+        elseif (not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT) and not (row.learned and MayWait(row)) then
             why[row.key] = "under 10c profit per item"
         elseif P.prof and row.craft.prof ~= P.prof then
             -- the profession dropdown limits crafts and recipes only, vendor resells and flips stay
             why[row.key] = "another profession is chosen in the table"
         elseif row.learned then
-            list[#list + 1] = { kind = "craft", row = row }
+            -- under 10c now, but listed later at 95% of its usual price it would earn: only a wait can make it a pick
+            local dipOnly = (not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT) or nil
+            list[#list + 1] = { kind = "craft", row = row, dipOnly = dipOnly }
         elseif not P.filters.learn then
             why[row.key] = "recipes to learn are off (Include not learned recipes)"
         else
@@ -1546,11 +1782,6 @@ local function Candidates(out, why)
     return list
 end
 
-local function Signed(copper)
-    if math.abs(copper) < 0.5 then return M(0) end -- rounds to 0c: no sign
-    return (copper < 0 and "-" or "+") .. M(math.abs(copper))
-end
-
 local function Evaluate(c)
     local pick, reason
     if c.kind == "vendor" then
@@ -1565,33 +1796,73 @@ local function Evaluate(c)
     if P.minProfit and (pick.unitProfit or 0) < P.minProfit then
         return nil, string_format("under your minimum profit per item (%s, settings panel)", M(P.minProfit))
     end
-    -- the table shows the better listing; a tie goes to 8h (the smaller deposit, the gold back sooner)
-    if pick.exp8 and pick.exp24 then
-        local long = pick.exp24 > pick.exp8 + 0.5
-        pick.listHours = long and 24 or 8
-        pick.expected = long and pick.exp24 or pick.exp8
-    end
+    pick.listHours = LISTING_HOURS
     pick.steps = pick.steps or {}
     if pick.listAt then
         local held = pick.held or 0
         if pick.kind == "stock" then
-            pick.steps[#pick.steps + 1] = string_format("list your %s at %s for %dh", Count(held), M(pick.listAt), pick.listHours or 24)
+            pick.steps[#pick.steps + 1] = string_format("list your %s at %s for %dh", Count(held), M(pick.listAt), LISTING_HOURS)
         elseif held > 0 then
-            -- what you hold goes with the new units: "list 12 at 1g for 24h (5 you hold)"
+            -- what you hold goes with the new units: "list 12 at 1g for 8h (5 you hold)"
             pick.steps[#pick.steps + 1] = string_format("list %s at %s for %dh (%s you hold)", Count(pick.listUnits or held),
-                M(pick.listAt), pick.listHours or 24, Count(held))
+                M(pick.listAt), LISTING_HOURS, Count(held))
         else
-            pick.steps[#pick.steps + 1] = string_format("list at %s for %dh", M(pick.listAt), pick.listHours or 24)
+            pick.steps[#pick.steps + 1] = string_format("list at %s for %dh", M(pick.listAt), LISTING_HOURS)
         end
     end
-    -- the tooltip keeps both lengths
-    if pick.reasons and pick.exp8 and pick.exp24 then
-        local list = pick.reasons
-        list[#list + 1] = { "h", "One listing of all of it" }
-        list[#list + 1] = { "l", "For 8h", Signed(pick.exp8) .. GREY .. "  smaller deposit, buyers of 8h|r" }
-        list[#list + 1] = { "l", "For 24h", Signed(pick.exp24) .. GREY .. "  bigger deposit, buyers of 24h|r" }
-    end
     return pick, reason
+end
+
+-- The order of the plan (FRV-103): the score per gold the pick puts in; one that needs less than a quarter of one
+-- pick's share counts as needing that quarter (a pick of 10c does not jump the queue)
+local function Rate(pick)
+    return pick.score / math_max(pick.invest or 0, RATE_FLOOR * P.perPick, 1)
+end
+
+-- A pick's kind as the plan log and the Type column name it
+local function PlanKind(p)
+    if p.kind == "stock" then return p.wait and "swait" or "stock" end
+    return p.kind
+end
+FM.PickKind = PlanKind
+
+-- The plan log (FRV-103): every plan's picks, so the order by score per gold and the plan can be measured against
+-- what sold later (FRV-125: the listings report of tools/fm_analyze.py). R.plans, one line per pick:
+-- "t,char,key,kind,batch,invest,expected,conf,rank,x" (t = FM.Stamp; kind: craft (Craft and sell), wait (Craft and
+-- wait), stock, swait (Stock, wait), learn, vendor, flip; batch = the units of its listing; invest and expected in
+-- copper; conf in %; x = "x" for a pick outside the plan, "also good"). A plan with the same picks, kinds and
+-- batches as the one logged last is logged again only after an hour; lines older than 14 days go
+local lastPlan = { sig = nil, at = 0 }
+local function LogPlan(picks)
+    local r = FM.R()
+    if type(r.plans) ~= "table" then r.plans = {} end
+    local parts = {}
+    for _, p in ipairs(picks) do
+        parts[#parts + 1] = table_concat({ p.key, PlanKind(p), tostring(math_floor(p.batch or 0)), p.extra and "x" or "" }, ":")
+    end
+    local sig = table_concat(parts, ";")
+    if sig == lastPlan.sig and P.now - lastPlan.at < PLAN_SAME_MINUTES * 60 then return end
+    lastPlan.sig, lastPlan.at = sig, P.now
+    local stamp, char = FM.Stamp(P.now), FM.PlayerName()
+    for _, p in ipairs(picks) do
+        r.plans[#r.plans + 1] = table_concat({ stamp, char, p.key, PlanKind(p), tostring(math_floor(p.batch or 0)),
+            tostring(math_floor((p.invest or 0) + 0.5)), tostring(math_floor((p.expected or 0) + 0.5)),
+            tostring(Pct(p.conf or 0)), tostring(p.rank or 0), p.extra and "x" or "" }, ",")
+    end
+    -- the oldest lines first: drop what is older than 14 days, then cap the count
+    local oldest = math_floor((P.now - FM.EPOCH) / 60) - PLAN_DAYS * 1440
+    local drop = 0
+    for _, line in ipairs(r.plans) do
+        local minutes = Dec(line:match("^(%w+),"))
+        if minutes and minutes >= oldest then break end
+        drop = drop + 1
+    end
+    if drop > 0 then
+        local keep = {}
+        for i = drop + 1, #r.plans do keep[#keep + 1] = r.plans[i] end
+        r.plans = keep
+    end
+    FM.CapList(r.plans, PLAN_MAX)
 end
 
 -- rank: the pick's place in the plan (what it takes of your units is named in later picks' material lines)
@@ -1686,7 +1957,7 @@ function FM.ComputePicks(out, ctx, done)
     local gold, chars = FM.PicksGold(filters.allGold)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, owned = {}, stockLeft = {}, taken = {}, used = {}, toolsBought = {}, listings = listings,
-        listInfo = listInfo, yours = {}, ownSales = OwnSales(ctx.nowMinutes), deposits = DepositShares(),
+        listInfo = listInfo, yours = {}, book = FM.ListingsRecord(ctx.nowMinutes), usual = {}, deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit > 0 and s.tableMinProfit or nil }
@@ -1732,7 +2003,8 @@ function FM.ComputePicks(out, ctx, done)
                     first[i] = pick -- judged on its own, with one pick's share of the plan's gold
                     if pick then c.valid = true elseif reason then why[c.row.key] = reason end
                 end
-                if pick and c.kind ~= "level" and (not best or pick.score > cache[best].score) then best = i end
+                if pick then pick.rate = Rate(pick) end
+                if pick and c.kind ~= "level" and (not best or pick.rate > cache[best].rate) then best = i end
             end
         end
         if iteration == 1 then
@@ -1764,7 +2036,7 @@ function FM.ComputePicks(out, ctx, done)
             local p = first[i]
             if p and c.kind ~= "level" and not shown[p.key] then extra[#extra + 1] = p end
         end
-        table_sort(extra, function(a, b) return a.score > b.score end)
+        table_sort(extra, function(a, b) return a.rate > b.rate end)
         local picks = {}
         for _, p in ipairs(chosen) do picks[#picks + 1] = p end
         for _, p in ipairs(extra) do
@@ -1822,6 +2094,8 @@ function FM.ComputePicks(out, ctx, done)
             out.pickRank[p.key] = p.rank
             if p.extra then out.pickExtra[p.key] = true end
         end
+        local ok, err = pcall(LogPlan, picks)
+        if not ok and geterrorhandler then geterrorhandler()(err) end
         P = nil
         done()
     end

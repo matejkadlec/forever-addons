@@ -1,7 +1,9 @@
--- ForeverMarket trade/Picks.lua: the room a pick has on the AH.
--- Rule: a pick plans at most cap = round(share x C/24h) units (C/24h = the row's sold12 x 2, share = the
--- setting tableCircPct, default 25%), less what you already list on all your characters; an item whose room
--- is under one craft (the recipe's "makes") or one unit is no pick and says why.
+-- ForeverMarket trade/Picks.lua: the plan, its batch (FRV-103) and the room a pick has on the AH.
+-- Rule: a batch is at most cap = round(share x C/24h) units (C/24h = the row's sold12 x 2, share = the setting
+-- tableCircPct, default 25%), less what you already list on all your characters; an item whose room is under one
+-- craft (the recipe's "makes") or one unit is no pick and says why. Without a record of your own an item's batch is
+-- half the buyers of 8h, at least 10: the records below give 4 x perInterval buyers a day, so perInterval 27 (108
+-- a day, 36 in 8h) plans 18.
 -- Your listings = what your auction lists and posts know; of the units last seen more than 10 minutes before the
 -- latest snapshot (2 hours for a feed snapshot) only what can still be in it: the units it holds at exactly your
 -- unit prices, marked as yours or not, up to what you listed at each.
@@ -15,13 +17,13 @@ local H = require("harness")
 local F = require("fixtures")
 
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Places.lua", "trade/Calc.lua",
-    "trade/Picks.lua" }
+    "trade/Listings.lua", "trade/Picks.lua" }
 local B = F.Base36
 local NOW_MINUTES = 400000 -- minutes since FM.EPOCH
 local WHITE, ORANGE = "|cFFFFFFFF", "|cFFFF9933"
 
 -- Four deep scan records, 6h apart, each with `perInterval` units bought at the lowest price:
--- 4 x perInterval buyers a day, of which Picks gives you half
+-- 4 x perInterval buyers a day
 local function Records(perInterval)
     local list = {}
     for i = 3, 0, -1 do
@@ -99,8 +101,8 @@ local function Reason(pick, text)
 end
 
 H.test("picks: 43 circulate a day, the default share of 25% caps the pick at 11", function()
-    -- 36 buyers a day: half of them (18) was the plan before the cap
-    local FM, env = Setup({ ["100"] = 9 })
+    -- 108 buyers a day, 36 in 8h: half of them (18) is the batch before the cap
+    local FM, env = Setup({ ["100"] = 27 })
     local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
     H.eq(HasStep(picks["100"], "make 11"), true, "make 11")
     local line = Reason(picks["100"], "C/24h 43, cap 11 (25%), you list 0 -> make 11")
@@ -109,11 +111,11 @@ H.test("picks: 43 circulate a day, the default share of 25% caps the pick at 11"
 end)
 
 H.test("picks: the share is a setting", function()
-    local FM, env = Setup({ ["100"] = 9 }, { tableCircPct = 10 })
+    local FM, env = Setup({ ["100"] = 27 }, { tableCircPct = 10 })
     local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
     H.eq(HasStep(picks["100"], "make 4"), true, "10% of 43 = 4.3: make 4")
-    -- a share that allows more than the buyers take leaves the buyers' limit in place (half of 36 a day)
-    FM, env = Setup({ ["100"] = 9 }, { tableCircPct = 100 })
+    -- a share that allows more than the buyers take leaves the first batch in place (half of the 36 buyers of 8h)
+    FM, env = Setup({ ["100"] = 27 }, { tableCircPct = 100 })
     picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
     H.eq(HasStep(picks["100"], "make 18"), true, "100%: the buyers' limit, 18")
 end)
@@ -121,7 +123,7 @@ end)
 H.test("picks: your listings use up the cap, with no room left the item is no pick and says why", function()
     for _, noStock in ipairs({ true, false }) do
         -- 28 circulate a day: cap 7; 10 are listed in your auction list (56 buyers a day would leave 18 to make)
-        local FM, env, r = Setup({ ["101"] = 14 })
+        local FM, env, r = Setup({ ["101"] = 42 })
         FM.FilterSet("picks").noStock = noStock
         r.owned.Tester = { t = env.clock - 3600, list = table.concat({ B(1), "101", B(10), B(10000), "a", B(80000) }, ":") }
         local out = { crafts = { Craft("101", 28) } }
@@ -132,21 +134,23 @@ H.test("picks: your listings use up the cap, with no room left the item is no pi
 end)
 
 H.test("picks: listings posted after the auction list count, the pick gets only the room that is left", function()
-    -- 1000 circulate a day: cap 250; 200 were posted an hour ago by another character, after its list was read
-    local FM, env, r = Setup({ ["102"] = 200 })
+    -- 1000 circulate a day: cap 250, one pick of an item lists at most 100 (FRV-103); 60 were posted an hour ago by
+    -- another character, after its list was read
+    local FM, env, r = Setup({ ["102"] = 600 })
     r.owned.Banker = { t = env.clock - 7200, list = "" }
-    r.posts[1] = table.concat({ B(NOW_MINUTES - 60), "Banker", "102", B(200), B(10000), "3", "c" }, ",")
+    r.posts[1] = table.concat({ B(NOW_MINUTES - 60), "Banker", "102", B(60), B(10000), "3", "c" }, ",")
     local picks = Compute(FM, env, { crafts = { Craft("102", 1000) } })
-    H.eq(HasStep(picks["102"], "make 50"), true, "make 50")
-    H.eq(Reason(picks["102"], "C/24h 1,000, cap 250 (25%), you list 200 -> make 50") ~= nil, true, "the room line")
-    H.eq(Reason(picks["102"], "Your listings: 200 posted since; last seen 1h ago, what sold since still counts.") ~= nil, true,
+    H.eq(HasStep(picks["102"], "make 40"), true, "make 40")
+    H.eq(Reason(picks["102"], "C/24h 1,000, cap 250 (25%), at most 100 per pick, you list 60 -> make 40") ~= nil, true,
+        "the room line")
+    H.eq(Reason(picks["102"], "Your listings: 60 posted since; last seen 1h ago, what sold since still counts.") ~= nil, true,
         "where the listings are known from")
 end)
 
 H.test("picks: units listed before the latest snapshot count only as far as it still shows them", function()
     -- 28 circulate a day: cap 7; 10 were posted 5h ago, the snapshot is 1h old
     local function Run(ownInSnapshot)
-        local FM, env, r = Setup({ ["101"] = 14 })
+        local FM, env, r = Setup({ ["101"] = 42 })
         -- posted at 90s, the others list at 1g
         r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(9000), "3", "i" }, ",")
         local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 50 + ownInSnapshot, own = ownInSnapshot,
@@ -172,7 +176,7 @@ end)
 H.test("picks: the seller you undercut by 1c is not you: what sold stops counting", function()
     -- cap 7; 10 were posted 5h ago at 99s 99c, 1c under the others' 1g, and all sold. The 1h old snapshot holds
     -- the others' 50 at 1g, and its mark (within 1c) went to 10 of them: own = 10 at 1g, 40 unmarked at 1g
-    local FM, env, r = Setup({ ["101"] = 14 })
+    local FM, env, r = Setup({ ["101"] = 42 })
     r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(9999), "3", "i" }, ",")
     local view = View({ ["101"] = { ladder = { { 10000, 40 } }, qty = 50, own = 10, ownLevels = { [10000] = 10 } } },
         env.clock - 3600)
@@ -184,7 +188,7 @@ end)
 H.test("picks: units at your price count as yours only up to what you listed there", function()
     -- cap 7; 10 were posted 5h ago at 1g, 6 sold; the snapshot marks none and holds 4 of yours plus 50 of others
     -- at the same 1g: up to your 10 can be yours, so no room
-    local FM, env, r = Setup({ ["101"] = 14 })
+    local FM, env, r = Setup({ ["101"] = 42 })
     r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "101", B(10), B(10000), "3", "i" }, ",")
     local view = View({ ["101"] = { ladder = { { 10000, 54 } }, qty = 54, own = 0 } }, env.clock - 3600)
     local out = { crafts = { Craft("101", 28) } }
@@ -200,30 +204,35 @@ H.test("picks: units the snapshot holds at your price count as yours, whoever it
     -- 600 circulate a day: cap 150. 200 were posted 5h ago in one auction at 9s 99c; the 1h old snapshot gave the
     -- mark to another seller's 20 at 10s (own = 20 at 10s)
     local function Run(ladder, ownLevels, own)
-        local FM, env, r = Setup({ ["102"] = 200 })
+        local FM, env, r = Setup({ ["102"] = 600 })
         r.posts[1] = table.concat({ B(NOW_MINUTES - 300), "Tester", "102", B(200), B(999), "3", "c" }, ",")
         local view = View({ ["102"] = { ladder = ladder, qty = 300, own = own or 20, ownLevels = ownLevels or { [1000] = 20 } } },
             env.clock - 3600)
-        local out = { crafts = { Craft("102", 600) } }
+        -- the others list at 11s here, far under the craft's usual 1g: no usual price, so the test is no dip to wait out
+        local craft = Craft("102", 600)
+        craft.usual = nil
+        local out = { crafts = { craft } }
         return Compute(FM, env, out, view), out
     end
     -- your 200 stand unmarked at 9s 99c: they are yours
     local picks, out = Run({ { 999, 200 }, { 1100, 80 } })
     H.eq(picks["102"], nil, "200 at your price: no pick")
-    H.eq(out.pickWhy["102"], "you list 200 already (last seen 5h ago): the cap is 150 (25% of C/24h 600)", "the reason")
+    H.eq(out.pickWhy["102"], "you list 200 already (last seen 5h ago): one pick lists at most 100", "the reason")
     -- nothing at your price any more: the marked 20 at 10s are the other seller's, the whole cap is free and the
     -- pick stops at its 100 units
     picks = Run({ { 1100, 280 } })
-    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), you list 0 -> make 100") ~= nil, true, "nothing of yours left")
-    -- 120 marked at exactly your price and nothing unmarked there: 120 of yours are left, room for 30
-    picks = Run({ { 1100, 180 } }, { [999] = 120 }, 120)
-    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), you list 120 -> make 30") ~= nil, true, "120 left: make 30")
+    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), at most 100 per pick, you list 0 -> make 100") ~= nil, true,
+        "nothing of yours left")
+    -- 60 marked at exactly your price and nothing unmarked there: 60 of yours are left, 40 to make
+    picks = Run({ { 1100, 240 } }, { [999] = 60 }, 60)
+    H.eq(Reason(picks["102"], "C/24h 600, cap 150 (25%), at most 100 per pick, you list 60 -> make 40") ~= nil, true,
+        "60 left: make 40")
 end)
 
 H.test("picks: a feed snapshot can lack what was posted in the 2 hours before its time, a deep scan 10 minutes", function()
     -- cap 7; 10 posted 90 minutes ago, the 1h old snapshot holds none at your price
     local function Run(source)
-        local FM, env, r = Setup({ ["101"] = 14 })
+        local FM, env, r = Setup({ ["101"] = 42 })
         r.posts[1] = table.concat({ B(NOW_MINUTES - 90), "Tester", "101", B(10), B(9000), "3", "i" }, ",")
         local out = { crafts = { Craft("101", 28) } }
         return Compute(FM, env, out, View(nil, env.clock - 3600, source)), out
@@ -237,7 +246,7 @@ end)
 
 H.test("picks: units posted after the latest snapshot count in full, whatever it shows", function()
     -- cap 7; 10 posted 30 min ago, the snapshot is 1h old and cannot know them
-    local FM, env, r = Setup({ ["101"] = 14 })
+    local FM, env, r = Setup({ ["101"] = 42 })
     r.posts[1] = table.concat({ B(NOW_MINUTES - 30), "Tester", "101", B(10), B(10000), "3", "i" }, ",")
     local out = { crafts = { Craft("101", 28) } }
     local picks = Compute(FM, env, out, View(nil, env.clock - 3600))
@@ -247,7 +256,7 @@ end)
 
 H.test("picks: the snapshot alone adds no listing your lists and posts do not know", function()
     -- the snapshot marks 10 as yours, but no list and no post of the last 24h holds them: they ran out
-    local FM, env = Setup({ ["101"] = 14 })
+    local FM, env = Setup({ ["101"] = 42 })
     local view = View({ ["101"] = { ladder = { { 10000, 50 } }, qty = 60, own = 10 } }, env.clock - 3600)
     local picks = Compute(FM, env, { crafts = { Craft("101", 28) } }, view)
     H.eq(HasStep(picks["101"], "make 7"), true, "the whole cap")
@@ -255,7 +264,7 @@ end)
 
 H.test("picks: a cap under one craft is no pick", function()
     -- 12 circulate a day: cap 3, one craft makes 5
-    local FM, env = Setup({ ["103"] = 9 })
+    local FM, env = Setup({ ["103"] = 27 })
     local out = { crafts = { Craft("103", 12, 5) } }
     local picks = Compute(FM, env, out)
     H.eq(picks["103"], nil, "no pick")
@@ -264,7 +273,7 @@ end)
 
 H.test("picks: the reason names the share as it is, never rounded up to one craft", function()
     -- 18.4 circulate a day: the share is 4.6, one craft makes 5
-    local FM, env = Setup({ ["103"] = 9 })
+    local FM, env = Setup({ ["103"] = 27 })
     local out = { crafts = { Craft("103", 18.4, 5) } }
     Compute(FM, env, out)
     H.eq(out.pickWhy["103"], "too little circulation: C/24h 18, your share (25%) is 4.6, one craft makes 5", "the reason")
@@ -275,7 +284,7 @@ H.test("picks: the reason names the share as it is, never rounded up to one craf
 end)
 
 H.test("picks: a share under one unit is no pick (half a unit a day is not rounded up)", function()
-    local FM, env = Setup({ ["100"] = 9 })
+    local FM, env = Setup({ ["100"] = 27 })
     local out = { crafts = { Craft("100", 2) } }
     local picks = Compute(FM, env, out)
     H.eq(picks["100"], nil, "no pick")
@@ -283,7 +292,7 @@ H.test("picks: a share under one unit is no pick (half a unit a day is not round
 end)
 
 H.test("picks: without a measured circulation an item is no pick", function()
-    local FM, env = Setup({ ["100"] = 9 })
+    local FM, env = Setup({ ["100"] = 27 })
     local row = Craft("100", 43)
     row.sold12 = nil
     local out = { crafts = { row } }
@@ -293,8 +302,8 @@ H.test("picks: without a measured circulation an item is no pick", function()
 end)
 
 H.test("picks: vendor resells and flips are capped the same way", function()
-    -- both: 20 circulate a day, cap 5; 36 buyers a day
-    local FM, env = Setup({ ["104"] = 9, ["105"] = 9 })
+    -- both: 20 circulate a day, cap 5; 108 buyers a day
+    local FM, env = Setup({ ["104"] = 27, ["105"] = 27 })
     local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 200,
         own = 0, sold12 = 10 }
     local flip = { key = "105", sell = 10000, usual = 10000, top = 5000, units = 40, support = 10, wall = 10000, qty = 60,
@@ -315,7 +324,7 @@ end)
 -- vendors is there is no pick and says so. Crafts and AH flips are not filtered by place.
 H.test("picks: with a place, vendor flips buy only from a vendor there; crafts and AH flips stay as they are", function()
     local function Market(place)
-        local FM, env = Setup({ ["100"] = 9, ["104"] = 9, ["105"] = 9 })
+        local FM, env = Setup({ ["100"] = 27, ["104"] = 27, ["105"] = 27 })
         env.maps = {
             [1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
             [1415] = { name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
@@ -353,7 +362,7 @@ end)
 
 -- The place limits only what a pick buys: a vendor item you hold stays a Stock pick wherever its vendors are
 H.test("picks: with a place where none of its vendors is, a vendor item you hold is still a Stock pick", function()
-    local FM, env = Setup({ ["104"] = 9 })
+    local FM, env = Setup({ ["104"] = 27 })
     env.maps = { [1414] = { name = "Kalimdor", mapType = 2, parentMapID = 947 },
         [1415] = { name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
         [1439] = { name = "Darkshore", mapType = 3, parentMapID = 1414 } }
@@ -369,7 +378,7 @@ H.test("picks: with a place where none of its vendors is, a vendor item you hold
 end)
 
 H.test("picks: the tooltip says when your auctions were never read, or how old the list is", function()
-    local FM, env, r = Setup({ ["100"] = 9 })
+    local FM, env, r = Setup({ ["100"] = 27 })
     local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
     local never = Reason(picks["100"], "Your auctions were never read: open the Auctions tab at the AH once. Until then only what "
         .. "you posted in the last 24h counts.")
@@ -395,7 +404,7 @@ end)
 local function FourCrafts()
     return { Craft("201", 400, 1, 50000), Craft("202", 400, 1, 40000), Craft("203", 400, 1, 30000), Craft("204", 400, 1, 20000) }
 end
-local FOUR_BUYERS = { ["201"] = 200, ["202"] = 200, ["203"] = 200, ["204"] = 200 }
+local FOUR_BUYERS = { ["201"] = 600, ["202"] = 600, ["203"] = 600, ["204"] = 600 }
 
 H.test("picks: the plan has up to Y picks, each with its share of the gold that is left", function()
     -- 1g, 90% across 3: the plan's gold is 90s, each craft costs 10s. First pick: 90s / 3 = 30s, make 3; second:
@@ -438,7 +447,7 @@ end)
 H.test("picks: what a pick does not use goes to the later ones", function()
     -- 1g, 90% across 3. The best craft sells at 10g but only 8 circulate a day: cap 2, it uses 20s of its 30s.
     -- The second gets 70s / 2 = 35s: make 3 (30s). The third gets the 40s left: make 4
-    local FM, env = Setup({ ["301"] = 9, ["302"] = 200, ["303"] = 200 }, nil, 10000)
+    local FM, env = Setup({ ["301"] = 27, ["302"] = 600, ["303"] = 600 }, nil, 10000)
     local out = { crafts = { Craft("301", 8, 1, 100000), Craft("302", 400, 1, 20000), Craft("303", 400, 1, 10000) } }
     local picks = Compute(FM, env, out)
     H.eq(out.pickPlan, 3, "picks in the plan")
@@ -463,18 +472,18 @@ end)
 H.test("picks: a craft one pick's share cannot pay for says so, not that the gold is gone", function()
     -- 1g, 90% across 3: one share is 30s. The material costs 40s a craft
     local dear = View({ ["900"] = { ladder = { { 4000, 100000 } }, qty = 100000, own = 0 } })
-    local FM, env = Setup({ ["201"] = 200 }, nil, 10000)
+    local FM, env = Setup({ ["201"] = 600 }, nil, 10000)
     local out = { crafts = { Craft("201", 400, 1, 50000) } }
     local picks = Compute(FM, env, out, dear)
     H.eq(picks["201"], nil, "no pick")
     H.eq(out.pickWhy["201"]:find("^one pick's share %(") ~= nil, true, "the reason names the share: " .. out.pickWhy["201"])
     -- across 1 the share is the plan's 90s: it pays for two crafts
-    FM, env = Setup({ ["201"] = 200 }, { tableInvestPicks = 1 }, 10000)
+    FM, env = Setup({ ["201"] = 600 }, { tableInvestPicks = 1 }, 10000)
     out = { crafts = { Craft("201", 400, 1, 50000) } }
     picks = Compute(FM, env, out, dear)
     H.eq(HasStep(picks["201"], "make 2"), true, "across 1: make 2")
     -- a material at 1g a craft: not even the whole plan pays for one
-    FM, env = Setup({ ["201"] = 200 }, { tableInvestPicks = 1 }, 10000)
+    FM, env = Setup({ ["201"] = 600 }, { tableInvestPicks = 1 }, 10000)
     out = { crafts = { Craft("201", 400, 1, 50000) } }
     Compute(FM, env, out, View({ ["900"] = { ladder = { { 10000, 100000 } }, qty = 100000, own = 0 } }))
     H.eq(out.pickWhy["201"]:find("^the plan's gold %(") ~= nil, true, "the reason names the plan's gold: " .. out.pickWhy["201"])
@@ -486,7 +495,7 @@ H.test("picks: a pick must earn 1% of its share, not of the whole plan", functio
     -- at 63% confidence (buyers seen, little price history) about 17s: a pick. Across 1 the share is 90g and it
     -- must earn 90s: no pick
     local function Run(slots)
-        local FM, env = Setup({ ["401"] = 200 }, { tableInvestPicks = slots })
+        local FM, env = Setup({ ["401"] = 600 }, { tableInvestPicks = slots })
         local out = { crafts = { Craft("401", 80, 1, 1200) } }
         return Compute(FM, env, out), out
     end
@@ -496,178 +505,563 @@ H.test("picks: a pick must earn 1% of its share, not of the whole plan", functio
     H.eq(out.pickWhy["401"]:find("^expected profit too small") ~= nil, true, "across 1: " .. tostring(out.pickWhy["401"]))
 end)
 
--- Rule (FRV-66): with 3+ sales of yours in the window (3 days), your pace is units sold over the time since your
--- first post in the window (at least 12h). While units of yours are still listed it is the rate the plan uses, also
--- when half the market's buyers is more; once you sold out the market share counts when it is more; without 3 sales
--- the market share is the rate. Buyers here: 36 a day, half = 18; C/24h 400 leaves room for 100.
-local function OwnRecord(r, key, sold, listed)
-    -- a first post 20h ago that has ended (8h), so your pace is sold / 20h
-    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 1200), "Tester", key, B(sold), B(10000), "2", "i" }, ",")
-    if sold > 0 then
-        r.events[#r.events + 1] = table.concat({ B(NOW_MINUTES - 600), "Tester", "osold", key, B(sold), B(10000), B(1), B(NOW_MINUTES - 700) }, ",")
-    end
-    if listed > 0 then
-        -- still listed: posted an hour ago for 24h
-        r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 60), "Tester", key, B(listed), B(10000), "3", "i" }, ",")
-    end
-end
-
-H.test("picks: your pace is the rate while yours are still listed, even when half the buyers is more", function()
-    -- 12 sold in 20h = 14.4 a day; 5 listed: 14.4 - 5 leaves 9 (the market's 18 would leave 13)
-    local FM, env, r = Setup({ ["501"] = 9 })
-    OwnRecord(r, "501", 12, 5)
-    local picks = Compute(FM, env, { crafts = { Craft("501", 400) } })
-    H.eq(HasStep(picks["501"], "make 9"), true, "make 9")
-    H.eq(Reason(picks["501"], "Yours are still listed: your own pace is the rate.") ~= nil, true, "the tooltip says why")
-    local line
-    for _, l in ipairs(picks["501"].reasons) do
-        if l[1] == "l" and l[2] == "Your sales" then line = l[3] end
-    end
-    H.eq(line, "12 in 3 days, 14 a day", "your sales and your pace")
-end)
-
--- Rule (FRV-109): each sale once, as the Profit tab counts it. A sold row's line written again after a list that
--- lacked the row (the same auction, units, price and nth) adds nothing, the second part of the same size and price
--- (nth 2) is a sale of its own, and an auction that was merely gone from a list still loading but is in the newest
--- list after all was not sold (the 80 Monster Omelet of 2026-11-20 11:16)
-H.test("picks: your pace counts each sale once", function()
-    local FM, env, r = Setup({ ["504"] = 9 })
-    local key = "504"
-    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 1200), "Tester", key, B(12), B(10000), "2", "c", "a1" }, ",")
-    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - 900), "Tester", key, B(80), B(10000), "3", "c", "r1" }, ",")
-    -- mailIn: minutes after the line when its row's mail goes out (the line's mail time, 1.38.8), nil for none
-    local function Sold(ago, aid, qty, shown, nth, mailIn)
-        local fields = { B(NOW_MINUTES - ago), "Tester", "osold", key, B(qty), B(10000), aid, B(NOW_MINUTES - ago - 2) }
-        if shown then fields[9], fields[10] = "s", B(nth) end
-        if mailIn then fields[11] = B(NOW_MINUTES - ago + mailIn) end
-        r.events[#r.events + 1] = table.concat(fields, ",")
-    end
-    Sold(600, "a1", 6, true, 1)
-    Sold(597, "a1", 6, true, 1) -- the same row again: the list of 3 minutes before lacked it
-    Sold(590, "a1", 6, true, 2) -- the second part of 6 at the same price
-    Sold(580, "r1", 80)         -- missing from a list that was still loading
-    r.owned.Tester = { t = env.clock - 60, v = 2,
-        list = table.concat({ "r1", key, B(80), B(10000), "a", B(50000) }, ":") }
-    local out = { crafts = { Craft(key, 400) } }
-    Compute(FM, env, out)
-    H.eq(out.pickWhy[key], "you list 80 and sell 14 a day yourself (12 sold in 3 days): they cover 5d",
-        "12 sold: the two parts, once each")
-    -- a line comes again only while its row is listed, within the hour after the first: 6 more sold 100 minutes later,
-    -- after the first rows' mails went out (nth 1 again), are a sale of their own
-    Sold(500, "a1", 6, true, 1)
-    out = { crafts = { Craft(key, 400) } }
-    Compute(FM, env, out)
-    H.eq(out.pickWhy[key]:find("(18 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
-    -- with the mail time on the line: a part seen late in a list (its mail 20 minutes after its line), the same line 5
-    -- minutes later (the row again), and another part 30 minutes later, after that mail went out: a sale of its own
-    Sold(400, "a2", 3, true, 1, 20)
-    Sold(395, "a2", 3, true, 1, 15)
-    Sold(370, "a2", 3, true, 1, 50)
-    out = { crafts = { Craft(key, 400) } }
-    Compute(FM, env, out)
-    H.eq(out.pickWhy[key]:find("(24 sold in 3 days)", 1, true) ~= nil, true, tostring(out.pickWhy[key]))
-end)
-
-H.test("picks: what you list covers a day at your pace: no pick, and the reason names your pace", function()
-    -- 12 sold in 20h = 14.4 a day, 15 listed
-    local FM, env, r = Setup({ ["502"] = 9 })
-    OwnRecord(r, "502", 12, 15)
-    local out = { crafts = { Craft("502", 400) } }
-    local picks = Compute(FM, env, out)
-    H.eq(picks["502"], nil, "no pick")
-    H.eq(out.pickWhy["502"], "you list 15 and sell 14 a day yourself (12 sold in 3 days): they cover 25h", "the reason")
-end)
-
-H.test("picks: once you sold out, the market share counts when it is more than your pace", function()
-    local FM, env, r = Setup({ ["503"] = 9 })
-    OwnRecord(r, "503", 12, 0)
-    local picks = Compute(FM, env, { crafts = { Craft("503", 400) } })
-    H.eq(HasStep(picks["503"], "make 18"), true, "half of 36 buyers: make 18")
-    H.eq(Reason(picks["503"], "Yours are still listed: your own pace is the rate."), nil, "no pace note")
-end)
-
-H.test("picks: without 3 sales of yours the market share is the rate, listed or not", function()
-    local FM, env, r = Setup({ ["504"] = 9 })
-    OwnRecord(r, "504", 2, 5)
-    local picks = Compute(FM, env, { crafts = { Craft("504", 400) } })
-    H.eq(HasStep(picks["504"], "make 13"), true, "18 less your 5 listed: make 13")
-end)
-
--- Rule (FRV-71): a commodity (an item that stacks, FM.ItemStacks) plans with your pace whenever you have 3+ sales in
--- the window, listed or sold out; without them a first batch only: at most the settings panel's first batch share
--- of C/24h (tableFirstPct, default 2%) and what one 8h listing at the market rate (half the buyers) sells. Items
--- sold per auction keep the rule above. Buyers here: 36 a day, half = 18, so one 8h listing sells 6.
+-- Items that stack (commodities, FRV-71: FM.ItemStacks)
 local function Commodities(FM, keys)
     local set = {}
     for _, key in ipairs(keys) do set[key] = true end
     FM.ItemStacks = function(key) return set[key] or false end
 end
 
-H.test("picks: a commodity you sold out of plans with your pace, not half the buyers", function()
-    -- 12 sold in 20h = 14.4 a day; the market's 18 would count for an item sold per auction
-    local FM, env, r = Setup({ ["511"] = 9 })
-    Commodities(FM, { "511" })
-    OwnRecord(r, "511", 12, 0)
-    local picks = Compute(FM, env, { crafts = { Craft("511", 400) } })
-    H.eq(HasStep(picks["511"], "make 14"), true, "your 14 a day: make 14")
-    H.eq(Reason(picks["511"], "A commodity: your own pace is the rate (its buyers are mostly relists).") ~= nil, true,
-        "the tooltip says why")
+---------------------------------------------------------------- your own listings (FRV-103, trade/Listings.lua)
+-- Rule: one listing = one post. An item post (kind i) sold the larger of its sale mails (1 unit at its unit price,
+-- each once) and its distinct auctions with an osold at that buyout; a commodity post (kind c) sold n less what came
+-- back (an ocancel, else the expiry mail of its end, else an ogone), sold out when none came back and it is over,
+-- while running the larger of its opart units and its purchase entries. proven = the most of your units sold within 8h
+-- of a post of the last 72h, ranOut = your units were gone in that time
+
+local DURATION = { [2] = "1", [8] = "2", [24] = "3" }
+
+-- A post of yours `ago` minutes before now: n units at unit, for `hours`, kind "i" or "c", the auction's ID
+local function Post(r, key, ago, n, unit, hours, kind, aid)
+    r.posts[#r.posts + 1] = table.concat({ B(NOW_MINUTES - ago), "Tester", key, B(n), B(unit), DURATION[hours or 24],
+        kind or "i", aid or "" }, ",")
+end
+
+-- An event of your auctions `ago` minutes before now, its list before `prevAgo` minutes before now
+local function Event(r, kind, key, ago, qty, buyout, aid, prevAgo)
+    r.events[#r.events + 1] = table.concat({ B(NOW_MINUTES - ago), "Tester", kind, key, B(qty), B(buyout), aid or "",
+        prevAgo and B(NOW_MINUTES - prevAgo) or "" }, ",")
+end
+
+-- A sale mail of `qty` (1) units for `total`, sent `ago` minutes before now
+local function SaleMail(FM, r, key, ago, total, qty)
+    r.invoices[#r.invoices + 1] = table.concat({ B(NOW_MINUTES - ago), "Tester", "seller", FM.GetName(key), "",
+        B(qty or 1), B(total), B(qty or 1), "0", "0", B(NOW_MINUTES - ago + 5) }, ",")
+end
+
+-- The expiry mail of `count` units (none: one unit), sent `ago` minutes before now
+local function ExpiryMail(FM, r, key, ago, count)
+    r.events[#r.events + 1] = table.concat({ B(NOW_MINUTES - ago), "Tester", "mexpired",
+        FM.GetName(key) .. (count and string.format(" (%d)", count) or "") }, ",")
+end
+
+local function Book(FM)
+    return FM.ListingsRecord(NOW_MINUTES)
+end
+
+H.test("listings: a commodity post's false sold lines count nothing, its expiry mail tells what came back", function()
+    -- 155 posted 30h ago for 24h at 5s: opart 1, 24 and 54, osold 130 at the unit price twice (the list's mark),
+    -- the expiry mail of 23 at its end, ogone 23: sold 132 (the raw lines add up to 339)
+    local FM, _, r = Setup({})
+    Post(r, "850", 1800, 155, 500, 24, "c", "c1")
+    Event(r, "opart", "850", 1700, 1, 500, "c1", 1710)
+    Event(r, "opart", "850", 1600, 24, 500, "c1", 1610)
+    Event(r, "osold", "850", 1500, 130, 500, "c1", 1510)
+    Event(r, "osold", "850", 1400, 130, 500, "c1", 1410)
+    Event(r, "opart", "850", 1300, 54, 500, "c1", 1310)
+    ExpiryMail(FM, r, "850", 1800 - 1440 - 5, 23)
+    Event(r, "ogone", "850", 300, 23, 500, "c1", 310)
+    local L = Book(FM).byKey["850"][1]
+    H.same({ L.sold, L.expired, L.cancelled, L.open }, { 132, 23, 0, nil }, "sold 132, 23 expired")
 end)
 
-H.test("picks: a commodity with your pace of 79 a day and 155 listed is no pick (Cured Thick Hide)", function()
-    -- 66 sold in 20h = 79 a day; C/24h 7300 leaves the 25% cap far above
-    local FM, env, r = Setup({ ["512"] = 9 })
-    Commodities(FM, { "512" })
-    OwnRecord(r, "512", 66, 155)
-    local out = { crafts = { Craft("512", 7300) } }
-    local picks = Compute(FM, env, out)
-    H.eq(picks["512"], nil, "no pick")
-    H.eq(out.pickWhy["512"], "you list 155 and sell 79 a day yourself (66 sold in 3 days): they cover 46h", "the reason")
+H.test("listings: a commodity post that sold nothing, one that sold part, one cancelled, one without a sign", function()
+    local FM, _, r = Setup({})
+    -- 120: osold 120 at the unit price, ogone 120, the expiry mail of 120
+    Post(r, "851", 1800, 120, 500, 24, "c", "c1")
+    Event(r, "osold", "851", 1500, 120, 500, "c1", 1510)
+    Event(r, "ogone", "851", 300, 120, 500, "c1", 310)
+    ExpiryMail(FM, r, "851", 1800 - 1440, 120)
+    -- 80: osold 80 at the unit price, opart 70, osold 10 at the unit price, the expiry mail of 10, ogone 10
+    Post(r, "852", 1800, 80, 500, 24, "c", "c2")
+    Event(r, "osold", "852", 1700, 80, 500, "c2", 1710)
+    Event(r, "opart", "852", 1600, 70, 500, "c2", 1610)
+    Event(r, "osold", "852", 1500, 10, 500, "c2", 1510)
+    ExpiryMail(FM, r, "852", 1800 - 1440 + 10, 10)
+    Event(r, "ogone", "852", 300, 10, 500, "c2", 310)
+    -- 102: opart 4 and 26, ocancel 72
+    Post(r, "853", 1800, 102, 500, 24, "c", "c3")
+    Event(r, "opart", "853", 1700, 4, 500, "c3", 1710)
+    Event(r, "opart", "853", 1600, 26, 500, "c3", 1610)
+    Event(r, "ocancel", "853", 1500, 72, 500, "c3", 1510)
+    -- 100, over, no event and no mail
+    Post(r, "854", 1800, 100, 500, 24, "c", "c4")
+    local book = Book(FM)
+    H.eq(book.byKey["851"][1].sold, 0, "nothing sold")
+    H.eq(book.byKey["852"][1].sold, 70, "70 sold")
+    H.same({ book.byKey["853"][1].sold, book.byKey["853"][1].cancelled }, { 30, 72 }, "30 sold, 72 cancelled")
+    H.eq(book.byKey["853"][1].finish, NOW_MINUTES - 1500, "the cancel ends it")
+    H.eq(book.byKey["854"][1].sold, 100, "sold out")
 end)
 
-H.test("picks: a commodity without sales of yours plans a first batch only, the share and the 8h listing cap it", function()
-    -- C/24h 4000: 2% = 80, one 8h listing at 18 a day = 6: make 6
-    local FM, env = Setup({ ["513"] = 9 })
-    Commodities(FM, { "513" })
-    local picks = Compute(FM, env, { crafts = { Craft("513", 4000) } })
-    H.eq(HasStep(picks["513"], "make 6"), true, "one 8h listing: make 6")
-    H.eq(Reason(picks["513"], "No sales of your own yet: a first batch (a commodity's buyers are mostly relists).") ~= nil,
-        true, "the tooltip says why")
-    H.eq(Reason(picks["513"], "C/24h 4,000, cap 6 (first batch: 2%, one 8h listing 6), you list 0 -> make 6") ~= nil, true,
-        "the room line")
-    -- C/24h 200: 2% = 4 binds
-    FM, env = Setup({ ["513"] = 9 })
-    Commodities(FM, { "513" })
-    picks = Compute(FM, env, { crafts = { Craft("513", 200) } })
-    H.eq(HasStep(picks["513"], "make 4"), true, "2% of 200: make 4")
-    -- the share is a setting
-    FM, env = Setup({ ["513"] = 9 }, { tableFirstPct = 1 })
-    Commodities(FM, { "513" })
-    picks = Compute(FM, env, { crafts = { Craft("513", 200) } })
-    H.eq(HasStep(picks["513"], "make 2"), true, "1% of 200: make 2")
-    -- too small for one craft: no pick, and why
-    FM, env = Setup({ ["513"] = 9 })
-    Commodities(FM, { "513" })
-    local out = { crafts = { Craft("513", 20) } }
-    picks = Compute(FM, env, out)
-    H.eq(picks["513"], nil, "no pick")
-    H.eq(out.pickWhy["513"], "no sales of your own yet: a first batch is <1 (2% of C/24h 20, one 8h listing at the market rate 6)",
+H.test("listings: a commodity post's purchase entries count while it runs, sold out once it is over", function()
+    -- 120 at 5s: opart 105, 9 and 4; an osold of 51 whose buyout is 51 x 5s (one purchase's total)
+    local function Run(ago)
+        local FM, _, r = Setup({})
+        Post(r, "855", ago, 120, 500, 24, "c", "c1")
+        Event(r, "opart", "855", ago - 30, 105, 500, "c1", ago - 40)
+        Event(r, "opart", "855", ago - 60, 9, 500, "c1", ago - 70)
+        Event(r, "opart", "855", ago - 90, 4, 500, "c1", ago - 100)
+        Event(r, "osold", "855", ago - 100, 51, 51 * 500, "c1", ago - 110)
+        return Book(FM).byKey["855"][1]
+    end
+    local L = Run(1800)
+    H.same({ L.sold, L.open }, { 120, nil }, "over without a return: sold out")
+    L = Run(120)
+    H.same({ L.sold, L.open }, { 118, true }, "running: the larger of the parts (118) and the purchases (51)")
+end)
+
+H.test("listings: an item post sold its sale mails, or its sold auctions when the list knows more", function()
+    -- 15 at 14s 34c: 3 osold, 12 ogone, 15 sale mails within 9 minutes
+    local FM, _, r = Setup({})
+    Post(r, "856", 600, 15, 1434, 24, "i")
+    for i = 1, 3 do Event(r, "osold", "856", 590, 1, 1434, "a" .. i, 600) end
+    for i = 4, 15 do Event(r, "ogone", "856", 300, 1, 1434, "a" .. i, 310) end
+    for i = 1, 15 do SaleMail(FM, r, "856", 600 - math.floor(i * 9 / 15), 1434) end
+    -- 6: 6 osold, 4 sale mails
+    Post(r, "857", 600, 6, 1000, 24, "i")
+    for i = 1, 6 do Event(r, "osold", "857", 500, 1, 1000, "b" .. i, 520) end
+    for _ = 1, 4 do SaleMail(FM, r, "857", 550, 1000) end
+    local book = Book(FM)
+    local L = book.byKey["856"][1]
+    H.eq(L.sold, 15, "15 sold")
+    H.eq(#L.times, 15, "each sale's moment from its mail")
+    H.eq(L.times[15][1] - L.t <= 9, true, "all within 9 minutes")
+    L = book.byKey["857"][1]
+    H.eq(L.sold, 6, "6 sold: 4 mails, 2 auctions the list shows sold")
+    H.eq(L.times[5][1], NOW_MINUTES - 510, "an auction without its mail sold between the two list reads")
+end)
+
+H.test("listings: proven is the most sold within 8h of a post of yours, ranOut whether your units were gone", function()
+    -- posts of 6, 4 and 15 within 2.5h, each sold within 11 minutes: proven 25, your units ran out
+    local FM, _, r = Setup({})
+    for _, p in ipairs({ { 1800, 6 }, { 1740, 4 }, { 1650, 15 } }) do
+        Post(r, "858", p[1], p[2], 1000, 24, "i")
+        for i = 1, p[2] do SaleMail(FM, r, "858", p[1] - 1 - (i % 11), 1000) end
+    end
+    -- 100 posted, 12 sold within 8h, 88 expired: proven 12, units were left
+    Post(r, "859", 2400, 100, 1000, 24, "i")
+    for i = 1, 12 do SaleMail(FM, r, "859", 2400 - i * 30, 1000) end
+    local book = Book(FM)
+    local p = book.Proven("858")
+    H.same({ p.proven, p.ranOut, p.at, p.sold72 }, { 25, true, NOW_MINUTES - 1800, 25 }, "proven 25, ran out")
+    p = book.Proven("859")
+    H.same({ p.proven, p.ranOut }, { 12, false }, "proven 12, units left")
+    H.eq(book.byKey["859"][1].expired, 88, "88 expired")
+    H.same(book.Proven("860"), { proven = 0, ranOut = false, sold72 = 0 }, "an item never posted")
+end)
+
+---------------------------------------------------------------- the batch (FRV-103)
+-- Rule: proven x 1.25 when your units ran out, x 0.75 when units were left; without your own record a first batch
+-- (an item: half the buyers of 8h, at least 10; a commodity: 6% of them, at most the first batch share of C/24h);
+-- half when the margin is under the 8h deposit, twice for a commodity whose margin is 4 deposits or more; at most the
+-- room (share of C/24h) and 100 units (item) or 200 (commodity); what you list comes off, what you hold is inside it
+
+-- One craft of `key` for the batch: sells at `sell`, one material per craft at `cost` now, the 8h deposit `dep`
+local function BatchMarket(FM, key, sell, cost, dep, circ, makes)
+    FM.Deposit = function() return dep end
+    local craft = Craft(key, circ, makes, sell)
+    craft.cost, craft.parts[1].unit = cost, cost
+    craft.profit = sell * (makes or 1) * 0.95 - cost
+    return craft, View({ ["900"] = { ladder = { { cost, 100000 } }, qty = 100000, own = 0 } })
+end
+
+-- Your units of an item in your bags
+local function Hold(FM, key, n)
+    FM.Owned = function(k) if k == key then return n, n, n, n end return 0, 0, 0 end
+end
+
+-- A post 30h ago of n items at unit, all sold within 8h (your units ran out), or `sold` of them (units were left)
+local function ProvenItem(FM, r, key, n, unit, sold)
+    Post(r, key, 1800, n, unit, 24, "i")
+    for i = 1, sold or n do SaleMail(FM, r, key, 1800 - 2 - (i % 400), unit) end
+end
+
+-- A commodity post 40h ago of n units at unit with aid; opart events of `sold` units within its first 8h; the expiry
+-- mail of what was left
+local function ProvenCommodity(FM, r, key, n, unit, sold, hours)
+    Post(r, key, 2400, n, unit, hours or 24, "c", "p" .. key)
+    local left, step = sold, 1
+    while left > 0 do
+        local q = math.min(left, 50)
+        Event(r, "opart", key, 2400 - step * 60, q, unit, "p" .. key, 2400 - step * 60 - 10)
+        left, step = left - q, step + 1
+    end
+    if sold < n then ExpiryMail(FM, r, key, 2400 - (hours or 24) * 60, n - sold) end
+end
+
+local function Steps(pick)
+    return table.concat(pick.steps, " > ")
+end
+
+local function Mo(FM, copper)
+    return (FM.MoneyShort or FM.FormatMoney)(copper)
+end
+
+-- the Expected of a pick before its confidence
+local function Raw(pick)
+    return math.floor(pick.expected / pick.conf + 0.5)
+end
+
+-- Your proven Hillman's Cloak listing: 6, 4 and 15 posted within 2.5h 30h ago, each sold within 11 minutes
+local function HillmanRecord(FM, r, key, unit)
+    for _, p in ipairs({ { 1800, 6 }, { 1740, 4 }, { 1650, 15 } }) do
+        Post(r, key, p[1], p[2], unit, 24, "i")
+        for i = 1, p[2] do SaleMail(FM, r, key, p[1] - 1 - (i % 11), unit) end
+    end
+end
+
+H.test("batch: proven 25 and your units ran out: one listing of 31, what you hold is part of it (Hillman's Cloak)", function()
+    -- m 5s 47c (20s less the cut, less 13s 53c), d 2s 05c, 20 in your bags; C/24h 664: cap 166
+    local FM, env, r = Setup({ ["801"] = 90 }, nil, 100000)
+    local craft, view = BatchMarket(FM, "801", 2000, 1353, 205, 664)
+    HillmanRecord(FM, r, "801", 2000)
+    Hold(FM, "801", 20)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["801"]
+    H.eq(HasStep(pick, "make 11"), true, Steps(pick))
+    H.eq(HasStep(pick, "list 31 at " .. Mo(FM, 2000) .. " for 8h (20 you hold)"), true, "list 31, 20 of them yours")
+    H.eq(pick.batch, 31, "the batch")
+    H.eq(pick.kind, "craft", "Craft and sell")
+    -- Expected: 31 x (0.75 x 5s 47c - 0.25 x 2s 05c) = 1g 11s 29c, for 8h
+    H.eq(Raw(pick), 11129, "Expected before the confidence")
+    H.eq(pick.listHours, 8, "8h")
+    H.eq(Reason(pick, "Proven: 25 sold within 8h (" .. os.date("%d.%m. %H:%M", FM.EPOCH + (NOW_MINUTES - 1800) * 60)
+        .. "), your units ran out: one listing 31 (x 1.25)") ~= nil, true, "the batch line")
+    local sells
+    for _, l in ipairs(pick.reasons) do if l[1] == "l" and l[2] == "Sells" then sells = l[3] end end
+    H.eq(sells, "about 23 of 31 in 8h", "what sells")
+    -- C/24h 80: the room's cap of 20 is under the 31
+    FM, env, r = Setup({ ["801"] = 90 }, nil, 100000)
+    craft, view = BatchMarket(FM, "801", 2000, 1353, 205, 80)
+    HillmanRecord(FM, r, "801", 2000)
+    Hold(FM, "801", 20)
+    pick = Compute(FM, env, { crafts = { craft } }, view)["801"]
+    H.eq(pick.batch, 20, "the room caps it at 20")
+end)
+
+H.test("batch: a margin under the deposit halves it: a Stock pick of 15 of the 20 you hold", function()
+    -- m 1s 28c (20s less the cut, less 17s 72c) against d 2s 05c: 31.25 x 0.5 = 15.6
+    local FM, env, r = Setup({ ["802"] = 90 }, nil, 100000)
+    local craft, view = BatchMarket(FM, "802", 2000, 1772, 205, 664)
+    HillmanRecord(FM, r, "802", 2000)
+    Hold(FM, "802", 20)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["802"]
+    H.eq(pick.kind, "stock", "Stock")
+    H.eq(HasStep(pick, "list your 15 at " .. Mo(FM, 2000) .. " for 8h"), true, Steps(pick))
+    H.eq(Reason(pick, string.format("Margin %s under the deposit %s: half, 15", Mo(FM, 128), Mo(FM, 205))) ~= nil, true,
+        "the margin line")
+end)
+
+H.test("batch: without your own record, a first batch of half the buyers of 8h, at least 10; an item never doubles", function()
+    local function Make(key, perInterval, sell, cost, dep, gold)
+        local FM, env = Setup({ [key] = perInterval }, nil, gold or 100000)
+        local craft, view = BatchMarket(FM, key, sell, cost, dep, 400)
+        local out = { crafts = { craft } }
+        return Compute(FM, env, out, view)[key], out
+    end
+    -- 440 buyers a day (146.7 in 8h), m 1s 28c, d 2s 05c: half of 73.3 = 36.7: 36
+    H.eq(Make("803", 110, 300, 157, 205).batch, 36, "half of a first batch under the deposit")
+    -- 8 buyers a day (2.7 in 8h), m 39s 10c, d 11s 65c (Shadowskin Gloves): at least 10
+    H.eq(Make("804", 2, 10000, 5590, 1165, 1000000).batch, 10, "at least 10")
+    -- 112 buyers a day (37.3 in 8h), m 3s 59c, d 20c: 18.7, an item is never doubled: 18
+    H.eq(Make("805", 28, 1000, 591, 20).batch, 18, "no boost for an item")
+    -- m exactly the deposit: not halved
+    H.eq(Make("814", 9, 10000, 8500, 1000, 1000000).batch, 10, "a margin as big as the deposit is not under it")
+end)
+
+H.test("batch: a commodity's first batch is 6% of the buyers of 8h, twice with a margin of 4 deposits or more", function()
+    local function Make(key, perInterval, cost, dep, circ, gold)
+        local FM, env = Setup({ [key] = perInterval }, nil, gold or 1000000)
+        Commodities(FM, { key })
+        local craft, view = BatchMarket(FM, key, 1000, cost, dep, circ or 10000)
+        local out = { crafts = { craft } }
+        return Compute(FM, env, out, view)[key], out
+    end
+    -- 4,400 buyers a day (1,467 in 8h), m 3s 38c, d 2c (Darkclaw Lobster): 88 x 2 = 176
+    H.eq(Make("806", 1100, 612, 2).batch, 176, "88 x 2")
+    -- 1,756 buyers a day (585 in 8h), m 1s 37c, d 15c: 35.1 x 2 = 70
+    H.eq(Make("807", 439, 813, 15, nil, 300000).batch, 70, "35.1 x 2")
+    -- m exactly 4 deposits (4s against 1s): twice
+    H.eq(Make("815", 1100, 550, 100).batch, 176, "4 deposits: twice")
+    -- the first batch share of C/24h (2%) stays its upper limit: C/24h 1,000 allows 20
+    local pick = Make("816", 1100, 612, 2, 1000, 300000)
+    H.eq(pick.batch, 20, "2% of C/24h 1,000")
+    H.eq(Reason(pick, "C/24h 1,000, cap 250 (25%), a first batch at most 2% of C/24h (20), you list 0 -> make 20") ~= nil,
+        true, "the room line names the limit")
+end)
+
+H.test("batch: a commodity's proven listing, units left or run out, less what you list; at most 200", function()
+    local function Make(key, n, sold, cost, dep, listed, gold, hours)
+        local FM, env, r = Setup({ [key] = 90 }, nil, gold or 1000000)
+        Commodities(FM, { key })
+        local craft, view = BatchMarket(FM, key, 1000, cost, dep, 2000)
+        ProvenCommodity(FM, r, key, n, 1000, sold, hours)
+        if listed then Post(r, key, 60, listed, 1000, 24, "c", "l" .. key) end
+        local out = { crafts = { craft } }
+        return Compute(FM, env, out, view)[key], out
+    end
+    -- proven 197, units were left, m 1s 87c, d 1s, 35 listed (Cured Thick Hide): 147.75 - 35 = 112
+    H.eq(Make("808", 232, 197, 763, 100, 35, 300000).batch, 112, "147.75 less your 35")
+    -- proven 12, units left: 9 (m 12s 60c, d 6s: the spec's 1s 26c and 60c earn under the minimum score)
+    local FM9, env9, r9 = Setup({ ["809"] = 90 }, nil, 300000)
+    Commodities(FM9, { "809" })
+    local craft9, view9 = BatchMarket(FM9, "809", 10000, 8240, 600, 2000)
+    ProvenCommodity(FM9, r9, "809", 30, 10000, 12)
+    H.eq(Compute(FM9, env9, { crafts = { craft9 } }, view9)["809"].batch, 9, "0.75 x 12")
+    -- proven 224, your units ran out (an 8h post sold out), m 1s 30c, d 15c: 280 x 2 = 560, at most 200
+    local pick = Make("810", 224, 224, 820, 15, nil, 1000000, 8)
+    H.eq(pick.batch, 200, "the 200 limit")
+end)
+
+H.test("batch: what you list comes off, a batch under one craft or one unit is no pick and says why", function()
+    local function Make(key, listed, makes, circ, provenSold)
+        local FM, env, r = Setup({ [key] = 9 }, nil, 100000)
+        local craft, view = BatchMarket(FM, key, 1000, 500 * (makes or 1), 50, circ or 400, makes)
+        if provenSold ~= false then ProvenItem(FM, r, key, provenSold and 10 or 44, 1000, provenSold) end
+        if listed then Post(r, key, 60, listed, 1000, 24, "i") end
+        local out = { crafts = { craft } }
+        return Compute(FM, env, out, view)[key], out
+    end
+    -- proven 44, your units ran out: one listing of 55; 30 listed: 25
+    H.eq(Make("811", 30).batch, 25, "55 less your 30")
+    local pick, out = Make("811", 70)
+    H.eq(pick, nil, "70 listed: no pick")
+    H.eq(out.pickWhy["811"], "you list 70 already (last seen 1h ago): one listing sells 55 (1.25 x the 44 you sold within 8h)",
         "the reason")
+    -- a craft that makes 5: a batch of 7 (C/24h 28) is one craft
+    pick = Make("812", nil, 5, 28, false)
+    H.eq(HasStep(pick, "make 5"), true, "one craft")
+    -- proven 3, units left: 2, under one craft of 5
+    pick, out = Make("813", nil, 5, 400, 3)
+    H.eq(pick, nil, "no pick")
+    H.eq(out.pickWhy["813"], "one listing sells 2 (0.75 x the 3 you sold within 8h), one craft makes 5", "the reason")
 end)
 
-H.test("picks: an item sold per auction keeps half the buyers without sales of yours", function()
-    local FM, env = Setup({ ["514"] = 9 })
-    Commodities(FM, { "513" })
-    local picks = Compute(FM, env, { crafts = { Craft("514", 4000) } })
-    H.eq(HasStep(picks["514"], "make 18"), true, "half of 36 buyers: make 18")
-    H.eq(Reason(picks["514"], "No sales of your own yet: a first batch (a commodity's buyers are mostly relists)."), nil,
-        "no first batch note")
+H.test("expected: of one 8h listing 40% of a commodity sells, what does not loses its deposit", function()
+    -- proven 80, your units ran out: 100; m 1s against d 1s: 40 x 1s - 60 x 1s = -20s
+    local function Make(key, cost)
+        local FM, env, r = Setup({ [key] = 90 }, nil, 300000)
+        Commodities(FM, { key })
+        local craft, view = BatchMarket(FM, key, 1000, cost, 100, 2000)
+        ProvenCommodity(FM, r, key, 80, 1000, 80, 8)
+        local out = { crafts = { craft } }
+        return Compute(FM, env, out, view)[key], out
+    end
+    local pick, out = Make("817", 850)
+    H.eq(pick, nil, "no pick")
+    H.eq(out.pickWhy["817"], "the deposits of what does not sell eat the profit: about 40% of a commodity listing sells",
+        "the reason")
+    -- m 2s 05c: 100 x (0.4 x 2s 05c - 0.6 x 1s) = 22s
+    pick = Make("818", 745)
+    H.eq(pick.batch, 100, "100")
+    H.eq(Raw(pick), 2200, "22s")
+end)
+
+---------------------------------------------------------------- Craft and wait (FRV-103)
+-- Rule: the cheapest price of others p at most 85% of the usual price U, a record of the last 24h at 95% of U or more
+-- (fresh), and waiting pays (gain = P48 x (T / p - 1) - (1 - P48) x 0.15 >= 0.05, T = 95% of U): units you hold are
+-- "Stock, wait"; with materials 10%+ under their usual cost, and when the upside outweighs the downside 3 times,
+-- "Craft and wait" (make now, list at T later); else no pick. The score counts 8 / (8 + hours)
+
+-- Deep scan records at `points` = { { minutes ago, the lowest price } }, perInterval bought each
+local function PricedRecords(perInterval, points)
+    local list = {}
+    for _, pt in ipairs(points) do
+        local f = {}
+        for k = 1, 22 do f[k] = "" end
+        f[1] = "r" .. B(NOW_MINUTES - pt[1])
+        f[2], f[3] = B(pt[2]), B(50)
+        f[9] = B(360)
+        f[10], f[11] = B(perInterval), B(3)
+        f[22] = B(perInterval)
+        list[#list + 1] = table.concat(f, ",")
+    end
+    return table.concat(list, ";")
+end
+
+-- Fine Leather Pants: usual 18s 45c, the cheapest of others 13s 99c (8 of the 60 listed, you list at 13s 98c), the
+-- records of the last 24h at 1g (fresh); one material per craft at `cost` now, usually `usualCost`; ladder replaces
+-- the item's ladder
+local function DipMarket(FM, key, cost, usualCost, ladder, sell)
+    FM.Deposit = function() return 50 end
+    FM.UsualPrice = function(k) if k == "900" then return usualCost end return nil end
+    sell = sell or 1398
+    local craft = Craft(key, 400, 1, sell)
+    craft.usual = 1845
+    craft.cost, craft.parts[1].unit = cost, cost
+    craft.profit = sell * 0.95 - cost
+    ladder = ladder or { { 1399, 8 }, { 1600, 52 } }
+    local listed = 0
+    for _, l in ipairs(ladder) do listed = listed + l[2] end
+    return craft, View({ [key] = { ladder = ladder, qty = listed, own = 0 },
+        ["900"] = { ladder = { { cost, 100000 } }, qty = 100000, own = 0 } })
+end
+
+local function WaitText(FM, w, hoursText)
+    return string.format("wait until the price is %s (%s; waits until %s at the latest)", Mo(FM, w.T), hoursText,
+        os.date("%H:%M", w.freshUntil) .. " tomorrow")
+end
+
+H.test("wait: Fine Leather Pants 24% under usual, 20 you hold: Stock, wait, its score x 8 / 20", function()
+    local FM, env = Setup({ ["820"] = 30 }, nil, 100000)
+    local craft, view = DipMarket(FM, "820", 1357, 1328)
+    Hold(FM, "820", 20)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["820"]
+    H.eq(pick.kind, "stock", "a held stock")
+    local w = pick.wait
+    H.eq(w ~= nil, true, "it waits")
+    H.same({ w.P48, w.hours, w.T, math.floor(w.gain * 1000 + 0.5) }, { 0.81, 12, 1752, 176 }, "P48 0.81, 12h, 17s 52c, gain 0.176")
+    H.eq(FM.PickKind(pick), "swait", "Stock, wait")
+    H.eq(Steps(pick), WaitText(FM, w, "estimated 12h, 81% within 2 days") .. " > list your 20 at " .. Mo(FM, 1752) .. " for 8h",
+        "wait, then list at the target")
+    H.eq(math.abs(pick.score - pick.expected * 8 / 20) < 1e-6, true, "score x 8 / 20")
+end)
+
+H.test("wait: nothing held, the materials not cheap now: no pick, wait and craft later", function()
+    local FM, env = Setup({ ["821"] = 30 }, nil, 100000)
+    local craft, view = DipMarket(FM, "821", 1357, 1328) -- 13s 57c now against 13s 28c usually
+    local out = { crafts = { craft } }
+    local picks = Compute(FM, env, out, view)
+    H.eq(picks["821"], nil, "no pick")
+    H.eq(out.pickWhy["821"], "wait, craft later: the price is 24% under usual and comes back in about 12h (81% within 2 "
+        .. "days); the materials are not cheap now", "the reason")
+end)
+
+H.test("wait: the materials 11% under their usual cost: Craft and wait, listed at 17s 52c for 8h", function()
+    local FM, env = Setup({ ["822"] = 30 }, nil, 100000)
+    local craft, view = DipMarket(FM, "822", 1180, 1328) -- 11s 80c against 13s 28c (0.89)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["822"]
+    H.eq(pick.kind, "wait", "Craft and wait")
+    H.eq(pick.listAt, 1752, "listed at 17s 52c")
+    H.eq(HasStep(pick, "make 20"), true, Steps(pick))
+    H.eq(HasStep(pick, WaitText(FM, pick.wait, "estimated 12h, 81% within 2 days")), true, "the wait step")
+    H.eq(HasStep(pick, "list at " .. Mo(FM, 1752) .. " for 8h"), true, "then list")
+    -- up 484c, down -50c: EVu 383c; Expected 20 x (0.75 x 383 - 0.25 x 50)
+    H.eq(math.floor(pick.unitProfit + 0.5), 484, "up")
+    H.eq(Raw(pick), math.floor(20 * (0.75 * (0.81 * 484.4 + 0.19 * (1399 * 0.85 * 0.95 - 1180)) - 0.25 * 50) + 0.5), "Expected")
+    local why
+    for _, l in ipairs(pick.reasons) do if l[1] == "h" and l[2] == "Why wait" then why = true end end
+    H.eq(why, true, "the tooltip says why it waits")
+end)
+
+H.test("wait: cheap materials that cost more than the target earns, a small dip, no fresh price, no usual price", function()
+    -- cheap against their usual 19s, but 17s: up = 17s 52c x 0.95 - 17s < 0
+    local FM, env = Setup({ ["823"] = 30 }, nil, 100000)
+    local craft, view = DipMarket(FM, "823", 1700, 1900)
+    H.eq(Compute(FM, env, { crafts = { craft } }, view)["823"], nil, "no pick")
+    -- 16s 24c is 12% under usual: no wait, Craft and sell at 16s 23c
+    FM, env = Setup({ ["824"] = 30 }, nil, 100000)
+    craft, view = DipMarket(FM, "824", 1000, 1328, { { 1624, 8 }, { 1700, 52 } }, 1623)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["824"]
+    H.same({ pick.kind, pick.listAt, pick.wait }, { "craft", 1623, nil }, "Craft and sell at 16s 23c")
+    -- no price at 95% of usual in the last 24h: no wait
+    local r
+    FM, env, r = Setup({ ["825"] = 30 }, nil, 100000)
+    r.items["825"] = { d = PricedRecords(30, { { 1080, 1399 }, { 720, 1399 }, { 360, 1399 }, { 0, 1399 } }) }
+    craft, view = DipMarket(FM, "825", 1000, 1328)
+    pick = Compute(FM, env, { crafts = { craft } }, view)["825"]
+    H.same({ pick.kind, pick.listAt }, { "craft", 1398 }, "not fresh: Craft and sell at 13s 98c")
+    -- no usual price: never wait
+    FM, env = Setup({ ["826"] = 30 }, nil, 100000)
+    craft, view = DipMarket(FM, "826", 1000, 1328)
+    craft.usual = nil
+    pick = Compute(FM, env, { crafts = { craft } }, view)["826"]
+    H.same({ pick.kind, pick.wait }, { "craft", nil }, "no usual price")
+end)
+
+H.test("wait: a commodity with 30% of the listed units at the dip price and a flood: 76% within 2 days, 19h", function()
+    local FM, env = Setup({ ["827"] = 250 }, nil, 100000)
+    Commodities(FM, { "827" })
+    local craft, view = DipMarket(FM, "827", 800, 1328, { { 1399, 30 }, { 1600, 70 } })
+    Hold(FM, "827", 20)
+    local pick = Compute(FM, env, { crafts = { craft } }, view)["827"]
+    H.same({ pick.wait.P48, pick.wait.hours, pick.wait.flood }, { 0.76, 19, true }, "the table's row")
+    H.eq(pick.steps[1], WaitText(FM, pick.wait, "estimated 19h, 76% within 2 days"), "the wait step")
+end)
+
+H.test("wait: it ends a day after the price was last at 95% of usual, then the pick is judged at the price now", function()
+    -- the last record at 1g is 23h20m old: waiting holds for 40 more minutes
+    local function Run(cost, later)
+        local FM, env, r = Setup({ ["828"] = 30 }, nil, 100000)
+        r.items["828"] = { d = PricedRecords(30, { { 1400, 10000 }, { 1000, 1399 }, { 500, 1399 }, { 0, 1399 } }) }
+        local craft, view = DipMarket(FM, "828", cost, 1328)
+        Hold(FM, "828", 20)
+        local minutes = NOW_MINUTES + (later or 0)
+        env.clock = FM.EPOCH + minutes * 60
+        local out, done = { crafts = { craft } }, false
+        FM.ComputePicks(out, { view = view, sources = { profs = {} }, now = env.clock, nowMinutes = minutes },
+            function() done = true end)
+        env.FlushTimers()
+        H.eq(done, true, "the pass finished")
+        for _, p in ipairs(out.picks) do if p.key == "828" then return p, out, FM end end
+        return nil, out, FM
+    end
+    local pick, _, FM = Run(1357)
+    H.eq(pick.wait.freshUntil, FM.EPOCH + (NOW_MINUTES + 40) * 60, "until 40 minutes from now")
+    H.eq(pick.steps[1]:find("waits until " .. os.date("%H:%M", pick.wait.freshUntil), 1, true) ~= nil, true, pick.steps[1])
+    local why
+    for _, l in ipairs(pick.reasons) do
+        if l[1] == "n" and l[2]:find("^Waits until ") then why = l[2] end
+    end
+    H.eq(why ~= nil, true, "the tooltip says until when it waits")
+    -- 40 minutes later the dip is a day old: judged at 13s 98c, under what the units cost (13s 57c): no pick
+    local out
+    pick, out = Run(1357, 40)
+    H.eq(pick, nil, "no pick while the price is under the units' cost")
+    H.eq(out.pickWhy["828"], "under 10c profit per item", "the reason")
+    -- units that cost 10s: a Stock pick at the price now
+    pick = Run(1000, 40)
+    H.same({ pick.kind, pick.wait, pick.listAt }, { "stock", nil, 1398 }, "Stock at 13s 98c")
+end)
+
+---------------------------------------------------------------- the order and the plan log (FRV-103)
+
+H.test("order: the plan takes the best score per gold, a cheap pick counts as needing a quarter of one share", function()
+    -- 1000g across 12: one share 75g. A earns 50s a unit on 8g of materials (score about 7g 9s, invest 72g); B earns
+    -- 45s a unit on 50s (score about 2g 36s, invest 5g counted as 18g 75s): B first although A's score is higher
+    local FM, env = Setup({ ["830"] = 5, ["831"] = 5 }, { tableInvestPicks = 12 }, 10000000)
+    FM.Deposit = function() return 1 end
+    local a = Craft("830", 400, 1, 100000)
+    a.cost, a.parts[1].unit, a.profit = 80000, 80000, 15000
+    a.parts[1].key = "940"
+    local b = Craft("831", 400, 1, 10000)
+    b.cost, b.parts[1].unit, b.profit = 5000, 5000, 4500
+    local view = View({ ["940"] = { ladder = { { 80000, 1000 } }, qty = 1000, own = 0 },
+        ["900"] = { ladder = { { 5000, 100000 } }, qty = 100000, own = 0 } })
+    local picks = Compute(FM, env, { crafts = { a, b } }, view)
+    H.eq(picks["830"].score > picks["831"].score, true, "A has the higher score")
+    H.same({ picks["831"].rank, picks["830"].rank }, { 1, 2 }, "B first")
+end)
+
+H.test("plan log: a plan's picks are logged, the same plan again after an hour, lines older than 14 days go", function()
+    local FM, env, r = Setup({ ["100"] = 27 })
+    local function Run(later)
+        local minutes = NOW_MINUTES + (later or 0)
+        env.clock = FM.EPOCH + minutes * 60
+        local done = false
+        FM.ComputePicks({ crafts = { Craft("100", 43) } }, { view = View(), sources = { profs = {} }, now = env.clock,
+            nowMinutes = minutes }, function() done = true end)
+        env.FlushTimers()
+        H.eq(done, true, "the pass finished")
+    end
+    Run()
+    H.eq(#r.plans, 1, "one pick logged")
+    local f = FM.Split(r.plans[1], ",")
+    H.same({ FM.Dec(f[1]), f[2], f[3], f[4], f[5], f[9], f[10] }, { NOW_MINUTES, FM.PlayerName(), "100", "craft", "11", "1", "" },
+        "time, character, item, kind, batch, rank, in the plan")
+    H.eq(tonumber(f[8]), 70, "confidence in %")
+    Run(30)
+    H.eq(#r.plans, 1, "the same plan within the hour: not again")
+    table.insert(r.plans, 1, table.concat({ B(NOW_MINUTES - 15 * 1440), "Tester", "100", "craft", "5", "0", "0", "70", "1", "" }, ","))
+    Run(61)
+    H.eq(#r.plans, 2, "logged again after the hour, the line of 15 days ago gone")
+    H.eq(FM.Dec(FM.Split(r.plans[1], ",")[1]), NOW_MINUTES, "the oldest line left is the first plan's")
 end)
 
 -- FRV-44: what Shift-click and the row menu send to the sniper. Rule: every AH purchase of the plan with its planned
 -- units and its highest AH price, the units the steps line names; a material bought at a vendor never goes to it
 H.test("picks: the sniper gets the plan's AH purchases with their units, never its vendor purchases", function()
-    local FM, env = Setup({ ["600"] = 9 })
+    local FM, env = Setup({ ["600"] = 27 })
     FM.VendorUnit = function(key) if key == "901" then return 300, { where = "Drac Roughcut, Elwynn" } end end
     local craft = Craft("600", 43)
     craft.parts[2] = { key = "901", n = 1, unit = 300, src = "vendor" } -- cheaper at the vendor than on the AH
@@ -708,7 +1102,7 @@ local function MaterialLine(pick, key)
 end
 
 H.test("picks: a craftable material the table buys is bought while the AH is cheaper, then crafted", function()
-    local FM, env = Setup({ ["700"] = 9 })
+    local FM, env = Setup({ ["700"] = 27 })
     FM_Money = FM.FormatMoney
     SaltAtVendor(FM)
     -- the table bought it (a batch of 5 crafts gets the 10 cheap units at 13s); crafting one costs 13s 42c + 3 x 45c
@@ -731,7 +1125,7 @@ H.test("picks: a craftable material the table buys is bought while the AH is che
 end)
 
 H.test("picks: a material the table crafts is bought once crafting it gets dearer than the AH", function()
-    local FM, env = Setup({ ["701"] = 9 })
+    local FM, env = Setup({ ["701"] = 27 })
     FM_Money = FM.FormatMoney
     SaltAtVendor(FM)
     -- 20 Hides at 13s 42c, then 25s: crafting costs 14s 77c, then 26s 35c; the AH sells it at 17s
@@ -749,7 +1143,7 @@ H.test("picks: a material the table crafts is bought once crafting it gets deare
 end)
 
 H.test("picks: a craftable material without a usable recipe is bought and the line says why", function()
-    local FM, env = Setup({ ["702"] = 9, ["703"] = 9 })
+    local FM, env = Setup({ ["702"] = 27, ["703"] = 27 })
     FM_Money = FM.FormatMoney
     local unlearned = IntermediateCraft("702", { key = "930", n = 1, unit = 1000, src = "ah", noCraft = "recipe not learned" })
     local missing = IntermediateCraft("703", { key = "931", n = 1, unit = 1000, src = "ah", noCraft = { missing = "932" } })
@@ -761,7 +1155,7 @@ H.test("picks: a craftable material without a usable recipe is bought and the li
 end)
 
 H.test("picks: a material without a recipe has no reason in its line", function()
-    local FM, env = Setup({ ["704"] = 9 })
+    local FM, env = Setup({ ["704"] = 27 })
     FM_Money = FM.FormatMoney
     local pick = Compute(FM, env, { crafts = { Craft("704", 60) } })["704"]
     H.eq(MaterialLine(pick, "900"), "AH 15 up to " .. Money(1000), "just what the plan buys")
@@ -817,7 +1211,7 @@ H.test("shopping list: a flip, a vendor resell or an item without a craft is the
 end)
 
 H.test("shopping list: a pick learning its recipe from the AH pattern has the pattern, then its purchases", function()
-    local FM, env = Setup({ ["720"] = 9 })
+    local FM, env = Setup({ ["720"] = 27 })
     local row = Craft("720", 60)
     row.learned = false
     row.craft.learn = { { kind = "ah", key = "721", req = 0 } } -- the pattern on the AH for 1g
@@ -886,7 +1280,7 @@ H.test("materials: the table buys a craftable material within the allowance, cra
 end)
 
 H.test("picks: a craft a little cheaper than the AH is bought within the allowance, and the line says so", function()
-    local FM, env = Setup({ ["705"] = 9 })
+    local FM, env = Setup({ ["705"] = 27 })
     FM_Money = FM.FormatMoney
     SaltAtVendor(FM)
     -- crafting at 14s 77c in 3 s, the AH at 15s: buying 1.6% dearer, within 6%
@@ -900,7 +1294,7 @@ H.test("picks: a craft a little cheaper than the AH is bought within the allowan
     H.eq(MaterialLine(pick, "940"), "AH 30 up to " .. Money(1500) .. " (crafting costs " .. Money(1477)
         .. " each, buying 2% dearer, saves 3s per unit)", "the line says why")
     -- rate 0: the cheaper route, all crafted
-    FM, env = Setup({ ["705"] = 9 }, { tableTimePct = 0 })
+    FM, env = Setup({ ["705"] = 27 }, { tableTimePct = 0 })
     SaltAtVendor(FM)
     pick = Compute(FM, env, { crafts = { craft } }, view)["705"]
     H.same(pick.buys, { { key = "941", ah = 30, top = 1342 } }, "rate 0: 30 crafted from Hides")
@@ -908,7 +1302,7 @@ H.test("picks: a craft a little cheaper than the AH is bought within the allowan
 end)
 
 H.test("picks: the plan buys up the AH ladder while the premium stays within the allowance, crafts the rest", function()
-    local FM, env = Setup({ ["708"] = 9 })
+    local FM, env = Setup({ ["708"] = 27 })
     FM_Money = FM.FormatMoney
     SaltAtVendor(FM)
     -- crafting at 14s 77c in 5 s (10% at 2%/s); the AH: 10 at 15s (1.6%), 10 at 16s (8.3%), then 17s (15.1%)
@@ -926,7 +1320,7 @@ H.test("picks: the plan buys up the AH ladder while the premium stays within the
 end)
 
 H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to the next crafts", function()
-    local FM, env = Setup({ ["706"] = 9 })
+    local FM, env = Setup({ ["706"] = 27 })
     FM_Money = FM.FormatMoney
     -- one run of 30s makes 3 (10s each), the AH sells it at 14s; the product needs 1 per craft
     local craft = IntermediateCraft("706", { key = "950", n = 1, unit = 1000, src = "craft", makes = 3, parts = {
@@ -944,7 +1338,7 @@ H.test("picks: a recipe that makes 3 is weighed per unit, its spare units go to 
 end)
 
 H.test("picks: bought, then crafted, then bought again: the line gives the reason of the dear units", function()
-    local FM, env = Setup({ ["707"] = 12 })
+    local FM, env = Setup({ ["707"] = 36 })
     FM_Money = FM.FormatMoney
     SaltAtVendor(FM)
     -- 10 Cured Hides at 13s, then 17s; Hides 20 at 13s 42c, then 25s: crafting costs 14s 77c, then 26s 35c
@@ -965,8 +1359,8 @@ end)
 -- FRV-90: "Exclude stock for crafting" unchecked (the default), the plan uses the materials you hold first and buys
 -- only the rest; its steps and tooltip say what comes from your bags or bank; the buy step, Invest and the shopping
 -- list count only what is bought. Checked, every material is bought.
--- The market of these tests: a craft that needs 10 Heavy Leather (990, 1s on the AH) and sells at 1g; 36 buyers a
--- day (half = 18), C/24h 48: room for 12 crafts, 120 Heavy Leather.
+-- The market of these tests: a craft that needs 10 Heavy Leather (990, 1s on the AH) and sells at 1g; 108 buyers a
+-- day (a first batch of 18), C/24h 48: room for 12 crafts, 120 Heavy Leather.
 local function LeatherCraft(key)
     local craft = Craft(key, 48)
     craft.parts = { { key = "990", n = 10, unit = 100, src = "ah" } }
@@ -994,7 +1388,7 @@ local function StepStarting(pick, prefix)
 end
 
 H.test("picks: 120 Heavy Leather needed, 9 in your bags: the plan buys 111 and says it uses your 9", function()
-    local FM, env, r = Setup({ ["130"] = 9 })
+    local FM, env, r = Setup({ ["130"] = 27 })
     FM_Money = FM.FormatMoney
     r.names["990"] = "Heavy Leather"
     Own(FM, { ["990"] = { 9, 9, 9, 9 } })
@@ -1011,12 +1405,12 @@ H.test("picks: 120 Heavy Leather needed, 9 in your bags: the plan buys 111 and s
 end)
 
 H.test("picks: your materials in the bank, or in both, are named so", function()
-    local FM, env, r = Setup({ ["130"] = 9 })
+    local FM, env, r = Setup({ ["130"] = 27 })
     r.names["990"] = "Heavy Leather"
     Own(FM, { ["990"] = { 9, 9, 0, 0 } })
     local pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
     H.eq(HasStep(pick, "use 9 Heavy Leather from your bank"), true, "all in the bank")
-    FM, env, r = Setup({ ["130"] = 9 })
+    FM, env, r = Setup({ ["130"] = 27 })
     r.names["990"] = "Heavy Leather"
     Own(FM, { ["990"] = { 9, 9, 4, 4 } })
     pick = Compute(FM, env, { crafts = { LeatherCraft("130") } }, Leather())["130"]
@@ -1024,7 +1418,7 @@ H.test("picks: your materials in the bank, or in both, are named so", function()
 end)
 
 H.test("picks: Exclude stock for crafting buys every material and has no use step", function()
-    local FM, env, r = Setup({ ["130"] = 9 })
+    local FM, env, r = Setup({ ["130"] = 27 })
     FM_Money = FM.FormatMoney
     r.names["990"] = "Heavy Leather"
     Own(FM, { ["990"] = { 9, 9, 9, 9 } })
@@ -1037,7 +1431,7 @@ H.test("picks: Exclude stock for crafting buys every material and has no use ste
 end)
 
 H.test("picks: an intermediate you hold is used before it is crafted or bought", function()
-    local FM, env, r = Setup({ ["131"] = 9 })
+    local FM, env, r = Setup({ ["131"] = 27 })
     FM_Money = FM.FormatMoney
     r.names["950"] = "Cured Heavy Hide"
     Own(FM, { ["950"] = { 4, 4, 4, 4 } })
@@ -1056,10 +1450,10 @@ end)
 -- FRV-89: units of the pick's own item you hold are the pick's: it makes that many fewer and lists them with the
 -- new ones; when they cover it, the pick stays ("Stock": list them). 18 buyers a day, C/24h 400: room for 100.
 H.test("picks: making one unit of a pick lowers how many it plans, the pick stays", function()
-    local FM, env = Setup({ ["132"] = 9 })
+    local FM, env = Setup({ ["132"] = 27 })
     local pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
     H.eq(HasStep(pick, "make 18"), true, "nothing held: make 18")
-    FM, env = Setup({ ["132"] = 9 })
+    FM, env = Setup({ ["132"] = 27 })
     Own(FM, { ["132"] = { 1, 1, 1, 1 } })
     pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
     H.eq(pick and pick.kind, "craft", "still a craft pick")
@@ -1069,7 +1463,7 @@ H.test("picks: making one unit of a pick lowers how many it plans, the pick stay
 end)
 
 H.test("picks: what you hold covers the pick: it stays as Stock, nothing to make or buy", function()
-    local FM, env = Setup({ ["132"] = 9 })
+    local FM, env = Setup({ ["132"] = 27 })
     Own(FM, { ["132"] = { 30, 30, 30, 30 } })
     local out = { crafts = { Craft("132", 400) } }
     local pick = Compute(FM, env, out)["132"]
@@ -1081,7 +1475,7 @@ H.test("picks: what you hold covers the pick: it stays as Stock, nothing to make
 end)
 
 H.test("picks: soulbound units you hold are no stock to sell", function()
-    local FM, env = Setup({ ["132"] = 9 })
+    local FM, env = Setup({ ["132"] = 27 })
     Own(FM, { ["132"] = { 5, 0, 0, 5 } }) -- 5 in your bags, none sellable
     local pick = Compute(FM, env, { crafts = { Craft("132", 400) } })["132"]
     H.eq(HasStep(pick, "make 18"), true, "make 18")
@@ -1095,7 +1489,7 @@ local function ListThree(r)
 end
 
 H.test("picks: Exclude already listed items with the defaults: an item you list is no pick and says why", function()
-    local FM, env, r = Setup({ ["133"] = 9 })
+    local FM, env, r = Setup({ ["133"] = 27 })
     ListThree(r)
     FM.FilterSet("picks").noListed = true
     local out = { crafts = { Craft("133", 400) } }
@@ -1105,7 +1499,7 @@ H.test("picks: Exclude already listed items with the defaults: an item you list 
 end)
 
 H.test("picks: Exclude already listed items with a count threshold of 5: 3 listed can still be a pick", function()
-    local FM, env, r = Setup({ ["133"] = 9 })
+    local FM, env, r = Setup({ ["133"] = 27 })
     ListThree(r)
     local set = FM.FilterSet("picks")
     set.noListed, set.listedCount = true, 5
@@ -1114,12 +1508,12 @@ H.test("picks: Exclude already listed items with a count threshold of 5: 3 liste
 end)
 
 H.test("picks: Exclude already listed items: the value threshold counts too", function()
-    local FM, env, r = Setup({ ["133"] = 9 })
+    local FM, env, r = Setup({ ["133"] = 27 })
     ListThree(r)
     local set = FM.FilterSet("picks")
     set.noListed, set.listedValue = true, 30001
     H.eq(Compute(FM, env, { crafts = { Craft("133", 400) } })["133"] ~= nil, true, "3g listed, 3g 0s 1c needed: still a pick")
-    FM, env, r = Setup({ ["133"] = 9 })
+    FM, env, r = Setup({ ["133"] = 27 })
     ListThree(r)
     set = FM.FilterSet("picks")
     set.noListed, set.listedValue = true, 30000
@@ -1143,7 +1537,7 @@ local function HasLevel(out, key)
 end
 
 H.test("picks: at level 43 a recipe that needs level 45 is no pick, the reason names the option", function()
-    local FM, env = Setup({ ["134"] = 9, ["135"] = 9 })
+    local FM, env = Setup({ ["134"] = 27, ["135"] = 27 })
     env.UnitLevel = function() return 43 end
     local out = { crafts = { LevelRecipe("134", 45), Craft("135", 60) } }
     local picks = Compute(FM, env, out)
@@ -1154,7 +1548,7 @@ H.test("picks: at level 43 a recipe that needs level 45 is no pick, the reason n
 end)
 
 H.test("picks: Over character level with a cap of 2: the level 45 recipe is Level for information", function()
-    local FM, env = Setup({ ["134"] = 9 })
+    local FM, env = Setup({ ["134"] = 27 })
     env.UnitLevel = function() return 43 end
     local set = FM.FilterSet("picks")
     set.overLevel, set.overLevelCap = true, 2
@@ -1164,7 +1558,7 @@ H.test("picks: Over character level with a cap of 2: the level 45 recipe is Leve
     H.eq(HasLevel(out, "134"), true, "a Level for row")
     H.eq(out.pickWhy["134"], "needs level 45 (you are 43), one of the best recipes to level for", "the reason")
     -- a cap of 1 is not enough
-    FM, env = Setup({ ["134"] = 9 })
+    FM, env = Setup({ ["134"] = 27 })
     env.UnitLevel = function() return 43 end
     set = FM.FilterSet("picks")
     set.overLevel, set.overLevelCap = true, 1
@@ -1174,7 +1568,7 @@ H.test("picks: Over character level with a cap of 2: the level 45 recipe is Leve
 end)
 
 H.test("picks: a recipe your level allows is a pick that learns it", function()
-    local FM, env = Setup({ ["134"] = 9 })
+    local FM, env = Setup({ ["134"] = 27 })
     env.UnitLevel = function() return 45 end
     local pick = Compute(FM, env, { crafts = { LevelRecipe("134", 45) } })["134"]
     H.eq(pick and pick.kind, "learn", "learn and make")
@@ -1183,17 +1577,17 @@ end)
 -- FRV-89: "Over skill level" on Picks: a recipe above your skill is Level for information up to the cap only
 H.test("picks: a recipe above your skill is Level for within Over skill level's cap, else no candidate", function()
     local profs = { profs = { { short = "lw", skill = 280 } } }
-    local FM, env = Setup({ ["136"] = 9 })
+    local FM, env = Setup({ ["136"] = 27 })
     local out = { crafts = { LevelRecipe("136", 0, 290) } }
     Compute(FM, env, out, nil, profs)
     H.eq(HasLevel(out, "136"), true, "10 above with the default cap 10: Level for")
     H.eq(out.pickWhy["136"], "needs skill 290 (you have 280), one of the best recipes to level for", "the reason")
-    FM, env = Setup({ ["136"] = 9 })
+    FM, env = Setup({ ["136"] = 27 })
     FM.FilterSet("picks").overSkillCap = 5
     out = { crafts = { LevelRecipe("136", 0, 290) } }
     Compute(FM, env, out, nil, profs)
     H.eq(out.pickWhy["136"], "needs skill 290, you have 280 (Over skill level cap is 5)", "over the cap")
-    FM, env = Setup({ ["136"] = 9 })
+    FM, env = Setup({ ["136"] = 27 })
     FM.FilterSet("picks").overSkill = false
     out = { crafts = { LevelRecipe("136", 0, 290) } }
     Compute(FM, env, out, nil, profs)
@@ -1201,7 +1595,7 @@ H.test("picks: a recipe above your skill is Level for within Over skill level's 
 end)
 
 H.test("picks: Include not learned recipes off leaves recipes to learn out", function()
-    local FM, env = Setup({ ["134"] = 9 })
+    local FM, env = Setup({ ["134"] = 27 })
     FM.FilterSet("picks").learn = false
     local out = { crafts = { LevelRecipe("134", 0) } }
     Compute(FM, env, out)
@@ -1209,11 +1603,11 @@ H.test("picks: Include not learned recipes off leaves recipes to learn out", fun
 end)
 
 H.test("picks: the global filters count when Picks uses them, never another tab's", function()
-    local FM, env = Setup({ ["134"] = 9 })
+    local FM, env = Setup({ ["134"] = 27 })
     FM.FilterSet("latest").learn = false -- Craft's own: not Picks'
     local out = { crafts = { LevelRecipe("134", 0) } }
     H.eq(Compute(FM, env, out)["134"] ~= nil, true, "Craft's filters leave Picks as it is")
-    FM, env = Setup({ ["134"] = 9 })
+    FM, env = Setup({ ["134"] = 27 })
     FM.FilterSet("global").learn = false
     FM.GetSettings().tableUseGlobal.picks = true
     out = { crafts = { LevelRecipe("134", 0) } }
@@ -1245,7 +1639,7 @@ end)
 H.test("picks: Exclude already listed items with the defaults also excludes a listing whose price is not known", function()
     -- a bid only auction in your auction list, no post of it: its value is not known
     local function Setup137(valueMin)
-        local FM, env, r = Setup({ ["137"] = 9 })
+        local FM, env, r = Setup({ ["137"] = 27 })
         r.owned.Tester = { t = env.clock - 3600, list = table.concat({ B(1), "137", B(1), B(0), "a", B(80000) }, ":") }
         local set = FM.FilterSet("picks")
         set.noListed, set.listedValue = true, valueMin
@@ -1321,7 +1715,7 @@ end)
 -- forgotten with /fm forget does not count.
 H.test("budget: Gold of all characters adds your other characters' last recorded gold, a forgotten one does not count", function()
     local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "core/Codec.lua", "core/Store.lua",
-        "scan/Ledger.lua", "scan/Characters.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Picks.lua" })
+        "scan/Ledger.lua", "scan/Characters.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Listings.lua", "trade/Picks.lua" })
     FM.InitializeSavedData()
     env.clock = FM.EPOCH + NOW_MINUTES * 60
     env.GetMoney = function() return 10000 end
@@ -1366,7 +1760,7 @@ end)
 -- not read as all you hold: "30 from your bank (of your 150, pick #1 uses 120)"
 H.test("picks: a material an earlier pick uses says what that pick takes of yours", function()
     local function Plan(held)
-        local FM, env, r = Setup({ ["130"] = 9, ["133"] = 9 })
+        local FM, env, r = Setup({ ["130"] = 27, ["133"] = 27 })
         FM_Money = FM.FormatMoney
         r.names["990"] = "Heavy Leather"
         Own(FM, { ["990"] = { held, held, 0, 0 } }) -- all in the bank
@@ -1387,7 +1781,7 @@ end)
 
 -- Rule (FRV-67): a pick carries On AH (yours), C/8h and C/24h of the market row it was made from
 H.test("picks: a pick has the market numbers of its row for On AH, C/8h and C/24h", function()
-    local FM, env = Setup({ ["100"] = 9 })
+    local FM, env = Setup({ ["100"] = 27 })
     local row = Craft("100", 43)
     row.qty, row.own, row.soldWide = 64, 3, true
     local pick = Compute(FM, env, { crafts = { row } })["100"]
@@ -1400,7 +1794,7 @@ end)
 -- FRV-110: a recipe of a Leatherworking specialization you have not chosen is never a pick (nor Level for), and the
 -- reason names the specialization; its twin without one is a pick that learns it
 H.test("picks: a recipe of a specialization you have not chosen is no pick, the reason names it", function()
-    local FM, env = Setup({ ["730"] = 9, ["731"] = 9 })
+    local FM, env = Setup({ ["730"] = 27, ["731"] = 27 })
     local function Recipe(key, spec)
         local row = Craft(key, 60)
         row.learned = false

@@ -89,7 +89,7 @@ end)
 -- passes (a deep scan, a feed import, a post, a new auction list, the table's tick) keep it and recompute the rest.
 -- A post or a new auction list alone computes nothing while the lock is on: only the picks read them.
 local PLAN_FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua",
-    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Picks.lua" }
+    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Listings.lua", "trade/Picks.lua" }
 
 local function Pass(FM, env, how)
     if how == "plan" then FM.PlanPicks() else FM.ComputeTrade(how == "scan") end

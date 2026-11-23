@@ -18,7 +18,7 @@ local F = require("fixtures")
 
 local B = F.Base36
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua",
-    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Picks.lua" }
+    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Listings.lua", "trade/Picks.lua" }
 local LEATHER = 4234
 local BANK_TAB = 6 -- Enum.BagIndex.CharacterBankTab_1
 
