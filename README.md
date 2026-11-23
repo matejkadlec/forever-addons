@@ -164,7 +164,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 - Three ways to find an object, because the game gives AddOns no list of the objects around you:
   - In range: a recipe you know that needs the object nearby ("Requires: Iron Oven") is asked once a second whether that requirement is met; it learns your recipes while a profession window is open (anvils are skipped, a city anvil answers the same)
-  - Hover: an object's tooltip under your cursor names it (the game gives its name, not its place, so the place shown is where you stood)
+  - Hover: an object's tooltip under your cursor names it (the game gives its name, not its place, so the place shown is where you stood; anvils are skipped here too)
   - Shared: the objects other players running the AddOn placed or found in range, through a hidden chat channel the AddOn joins by itself, or your guild and group when the channel cannot be joined
 - The alert, for an object in your zone: a text in the upper middle of the screen ("Iron Oven at 38.5, 73.6, Ironforge", with the distance and the age for a shared one) and a sound, then a TomTom waypoint (without TomTom the coordinates in the chat); once per object, again after it moved or you left the zone and came back
 - Placed objects expire after 15 minutes (the camping wiki's number; `/fcf debug objects` prints each placement spell's own text)

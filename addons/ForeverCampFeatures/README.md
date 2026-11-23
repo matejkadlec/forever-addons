@@ -11,7 +11,7 @@ The game gives AddOns no list of the objects around you, so the AddOn learns abo
 | Way | Range | What it needs | Limits |
 | --- | --- | --- | --- |
 | **In range** | Where you stand | A recipe you know that needs the object nearby ("Requires: Iron Oven") | Only objects a recipe of yours needs; open each profession window once so the AddOn learns your recipes. Anvils are skipped: a city anvil answers the same |
-| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown is where you stood |
+| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown is where you stood. Anvils are skipped here too |
 | **Shared** | The whole zone and beyond | Other players who run the AddOn | Only what others placed or found in range |
 
 When you place a camp object yourself, or find one in range, the AddOn sends it to the other players who run the AddOn (see Privacy below); an object you stay in range of goes out again every 5 minutes, for players who arrive later.

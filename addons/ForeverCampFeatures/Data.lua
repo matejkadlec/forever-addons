@@ -10,7 +10,8 @@ local _, ns = ...
 -- item: the camp item that places the object; recipe: the recipe spell that crafts that item (crafting it is no placement)
 -- kit: the item is a kit named "... Kit", so its item name is not the object's name
 -- probes: recipes known to need the object nearby, tried before the profession window was opened once
--- worldTwin: a permanent world object has the same name (city anvils), so the in-range check cannot tell them apart
+-- worldTwin: a permanent world object has the same name (city anvils), so neither the in-range check nor the hover
+-- can tell them apart: such an object is only found through placements and shared reports
 
 local DURATION = 15 * 60
 

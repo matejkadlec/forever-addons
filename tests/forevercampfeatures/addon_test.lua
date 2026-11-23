@@ -218,7 +218,7 @@ H.test("hover: a tracked object's world tooltip alerts in the chat, without a wa
     H.eq(#Printed(env, "Tanning Rack in sight"), 1, "one alert")
 end)
 
-H.test("hover: other tooltips, a secret name and an object switched off are ignored", function()
+H.test("hover: other tooltips, a secret name, an object switched off and an anvil are ignored", function()
     local ns, env = Load()
     env.cursor = { type = 2, lines = { { leftText = "Ironforge Guard" } } }
     env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
@@ -230,6 +230,9 @@ H.test("hover: other tooltips, a secret name and an object switched off are igno
     env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
     ns.SetObjectEnabled("tanningrack", false)
     env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    -- a city anvil has the camp Anvil's name
+    env.cursor = { type = 4, lines = { { leftText = "Anvil" } } }
     env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
     H.eq(#ns.Known(), 0, "nothing found")
 end)

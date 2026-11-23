@@ -6,7 +6,8 @@ local _, ns = ...
 --    know are read while a profession window is open; their requirements are asked once a second.
 -- 2. Hover: the tooltip of the thing under your cursor in the world (WORLD_CURSOR_TOOLTIP_UPDATE,
 --    C_TooltipInfo.GetWorldCursor) names a tracked object. The client gives no position of that thing, so the
---    find is "in sight near where you stand" and is not shared.
+--    find is "in sight near where you stand" and is not shared. Objects whose name a permanent world object
+--    shares (city anvils) are skipped here too.
 -- 3. Placed: your own cast that places an object (UNIT_SPELLCAST_SUCCEEDED of the player); Share.lua shares it.
 -- Every value the client can hide (secret values) is checked before use.
 
@@ -287,7 +288,8 @@ local function OnWorldCursor()
     hover.lastText = PlainString(text) or "?"
     local object = ns.MatchName(text)
     hover.lastKey = object and object.key
-    if object and ns.IsObjectEnabled(object.key) then
+    -- a city anvil has the camp Anvil's name: such objects are not found by hovering either
+    if object and not object.worldTwin and ns.IsObjectEnabled(object.key) then
         local map, x, y = ns.PlayerPosition()
         if x then
             hover.matched = hover.matched + 1
