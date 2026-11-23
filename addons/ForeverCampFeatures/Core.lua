@@ -4,12 +4,19 @@ local L = ns.L
 
 -- Pure logic without game calls (tests/forevercampfeatures/ runs it outside the client): the shared message
 -- format and its validation, the rate limit per sender, the list of known objects (merging, expiry, alerting
--- once), distances and the texts of coordinates, ages and distances.
+-- once), distances, the texts of coordinates, ages and distances, and the checks of the alert's sound and look.
 
 local math_floor = math.floor
 local math_max = math.max
+local math_min = math.min
 local math_sqrt = math.sqrt
+local pairs = pairs
 local string_format = string.format
+local string_lower = string.lower
+local string_sub = string.sub
+local string_upper = string.upper
+local table_concat = table.concat
+local table_sort = table.sort
 local tonumber = tonumber
 local type = type
 
@@ -288,4 +295,91 @@ function ns.IsValidEntry(entry, objectsByKey)
         and type(entry.time) == "number" and type(entry.expires) == "number"
         and (entry.kind == "p" or entry.kind == "s")
         and type(entry.source) == "string"
+end
+
+--------------------------------------------------------------------------------
+-- The alert's sound and look (the settings)
+--------------------------------------------------------------------------------
+
+-- The alert text's size limits and default (the settings slider)
+ns.FONT_SIZE_MIN = 10
+ns.FONT_SIZE_MAX = 40
+ns.FONT_SIZE_DEFAULT = 20
+
+-- Words a sound's name keeps in capitals
+local SOUND_ACRONYMS = { UI = true, IG = true, GS = true, PVP = true, LFG = true, NPC = true, AH = true }
+
+-- A SOUNDKIT key as a readable name: "RAID_WARNING" -> "Raid Warning", "UI_EPICLOOT_TOAST" -> "UI Epicloot Toast"
+function ns.SoundName(key)
+    local words = {}
+    for word in key:gmatch("[^_]+") do
+        local upper = string_upper(word)
+        if SOUND_ACRONYMS[upper] then
+            words[#words + 1] = upper
+        else
+            words[#words + 1] = string_upper(string_sub(word, 1, 1)) .. string_lower(string_sub(word, 2))
+        end
+    end
+    return table_concat(words, " ")
+end
+
+-- Every sound of a SOUNDKIT table as { key, name, id }, A-Z by its readable name (the key breaks a tie)
+function ns.SoundList(soundKit)
+    local list = {}
+    if type(soundKit) ~= "table" then
+        return list
+    end
+    for key, id in pairs(soundKit) do
+        if type(key) == "string" and type(id) == "number" then
+            list[#list + 1] = { key = key, name = ns.SoundName(key), sortName = string_lower(ns.SoundName(key)), id = id }
+        end
+    end
+    table_sort(list, function(a, b)
+        if a.sortName ~= b.sortName then
+            return a.sortName < b.sortName
+        end
+        return a.key < b.key
+    end)
+    return list
+end
+
+-- True for a number that is not NaN or infinite
+local function IsFinite(value)
+    return type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- One color channel: a number clamped to 0-1, or nil
+local function Channel(value)
+    if not IsFinite(value) then
+        return nil
+    end
+    return math_max(0, math_min(1, value))
+end
+
+-- A saved color as a new table { r, g, b } (and a with alpha), every channel 0-1; anything else gives a copy of
+-- the default
+function ns.CleanColor(value, default, hasAlpha)
+    if type(value) == "table" then
+        local r, g, b, a = Channel(value.r), Channel(value.g), Channel(value.b), Channel(value.a)
+        if r and g and b and (a or not hasAlpha) then
+            return { r = r, g = g, b = b, a = hasAlpha and a or nil }
+        end
+    end
+    return { r = default.r, g = default.g, b = default.b, a = hasAlpha and default.a or nil }
+end
+
+-- A saved font size: a whole number within FONT_SIZE_MIN and FONT_SIZE_MAX, else the default
+function ns.CleanFontSize(value)
+    if not IsFinite(value) then
+        return ns.FONT_SIZE_DEFAULT
+    end
+    return math_max(ns.FONT_SIZE_MIN, math_min(ns.FONT_SIZE_MAX, math_floor(value + 0.5)))
+end
+
+-- A saved position: a new table { x, y } of offsets from the screen center, or nil (the default place)
+function ns.CleanPosition(value)
+    if type(value) == "table" and IsFinite(value.x) and IsFinite(value.y) then
+        return { x = value.x, y = value.y }
+    end
+    return nil
 end

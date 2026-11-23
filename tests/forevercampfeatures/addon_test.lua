@@ -90,7 +90,7 @@ local function Load(options)
     env.IsInGroup = function() return false end
     env.IsInRaid = function() return false end
     env.UnitGUID = function() return "Player-6842-00CB83C3" end
-    env.SOUNDKIT = { RAID_WARNING = 8959 }
+    env.SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
     env.PlaySound = function(kit) seen.sounds[#seen.sounds + 1] = kit end
     if not options.noTomTom then
         env.TomTom = {
@@ -360,8 +360,35 @@ H.test("the channel: /fcf off in combat leaves the channel once the fight is ove
         return fighting >= 0
     end
     env.SlashCmdList.FCF("off")
+    H.eq(env.channel, 5, "still in the channel during the fight")
     env.FlushTimers()
     H.eq(env.channel, 0, "left after the fight")
+end)
+
+H.test("the channel: /fcf off out of combat leaves at once, /fcf on joins at once (FRV-119)", function()
+    local _, env, seen = Load()
+    H.eq(env.channel, 5, "joined")
+    env.SlashCmdList.FCF("off")
+    H.eq(env.channel, 0, "left without waiting for the timer")
+    env.printed = {}
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "Channel ForeverCampFeatures: not joined"), 1, "/fcf debug says so right away")
+    env.FlushTimers()
+    H.eq(env.channel, 0, "the later check keeps it left")
+    env.SlashCmdList.FCF("on")
+    H.eq(env.channel, 5, "joined again at once")
+    env.FlushTimers()
+    H.eq(#seen.joined, 2, "one join at login, one for /fcf on")
+end)
+
+H.test("the channel: switching off both sharing options leaves at once, one of them keeps it (FRV-119)", function()
+    local ns, env = Load()
+    ns.SetOption("share", false)
+    H.eq(env.channel, 5, "showing what others found still needs the channel")
+    ns.SetOption("showShared", false)
+    H.eq(env.channel, 0, "left at once")
+    ns.SetOption("showShared", true)
+    H.eq(env.channel, 5, "joined at once")
 end)
 
 H.test("sharing: without the channel the guild gets it, the chat lockdown holds it back, off means off", function()
@@ -510,6 +537,145 @@ H.test("slash commands: the list, help, debug, test and errors", function()
     env.SlashCmdList.FCF("debug objects now")
     H.eq(#Printed(env, "Wrong number of arguments for 'debug' (expected 0-1)"), 1, "argument range")
     H.eq(#ns.Known(), 2, "known objects")
+end)
+
+H.test("sound: Raid Warning by default, the sound picked in the settings on the next alert, none while off (FRV-121)", function()
+    local ns, env, seen = Load()
+    H.eq(env.ForeverCampFeaturesSettings.alertSoundKit, "RAID_WARNING", "default")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(seen.sounds[1], 8959, "Raid Warning")
+    ns.SetStyle("alertSoundKit", "READY_CHECK")
+    ns.PreviewSound("READY_CHECK")
+    H.eq(seen.sounds[2], 8960, "the preview of the picked sound")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,ironoven,1455,200,200,p,0", "CHANNEL", "Someone")
+    H.eq(seen.sounds[3], 8960, "the next alert plays it")
+    ns.SetStyle("alertSoundKit", "NO_SUCH_SOUND")
+    H.eq(env.ForeverCampFeaturesSettings.alertSoundKit, "RAID_WARNING", "a sound the client lacks is the default")
+    ns.SetOption("alertSound", false)
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,tanningrack,1455,300,300,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.sounds, 3, "no sound while Sound is off")
+end)
+
+H.test("look: the alert's settings are checked at load; a sound the client no longer has falls back (FRV-121, FRV-122)", function()
+    local _, env = H.LoadAddon("addons/ForeverCampFeatures", FILES)
+    env.SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
+    env.ForeverCampFeaturesSettings = {
+        alertSoundKit = "REMOVED_IN_A_PATCH",
+        alertFont = 12,
+        alertFontSize = 99,
+        alertTextColor = { r = 1, g = "x", b = 1 },
+        alertBackground = { r = 0.5, g = 0.5, b = 0.5, a = 2 },
+        alertPosition = { x = 10, y = "up" }
+    }
+    env.FireEvent("ADDON_LOADED", "ForeverCampFeatures")
+    local db = env.ForeverCampFeaturesSettings
+    H.eq(db.alertSoundKit, "RAID_WARNING", "sound")
+    H.eq(db.alertFont, "", "font: the game's own")
+    H.eq(db.alertFontSize, 40, "size clamped")
+    H.same(db.alertTextColor, { r = 1, g = 0.82, b = 0 }, "text color: the default")
+    H.same(db.alertBackground, { r = 0.5, g = 0.5, b = 0.5, a = 1 }, "background: opacity clamped")
+    H.eq(db.alertPosition, nil, "position: the default place")
+    -- what was set before a /reload is kept as it is
+    _, env = H.LoadAddon("addons/ForeverCampFeatures", FILES)
+    env.SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
+    local saved = {
+        alertSoundKit = "READY_CHECK",
+        alertFont = "Fonts\\MORPHEUS.TTF",
+        alertFontSize = 30,
+        alertTextColor = { r = 0.5, g = 1, b = 0.25 },
+        alertBackground = { r = 0, g = 0, b = 0, a = 0 },
+        alertPosition = { x = -100, y = 250 }
+    }
+    env.ForeverCampFeaturesSettings = {}
+    for key, value in pairs(saved) do
+        env.ForeverCampFeaturesSettings[key] = value
+    end
+    env.FireEvent("ADDON_LOADED", "ForeverCampFeatures")
+    for key, value in pairs(saved) do
+        H.same(env.ForeverCampFeaturesSettings[key], value, key .. " kept")
+    end
+end)
+
+H.test("look: a fresh install uses the new defaults, Defaults restores them and the place (FRV-122)", function()
+    local ns, env = Load()
+    local db = env.ForeverCampFeaturesSettings
+    H.same({ db.alertSoundKit, db.alertFont, db.alertFontSize, db.alertPosition }, { "RAID_WARNING", "", 20, nil },
+        "fresh install")
+    H.same(db.alertBackground, { r = 0.2, g = 0.2, b = 0.2, a = 0.5 }, "grey at half opacity")
+    ns.SetStyle("alertSoundKit", "READY_CHECK")
+    ns.SetStyle("alertFont", "Fonts\\ARIALN.TTF")
+    ns.SetStyle("alertFontSize", 33)
+    ns.SetStyle("alertTextColor", { r = 1, g = 1, b = 1 })
+    ns.SetStyle("alertBackground", { r = 0, g = 0, b = 0, a = 0 })
+    ns.SetStyle("alertPosition", { x = 40, y = -60 })
+    H.same({ db.alertSoundKit, db.alertFont, db.alertFontSize }, { "READY_CHECK", "Fonts\\ARIALN.TTF", 33 }, "changed")
+    H.same(db.alertPosition, { x = 40, y = -60 }, "moved")
+    ns.ResetToDefaults()
+    H.same({ db.alertSoundKit, db.alertFont, db.alertFontSize, db.alertPosition }, { "RAID_WARNING", "", 20, nil },
+        "defaults")
+    H.same(db.alertTextColor, { r = 1, g = 0.82, b = 0 }, "text color")
+    -- the saved colors are copies: changing one never changes the defaults
+    db.alertBackground.a = 0.9
+    H.eq(ns.STYLE_DEFAULTS.alertBackground.a, 0.5, "default untouched")
+end)
+
+H.test("look: the newest alert sits a quarter of the screen above the center, or where it was moved (FRV-122)", function()
+    local ns, env = Load()
+    local frame = env.ForeverCampFeaturesAlertFrame
+    local anchors = {}
+    frame.SetPoint = function(_, point, relativeTo, relativePoint, x, y)
+        anchors[#anchors + 1] = { point, relativeTo == env.UIParent, relativePoint, x, y }
+    end
+    env.UIParent.GetHeight = function() return 768 end
+    env.SlashCmdList.FCF("test")
+    H.same(anchors[#anchors], { "CENTER", true, "CENTER", 0, 192 }, "a quarter of 768 above the center")
+    ns.SetStyle("alertPosition", { x = -300, y = 50 })
+    H.same(anchors[#anchors], { "CENTER", true, "CENTER", -300, 50 }, "the moved place")
+    ns.SetStyle("alertPosition", nil)
+    H.same(anchors[#anchors], { "CENTER", true, "CENTER", 0, 192 }, "Reset position")
+end)
+
+H.test("look: Move shows a preview until Done, switching the text or the AddOn off ends it (FRV-122)", function()
+    local ns, env = Load()
+    ns.SetMoving(true)
+    H.eq(ns.IsMoving(), true, "moving")
+    H.eq(env.ForeverCampFeaturesAlertFrame:IsShown(), true, "the preview shows")
+    ns.SetMoving(false)
+    H.eq(env.ForeverCampFeaturesAlertFrame:IsShown(), false, "Done hides it")
+    ns.SetMoving(true)
+    ns.SetOption("alertText", false)
+    H.eq(ns.IsMoving(), false, "text off")
+    ns.SetOption("alertText", true)
+    ns.SetMoving(true)
+    env.SlashCmdList.FCF("test")
+    H.eq(ns.IsMoving(), false, "Test shows the alert instead")
+    ns.SetMoving(true)
+    env.SlashCmdList.FCF("off")
+    H.eq(ns.IsMoving(), false, "AddOn off")
+end)
+
+H.test("look: the font list is the game's fonts and LibSharedMedia's others, named in the settings (FRV-122)", function()
+    local ns, env = Load()
+    local names = {}
+    for index, font in ipairs(ns.FontChoices()) do
+        names[index] = font.name
+    end
+    H.same(names, { "Friz Quadrata", "Arial Narrow", "Skurri", "Morpheus", "2002", "2002 Bold" }, "the game's")
+    env.LibStub = function(name, silent)
+        H.eq(silent, true, "no error without the library")
+        if name == "LibSharedMedia-3.0" then
+            return { HashTable = function()
+                return { ["Friz Quadrata TT"] = "Fonts/frizqt__.ttf", Expressway = "Interface\\AddOns\\Media\\Expressway.ttf",
+                    ["Accidental Presidency"] = "Interface\\AddOns\\Media\\AP.ttf" }
+            end }
+        end
+    end
+    local choices = ns.FontChoices()
+    H.eq(#choices, 8, "two more; Friz Quadrata is there already")
+    H.same(choices[7], { name = "Accidental Presidency", path = "Interface\\AddOns\\Media\\AP.ttf", shared = true }, "A-Z")
+    H.eq(ns.FontName(""), "Game default", "the client's own")
+    H.eq(ns.FontName("Interface\\AddOns\\Media\\Expressway.ttf"), "Expressway", "a shared font")
+    H.eq(ns.FontName("Interface\\AddOns\\Gone\\Font.ttf"), "Font.ttf", "a font no longer listed")
 end)
 
 H.test("saved data: broken and expired entries are dropped at load, live ones kept", function()
