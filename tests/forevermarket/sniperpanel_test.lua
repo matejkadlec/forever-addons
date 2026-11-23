@@ -9,6 +9,8 @@
 --   * the window hides with the AH and comes back with it, unless it was closed by hand
 --   * "Set budget manually" enables its boxes and greys out the %; the amount typed is the budget
 --   * a row with an offer has a Buy button, which buys that row's offer
+--   * FRV-101: the pause button greys its row with "paused" and shows the play icon, a second click resumes it; without
+--     the scroll bar the list reaches the end of the header line
 -- How it looks and whether the client accepts these calls is the in-game test's job.
 
 local H = require("harness")
@@ -53,6 +55,8 @@ local function Frames(env)
         function f:GetChecked() return self.checked == true end
         function f:GetFrameLevel() return self.level or 1 end
         function f:SetFrameLevel(level) self.level = level end
+        function f:SetNormalTexture(texture) self.normalTexture = texture end
+        function f:SetAlpha(alpha) self.alpha = alpha end
         function f:CreateTexture() return Make() end
         function f:CreateAnimationGroup()
             return { CreateAnimation = function() return Make() end, Play = function() end }
@@ -141,7 +145,16 @@ local function Load()
         function view.SetElementInitializer(_, _, fn) view.initializer = fn end
         return view
     end
-    env.ScrollUtil = { InitScrollBoxListWithScrollBar = function(box, _, view) box.view = view end }
+    -- the managed scroll bar (FRV-101): the anchors of the list without its bar are the ones it starts with
+    env.CreateAnchor = function(point, relativeTo, relativePoint, x, y)
+        return { point = point, relativeTo = relativeTo, relativePoint = relativePoint, x = x, y = y }
+    end
+    env.ScrollUtil = {
+        InitScrollBoxListWithScrollBar = function(box, _, view) box.view = view end,
+        AddManagedScrollBarVisibilityBehavior = function(box, _, withBar, withoutBar)
+            box.anchorsWithBar, box.anchors = withBar, withoutBar
+        end,
+    }
     env.CreateDataProvider = function(data) return data end
     env.ScrollBoxConstants = { RetainScrollPosition = true }
     for _, file in ipairs(FILES) do
@@ -350,4 +363,38 @@ H.test("sniper window: a row with an offer has a Buy button, which buys that row
     H.eq(rows[1].state:GetText():find("at your price", 1, true) ~= nil, true, "its state in words")
     Fire(rows[1].buy, "OnClick")
     H.same(ah.started, { { HIDE, 3 } }, "it buys that row's offer")
+end)
+
+-- FRV-101: the pause button left of remove, the paused row greyed with "paused", and no gap after remove
+H.test("sniper window: the pause button pauses a row's item and greys the row, a second click resumes it", function()
+    local FM, env, ah = Load()
+    FM.SnipeSet(tostring(HIDE), 500)
+    local f = Open(FM, env)
+    ah.results[HIDE] = { { unitPrice = 400, quantity = 3, numOwnerItems = 0 } }
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", HIDE)
+    local row = f.scrollBox.rows[1]
+    H.eq(row.buy.shown, true, "an offer: Buy")
+    H.eq(row.pause.normalTexture, "Interface\\TimeManager\\PauseButton", "the pause icon while it snipes")
+    Fire(row.pause, "OnClick")
+    H.eq(FM.SnipePaused(tostring(HIDE)), true, "paused")
+    row = f.scrollBox.rows[1]
+    H.eq(row.state:GetText():find("paused", 1, true) ~= nil, true, "the state says paused")
+    H.eq(row.alpha, 0.6, "greyed out like a done row")
+    H.eq(row.buy.shown, false, "no Buy on a paused row")
+    H.eq(row.pause.normalTexture, "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up", "the play icon to resume")
+    H.eq(f.note:GetText():find("Paused sniping Heavy Hide", 1, true) ~= nil, true, "the message under the add row")
+    Fire(row.pause, "OnClick")
+    row = f.scrollBox.rows[1]
+    H.eq(FM.SnipePaused(tostring(HIDE)), false, "resumed")
+    H.eq(row.alpha, 1, "the row is normal again")
+    H.eq(row.buy.shown, true, "and its offer can be bought")
+end)
+
+H.test("sniper window: without the scroll bar the list reaches the end of the header line", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    local right = f.scrollBox.anchors[2]
+    H.eq(right.point, "BOTTOMRIGHT", "the list's right end")
+    H.eq(right.x, -16, "where the header line ends (16 px from the frame's right)")
+    H.eq(f.scrollBox.anchorsWithBar[2].x, -34, "with the bar it makes room for it")
 end)

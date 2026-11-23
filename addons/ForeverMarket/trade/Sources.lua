@@ -149,11 +149,100 @@ local function RecipeOwnLevel(lines)
     return own and 0 or nil
 end
 
+---------------------------------------------------------------- Leatherworking specializations (FRV-110)
+-- Dragonscale, Elemental and Tribal Leatherworking: one per character, learned at a specialization trainer. A recipe
+-- still to learn that needs one (craft.spec) is gone for a character with another one, and marked for a character
+-- without any (craft.specNeed): Craft and Learn show it with "Requires X specialization", Picks never plans it.
+-- Which recipe needs which: its pattern's own line "Requires Tribal Leatherworking" (a vendor pattern's lines that
+-- ForeverArtisan saved, a pattern on the AH from its tooltip), else SPEC_RECIPES. ForeverArtisan's recipe data holds
+-- no specialization. Which one the character has: the specialization's spell (C_SpellBook.IsSpellKnown, what
+-- IsPlayerSpell calls; Questie reads the same spells), read with every build of the sources and on SPELLS_CHANGED
+local LW_SPECS = {
+    { name = "Dragonscale", spell = 10656 },
+    { name = "Elemental", spell = 10658 },
+    { name = "Tribal", spell = 10660 },
+}
+
+-- The recipes (spell IDs = ForeverArtisan's recipe id) of each specialization, from the WoW: Forever client's own data
+-- (build 1.60.1.71037, 2026-11-23): every pattern whose RequiredAbility is the specialization's spell and the recipe it
+-- teaches (ItemSparse, ItemXItemEffect), and the four the specialization trainers teach without a pattern (Dragonscale
+-- Gauntlets, Dragonscale Breastplate, Helm of Fire, Feathered Breastplate). Recipes the client lists but Forever's
+-- profession window does not (Season of Discovery ones) change nothing
+local SPEC_RECIPES = {}
+for spec, spells in pairs({
+    Dragonscale = { 10619, 10650, 19050, 19054, 19060, 19077, 19085, 19089, 19094, 19107, 20855, 22926, 23708, 461645,
+        461649, 461653, 461655, 461657, 461659, 461673, 461677, 461720 },
+    Elemental = { 10632, 16661, 16746, 19059, 19061, 19067, 19076, 19078, 19079, 19090, 19095, 19101, 20854, 22928, 23710,
+        26279, 461661, 461663, 461665, 461690 },
+    Tribal = { 10647, 16650, 16728, 19053, 19062, 19063, 19066, 19068, 19073, 19074, 19080, 19081, 19084, 19086, 19087,
+        19097, 19104, 20853, 22927, 23709, 461722, 461724 },
+}) do
+    for _, spell in ipairs(spells) do SPEC_RECIPES[spell] = spec end
+end
+
+-- A specialization's spell name in the client's language ("Tribal Leatherworking"), read once
+local specSpellNames = {}
+local function SpecSpellName(spec)
+    local name = specSpellNames[spec.spell]
+    if name then return name end
+    local api = C_Spell and C_Spell.GetSpellName
+    local ok, read = false, nil
+    if api then ok, read = pcall(api, spec.spell) end
+    if ok and type(read) == "string" and not FM.IsSecret(read) and read ~= "" then
+        specSpellNames[spec.spell] = read
+        return read
+    end
+    return spec.name .. " Leatherworking"
+end
+
+-- The specialization one tooltip line of a pattern asks for ("Requires Tribal Leatherworking"): its name, else nil
+local function SpecOfLine(text)
+    if type(text) ~= "string" or FM.IsSecret(text) then return nil end
+    local need = string_match(text, "^Requires (.+)$")
+    if not need then return nil end
+    for _, spec in ipairs(LW_SPECS) do
+        if need == SpecSpellName(spec) then return spec.name end
+    end
+    return nil
+end
+
+-- The specialization any of these line lists asks for, nil for none
+local function SpecOfLines(...)
+    for i = 1, select("#", ...) do
+        for _, text in ipairs(List((select(i, ...)))) do
+            local spec = SpecOfLine(text)
+            if spec then return spec end
+        end
+    end
+    return nil
+end
+
+-- The character knows a spell (a secret or unreadable answer counts as no)
+local function KnowsSpell(spell)
+    local api = (C_SpellBook and C_SpellBook.IsSpellKnown) or IsPlayerSpell
+    if not api then return false end
+    local ok, known = pcall(api, spell)
+    return ok and not FM.IsSecret(known) and known == true
+end
+
+-- The logged-in character's Leatherworking specialization ("Dragonscale", "Elemental", "Tribal"), nil without one
+function FM.LeatherSpec()
+    for _, spec in ipairs(LW_SPECS) do
+        if KnowsSpell(spec.spell) then return spec.name end
+    end
+    return nil
+end
+
+-- The specialization a recipe needs, nil for none (SPEC_RECIPES by its spell ID; FM.RecipeSpec for the tests)
+function FM.RecipeSpec(spell)
+    return SPEC_RECIPES[tonumber(spell) or -1]
+end
+
 -- Contacts: vendor offers per item and the ways to learn a recipe (trainer / vendor pattern), at any
 -- skill of your professions (BuildSources tells "learnable now" from "at a higher skill"). Each way to learn
 -- carries the level needed to learn it (level, 0 = none, nil = not known yet): a trainer's from ForeverArtisan's
 -- levelReq (GetTrainerServiceLevelReq), a vendor pattern's from its own levelReq (its item info at the merchant),
--- its item info now, else its own tooltip lines
+-- its item info now, else its own tooltip lines; a vendor pattern also the specialization its lines ask for (spec)
 local function ReadContacts(profSkill)
     local vendors, routes = {}, {}
     local db = _G.ForeverArtisanContactsDB
@@ -211,7 +300,8 @@ local function ReadContacts(profSkill)
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
                                         limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
                                         npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y,
-                                        level = tonumber(it.levelReq) or ItemLevelReq(id) or RecipeOwnLevel(List(it.tooltip)) }
+                                        level = tonumber(it.levelReq) or ItemLevelReq(id) or RecipeOwnLevel(List(it.tooltip)),
+                                        spec = SpecOfLines(it.requires, it.tooltip) }
                                 end
                             end
                         end
@@ -274,6 +364,59 @@ local function PatternLevel(key)
     for i, line in ipairs(data.lines) do lines[i] = type(line) == "table" and line.leftText or "" end
     return RecipeOwnLevel(lines)
 end
+
+-- The specialization a pattern on the AH asks for, from its own tooltip lines (FRV-110): its name, false for none,
+-- nil while the client has not loaded the item (none is only kept once its name is known, so its lines are complete)
+local patternSpecs = {}
+local function PatternSpec(key)
+    local cached = patternSpecs[key]
+    if cached ~= nil then return cached end
+    local api = C_TooltipInfo and C_TooltipInfo.GetItemByID
+    local id = tonumber(key)
+    if not (api and id) then return nil end
+    local ok, data = pcall(api, id)
+    if not (ok and type(data) == "table" and type(data.lines) == "table") then return nil end
+    for _, line in ipairs(data.lines) do
+        local spec = SpecOfLine(type(line) == "table" and line.leftText)
+        if spec then
+            patternSpecs[key] = spec
+            return spec
+        end
+    end
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local named, name = false, nil
+    if getInfo then named, name = pcall(getInfo, id) end
+    if named and type(name) == "string" and not FM.IsSecret(name) then patternSpecs[key] = false end
+    return false
+end
+
+-- The specialization a Leatherworking recipe still to learn needs (FRV-110), nil for none: what one of its vendor
+-- patterns' lines or its pattern on the AH ask for, else SPEC_RECIPES by its spell ID
+local function RecipeSpecOf(r, recipeName, routes, patternKey)
+    for _, route in ipairs(routes[recipeName] or {}) do
+        if route.spec then return route.spec end
+    end
+    local spec = patternKey and PatternSpec(patternKey)
+    if spec then return spec end
+    return SPEC_RECIPES[tonumber(r.id) or -1]
+end
+
+-- The character's specialization as read last ("" none; nil before the first reading); ReadSpec returns it (nil for
+-- none) and whether it changed since the reading before
+local specRead
+local function ReadSpec()
+    local spec = FM.LeatherSpec() or ""
+    local changed = specRead ~= nil and spec ~= specRead
+    specRead = spec
+    return spec ~= "" and spec or nil, changed
+end
+
+-- Learning a specialization at its trainer: the tabs follow without a /reload, with a new Picks plan (what the
+-- character can learn is an input of the plan); SPELLS_CHANGED fires often, only a change of the reading counts
+FM.On("SPELLS_CHANGED", function()
+    local _, changed = ReadSpec()
+    if changed and FM.trade and not FM.trade.empty and FM.PlanPicks then FM.PlanPicks() end
+end)
 
 ---------------------------------------------------------------- vendor prices seen at merchants (FRV-48)
 -- While a merchant window is open, what it sells for gold without limit is kept per realm and faction:
@@ -371,6 +514,7 @@ function FM.BuildSources()
     end
     local vendors, routes = ReadContacts(profSkill)
     local patterns = PatternKeys()
+    local mySpec = ReadSpec()
 
     local crafts, byKey = {}, {}
     local laterList, laterByKey = {}, {}
@@ -378,6 +522,11 @@ function FM.BuildSources()
         local prof, data = entry.prof, entry.data
         for recipeName, r in pairs(data.recipes) do
             local product = type(r) == "table" and r.itemId and tostring(r.itemId)
+            -- a Leatherworking recipe of another specialization than the character's is gone (FRV-110); a learned one
+            -- always stays
+            local spec = product and not r.learned and prof.name == "Leatherworking"
+                and RecipeSpecOf(r, recipeName, routes, patterns[recipeName]) or nil
+            if spec and mySpec and spec ~= mySpec then product = nil end
             if product then
                 local learned = r.learned and true or false
                 local cap = profSkill[prof.name] or 0
@@ -424,7 +573,9 @@ function FM.BuildSources()
                             learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
                             spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
                             reagents = reagents, skillNow = data.skill, later = later or nil,
-                            made = CraftsSeen(data, recipeName) -- crafts ForeverArtisan counted (trade/Basis.lua)
+                            made = CraftsSeen(data, recipeName), -- crafts ForeverArtisan counted (trade/Basis.lua)
+                            -- the specialization it needs, and specNeed while the character has none (FRV-110)
+                            spec = spec, specNeed = spec and not mySpec and spec or nil
                         }
                         if later then
                             -- the Learn tab only: no craft row, no picks
@@ -455,7 +606,8 @@ function FM.BuildSources()
     for _, craft in ipairs(laterList) do
         if not byKey[craft.key] then later[#later + 1] = craft end
     end
-    FM.sources = { crafts = crafts, byKey = byKey, later = later, vendors = vendors, profs = profs, built = FM.Now() }
+    FM.sources = { crafts = crafts, byKey = byKey, later = later, vendors = vendors, profs = profs, built = FM.Now(),
+        spec = mySpec }
     return FM.sources
 end
 

@@ -193,6 +193,21 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (learned, plus recipes it can learn now from a trainer, a vendor pattern or a pattern on the AH up to the
   skill cap) and every vendor offer in Trade Contacts.
   Recipes that need a higher skill cap (`FM.sources.later`) only go to the Learn tab.
+* Leatherworking specializations (1.39, FRV-110, trade/Sources.lua): a recipe still to learn that needs Dragonscale,
+  Elemental or Tribal Leatherworking (`craft.spec`) is gone in every tab (Craft, Learn, Picks, Favorites' best use)
+  for a character with another specialization; with its own it is as before. Without a specialization it stays in
+  Craft and Learn with a grey "Tribal" after its name and "Requires Tribal specialization" in red under the name in
+  its tooltip (`craft.specNeed`), and Picks never plans it: its reason is "needs the Tribal Leatherworking
+  specialization". A learned recipe always stays. Which recipe needs which: a vendor pattern's lines that
+  ForeverArtisan saved or a pattern on the AH from its tooltip ("Requires Tribal Leatherworking"), else a table from
+  the WoW: Forever client's own data (build 1.60.1.71037: every pattern whose `RequiredAbility` is the
+  specialization's spell, and the recipe it teaches): 20 Dragonscale, 19 Elemental and 21 Tribal recipes taught by
+  a pattern, plus the four the specialization trainers teach (Dragonscale Gauntlets and Breastplate, Helm of Fire,
+  Feathered Breastplate); of them ForeverArtisan's Leatherworking list holds 14, 17 and 20 (the rest are Season of
+  Discovery recipes Forever does not show). ForeverArtisan's recipe data holds no specialization. The character's
+  specialization is its spell (10656 / 10658 / 10660, `C_SpellBook.IsSpellKnown`, `FM.LeatherSpec`), read with
+  every build of the sources and on `SPELLS_CHANGED`: learning one at the trainer makes a new plan and the tabs
+  follow without a `/reload`. ForeverMarket's own item tooltip lists no recipes, so nothing there changes
 * Vendor prices of materials (`FM.VendorUnit`): Trade Contacts' offers first (they know the place); where they have
   none, what a merchant was seen selling the item for (1.33, FRV-48, `R.vendorSeen`, trade/Sources.lua): while a
   merchant window is open (`MERCHANT_SHOW`, a second read 2 s later, `MERCHANT_UPDATE`), every item it sells for gold
@@ -991,9 +1006,13 @@ per purchase.
     in its quality color), Max price, Cheapest now (the cheapest unit of others from the last search, with the units
     at or under your price in green, "none listed", "-" before the first search), Bought today (the sniper's units
     of the item today; with a number also "37/144" since the number was set) and the state in words: "at your
-    price" (green row), "buying" (blue), "confirm", "budget spent", "over budget", "not stackable", "done" (greyed).
-    A row with an offer has a Buy button (Confirm while its quote waits for a second step, see below). Click a row =
-    load it into the add row, x = stop sniping it (its price and number stay saved). The row tooltip: your price,
+    price" (green row), "buying" (blue), "confirm", "budget spent", "over budget", "not stackable", "done", "paused"
+    (both greyed; a done item says "done" also while paused). A row with an offer has a Buy button (Confirm while its
+    quote waits for a second step, see below). At the row's right end (1.39, FRV-101): pause / resume (Blizzard's
+    stopwatch pair: the pause icon while it snipes, the play icon while it is paused, below) and x = stop sniping it
+    (its price and number stay saved); without the scroll bar the rows reach the end of the header line, with it
+    (more than 8 items) they make room for it (`ScrollUtil.AddManagedScrollBarVisibilityBehavior`; until 1.38 the
+    room stayed empty). Click a row = load it into the add row. The row tooltip: your price,
     "buy at most" progress, cheapest now, units at or under your price, when it was searched, the offer, "Bought
     today: 37 for 1g 2s". While sniping the list and its bar take no wheel step (it scrolls by the bar), away from
     the AH they scroll with the wheel
@@ -1079,6 +1098,15 @@ per purchase.
   a new price alone (an untouched box) keeps it, and so does the same number from the table again while the item is
   in the list (the same pick clicked twice; removed and added again, it starts from 0); the daily reset doesn't touch it. The budget applies on top: whichever
   is reached first stops the item.
+* Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
+  "Resume sniping this item") stops an item without removing it: a paused item is not searched in a round, has no hit
+  (a new result of it only updates Cheapest now) and is never bought; pausing also cancels a purchase of it that
+  waits for its quote (a confirmed one only the server's answer ends). Its price, "buy at most" and what it bought
+  stay; resuming looks at the results the client holds at once. The pause is saved, so it outlasts closing the window,
+  a `/reload` and a relog; a new price keeps it, an item removed and added again starts unpaused. "Watching N items"
+  counts only what is searched (not paused, not done); with nothing left to search the banner says "Every item is
+  paused, done ... Resume one or add another."; on Blizzard's Buy page of a paused item "... is paused. Resume it, or
+  go back to the item list for the others."; the market table's chat line ends "(paused)" for a paused item.
 * Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
   buys at the AH at the table's prices. Picks: every AH purchase of the plan (`pick.buys`), each at its "up to"
@@ -1216,9 +1244,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
-* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid }` (kept after removal;
-  `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; a `pct` from
-  before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused }` (kept after removal;
+  `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; `paused` =
+  true while the item is paused, 1.39, FRV-101, optional; a `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
   (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
   conversion)
 
