@@ -756,8 +756,10 @@ local function SurnameSeparator()
     return consts and consts.CHARACTERNAME_SURNAME_SEPARATOR or " "
 end
 
+-- Returns the mails this read logged (ReadMail's tables)
 local function ScanInbox()
-    if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
+    local logged = {}
+    if not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return logged end
     local r = FM.R()
     if type(r.mailSeen) ~= "table" then SeedMailSeen(r) end
     local now = FM.Now()
@@ -833,6 +835,7 @@ local function ScanInbox()
                 -- an invoice also notes when you read it: its money reaches you then
                 if mail.list == "invoices" then line = line .. "," .. FM.Stamp(now) end
                 FM.Log(mail.list, line, limit)
+                logged[#logged + 1] = mail
             end
         end
         local keep = {}
@@ -860,6 +863,7 @@ local function ScanInbox()
         end
         r.mailSeen[base] = #keep > 0 and table_concat(keep, ",") or nil
     end
+    return logged
 end
 
 local inboxPending = false -- the inbox changed and the read of it is still to come (a second later)
@@ -942,16 +946,56 @@ local function WatchedGone()
     end
 end
 
--- After a call that takes the mail at index out: its kind's mails are watched
+-- What the reads at the take-out calls saw (FRV-108), so one visit to the mailbox shows in game whether a hooked call
+-- still finds its mail listed: R.mailTakes = { since = the first counted call, calls = take-out calls with the
+-- mailbox open, ah = those on an AH mail, logged = AH mails first logged by the read at their own call (the read a
+-- second after the inbox changed would have come too late or found nothing new), gone = calls whose index lists no
+-- mail any more (the mail left before the hook ran: such a mail cannot be logged) }. `/fm status` shows it
+local function Takes(r)
+    local takes = r.mailTakes
+    if type(takes) ~= "table" then
+        takes = { since = FM.Now() }
+        r.mailTakes = takes
+    end
+    for _, field in ipairs({ "calls", "ah", "logged", "gone" }) do takes[field] = tonumber(takes[field]) or 0 end
+    return takes
+end
+
+-- After a call that takes the mail at index out: the inbox is read, and its kind's mails are watched
 local function WatchMail(index)
     if not mailOpen or type(index) ~= "number" or not (GetInboxNumItems and GetInboxHeaderInfo and GetInboxInvoiceInfo) then return end
-    -- a mail taken out within the second before the inbox was read is logged before it leaves
-    if inboxPending then ScanInbox() end
+    local takes = Takes(FM.R())
+    takes.calls = takes.calls + 1
+    -- every call reads the inbox before its mail leaves (FRV-108): a mail taken out within the second before the read
+    -- after a change of the inbox, and one that read could not log yet (its invoice not there), are logged at the
+    -- call. Until 1.39.1 only while that read was still to come
+    local logged = ScanInbox()
     WatchedGone()
     local now, char = FM.Now(), FM.PlayerName()
     local clock = InboxClock(now)
+    local _, _, _, _, _, _, daysLeft = GetInboxHeaderInfo(index)
+    if daysLeft == nil then takes.gone = takes.gone + 1 end
     local mail = ReadMail(index, char, clock)
-    if mail then watch[mail.base] = { minutes = ListedByBase(char, clock)[mail.base] or {}, t = now } end
+    if mail then
+        takes.ah = takes.ah + 1
+        for _, other in ipairs(logged) do
+            if other.base == mail.base and other.minutes == mail.minutes then
+                takes.logged = takes.logged + 1
+                break
+            end
+        end
+        watch[mail.base] = { minutes = ListedByBase(char, clock)[mail.base] or {}, t = now }
+    end
+end
+
+-- The line of `/fm status` about the reads at the take-out calls (nil before the first call)
+function FM.MailTakesText()
+    local takes = FM.R().mailTakes
+    if type(takes) ~= "table" or not tonumber(takes.calls) then return nil end
+    local since = tonumber(takes.since)
+    return string.format("%d take-out calls since %s, %d on AH mails, %d of those logged at the call, %d no longer listed",
+        tonumber(takes.calls) or 0, since and date("%m/%d %H:%M", since) or "?", tonumber(takes.ah) or 0,
+        tonumber(takes.logged) or 0, tonumber(takes.gone) or 0)
 end
 
 local function HookMailbox()
