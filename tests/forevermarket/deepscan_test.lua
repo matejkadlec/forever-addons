@@ -53,6 +53,8 @@ local function Load()
     end
     ah.IsThrottledMessageSystemReady = function() return ah.ready end
     ah.SendSearchQuery = function() end
+    ah.RefreshCommoditySearchResults = function() end
+    ah.RequestOwnedAuctionBidderInfo = function() return "" end
     ah.QueryOwnedAuctions = function() end
     ah.PostCommodity = function() end
     env.C_AuctionHouse = ah
@@ -211,6 +213,27 @@ H.test("deep scan: the owned-auctions query, a post and a post of several auctio
     env.clock = env.clock + 2
     env.Tick()
     H.eq(ah.asked, 1, "but not longer than 5 s")
+end)
+
+H.test("deep scan: Blizzard's search refresh after a purchase and a bidder's name hold it too (FRV-130)", function()
+    local FM, env, ah = Load()
+    FM.ahOpen = true
+    FM.HookAHTraffic()
+    ah.RefreshCommoditySearchResults(2589) -- the buy dialog closes after a purchase: Blizzard refreshes the list
+    FM.StartDeepScan(false)
+    env.clock = env.clock + 2
+    env.Tick()
+    H.eq(ah.asked, 0, "not while the refresh waits for its results")
+    H.eq(Has(FM.DeepScanRefusal(), "waiting for the answer to an item search"), true, tostring(FM.DeepScanRefusal()))
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2589)
+    ah.RequestOwnedAuctionBidderInfo(77) -- the Auctions tab asks for a bidder's name
+    env.clock = env.clock + 2
+    env.Tick()
+    H.eq(ah.asked, 0, "not while a bidder's name is asked for")
+    env.FireEvent("OWNED_AUCTION_BIDDER_INFO_RECEIVED", 77, "Someone")
+    env.clock = env.clock + 2
+    env.Tick()
+    H.eq(ah.asked, 1, "then it goes")
 end)
 
 H.test("deep scan: no answer means again 90 s later, three times, then the 15 minutes from the last request (FRV-130)", function()

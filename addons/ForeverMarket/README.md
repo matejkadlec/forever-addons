@@ -58,10 +58,10 @@ On 2026-11-23 the deep scan stopped several times in a row with "no answer from 
 came within 60 s, and because the 15 minutes counted from the request, the next try came only 15 minutes later.
 
 * **A free AH first.** The request is queued until the AH is free (`FM.AHBusyReason`): the message throttle is
-  ready (`IsThrottledMessageSystemReady`), no item search, browse search, query of your auctions or bids, post,
-  purchase or cancel waits for its answer, no post of several auctions runs, the list of your auctions is not still
-  loading (`FM.OwnedListLoading`, scan/Ledger.lua) and nothing went out in the last second. scan/AHTraffic.lua
-  follows every such request of any code (`hooksecurefunc` on the `C_AuctionHouse` functions that send them, which
+  ready (`IsThrottledMessageSystemReady`), no item search (also Blizzard's refresh of one), browse search, query of
+  your auctions, bids or a bidder's name, post, purchase or cancel waits for its answer, no post of several auctions
+  runs, the list of your auctions is not still loading (`FM.OwnedListLoading`, scan/Ledger.lua) and nothing went out
+  in the last second. scan/AHTraffic.lua follows every such request of any code (`hooksecurefunc` on the `C_AuctionHouse` functions that send them, which
   changes nothing) until one of its answer events, or for 5 to 10 s when none comes. The automatic scan is queued as
   the AH opens and may go 4 s later (Auctionator may start its own scan then); while it waits past that, and while
   it waits for the server, the query of your auctions and the sniper's searches hold back (`FM.DeepScanWantsAH`),

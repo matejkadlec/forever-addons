@@ -2,9 +2,10 @@ local _, FM = ...
 
 -- What the Auction House is busy with (FRV-130). The deep scan's request (C_AuctionHouse.ReplicateItems) went out
 -- among posts, searches and the owned-auctions query and often got no answer at all, so it now waits until the AH is
--- free (scan/DeepScan.lua). Every request any code sends to the AH through C_AuctionHouse is followed here,
--- ForeverMarket's own, Blizzard's and other AddOns' alike: hooksecurefunc runs after the call and changes nothing, and
--- the request counts as in flight until one of its answer events arrives or its time runs out.
+-- free (scan/DeepScan.lua). Every C_AuctionHouse function in KINDS (each request Blizzard's AH window sends, and the
+-- ones AddOns use) is followed here, whoever calls it, ForeverMarket, Blizzard or another AddOn: hooksecurefunc runs
+-- after the call and changes nothing, and the request counts as in flight until one of its answer events arrives or
+-- its time runs out. ReplicateItems itself is hooked by scan/DeepScan.lua.
 -- FM.AHBusyReason says what keeps the AH busy (nil = free). The AH's throttle events and errors are only counted for
 -- the deep scan's attempt log (/fm scanlog): what they mean for ReplicateItems on Forever is not yet verified in game.
 -- Every function and event here is documented on the forever branch (AuctionHouseDocumentation.lua); hooking the
@@ -22,8 +23,10 @@ local MULTISELL_WAIT = 60 -- a post of several auctions without a step for this 
 
 -- Each kind of request: the functions that send it, the events that answer it, how long it may wait for them
 local KINDS = {
+    -- the Refresh calls: Blizzard's refresh buttons, and its buy dialog as it closes after a purchase
     { id = "search", label = "an item search", timeout = 5,
-      calls = { "SendSearchQuery", "SendSellSearchQuery", "RequestMoreCommoditySearchResults", "RequestMoreItemSearchResults" },
+      calls = { "SendSearchQuery", "SendSellSearchQuery", "RequestMoreCommoditySearchResults", "RequestMoreItemSearchResults",
+          "RefreshCommoditySearchResults", "RefreshItemSearchResults" },
       answers = { "COMMODITY_SEARCH_RESULTS_UPDATED", "COMMODITY_SEARCH_RESULTS_ADDED", "ITEM_SEARCH_RESULTS_UPDATED",
           "ITEM_SEARCH_RESULTS_ADDED" } },
     { id = "browse", label = "a browse search", timeout = 5,
@@ -33,6 +36,9 @@ local KINDS = {
       calls = { "QueryOwnedAuctions" }, answers = { "OWNED_AUCTIONS_UPDATED" } },
     { id = "bids", label = "the list of your bids", timeout = 8,
       calls = { "QueryBids" }, answers = { "BIDS_UPDATED" } },
+    -- Blizzard's Auctions tab asks for a bidder's name it does not know yet (Blizzard_AuctionHouseTableBuilder.lua)
+    { id = "bidder", label = "a bidder's name", timeout = 5,
+      calls = { "RequestOwnedAuctionBidderInfo" }, answers = { "OWNED_AUCTION_BIDDER_INFO_RECEIVED" } },
     { id = "post", label = "a post", timeout = 10,
       calls = { "PostItem", "PostCommodity", "ConfirmPostItem", "ConfirmPostCommodity" },
       answers = { "AUCTION_HOUSE_AUCTION_CREATED", "AUCTION_HOUSE_POST_ERROR", "AUCTION_HOUSE_POST_WARNING",
