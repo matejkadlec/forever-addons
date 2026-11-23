@@ -293,3 +293,28 @@ H.test("owned list: a sale whose row takes the place of a gone row of the same s
     list.Read({ { 9, 5, true, 2400 } })
     H.eq(#FM.R().events, 3, "B's row again, nothing new")
 end)
+
+-- Rule (FRV-118, review round 1): with several sold rows of one units and price, each line takes its own row's mail
+-- time: the older sales leave the list first, so the sale of nth k is the row with the k-th soonest mail, whatever
+-- order the client lists them in
+H.test("owned list: each sold row of one size and price logs its own mail time", function()
+    local FM, env, ah = Load()
+    local list = OwnedList(FM, env, ah)
+    OpenAH(FM, env)
+    env.FlushTimers()
+    list.Read({ { 9, 15 } })
+    list.Read({ { 9, 5 }, { 9, 5, true, 1800 }, { 9, 5, true, 240 } }) -- sales A (mail in 4 min) and B, B listed first
+    local t2 = env.clock
+    list.Read({ { 9, 5, true, 1500 }, { 9, 5, true, 3300 } })            -- A's mail went out, B listed, sale C
+    local t3 = env.clock
+    local mails, nths = {}, {}
+    for i, e in ipairs(FM.R().events) do
+        local f = FM.Split(e, ",")
+        mails[i], nths[i] = f[11], FM.Dec(f[10])
+    end
+    H.same(nths, { 1, 2, 2 }, "A nth 1, B nth 2, C takes the place of a gone row: nth 2 again")
+    H.same(mails, { FM.Stamp(t2 + 240), FM.Stamp(t2 + 1800), FM.Stamp(t3 + 3300) },
+        "A's and B's mail times, and C's own, not B's (listed before it)")
+    H.same(OwnedLines(FM), { { "osold", 5, 9, true, 1 }, { "osold", 5, 9, true, 2 }, { "osold", 5, 9, true, 2 } },
+        "no cancel: C sold the rest")
+end)

@@ -910,8 +910,10 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     out between two lists is logged (before, the list's count of such rows stayed the same and the sale got no line:
     a rest that sold out was logged as cancelled, and its units counted as on their way back): of the list before
     only the rows that can still be listed count (their seconds left reach past the gap), and the new row's line has
-    the `nth` the gone row had. So a sold row's line with a mail time is the same row again only when an earlier
-    line's mail time lies within 2 minutes of its own; one without a mail time keeps the rule before.
+    the `nth` the gone row had; with several rows of one units and price the line of `nth` k takes the mail time of the
+    row whose mail goes out k-th soonest (1.40.7: every line took the first listed row's). So a sold row's line with a
+    mail time is the same row again only when an earlier line's mail time lies within 2 minutes of its own; one
+    without a mail time keeps the rule before.
     The analysis tool's `room` reads the pace the same way.
   * The list is taken only while the AH is open (1.38.1): an update that arrives as it closes hands out an empty
     list, which logged every running auction as sold (95 of them on 2026-11-22 18:41).

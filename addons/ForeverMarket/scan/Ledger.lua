@@ -123,9 +123,18 @@ local function ParseOwned(list)
     return out, sold
 end
 
+-- A row's seconds left for ordering: one the client did not give (or a secret value) sorts last
+local function LeftOrder(row)
+    local left = row.left
+    if type(left) ~= "number" or FM.IsSecret(left) then return math.huge end
+    return left
+end
+
 -- The rows of a list per auction: { run = its running row, sold = { ["qty:buyout"] = { n = rows, row = one, qty,
--- lefts = each row's seconds left } } }. oldFormat: a list from before 1.38 (no v = 2), whose sold rows hold the
--- sale's total in the price
+-- lefts = each row's seconds left, rows = the rows, the soonest mail first } } }. The older sales of one units and
+-- price leave the list first, so the k-th row of that order is the sale of nth k and its line takes that row's mail
+-- time (FRV-118, review round 1: every line took the first row's). oldFormat: a list from before 1.38 (no v = 2),
+-- whose sold rows hold the sale's total in the price
 local function OwnedRows(running, sold, oldFormat)
     local rows = {}
     local function Of(aid)
@@ -140,9 +149,15 @@ local function OwnedRows(running, sold, oldFormat)
         if oldFormat and qty > 1 then buyout = Enc(math_floor((Dec(buyout) or 0) / qty + 0.5)) end
         local id = row.qty .. ":" .. buyout
         local of = Of(row.aid).sold
-        of[id] = of[id] or { n = 0, row = row, qty = qty, lefts = {} }
+        of[id] = of[id] or { n = 0, row = row, qty = qty, lefts = {}, rows = {} }
         of[id].n = of[id].n + 1
         of[id].lefts[of[id].n] = row.left
+        of[id].rows[of[id].n] = row
+    end
+    for _, r in pairs(rows) do
+        for _, of in pairs(r.sold) do
+            table.sort(of.rows, function(a, b) return LeftOrder(a) < LeftOrder(b) end)
+        end
     end
     return rows
 end
@@ -234,7 +249,7 @@ local function SnapshotOwned(full)
             local units = 0
             for id, s in pairs(cur.sold) do
                 for nth = StillListed(old and old.sold[id], gap) + 1, s.n do
-                    log("osold", aid, s.row, nil, true, nth)
+                    log("osold", aid, s.rows[nth] or s.row, nil, true, nth)
                     units = units + s.qty
                 end
             end
