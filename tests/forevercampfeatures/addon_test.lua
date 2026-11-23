@@ -234,7 +234,7 @@ H.test("hover: other tooltips, a secret name and an object switched off are igno
     H.eq(#ns.Known(), 0, "nothing found")
 end)
 
-H.test("placed: your placement is shared as placed, without an alert; crafting the camp item is no placement", function()
+H.test("placed: your placement is shared as placed, without an alert at once; crafting the camp item is no placement", function()
     local ns, env, seen = Load()
     env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 1263067) -- the recipe "Iron Oven"
     H.eq(#ns.Known(), 0, "crafting")
@@ -242,12 +242,32 @@ H.test("placed: your placement is shared as placed, without an alert; crafting t
     H.eq(#ns.Known(), 1, "placed")
     H.eq(ns.Known()[1].kind, "p", "kind")
     H.eq(seen.sent[1].text, "1,ironoven,1455,385,736,p,0", "message")
-    H.eq(#seen.waypoints, 0, "no waypoint for your own")
-    H.eq(#seen.sounds, 0, "no sound for your own")
+    H.eq(#seen.waypoints, 0, "no waypoint when you place it")
+    H.eq(#seen.sounds, 0, "no sound when you place it")
     local secret = {}
     env.issecretvalue = function(value) return value == secret end
     env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-3", secret)
     H.eq(#ns.Known(), 1, "a secret spell ID is skipped")
+end)
+
+H.test("placed: your own Iron Oven alerts once when it is in range, your own Tanning Rack when you hover it", function()
+    local ns, env, seen = Load()
+    env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", IRON_OVEN_PLACE)
+    H.eq(#seen.sounds, 0, "placing it")
+    OvenInRange(env, true)
+    env.tick()
+    H.eq(#seen.sounds, 1, "in range of your own oven")
+    H.eq(#seen.waypoints, 1, "its waypoint")
+    env.clock = env.clock + 1
+    env.tick()
+    H.eq(#seen.sounds, 1, "once")
+    env.C_Spell.GetSpellName = function(id) if id == 1400000 then return "Tanning Rack" end end
+    env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-2", 1400000)
+    H.eq(#seen.sounds, 1, "placing the rack")
+    env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    H.eq(#seen.sounds, 2, "hovering your own rack")
+    H.eq(#ns.Known(), 2, "one oven, one rack")
 end)
 
 H.test("placed: a cast named like an object is learned as its placement spell", function()

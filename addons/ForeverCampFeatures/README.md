@@ -24,7 +24,7 @@ For an object in your current zone:
 - With TomTom: a waypoint on it. Without TomTom: the coordinates in the chat
 - The same object alerts once. It alerts again when it moved, or after you left the zone and came back. An object that expired is dropped and its waypoint removed
 
-Objects placed by you never alert you.
+Placing an object does not alert you at once; finding it in range or by hovering it does, like any other object.
 
 ## Privacy
 

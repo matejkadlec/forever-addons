@@ -416,8 +416,12 @@ function ns.ReportFind(find)
     local object = ns.OBJECT_BY_KEY[find.key]
     local entry, isNew = ns.AddFind(db.known, find, object.duration, ns.MapSize)
     if isNew and find.source == ns.SOURCE_PLACED then
-        -- you placed it: no alert for you
+        -- you just placed it: no alert now, but finding it in range or by hovering alerts like any object
         entry.alerted = true
+        entry.placedByYou = true
+    elseif not isNew and entry.placedByYou and (find.source == ns.SOURCE_RANGE or find.source == ns.SOURCE_HOVER) then
+        entry.placedByYou = nil
+        entry.alerted = false
     end
     if (isNew and find.source == ns.SOURCE_PLACED) or find.source == ns.SOURCE_RANGE then
         ns.ShareEntry(entry)
