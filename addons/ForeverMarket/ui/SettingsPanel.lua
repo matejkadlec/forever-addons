@@ -330,8 +330,10 @@ function FM.RegisterSettingsPanel()
     snipeButton:SetText("Open sniper")
     snipeButton:SetScript("OnClick", function() FM.ShowSnipe() end)
 
+    -- the realm lines right of the buttons (FRV-126: under them they ran past the settings canvas, about 600 px tall
+    -- in Blizzard_SettingsPanel.xml, once the two logic dropdowns came)
     infoText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", tableButton, "BOTTOMLEFT", 0, -14)
+    infoText:SetPoint("TOPLEFT", snipeButton, "TOPRIGHT", 20, 0)
     infoText:SetJustifyH("LEFT")
 
     panel:SetScript("OnShow", Refresh)
