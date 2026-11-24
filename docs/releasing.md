@@ -44,13 +44,13 @@ The token can upload to every project of the account. Keep it only in that secre
 1. **Create the project** in the authors console: game World of Warcraft, the AddOn's name, license MIT, and a description (ForeverCampFeatures' `README.md` is written for it). CurseForge reviews a new project before it goes public
 2. **Copy its Project ID**, shown in the project's "About Project" box
 3. **Put it into the AddOn's `.toc`** next to `## X-Repository:`, as `## X-Curse-Project-ID: 123456`. This changes an AddOn file, so it comes with a version bump, through a pull request like any change (an agent may make it when you give it the ID)
-4. **The first file:** the workflow can upload it once the project exists. If you would rather put the first file up by hand, run a dry run (below) and upload the zip from its artifact: it is the same zip the workflow would send
+4. **The first file:** the workflow can upload it once the project exists. If you would rather put the first file up by hand, run a dry run (below) and download its artifact, `<AddOn>-<version>-dry-run.zip`. GitHub wraps every artifact in a zip of its own: extract it once and upload the `<AddOn>-<version>.zip` inside it, the same zip the workflow would send (never the wrapper itself, whose top holds a zip instead of the AddOn's folder)
 
 ## Releasing a version
 
 1. **Bump `## Version:`** of the AddOn's `.toc`. Every change does this already ([AGENTS.md, Coding Rules](../AGENTS.md#coding-rules)), so the version on `master` is the one to release. An AddOn with a `CHANGELOG.md` gets its section for that version in the same change
 2. **Merge** the pull request into `master`
-3. **Optional dry run:** Actions -> Release -> Run workflow, branch `master`, tag `ForeverCampFeatures-v1.1.3`. It runs the same checks, builds the zip, prints the zip's files and the metadata it would send to CurseForge (with the game version ID when the token is set), and keeps the zip as the run's artifact for 7 days. Nothing is released
+3. **Optional dry run:** Actions -> Release -> Run workflow, branch `master`, tag `ForeverCampFeatures-v1.1.3`. It runs the same checks, builds the zip, prints the zip's files and the metadata it would send to CurseForge (with the game version ID when the token is set), and keeps the zip as the run's artifact `<AddOn>-<version>-dry-run` for 7 days (it downloads as a zip that holds the release zip). Nothing is released
 4. **Tag `master` and push the tag** (run one command at a time; the message becomes the changelog):
 
    ```bash

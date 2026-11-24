@@ -79,7 +79,8 @@ jobs:
         if: env.DRY_RUN == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ steps.prepare.outputs.addon }}-${{ steps.prepare.outputs.version }}
+          # GitHub serves it as <name>.zip holding the release zip: the suffix keeps the two apart
+          name: ${{ steps.prepare.outputs.addon }}-${{ steps.prepare.outputs.version }}-dry-run
           path: ${{ steps.prepare.outputs.zip }}
           if-no-files-found: error
           retention-days: 7
