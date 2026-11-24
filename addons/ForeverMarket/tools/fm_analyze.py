@@ -2106,16 +2106,37 @@ def _cost(e):
     return e['unit'] * (1 - AH_CUT) - e['margin']
 
 
-def _min_profit(e):
-    return e['margin'] >= max(10, 0.03 * _cost(e))
+def _profit_rule(settings):
+    """the Picks row's Profit (trade/Picks.lua FM.PicksProfit, FRV-126): the % of a unit's cost and / or the amount,
+    with both checked 'either' (the lower minimum, the default) or 'both' (the higher); 10% alone by default"""
+    settings = settings or {}
+    amount_on = settings.get('tableProfitManual') is True
+    pct_on = settings.get('tableProfitPctOn') is not False or not amount_on
+    pct = min(999, max(0, int(settings.get('tableProfitPct', 10) or 0))) if pct_on else None
+    amount = max(0, int(settings.get('tableProfitAmount', 10) or 0)) if amount_on else None
+    logic = ('both' if settings.get('tableProfitLogic') == 'both' else 'either') if pct_on and amount_on else None
+    return {'pct': pct, 'amount': amount, 'logic': logic}
 
 
-def _rule(params, room, first_share):
+def _min_unit(profit, cost):
+    """the minimum profit of a unit that costs `cost` (trade/Picks.lua FM.PicksMinUnit)"""
+    by_pct = profit['pct'] / 100 * max(0, cost) if profit['pct'] is not None else None
+    if by_pct is not None and profit['amount'] is not None:
+        return max(by_pct, profit['amount']) if profit['logic'] == 'both' else min(by_pct, profit['amount'])
+    return by_pct if by_pct is not None else (profit['amount'] or 0)
+
+
+def _min_profit(e, profit):
+    # the Profit of the Picks row since 1.42 (FRV-126); 10c and 3% of the cost were built in before
+    return e['margin'] >= _min_unit(profit, _cost(e))
+
+
+def _rule(params, room, first_share, profit):
     """the batch limit at the episode's first post (trade/Picks.lua Batch, before what you list), 0 = no pick"""
     def rule(e):
         x = e['first']
         k = LST_RULE[x['kind']] if params is None else params[x['kind']]
-        if not _min_profit(e):
+        if not _min_profit(e, profit):
             return 0.0
         rho = e['margin'] / e['dep'] if e['dep'] > 0 else 99.0
         b8 = x['buyers'] * 8 / 24 if x['buyers'] and x['trusted'] else None
@@ -2225,6 +2246,7 @@ def cmd_listings(m, args):
     settings = m.settings or {}
     room = (settings.get('tableCircPct') or 25) / 100
     first_share = (settings.get('tableFirstPct') or 2) / 100
+    profit = _profit_rule(settings)
     # ---- every post's outcome
     by = {}
     for L in book.listings:
@@ -2268,7 +2290,7 @@ def cmd_listings(m, args):
     if not priced:
         print('  no episode with a known cost yet: the gold table needs your 8h listings with records before them')
     else:
-        formula = _rule(None, room, first_share)
+        formula = _rule(None, room, first_share, profit)
         rules = (('as listed', _as_listed), ('the formula', formula))
         print('\nThe gold table (the 1.40 batch against what you listed; a rule lists its limit less what you list, of the '
               'demand it sells what it can, every unsold unit pays its 8h deposit):')
@@ -2316,7 +2338,7 @@ def cmd_listings(m, args):
             for val in vals:
                 params = {k: dict(LST_RULE[k]) for k in LST_RULE}
                 params[kind][name] = val
-                rules_v.append(_rule(params, room, first_share))
+                rules_v.append(_rule(params, room, first_share, profit))
             parts = []
             for v in ('none', 'mid'):
                 wins = {val: 0 for val in vals}
