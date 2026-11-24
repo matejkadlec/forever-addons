@@ -1087,7 +1087,8 @@ local function FlipTooltip(row)
     Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
 end
 
--- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note
+-- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note, { "p", label } the Make
+-- line of a craft pick, written now from what you crafted since its plan (FRV-104: "20 / 51")
 local function PickTooltip(pick)
     Note((KIND_LABEL[PickKind(pick)] or pick.kind) .. GREY .. string_format("  pick #%d", pick.rank or 0) .. "|r", WHITE)
     for _, r in ipairs(pick.reasons or {}) do
@@ -1095,6 +1096,8 @@ local function PickTooltip(pick)
             Header(r[2])
         elseif r[1] == "l" then
             Line(r[2], r[3])
+        elseif r[1] == "p" then
+            Line(r[2], FM.PickMakeText and FM.PickMakeText(pick) or "?")
         elseif r[1] == "i" then
             Item("  ", r[2], r[3], r[4], r[5])
         else
@@ -1169,7 +1172,8 @@ end
 -- What Shift-click and the menu's Snipe entry send to the sniper (FRV-44): a pick every AH purchase of its plan,
 -- each at its "up to" price with its units (vendor purchases stay out), a craft's or recipe's main material at its
 -- max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the biggest
--- spend first) and the row it is for, or nil where there is nothing to snipe
+-- spend first), the row it is for and, for a pick, its trace { pick, at } (FRV-143: the sniper remembers the pick and
+-- its plan), or nil where there is nothing to snipe
 local function SnipeTargets(row)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
@@ -1192,7 +1196,41 @@ local function SnipeTargets(row)
         add(row.key, row.top, row.units)
     end
     if not list[1] then return nil end
-    return list, row
+    local trace = tab.picks and FM.trade and FM.trade.pickAt and { pick = row.key, at = FM.trade.pickAt } or nil
+    return list, row, trace
+end
+
+-- Whether every purchase of a pick is already sniped for it with the plan shown (FRV-143): a Shift+click adds nothing
+local function SnipedForPlan(targets, trace)
+    if not (trace and FM.SnipeTrace) then return false end
+    for _, t in ipairs(targets) do
+        if not t.units then return false end
+        local found = false
+        for _, e in ipairs(FM.SnipeTrace(t.key) or {}) do
+            if e.pick == trace.pick and e.at == trace.at then found = true end
+        end
+        if not found or not FM.IsSniped(t.key) then return false end
+    end
+    return true
+end
+
+-- A pick's tooltip, the sniper part (FRV-143): what of its AH purchases the sniper buys for it, still to buy
+local function PickSnipeLines(pick)
+    if not (FM.SnipeTrace and pick.buys) then return end
+    local at = FM.trade and FM.trade.pickAt
+    local lines = {}
+    for _, b in ipairs(pick.buys) do
+        for _, e in ipairs(FM.IsSniped(b.key) and FM.SnipeTrace(b.key) or {}) do
+            if e.pick == pick.key then
+                lines[#lines + 1] = { b.key, e.left, e.at ~= at }
+            end
+        end
+    end
+    if not lines[1] then return end
+    Header("Sniped for this pick")
+    for _, l in ipairs(lines) do
+        Line(Name(l[1]), FM.FormatCount(l[2]) .. " still to buy" .. (l[3] and (GREY .. "  for an older plan|r") or ""))
+    end
 end
 
 -- "its 3 AH purchases", "144 Heavy Leather up to 2s 75c"
@@ -1203,10 +1241,11 @@ local function SnipeLabel(targets)
 end
 
 -- mode (FRV-128): "add" (Shift+click, the menu's Snipe) adds the units to what each item already snipes and keeps
--- what was bought; "restart" (Shift+right-click) sets the limits to the units and starts the counts at 0
-local function SnipeRow(targets, row, mode)
-    if #targets > 1 then
-        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey, mode)
+-- what was bought; "restart" (Shift+right-click) sets the limits to the units and starts the counts at 0. trace: a
+-- pick and its plan (FRV-143): the sniper remembers it, the same pick of the same plan adds nothing
+local function SnipeRow(targets, row, mode, trace)
+    if #targets > 1 or trace then
+        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey, mode, trace)
     else
         FM.SnipeFromTable(targets[1].key, targets[1].price, targets[1].units, mode)
     end
@@ -1233,6 +1272,7 @@ local function RowTooltipLines(tip, tab, row)
         Line("On AH", OnAH(row))
     elseif use.id == "picks" then
         PickTooltip(src)
+        PickSnipeLines(src)
     elseif use.id == "latest" then
         CraftTooltip(src, false)
     elseif use.id == "learn" then
@@ -1271,8 +1311,12 @@ local function RowHints(tab, row)
     end
     GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
-    local targets = FM.ahOpen and SnipeTargets(row)
-    if targets then
+    local targets, _, trace
+    if FM.ahOpen then targets, _, trace = SnipeTargets(row) end
+    if targets and SnipedForPlan(targets, trace) then
+        GameTooltip:AddLine("Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
+    elseif targets then
         GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets) .. " (adds to what it already snipes)",
             HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
@@ -1379,7 +1423,7 @@ end
 local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
-    local targets, of = SnipeTargets(row)
+    local targets, of, trace = SnipeTargets(row)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(Name(key))
         local favorite = FM.IsFavorite(key)
@@ -1397,7 +1441,7 @@ local function ShowRowMenu(button, row)
             FM.RefreshTable()
         end)
         if targets and FM.SnipeFromTable then
-            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add") end)
+            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add", trace) end)
         end
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
@@ -1469,12 +1513,12 @@ local function OnRowClick(button, mouseButton)
     local shift = IsShiftKeyDown and IsShiftKeyDown()
     -- AH open: Shift+click snipes what the row buys at the AH at the table's prices (a pick: all its AH purchases),
     -- adding to what each item already snipes; Shift+right-click the same with the counts from 0 (FRV-128)
-    local targets, of
-    if shift and FM.ahOpen and FM.SnipeFromTable then targets, of = SnipeTargets(row) end
+    local targets, of, trace
+    if shift and FM.ahOpen and FM.SnipeFromTable then targets, of, trace = SnipeTargets(row) end
     if mouseButton == "RightButton" then
         GameTooltip:Hide()
         if targets then
-            SnipeRow(targets, of, "restart")
+            SnipeRow(targets, of, "restart", trace)
         else
             ShowRowMenu(button, row)
         end
@@ -1482,7 +1526,7 @@ local function OnRowClick(button, mouseButton)
     end
     if shift then
         if targets then
-            SnipeRow(targets, of, "add")
+            SnipeRow(targets, of, "add", trace)
             return
         end
         local link = ItemLink(row.key)
@@ -1876,12 +1920,18 @@ local function SincePlan()
     return string.upper(text:sub(1, 1)) .. text:sub(2)
 end
 
--- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h"
+-- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h";
+-- the make step follows your crafts (FRV-104: "make 31 more"), and once the target is made ("made 51") it and the
+-- steps before it are grey: the listing is next
 local function StepsText(p)
     local steps = p.steps or {}
     local parts = {}
+    local makeText, made
+    if p.makeStep and FM.PickMakeStep then makeText, made = FM.PickMakeStep(p) end
     for i, step in ipairs(steps) do
-        parts[i] = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
+        if i == p.makeStep and makeText then step = makeText end
+        step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
+        parts[i] = (made and i <= p.makeStep) and (GREY .. step .. "|r") or step
     end
     return table.concat(parts, GREY .. "  >  |r")
 end
@@ -2687,8 +2737,9 @@ local function CreateTable()
     f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, LINE_Y)
     f.lock:SetScript("OnClick", function(self)
         Settings().tablePicksLock = self:GetChecked() and true or false
-        -- off: Picks plans by itself again, from now on; on: the plan shown now is held
-        if not Settings().tablePicksLock then FM.PlanPicks() end
+        -- off: Picks plans by itself again, from now on, keeping what you crafted of its picks (FRV-104); on: the plan
+        -- shown now is held
+        if not Settings().tablePicksLock then FM.PlanPicks(true) end
         FM.RefreshTable()
     end)
     f.lock:SetScript("OnEnter", function(self)

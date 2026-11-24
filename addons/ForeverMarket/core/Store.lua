@@ -36,8 +36,15 @@ function FM.Item(key)
 end
 
 -- Items with random suffixes ("Sorcerer Hat of Spirit", "... of the Whale") share one key, so their prices mix
--- variants of different value: items[key].v = 1 once two different names were seen for the key
+-- variants of different value: items[key].v = 1 once two different names were seen for the key. An item that stacks
+-- (a commodity: Heavy Leather, Silk Cloth) never has a suffix: it is never marked and never counts as marked (FRV-138:
+-- an empty name of an item not loaded yet had marked 94% of all items, commodities included)
+local function Stacks(key)
+    return FM.ItemStacks ~= nil and FM.ItemStacks(key) == true
+end
+
 function FM.MarkVariants(key)
+    if Stacks(key) then return end
     local item = FM.Item(key)
     if item.v ~= 1 then
         item.v = 1
@@ -47,7 +54,28 @@ end
 
 function FM.HasVariants(key)
     local item = FM.R().items[key]
-    return item ~= nil and item.v == 1
+    return item ~= nil and item.v == 1 and not Stacks(key)
+end
+
+-- The marks of FRV-138 mended once per bucket (r.variantsRepair = 1): every v = 1 goes, since nearly all of them came
+-- from an empty name. The feed's list of variant items marks its items again at its next load (scan/Feed.lua), the
+-- deep scan's link check looks at gear again (until then gear counts as not checked, which Flip and Picks skip);
+-- v = 0 (checked, no variants) stays. Bump the mark when this logic changes after a build with it was synced
+local VARIANTS_REPAIR = 1
+FM.VARIANTS_REPAIR = VARIANTS_REPAIR
+
+function FM.RepairVariants(r)
+    if type(r) ~= "table" or r.variantsRepair == VARIANTS_REPAIR then return end
+    local dropped = 0
+    for _, item in pairs(type(r.items) == "table" and r.items or {}) do
+        if type(item) == "table" and item.v == 1 then
+            item.v = nil
+            dropped = dropped + 1
+        end
+    end
+    r.variantsRepair = VARIANTS_REPAIR
+    r.variantsRepaired = { t = FM.Now(), dropped = dropped }
+    if dropped > 0 then FM.dataVersion = (FM.dataVersion or 0) + 1 end -- scan/Snapshot.lua starts it, it loads later
 end
 
 -- Time (minutes since EPOCH) of a record string, it starts with one type letter

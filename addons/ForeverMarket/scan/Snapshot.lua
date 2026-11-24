@@ -212,7 +212,8 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
         snap.keys[key] = agg
         snap.order[#snap.order + 1] = key
     end
-    if name then
+    -- an empty name (the item's data not loaded yet) is no name: it never makes two names of one key (FRV-138)
+    if type(name) == "string" and name ~= "" and not FM.IsSecret(name) then
         if not agg.name then
             agg.name = name
         elseif name ~= agg.name then

@@ -660,6 +660,7 @@ function FM.R()
     if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, FRV-113, trade/Cost.lua)
     if FM.RepairCrafts then FM.RepairCrafts(r) end -- the craft log's material cost worked out again (FRV-112, trade/Crafts.lua)
+    if FM.RepairVariants then FM.RepairVariants(r) end -- the random suffix marks an empty name set go (FRV-138, core/Store.lua)
     return r
 end
 

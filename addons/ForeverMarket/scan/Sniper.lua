@@ -45,11 +45,22 @@ local addonName, FM = ...
 -- "buy at most" and what it bought, but it is not searched, has no hit and is never bought until it is resumed. The
 -- pause is saved, so it outlasts closing the window, a /reload and a relog; an item added to the list starts unpaused.
 --
+-- Which picks an item is sniped for (FRV-143): a pick sent from the market table is traced by its item key and the time
+-- of its plan (FM.trade.pickAt). saved[key].picks[pickKey] = { n = units still to buy for that pick, at = its plan },
+-- as of tracedGot (the item's got then); what was bought since is taken off the picks in proportion (TracedLeft). The
+-- rest of the limit is yours (a number set in the window, or units of an item sniped before a pick came). The same
+-- pick of the same plan again adds nothing; a newer plan (FM.SnipeFollowPlan after every new plan, or Shift+click on the
+-- pick) gives each traced pick that is in it the units it still needs, which leave out what you bought for it (those
+-- units are in your bags, the plan counts them); a traced pick not in the plan any more needs none. The limit is then
+-- Bought now + your part + the picks' units. A number set by hand, a reset or the item added to the list again drops the
+-- trace.
+--
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
---   saved  = { [key] = { p = copper, n, got, paid, paused } }  price and "buy at most" of an item, kept after
---                                                      removal (its count starts again when it is added again);
---                                                      paused = true while it is paused (FRV-101)
+--   saved  = { [key] = { p = copper, n, got, paid, paused, picks, tracedGot } }  price and "buy at most" of an item,
+--                                                      kept after removal (its count starts again when it is added
+--                                                      again); paused = true while it is paused (FRV-101); picks and
+--                                                      tracedGot: the picks it is sniped for (FRV-143)
 --                                                      (the pct of an item from before 1.25 is left unused)
 --   budget = { [character] = { base, since, reset, total, day, spent = { [key] = copper }, units = { [key] = n } } }
 -- }
@@ -221,6 +232,89 @@ local function Paused(key)
     return saved ~= nil and saved.paused == true
 end
 FM.SnipePaused = Paused
+
+---------------------------------------------------------------- the picks an item is sniped for (FRV-143)
+
+-- The traced picks of an item in a fixed order, each { pick, n, at } as stored (n as of tracedGot)
+local function TraceList(saved)
+    local list = {}
+    if type(saved) ~= "table" or type(saved.picks) ~= "table" then return list end
+    for pick, t in pairs(saved.picks) do
+        if type(pick) == "string" and type(t) == "table" and tonumber(t.n) then
+            list[#list + 1] = { pick = pick, n = math_max(0, math_floor(tonumber(t.n))), at = tonumber(t.at) }
+        end
+    end
+    table_sort(list, function(a, b) return a.pick < b.pick end)
+    return list
+end
+
+-- What each traced pick still has to buy now: the units bought since tracedGot come off them in proportion to their
+-- units (the remainder one by one in a fixed order). Returns the list with .left per pick, and their sum
+local function TracedNow(saved)
+    local list = TraceList(saved)
+    local sum = 0
+    for _, t in ipairs(list) do sum = sum + t.n end
+    local got = math_max(0, math_floor(tonumber(saved and saved.got) or 0))
+    local bought = math_min(sum, math_max(0, got - math_floor(tonumber(saved and saved.tracedGot) or got)))
+    local taken = 0
+    for _, t in ipairs(list) do
+        local share = sum > 0 and math_floor(bought * t.n / sum) or 0
+        t.left = t.n - share
+        taken = taken + share
+    end
+    for _, t in ipairs(list) do
+        if taken >= bought then break end
+        if t.left > 0 then
+            t.left = t.left - 1
+            taken = taken + 1
+        end
+    end
+    return list, sum - bought
+end
+
+local function ClearTrace(saved)
+    if type(saved) ~= "table" then return end
+    saved.picks, saved.tracedGot = nil, nil
+end
+
+-- The picks of a sniped item with what each still has to buy: { { pick = key, left, at }, ... }, or nil without
+-- any (the market table's and the sniper window's tooltips)
+function FM.SnipeTrace(key)
+    local saved = FM.SnipeSaved(key)
+    local list = TracedNow(saved)
+    if not list[1] then return nil end
+    local out = {}
+    for i, t in ipairs(list) do out[i] = { pick = t.pick, left = t.left, at = t.at } end
+    return out
+end
+
+-- New units for the traced picks of an item: shares[pick] = what it still needs to buy now (false or 0: none, it leaves
+-- the trace), add[pick] the same for a pick not traced yet. Your part of the limit stays. Returns the new limit, or 0
+-- when nothing is left to buy and nothing was bought
+local function Retrace(saved, shares, at)
+    local list, traced = TracedNow(saved)
+    local got = math_max(0, math_floor(tonumber(saved.got) or 0))
+    local n = tonumber(saved.n)
+    local own = n and math_max(0, math_floor(n) - got - traced) or 0
+    local picks = {}
+    for _, t in ipairs(list) do picks[t.pick] = { n = t.left, at = t.at } end
+    for pick, units in pairs(shares) do
+        units = tonumber(units)
+        if units and units >= 1 then
+            picks[pick] = { n = math_floor(units), at = at }
+        else
+            picks[pick] = nil
+        end
+    end
+    local sum = 0
+    for _, t in pairs(picks) do sum = sum + t.n end
+    if next(picks) then
+        saved.picks, saved.tracedGot = picks, got
+    else
+        ClearTrace(saved)
+    end
+    return math_min(MAX_UNITS, got + own + sum)
+end
 
 ---------------------------------------------------------------- gold
 
@@ -406,8 +500,8 @@ end
 -- Add or update a snipe. units: nil keeps the item's "buy at most" (a new price only), false or 0 removes it (no
 -- limit but the budget), a number N sets "buy at most N". What it bought stays counted (FRV-128: 190 of 200 bought,
 -- 300 set = 190 of 300), unless reset (the window's x by "max units") or the item is added to the list (again): then
--- the count starts at 0
-function FM.SnipeSet(key, price, units, reset)
+-- the count starts at 0, and the picks it was sniped for are forgotten (FRV-143)
+local function Set(key, price, units, reset)
     price = tonumber(price)
     if type(key) ~= "string" or not FM.ItemIDFromKey(key) or not price or price ~= price or price < 1 then return false end
     local s = Data()
@@ -432,12 +526,25 @@ function FM.SnipeSet(key, price, units, reset)
     if reset or added then
         saved.got, saved.paid = 0, 0
         S.countSet[key] = (S.countSet[key] or 0) + 1
+        ClearTrace(saved)
     end
     S.hits[key] = nil -- an old hit was sized for the old price
     if S.buy and S.buy.key == key and S.buy.stage ~= "confirm" then CancelBuy() end
     EvaluateHeld(key) -- the new price may already have offers in the results the client holds
     Refresh()
     return true
+end
+
+-- The same from the window or /fm: a number set by hand is yours, the picks the item was sniped for are forgotten
+-- (FRV-143); a new price with the same number keeps them
+function FM.SnipeSet(key, price, units, reset)
+    local saved = FM.SnipeSaved(key)
+    if saved and units ~= nil then
+        local n = tonumber(units)
+        n = (n and n == n and n >= 1) and math_min(MAX_UNITS, math_floor(n)) or nil
+        if n ~= tonumber(saved.n) then ClearTrace(saved) end
+    end
+    return Set(key, price, units, reset)
 end
 
 function FM.SnipeRemove(key)
@@ -475,31 +582,60 @@ end
 -- list without a limit gets its Bought now plus the units (review round 3: left unlimited it would buy far more than
 -- the pick at the pick's price); mode "restart" (Shift+right-click) sets the limit to the units and starts the count
 -- at 0. An item added to the list (again) gets the units and starts at 0 either way. units nil keeps the item's
--- limit. restarted[key] = true once a restart in this call reset it: the same material again adds to it
-local function AddFromTable(key, price, units, mode, restarted)
+-- limit. restarted[key] = true once a restart in this call reset it: the same material again adds to it.
+-- trace = { pick = the pick's item key, at = its plan's time } (FRV-143): the pick is remembered with its units; the
+-- same pick of the same plan again adds nothing (true, nil, 0, "again"), the same pick of a newer plan replaces its
+-- units with the new ones ("updated")
+local function AddFromTable(key, price, units, mode, restarted, trace)
     price = tonumber(price)
     if type(key) ~= "string" or not price or price < 1 then return false, "price" end
     if Kind(key) == "item" then return false, "auction" end
     units = tonumber(units)
     if units and (units ~= units or units < 1) then units = nil end
+    if trace and not units then trace = nil end -- a pick without units: nothing to trace
     local sniped = FM.IsSniped(key)
     local _, n = Left(key)
     local reset = mode == "restart" and not (restarted and restarted[key])
-    local limit, added = units, nil
+    local saved = FM.SnipeSaved(key)
+    local traced = trace and sniped and not reset and saved and type(saved.picks) == "table" and saved.picks[trace.pick]
+    if type(traced) == "table" and tonumber(traced.at) == trace.at then return true, nil, 0, "again" end
+    local limit, added, how = units, nil, nil
     if units and sniped and not reset then
-        local saved = FM.SnipeSaved(key)
         local base = n or (saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0)
-        limit, added = base + math_floor(units), math_floor(units)
+        if type(traced) == "table" then
+            -- this pick from a newer plan: its units are what it still needs now, they replace what it was sent with
+            limit, how = Retrace(saved, { [trace.pick] = math_floor(units) }, trace.at), "updated"
+        else
+            limit, added = base + math_floor(units), math_floor(units)
+        end
     end
-    if not FM.SnipeSet(key, price, limit, reset) then return false, "price" end
+    if not Set(key, price, limit, reset) then return false, "price" end
     if reset and restarted then restarted[key] = true end
-    return true, nil, added
+    saved = FM.SnipeSaved(key)
+    if trace and saved and how ~= "updated" then
+        if sniped and not reset then
+            -- one more pick: its units are still to buy from now, the picks traced before keep what is left of theirs
+            local list = TracedNow(saved)
+            local picks = {}
+            for _, t in ipairs(list) do picks[t.pick] = { n = t.left, at = t.at } end
+            picks[trace.pick] = { n = math_floor(units), at = trace.at }
+            saved.picks, saved.tracedGot = picks, math_max(0, math_floor(tonumber(saved.got) or 0))
+        else
+            -- a new item, or its count started again: this pick alone (FM.SnipeFromPlan sends a traced pick's
+            -- material once, a material listed twice summed up)
+            saved.picks = { [trace.pick] = { n = math_floor(units), at = trace.at } }
+            saved.tracedGot = math_max(0, math_floor(tonumber(saved.got) or 0))
+        end
+    end
+    return true, nil, added, how
 end
 
 -- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat, the real count also
 -- when it is above the number ("(150 / 60 bought, done)"); added: "40 added" to the limit (FRV-128), restarted:
--- "count started again"; "(paused)" after it while the item is paused in the window (FRV-101)
-local function Describe(key, added, restarted)
+-- "count started again", how: "already sniped for this plan" ("again") or "updated to the new plan" (FRV-143);
+-- "(paused)" after it while the item is paused in the window (FRV-101)
+local HOW_TEXT = { again = "already sniped for this plan", updated = "updated to the new plan" }
+local function Describe(key, added, restarted, how)
     local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
     local left, n = Left(key)
     local saved = FM.SnipeSaved(key)
@@ -512,6 +648,7 @@ local function Describe(key, added, restarted)
     end
     if added and added > 0 then notes[#notes + 1] = FM.FormatCount(added) .. " added" end
     if restarted then notes[#notes + 1] = "count started again" end
+    if how and HOW_TEXT[how] then notes[#notes + 1] = HOW_TEXT[how] end
     if notes[1] then text = text .. " (" .. table_concat(notes, ", ") .. ")" end
     if Paused(key) then text = text .. " (paused)" end
     return text
@@ -525,10 +662,11 @@ end
 
 -- The market table (Shift-click, the row menu): snipe this item at the table's price. units = the plan's number
 -- ("buy at most"), nil keeps the item's number as it is; mode "add" (default: adds the units to the item's limit,
--- what was bought stays counted) or "restart" (the limit is the units, the count starts at 0), FRV-128
-function FM.SnipeFromTable(key, price, units, mode)
+-- what was bought stays counted) or "restart" (the limit is the units, the count starts at 0), FRV-128; trace as
+-- AddFromTable's (FRV-143: a pick)
+function FM.SnipeFromTable(key, price, units, mode, trace)
     local restarted = {}
-    local ok, why, added = AddFromTable(key, price, units, mode, restarted)
+    local ok, why, added, how = AddFromTable(key, price, units, mode, restarted, trace)
     if not ok then
         if why == "auction" then
             FM.PrintError("Failed to snipe " .. Name(key) .. ": only stackable items (commodities) can be sniped.")
@@ -537,7 +675,12 @@ function FM.SnipeFromTable(key, price, units, mode)
         end
         return false
     end
-    FM.Print("Sniping " .. Describe(key, added, restarted[key]))
+    if how == "again" then
+        FM.Print("Already sniping " .. Describe(key) .. (trace.name and (" for " .. trace.name) or "")
+            .. " with this plan: nothing added (Shift+right-click starts the count again)")
+    else
+        FM.Print("Sniping " .. Describe(key, added, restarted[key], how) .. (trace and trace.name and (" for " .. trace.name) or ""))
+    end
     OpenAt(key)
     return true
 end
@@ -545,19 +688,38 @@ end
 -- A pick of the market table (FRV-44): snipe every AH purchase of its plan, each at its "up to" price with its units.
 -- buys = { { key, price, units }, ... }, the biggest spend first; mode as FM.SnipeFromTable (a material listed twice
 -- sums up, also after a restart); one chat line names each item once, the window opens with mainKey loaded (the AH
--- open)
-function FM.SnipeFromPlan(name, buys, mainKey, mode)
+-- open). trace = { pick = the pick's item key, at = its plan's time } (FRV-143): the picks each item is sniped for are
+-- remembered, the same pick of the same plan again adds nothing (its chat line says so)
+function FM.SnipeFromPlan(name, buys, mainKey, mode, trace)
+    if trace then
+        -- a traced pick sends each material once: one listed twice sums up, at the dearer price
+        local merged, byKey = {}, {}
+        for _, b in ipairs(type(buys) == "table" and buys or {}) do
+            local m = byKey[b.key]
+            if m then
+                m.units = (m.units or 0) + (b.units or 0)
+                if (b.price or 0) > (m.price or 0) then m.price = b.price end
+            else
+                m = { key = b.key, price = b.price, units = b.units }
+                byKey[b.key] = m
+                merged[#merged + 1] = m
+            end
+        end
+        buys = merged
+        trace = { pick = trace.pick, at = trace.at, name = name }
+    end
     if type(buys) ~= "table" or #buys <= 1 then
         local b = type(buys) == "table" and buys[1]
-        return b and FM.SnipeFromTable(b.key, b.price, b.units, mode) or false
+        return b and FM.SnipeFromTable(b.key, b.price, b.units, mode, trace) or false
     end
-    local order, addedOf, before, skipped, first, restarted = {}, {}, {}, {}, nil, {}
+    local order, addedOf, before, skipped, first, restarted, hows = {}, {}, {}, {}, nil, {}, {}
     for _, b in ipairs(buys) do
         if before[b.key] == nil then before[b.key] = FM.IsSniped(b.key) end
-        local ok, why, more = AddFromTable(b.key, b.price, b.units, mode, restarted)
+        local ok, why, more, how = AddFromTable(b.key, b.price, b.units, mode, restarted, trace)
         if ok then
             if addedOf[b.key] == nil then order[#order + 1] = b.key end
             addedOf[b.key] = (addedOf[b.key] or 0) + (more or 0)
+            hows[b.key] = how
             first = first or b.key
         elseif why == "auction" then
             skipped[#skipped + 1] = Name(b.key)
@@ -566,20 +728,89 @@ function FM.SnipeFromPlan(name, buys, mainKey, mode)
     -- "40 added" only for an item that was in the list before this click and kept its count
     local added = {}
     for i, key in ipairs(order) do
-        added[i] = Describe(key, before[key] and not restarted[key] and addedOf[key] or nil, restarted[key])
+        added[i] = Describe(key, before[key] and not restarted[key] and addedOf[key] or nil, restarted[key], hows[key])
     end
     local sold = #skipped > 0 and ("sold per auction, can't be sniped: " .. table_concat(skipped, ", ")) or nil
     if not first then
         FM.PrintError("Failed to snipe for " .. tostring(name) .. ": " .. (sold or "the plan buys nothing at the AH") .. ".")
         return false
     end
-    FM.Print(string_format("Sniping %d item%s for %s: %s", #added, #added == 1 and "" or "s", tostring(name),
-        table_concat(added, ", ")) .. (sold and ("; " .. sold) or ""))
+    -- the same pick of the same plan again: nothing was added (FRV-143)
+    local again = true
+    for _, key in ipairs(order) do
+        if hows[key] ~= "again" then again = false end
+    end
+    if again then
+        local list = {}
+        for i, key in ipairs(order) do list[i] = Describe(key) end
+        FM.Print(string_format("Already sniping %d item%s for %s with this plan, nothing added: %s (Shift+right-click starts "
+            .. "the counts again)", #list, #list == 1 and "" or "s", tostring(name), table_concat(list, ", ")))
+    else
+        FM.Print(string_format("Sniping %d item%s for %s: %s", #added, #added == 1 and "" or "s", tostring(name),
+            table_concat(added, ", ")) .. (sold and ("; " .. sold) or ""))
+    end
     OpenAt(FM.IsSniped(mainKey) and mainKey or first)
     for _, b in ipairs(buys) do
         if b.key ~= mainKey and FM.IsSniped(b.key) then EvaluateHeld(b.key) end
     end
     return true
+end
+
+-- A new Picks plan (trade/Calc.lua, after Refresh or an automatic plan with the lock off; FRV-143): every sniped item
+-- traced for a pick of an older plan follows the new one. A pick in it gets the units its plan buys of the item at the
+-- AH now (they leave out what you bought for it: it is in your bags), one not in it or no longer buying the item none;
+-- your part of the limit and the other picks' stay. Only the units follow: the price stays the one you sniped at (a
+-- Shift+click on the pick sets the new plan's). picks = the plan's picks (also those out of scope), at = its time.
+-- One chat line names the items whose limit changed; an item nothing is left to buy for and nothing was bought of
+-- leaves the list (its saved price and number stay, as after the window's X)
+function FM.SnipeFollowPlan(picks, at)
+    local s = Data()
+    if not s or type(at) ~= "number" then return end
+    local plan = {}
+    for _, p in ipairs(type(picks) == "table" and picks or {}) do
+        if type(p) == "table" and type(p.key) == "string" then
+            local units = {}
+            for _, b in ipairs(type(p.buys) == "table" and p.buys or {}) do
+                if type(b.key) == "string" and IsNumber(b.ah) and b.ah > 0 then units[b.key] = (units[b.key] or 0) + b.ah end
+            end
+            plan[p.key] = units
+        end
+    end
+    local keys = {}
+    for i, key in ipairs(s.list) do keys[i] = key end -- a copy: an item may leave the list on the way
+    local changes, removed = {}, {}
+    for _, key in ipairs(keys) do
+        local saved = s.saved[key]
+        local shares, follow = {}, false
+        for _, t in ipairs(TraceList(saved)) do
+            if t.at ~= at then
+                follow = true
+                shares[t.pick] = plan[t.pick] and plan[t.pick][key] or false
+            end
+        end
+        if follow then
+            local before = Left(key)
+            local limit = Retrace(saved, shares, at)
+            if limit < 1 then
+                FM.SnipeRemove(key) -- no pick needs it and nothing was bought: it leaves the list
+                removed[#removed + 1] = Name(key)
+            else
+                saved.n = limit
+                S.hits[key] = nil -- a hit was sized for the old limit (a purchase on its way is checked again at its quote)
+                EvaluateHeld(key)
+                local after = Left(key)
+                if after ~= before then
+                    changes[#changes + 1] = string_format("%s %s left (was %s)", Name(key), FM.FormatCount(after or 0),
+                        FM.FormatCount(before or 0))
+                end
+            end
+        end
+    end
+    if changes[1] or removed[1] then
+        FM.Print("The sniper follows the new plan: " .. table_concat(changes, ", ")
+            .. (removed[1] and ((changes[1] and "; " or "") .. "no pick needs " .. table_concat(removed, ", ") .. " any more, removed") or ""))
+        Refresh()
+    end
 end
 
 ---------------------------------------------------------------- Blizzard's AH window

@@ -54,6 +54,9 @@ local _, FM = ...
 --     C/24h, default 25%); what you already list on all your characters (FM.OwnListings: the auction lists and the
 --     posts since) comes off the batch. No room for one craft or one unit = no pick. Your bags and bank do not touch it
 --   * pick.steps: what to do, in order (learn > use > buy > make > wait > list), shown under the pick
+--   * what you crafted counts toward a craft pick's target (1.45, FRV-104, FM.PickProgress below): "Make: 20 / 51",
+--     "make 31 more"; an automatic plan (the lock off) keeps the target of a pick in progress and makes only the rest,
+--     whatever the batch says now (it was about that target)
 --   * every plan is logged (R.plans, LogPlan), so the order can be measured against what sold later
 
 local Dec = FM.Dec
@@ -1445,11 +1448,35 @@ local function EvaluateCraft(c)
     for _, part in ipairs(row.parts) do
         if part.src ~= "vendor" then vendorOnly = false end
     end
-    if vendorOnly then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
-    if batch < 1 then return nil, BatchShort(b, room, makes) end
+    -- a pick of the plan before that stays in it (an automatic plan, FRV-104): its target stays, and what you crafted of
+    -- it since that plan counts toward it, never again as units you hold; the room, the gold share and the batch size
+    -- were about that target, so the rest of it is made whatever the batch says now (your listings of its crafts take
+    -- room from it)
+    local carry = c.kind ~= "level" and P.carry and P.carry[row.key] or nil
+    if vendorOnly and not carry then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
+    if batch < 1 and not carry then return nil, BatchShort(b, room, makes) end
     -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
     local heldAll = c.kind ~= "level" and HeldOf(row.key) or 0
     local held = math_min(heldAll, batch)
+    -- a carried pick: the units crafted for it that you still hold go to the AH with it, and of the rest what you held
+    -- when its plan was made (heldOwn)
+    local crafted, craftedHeld = 0, 0
+    if carry then
+        crafted = carry.done
+        craftedHeld = math_min(crafted, heldAll)
+        held = math_min(heldAll - craftedHeld, carry.held) + craftedHeld
+    end
+    -- its target and progress (FRV-104): a new pick's target is what it makes now, from now on; a carried one keeps its
+    -- own (FM.PickProgress reads them)
+    local function Track(pick, made)
+        if carry then
+            pick.target, pick.since, pick.base = carry.target, carry.since, crafted
+        else
+            pick.target, pick.since, pick.base = made, P.now, 0
+        end
+        pick.made, pick.makes, pick.heldOwn, pick.craftedHeld = made, makes, held - craftedHeld, craftedHeld
+        return pick
+    end
     local reasons = {}
     local cap = math_min(P.perPick, P.budgetLeft)
     local learnCost = 0
@@ -1460,14 +1487,28 @@ local function EvaluateCraft(c)
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
     if c.kind == "level" then cap = math.huge end
-    -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip)
+    -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip); a carried
+    -- pick keeps its progress there: the make step comes first, done once its target is reached (FRV-104)
     local function OnlyHeld(why)
-        if held <= 0 then return nil, why end
+        if held <= 0 then
+            if carry and crafted >= carry.target then
+                return nil, string_format("the %s of its plan are made, none left in your bags or bank to list", Count(carry.target))
+            end
+            return nil, why
+        end
         local notes = {}
         local conf = Confidence(row, d, b, saturation, notes)
-        return StockPick(c, row, held, heldAll, d, room, b, tableCost, conf, notes, waiting)
+        local pick, reason = StockPick(c, row, held, heldAll, d, room, b, tableCost, conf, notes, waiting)
+        if pick and carry then
+            Track(pick, 0)
+            table.insert(pick.steps, 1, "make") -- written by FM.PickMakeStep
+            pick.makeStep = 1
+            table.insert(pick.reasons, 2, { "p", "Make" }) -- written by FM.PickMakeText
+        end
+        return pick, reason
     end
     local runsMax = math_floor((batch - held) / makes)
+    if carry then runsMax = math_ceil(math_max(0, carry.target - crafted) / makes) end
     if runsMax < 1 then return OnlyHeld(BatchShort(b, room, makes)) end
     if cap <= 0 then return OnlyHeld(NoGold()) end
     local plan = PlanCraft(row, cap, runsMax * makes, waiting and waiting.T or nil)
@@ -1542,6 +1583,8 @@ local function EvaluateCraft(c)
     end
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
     steps[#steps + 1] = string_format("make %s", Count(made))
+    -- the make step follows your crafts (FRV-104: "make 31 more", "made 51"), a recipe to level for has none
+    if c.kind ~= "level" then pick.makeStep = #steps end
     if waiting then steps[#steps + 1] = WaitStep(waiting) end
     pick.steps = steps
     -- Shift-click and the row menu snipe every AH purchase of the plan with its units (pick.buys); the sniper
@@ -1567,9 +1610,14 @@ local function EvaluateCraft(c)
         list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / m)) }
     end
     list[#list + 1] = { "h", c.kind == "level" and "Once learned, one listing could look like" or "One listing" }
-    list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    if c.kind == "level" then
+        list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    else
+        list[#list + 1] = { "p", "Make" } -- "20 / 51": crafted since the plan / its target (FM.PickMakeText, FRV-104)
+    end
     if held > 0 then
-        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held), StockWhere(held, OwnedOf(row.key)[3])) }
+        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them%s", Count(held), StockWhere(held, OwnedOf(row.key)[3]),
+            craftedHeld > 0 and string_format(" (%s crafted for this pick)", Count(craftedHeld)) or "") }
     end
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
@@ -1617,6 +1665,7 @@ local function EvaluateCraft(c)
         pick.shopping = shopping
     end
     pick.toolCost = toolCost
+    if c.kind ~= "level" then Track(pick, made) end
     return pick
 end
 
@@ -2273,6 +2322,66 @@ function FM.PicksBudget(gold, s)
     return b
 end
 
+---------------------------------------------------------------- what you crafted of a pick (FRV-104)
+-- A craft pick has a target (the units its plan makes) and the time its plan was made (since). What you crafted of
+-- its item since then (FM.CraftedSince, the craft log) counts toward the target: the tooltip's Make reads "20 / 51",
+-- the make step "make 31 more", and "made 51" once the target is reached. A locked plan is held as it was made, so
+-- only these lines follow your crafts; an automatic plan (the lock off) carries the target, the time and what you
+-- held over for every craft pick that is in it again (FM.PickCarry, passed back as ctx.carry): it makes only the rest
+-- and lists the crafted units with it. A plan you ask for (Refresh, a change of a Picks input) starts new targets,
+-- and what you crafted is then units you hold.
+
+-- What an automatic plan carries over from the plan shown: { [key] = { target, since, held } } of its craft picks
+function FM.PickCarry(picks)
+    local carry
+    for _, p in ipairs(type(picks) == "table" and picks or EMPTY) do
+        if type(p) == "table" and type(p.key) == "string" and type(p.target) == "number" and type(p.since) == "number" then
+            carry = carry or {}
+            carry[p.key] = { target = p.target, since = p.since, held = p.heldOwn or 0 }
+        end
+    end
+    return carry
+end
+
+-- A pick's progress: units crafted since its plan was made, its target and what is left; nil for a pick without one
+function FM.PickProgress(pick)
+    if type(pick) ~= "table" or type(pick.target) ~= "number" or type(pick.since) ~= "number" then return nil end
+    local crafted = FM.CraftedSince and FM.CraftedSince(pick.key, pick.since) or 0
+    return crafted, pick.target, math_max(0, pick.target - crafted)
+end
+
+-- The tooltip's Make line: "20 / 51" (crafted / target, "0 / 51" before the first craft), "(9 crafts left)" for a
+-- recipe that makes several
+function FM.PickMakeText(pick)
+    local crafted, target, left = FM.PickProgress(pick)
+    if not crafted then return "?" end
+    local text = Count(crafted) .. " / " .. Count(target)
+    local makes = pick.makes or 1
+    if left <= 0 then return text .. ", done" end
+    if makes > 1 then
+        text = text .. string_format(" (%d crafts%s)", math_ceil(left / makes), crafted > 0 and " left" or "")
+    end
+    return text
+end
+
+-- The make step: "make 51", "make 31 more", "made 51" once the target is reached (then true: it and the steps
+-- before it are done, the next step is the listing)
+function FM.PickMakeStep(pick)
+    local crafted, target, left = FM.PickProgress(pick)
+    if not crafted then return nil, false end
+    if left <= 0 then return "made " .. Count(crafted), true end
+    if crafted > 0 then return "make " .. Count(left) .. " more", false end
+    return "make " .. Count(target), false
+end
+
+-- The crafts left of a craft pick (Ctrl+click's count box, FRV-132): what its target still needs, else its plan's runs
+function FM.PickRunsLeft(pick)
+    local crafted, _, left = FM.PickProgress(pick)
+    if not crafted then return pick and pick.runs end
+    if left <= 0 then return nil end
+    return math_ceil(left / (pick.makes or 1))
+end
+
 function FM.ComputePicks(out, ctx, done)
     nameToKey = nil
     local s = FM.GetSettings()
@@ -2290,6 +2399,14 @@ function FM.ComputePicks(out, ctx, done)
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
         paid = {}, -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
         least = {} } -- the item tooltip's cost info of an item you hold (SellAtLeastNote, FRV-134)
+    -- the craft picks an automatic plan carries over (FRV-104, FM.PickCarry), with what you crafted of each since
+    if type(ctx.carry) == "table" then
+        P.carry = {}
+        for key, c in pairs(ctx.carry) do
+            P.carry[key] = { target = c.target, since = c.since, held = c.held or 0,
+                done = FM.CraftedSince and FM.CraftedSince(key, c.since) or 0 }
+        end
+    end
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
     -- is left
     local funds = FM.PicksBudget(gold, s)
