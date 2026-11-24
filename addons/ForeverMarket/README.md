@@ -859,7 +859,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   craft", "a Stock pick: nothing to craft", "you don't know this recipe yet"). The skill lines: Leatherworking 165,
   Cooking 185, First Aid 129, Tailoring 197, Blacksmithing 164, Alchemy 171, Engineering 202, or the one the open
   window reports for the profession (`GetBaseProfessionInfo`). A craft pick keeps its crafts as `pick.runs`
-  (trade/Picks.lua). Not yet verified in game
+  (trade/Picks.lua). Verified in game on 2026-11-24 (FRV-132's test: opening from every window closed and from another
+  profession, the selection, the count, a box greyed out away from a fire, a cleared search, combat, the reasons of a
+  Vendor row and a Stock pick; then the window's side tabs, and a reopen from the micro button after a side tab click,
+  work without a blocked popup); not seen in game: a recipe the list never shows, the chat line behind the overview
+  page, a box greyed out by a cooldown, the 10 s timeout, "you don't know this recipe yet", and a reopen from the micro
+  button straight after Ctrl+click (inferred from the side tab result)
 * The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
   AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
   "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
