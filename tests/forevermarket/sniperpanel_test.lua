@@ -504,6 +504,21 @@ H.test("sniper window: the x is forgotten when another item is loaded", function
     H.eq(FM.SnipeSaved(tostring(HIDE)).got, 10, "and the first one's too")
 end)
 
+-- review round 1 of PR #59: the x clicked with no item loaded must not reset an item typed in by name afterwards
+H.test("sniper window: the x with no item loaded resets nothing typed in afterwards", function()
+    local FM, env = Load()
+    local key = tostring(LEATHER)
+    local f = Open(FM, env)
+    FM.SnipeSet(key, 100, 200)
+    FM.SnipeSaved(key).got = 190
+    Fire(f.clearUnits, "OnClick") -- the add row is empty
+    Type(f.search, "Heavy Leather") -- its exact name, no suggestion picked
+    f.price.copper.text = "100"
+    Type(f.units, "300")
+    Fire(f.add, "OnClick")
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 190, 300 }, "190 of 200, 300 typed: 190/300, nothing reset")
+end)
+
 H.test("sniper window: the wheel light is ON half a second after a wheel step that reached the sniper", function()
     local FM, env = Load()
     local f = Open(FM, env)

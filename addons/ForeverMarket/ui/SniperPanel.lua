@@ -488,7 +488,7 @@ local function SubmitSnipe()
         units = math_floor(shown)
     end
     local wasSniped = FM.IsSniped(key)
-    local reset = resetCount and wasSniped
+    local reset = resetCount and wasSniped and key == selected -- the x counts only for the item it was clicked for
     if FM.SnipeSet(key, price, units, reset) then
         local saved = FM.SnipeSaved(key)
         local n = saved and tonumber(saved.n)
@@ -1005,7 +1005,7 @@ local function CreateAddRow(f)
     clear:SetScript("OnClick", function()
         units:SetText("")
         units:ClearFocus()
-        resetCount = true
+        resetCount = selected ~= nil -- with no item loaded there is no count to start again
         if selected and FM.IsSniped(selected) then
             local got = FM.SnipeItemState(selected).got
             Message("No limit; Update also starts Bought now again at 0 (" .. FM.FormatCount(got) .. " now).", WHITE)
