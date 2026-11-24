@@ -705,22 +705,67 @@ local function CraftNow(recipe, n)
     return sum / makes
 end
 
+-- The groups of n units of an item that is no vendor item (owned: n are yours; else one stack you would make):
+--   * "cost": units you bought, or anything that is no craft of yours: now = buying them on the AH, from the
+--     freshest prices (your last AH search of an item when it is newer than the latest snapshot), paid = your latest
+--     purchases (FM.BoughtUnit) for the paidN units they cover; the only group of such an item
+--   * "crafted": units you made (trade/Crafts.lua): now = their materials now, paid = their materials' basis recorded
+--     at the craft for the paidN units your craft lines cover with a known basis (the newest lines first), missing =
+--     materials that had no price at such a craft. Units of an item you can make that no line covers (crafted before
+--     the log) belong here without a basis; units you do not hold: one stack you would make
+--   * "bought": the units your purchases cover next to crafted ones: now = buying them now, paid = those purchases
+-- withNow = false leaves out `now` (FM.PaidBasis needs only what you paid)
+local function Groups(key, n, owned, withNow)
+    local recipe = FM.RecipeOf and FM.RecipeOf(key)
+    local u = FM.UnitsBasis and FM.UnitsBasis(key, n, not owned)
+    local crafted = u and (u.crafted + (recipe and u.uncovered or 0)) or 0
+    if crafted == 0 then
+        local paid, paidN = FM.BoughtUnit(key, n)
+        return { { kind = "cost", n = n, now = withNow and BuyNow(key, n) or nil, paid = paid,
+            paidN = paid and math.min(paidN, n) or nil } }
+    end
+    local groups = { { kind = "crafted", n = crafted, now = withNow and recipe and CraftNow(recipe, crafted) or nil,
+        paid = u.known > 0 and u.knownTotal / u.known or nil, paidN = u.known, missing = u.missing } }
+    if u.bought > 0 then
+        groups[2] = { kind = "bought", n = u.bought, now = withNow and BuyNow(key, u.bought) or nil,
+            paid = u.boughtTotal / u.bought, paidN = u.bought }
+    end
+    return groups
+end
+
+-- What the groups' units cost you where it is known: the units with a basis and their copper
+local function Basis(groups)
+    local known, total = 0, 0
+    for _, g in ipairs(groups or {}) do
+        if g.paid and (g.paidN or 0) > 0 then
+            local k = math.min(g.paidN, g.n)
+            known, total = known + k, total + k * g.paid
+        end
+    end
+    return known, total
+end
+
+-- What your n units of an item cost you (FRV-134), the one basis of the item tooltip and of Picks for the units you
+-- hold: your craft lines' material basis and your purchases, newest first (the groups above). Returns the units with
+-- a known basis (at most n) and their copper; 0, 0 for a vendor item and for units no log covers
+function FM.PaidBasis(key, n)
+    n = tonumber(n) or 0
+    if n <= 0 or not FM.ItemIDFromKey(key) then return 0, 0 end
+    if FM.VendorUnit and FM.VendorUnit(key, false) then return 0, 0 end
+    local known, total = Basis(Groups(key, n, true, false))
+    return math.min(known, n), total
+end
+
 -- The tooltip section of an item, or nil:
 --   n      units it is about: your sellable units, else one stack
 --   owned  true when n are yours
 --   vendor true for an item a vendor sells without limit: now = the vendor price (one line in the tooltip)
---   groups the units by how they came to you, each { kind, n, now, paid, paidN, missing }:
---          * "cost": units you bought, or anything that is no craft of yours: now = buying them on the AH, from the
---            freshest prices (your last AH search of an item when it is newer than the latest snapshot), paid = your
---            latest purchases (FM.BoughtUnit); the only group of such an item, exactly as before the craft log
---          * "crafted": units you made (trade/Crafts.lua): now = their materials now, paid = their materials' basis
---            recorded at the craft for the paidN units your craft lines cover with a known basis (the newest lines
---            first), missing = materials that had no price at such a craft. Units of an item you can make that no
---            line covers (crafted before the log) belong here without a basis; units you do not hold: one stack you
---            would make
---          * "bought": the units your purchases cover next to crafted ones: now = buying them now, paid = those
---            purchases
---   min8 / min24  lowest price per unit for n units listed for 8h / 24h: (latest AH price x n + deposit) / 0.95 n
+--   groups the units by how they came to you (Groups), each { kind, n, now, paid, paidN, missing }
+--   min8 / min24  lowest price per unit for n units listed for 8h / 24h that nets what they cost you after the cut and
+--          one lost deposit (FRV-134): (what you paid for the basisN units with a known basis + the latest AH price
+--          (cheapest of others) x the rest + deposit) / 0.95 n. Units you do not hold, a vendor item and units without
+--          a basis keep the AH price (before 1.42 every unit did: "Sell at least" always sat above the AH price)
+--   basisN units of n that "Sell at least" counts at what you paid (0 = all at the AH price)
 function FM.CostInfo(key)
     local id = FM.ItemIDFromKey(key)
     if not id then return nil end
@@ -728,7 +773,7 @@ function FM.CostInfo(key)
     local _, sellable = FM.Owned(key)
     local owned = (sellable or 0) > 0
     local n = owned and sellable or (IsNumber(stack) and stack > 0 and stack or 1)
-    local info = { n = n, owned = owned }
+    local info = { n = n, owned = owned, basisN = 0 }
     local vendor = FM.VendorUnit and FM.VendorUnit(key, false)
     local any = false
     if vendor then
@@ -738,34 +783,28 @@ function FM.CostInfo(key)
         any = true
     else
         -- the units your purchases and crafts cover (only crafts for units you do not hold)
-        local recipe = FM.RecipeOf and FM.RecipeOf(key)
-        local u = FM.UnitsBasis and FM.UnitsBasis(key, n, not owned)
-        local crafted = u and (u.crafted + (recipe and u.uncovered or 0)) or 0
-        if crafted == 0 then
-            info.groups = { { kind = "cost", n = n, now = BuyNow(key, n), paid = FM.BoughtUnit(key, n) } }
-        else
-            info.groups = { { kind = "crafted", n = crafted, now = recipe and CraftNow(recipe, crafted),
-                paid = u.known > 0 and u.knownTotal / u.known or nil, paidN = u.known, missing = u.missing } }
-            if u.bought > 0 then
-                info.groups[2] = { kind = "bought", n = u.bought, now = BuyNow(key, u.bought),
-                    paid = u.boughtTotal / u.bought, paidN = u.bought }
-            end
-        end
+        info.groups = Groups(key, n, owned, true)
         for _, g in ipairs(info.groups) do
             if g.now or g.paid or g.kind == "crafted" then any = true end
         end
     end
     local f = FM.LatestRecord(key)
     if not any and not f then return nil end
-    -- the minimum always starts from the item's own latest AH price (cheapest of others), whatever you paid
+    -- what your units cost you where the logs tell (FRV-134); the rest at the item's own latest AH price (cheapest of
+    -- others)
+    local known, total = 0, 0
+    if owned and info.groups then known, total = Basis(info.groups) end
+    known = math.min(known, n)
+    info.basisN = known
     local ladder = FreshLadder(key)
     local market = ladder and ladder[1][1] or (f and FM.Dec(f[2]))
-    if market and market > 0 then
-        info.market = market
+    if market and market > 0 then info.market = market end
+    local rest = n - known
+    if rest <= 0 or info.market then
         for _, d in ipairs(DURATIONS) do
             local deposit = FM.Deposit(key, n, d)
             if deposit then
-                info["min" .. (d == 2 and 8 or 24)] = (market * n + deposit) / (n * (1 - AH_CUT))
+                info["min" .. (d == 2 and 8 or 24)] = (total + (info.market or 0) * rest + deposit) / (n * (1 - AH_CUT))
             end
         end
     end

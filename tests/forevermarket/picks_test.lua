@@ -770,8 +770,9 @@ H.test("batch: proven 25 and your units ran out: one listing of 31, what you hol
 end)
 
 H.test("batch: a margin under the deposit halves it: a Stock pick of 15 of the 20 you hold", function()
-    -- m 1s 28c (20s less the cut, less 17s 72c) against d 2s 05c: 31.25 x 0.5 = 15.6
-    local FM, env, r = Setup({ ["802"] = 90 }, nil, 100000)
+    -- m 1s 28c (20s less the cut, less 17s 72c) against d 2s 05c: 31.25 x 0.5 = 15.6. The margin is 7% of the unit's
+    -- cost: the Profit of the Picks row is set to 5% (its default 10% would leave no pick, FRV-126)
+    local FM, env, r = Setup({ ["802"] = 90 }, { tableProfitPct = 5 }, 100000)
     local craft, view = BatchMarket(FM, "802", 2000, 1772, 205, 664)
     HillmanRecord(FM, r, "802", 2000)
     Hold(FM, "802", 20)
@@ -1038,7 +1039,7 @@ H.test("wait: it ends a day after the price was last at 95% of usual, then the p
     local out
     pick, out = Run(1357, 40)
     H.eq(pick, nil, "no pick while the price is under the units' cost")
-    H.eq(out.pickWhy["828"], "under 10c profit per item", "the reason")
+    H.eq(out.pickWhy["828"], "under your minimum profit per item, 10% = " .. Mo(FM, 136), "the reason: 10% of 13s 57c")
     -- units that cost 10s: a Stock pick at the price now
     pick = Run(1000, 40)
     H.same({ pick.kind, pick.wait, pick.listAt }, { "stock", nil, 1398 }, "Stock at 13s 98c")
@@ -1754,8 +1755,9 @@ H.test("budget: % of your gold, or the amount set, capped at 90% unless the opti
 end)
 
 H.test("budget: the plan uses the amount set, and with the option a plan for more gold than you have", function()
+    -- the amount alone checked (FRV-126: the two boxes are no longer one choice)
     local function Need(settings)
-        local s = { tableInvestPicks = 1 }
+        local s = { tableInvestPicks = 1, tableInvestPctOn = not settings.tableInvestManual }
         for k, v in pairs(settings) do s[k] = v end
         local FM, env = Setup(FOUR_BUYERS, s, 10000)
         local out = { crafts = FourCrafts() }
@@ -1875,4 +1877,241 @@ H.test("picks: a recipe of a specialization you have not chosen is no pick, the 
     H.eq(out.pickWhy["730"], "needs the Tribal Leatherworking specialization", "the reason")
     for _, p in ipairs(out.pickLevels or {}) do H.eq(p.key ~= "730", true, "and no Level for row") end
     H.eq(picks["731"] and picks["731"].kind, "learn", "the recipe without a specialization: a pick that learns it")
+end)
+
+---------------------------------------------------------------- Profit and both boxes of a pair (FRV-126)
+-- Rule: "Profit [P] % [x] [g] [s] [c] [ ]" is a pick's minimum profit per item (after the cut, against what one unit
+-- costs you): the % of that cost, the amount, or with both checked "either" (the default: one of them is met, the lower
+-- minimum) or "both" (both are met, the higher). Invest with both checked: "both" (the default) stays within both
+-- budgets (the smaller), "either" within one of them (the larger). The settings panel's minimum profit per item of the
+-- table no longer applies to picks.
+
+-- A craft that earns 9% but 30c per item: its material costs 3s 33c a unit on the AH, it sells at 3s 82c (3s 62.9c
+-- after the cut: 29.9c a unit); 400 buyers a day plan a first batch of 66
+local function NinePercent(settings)
+    local FM, env = Setup({ ["150"] = 100 }, settings, 100000)
+    local craft = Craft("150", 400, 1, 382)
+    craft.cost, craft.parts[1].unit = 333, 333
+    craft.profit = 382 * 0.95 - 333
+    local view = View({ ["150"] = { ladder = { { 382, 50 } }, qty = 50, own = 0 },
+        ["900"] = { ladder = { { 333, 100000 } }, qty = 100000, own = 0 } })
+    local out = { crafts = { craft } }
+    return Compute(FM, env, out, view)["150"], out, FM
+end
+
+H.test("profit: 10% and 25c both checked, a pick earning 9% but 30c passes with Either, not with Both", function()
+    local both = { tableProfitPctOn = true, tableProfitPct = 10, tableProfitManual = true, tableProfitAmount = 25 }
+    local pick, out = NinePercent(both)
+    H.eq(pick ~= nil, true, "Either must apply (the default): 25c is the minimum, a pick")
+    H.same(out.pickProfit, { pct = 10, amount = 25, logic = "either" }, "the plan knows its Profit")
+    both.tableProfitLogic = "both"
+    local FM
+    pick, out, FM = NinePercent(both)
+    H.eq(pick, nil, "Both must apply: 10% = 33c is the minimum, no pick")
+    H.eq(out.pickWhy["150"], "under your minimum profit per item, 10% = " .. Mo(FM, 33) .. " and " .. Mo(FM, 25)
+        .. ", the higher one", "the reason names the Profit value")
+    -- the % alone (the default 10%) and the amount alone (25c)
+    pick, out, FM = NinePercent(nil)
+    H.eq(pick, nil, "10% alone: no pick")
+    H.eq(out.pickWhy["150"], "under your minimum profit per item, 10% = " .. Mo(FM, 33), "the reason")
+    pick = NinePercent({ tableProfitPctOn = false, tableProfitManual = true, tableProfitAmount = 25 })
+    H.eq(pick ~= nil, true, "25c alone: a pick")
+    -- the table's minimum profit per item (settings panel) no longer filters picks
+    pick = NinePercent({ tableProfitPct = 5, tableMinProfit = 5000 })
+    H.eq(pick ~= nil, true, "5% and a table minimum of 50s: still a pick")
+end)
+
+H.test("profit: the rule's minimum and its words", function()
+    local FM = Setup({})
+    local rule = FM.PicksProfit({ tableProfitPctOn = true, tableProfitPct = 10, tableProfitManual = true, tableProfitAmount = 25 })
+    H.eq(FM.PicksMinUnit(rule, 333), 25, "either: the lower of 33.3c and 25c")
+    H.eq(FM.PicksProfitText(rule, nil, "short"), "10% or " .. Mo(FM, 25) .. ", the lower", "the summary line")
+    H.eq(FM.PicksProfitText(rule, nil, "line"), "at least 10% or " .. Mo(FM, 25) .. " per item, the lower one", "a tooltip")
+    rule.logic = "both"
+    H.eq(math.floor(FM.PicksMinUnit(rule, 333) * 10 + 0.5), 333, "both: the higher, 33.3c")
+    rule = FM.PicksProfit({ tableProfitPctOn = false, tableProfitPct = 10, tableProfitManual = false })
+    H.same(rule, { pct = 10 }, "no box checked: the % counts")
+    H.eq(FM.PicksMinUnit(FM.PicksProfit({ tableProfitPct = 0 }), 500), 0, "0%: no minimum")
+end)
+
+H.test("budget: Invest 90% and 10g both checked: the smaller budget by default, the larger with Either", function()
+    local FM = Setup({})
+    local s = { tableInvestPctOn = true, tableInvestPct = 90, tableInvestManual = true, tableInvestAmount = 100000 }
+    local b = FM.PicksBudget(1000000, s)
+    H.same({ b.mode, b.logic, b.budget, b.used }, { "both", "both", 100000, "manual" }, "Both must apply: 10g")
+    H.same({ b.pctBudget, b.manualBudget }, { 900000, 100000 }, "both budgets known")
+    s.tableInvestLogic = "either"
+    b = FM.PicksBudget(1000000, s)
+    H.same({ b.mode, b.logic, b.budget, b.used }, { "both", "either", 900000, "pct" }, "Either must apply: 90g")
+    -- the amount over 90% of your gold is capped as before; the cap says so only while the amount is the budget
+    s.tableInvestAmount, s.tableInvestPct, s.tableInvestLogic = 2000000, 50, "either"
+    b = FM.PicksBudget(1000000, s)
+    H.same({ b.budget, b.capped }, { 900000, true }, "Either: the capped amount, 90g")
+    s.tableInvestLogic = "both"
+    b = FM.PicksBudget(1000000, s)
+    H.same({ b.budget, b.capped }, { 500000, nil }, "Both: the 50%, no cap in use")
+    -- and the plan follows it
+    local env
+    FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 1, tableInvestPctOn = true, tableInvestManual = true,
+        tableInvestAmount = 5000 }, 10000)
+    local out = { crafts = FourCrafts() }
+    Compute(FM, env, out)
+    H.eq(out.pickNeed, 5000, "90s and 50s, Both must apply: 5 crafts of 10s")
+    FM.GetSettings().tableInvestLogic = "either"
+    out = { crafts = FourCrafts() }
+    Compute(FM, env, out)
+    H.eq(out.pickNeed, 9000, "Either must apply: 9 crafts")
+end)
+
+-- Rule: a locked plan (Lock plan after refresh) keeps every field the plan writes through an automatic pass
+-- (FM.PICK_FIELDS in trade/Calc.lua), the summary's Profit and why it has fewer picks too
+H.test("picks: a locked plan keeps every field FM.ComputePicks writes", function()
+    local FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 5 }, 10000)
+    local out = { crafts = FourCrafts() }
+    Compute(FM, env, out)
+    local kept = {}
+    for _, field in ipairs(FM.PICK_FIELDS) do kept[field] = true end
+    local missing = {}
+    for field in pairs(out) do
+        if field:find("^pick") and not kept[field] then missing[#missing + 1] = field end
+    end
+    table.sort(missing)
+    H.eq(table.concat(missing, ", "), "", "fields a locked plan would lose")
+    H.eq(out.pickProfit ~= nil and kept.pickProfit, true, "the Profit it planned with")
+    H.eq(out.pickShort ~= nil and kept.pickShort, true, "why it has fewer picks than 5")
+end)
+
+---------------------------------------------------------------- why a pick is out of scope (FRV-133)
+-- Rule: the plan is greedy; each next pick is judged after the picks before it took their materials. A candidate that
+-- is no pick after an earlier pick took its material is "Also good, but out of scope" (judged on its own); its tooltip
+-- names the plan pick, what that pick takes and what it would then pay, its use step marks your units the plan uses,
+-- and the summary says why the plan has fewer picks than "Picks [Y]".
+
+-- Two crafts of one material (900): you hold 10 in your bags, the AH has 8 at 1s, then 20s. 301 sells at 10s and is
+-- picked first: it uses your 10 and the 8 at 1s. 302 sells at 6s: on its own it would use the same, after 301 it buys
+-- at 20s and earns nothing. 10g of gold: one pick of 9g (Picks [1]) still needs only 9s of expected profit
+local function SharedMaterial(settings)
+    local FM, env = Setup({ ["301"] = 27, ["302"] = 27 }, settings, 100000)
+    FM.Owned = function(k) if k == "900" then return 10, 10, 10, 10 end return 0, 0, 0, 0 end
+    local crafts = {}
+    for _, c in ipairs({ { "301", 1000 }, { "302", 600 } }) do
+        local craft = Craft(c[1], 400, 1, c[2])
+        craft.cost, craft.parts[1].unit = 100, 100
+        craft.profit = c[2] * 0.95 - 100
+        crafts[#crafts + 1] = craft
+    end
+    local view = View({ ["900"] = { ladder = { { 100, 8 }, { 2000, 1000 } }, qty = 1008, own = 0 },
+        ["301"] = { ladder = { { 1000, 50 } }, qty = 50, own = 0 }, ["302"] = { ladder = { { 600, 50 } }, qty = 50, own = 0 } })
+    local out = { crafts = crafts }
+    return Compute(FM, env, out, view), out, FM
+end
+
+H.test("out of scope: a candidate that drops out after an earlier pick took its material says why", function()
+    local picks, out, FM = SharedMaterial(nil)
+    H.eq(out.pickPlan, 1, "one plan pick of 3")
+    H.eq(picks["301"].extra, nil, "301 is pick #1")
+    H.eq(picks["302"].extra, true, "302 is out of scope")
+    H.eq(out.pickShort, "earn", "the plan ends: nothing else earns enough after it")
+    local n = FM.GetName("900")
+    H.eq(picks["302"].reasons[1][2], "Not in the plan: pick #1 (" .. FM.GetName("301") .. ") uses 10 " .. n
+        .. " from your bags and 8 on the AH up to " .. Mo(FM, 100) .. "; after that it would buy " .. n
+        .. " up to " .. Mo(FM, 2000) .. ". Judged again then: no craft earns your minimum profit per item (10%) with the "
+        .. "materials on the AH now.", "the first line of its tooltip")
+    H.eq(picks["302"].reasons[1][3], ORANGE, "in orange")
+    H.eq(HasStep(picks["302"], "use 10 " .. n .. " from your bags (used by pick #1)"), true, Steps(picks["302"]))
+    H.eq(HasStep(picks["301"], "use 10 " .. n .. " from your bags"), true, "the plan pick's own step is unmarked")
+end)
+
+H.test("out of scope: a plan that fills its slots has no short reason, its other picks earn less per gold", function()
+    local picks, out = SharedMaterial({ tableInvestPicks = 1 })
+    H.eq(out.pickPlan, 1, "one pick, one slot")
+    H.eq(out.pickShort, nil, "no note in the summary")
+    H.eq(picks["302"].reasons[1][2], "Not in the plan: its 1 pick earns more per gold put in.", "why 302 is not in it")
+end)
+
+---------------------------------------------------------------- your units at what they cost you (FRV-134)
+-- Rule: units of a pick's item you hold count at what you paid for them (FM.PaidBasis: the craft log's basis, your
+-- purchases), the units without one at what one more costs the pick now; Expected counts their margin. A pick whose
+-- list price is under the Sell at least of the units you hold (what you paid, one lost 8h deposit, the cut) says why.
+
+H.test("held: units you hold count at what you paid, the tooltip says so", function()
+    local function Run(paid)
+        local FM, env = Setup({ ["160"] = 27 })
+        Hold(FM, "160", 5)
+        FM.PaidBasis = paid
+        local pick = Compute(FM, env, { crafts = { Craft("160", 400) } })["160"]
+        return pick, FM
+    end
+    local now, FM = Run(nil)
+    H.eq(HasStep(now, "make 13"), true, "make 13, list 18 with your 5")
+    -- paid 5s each: the 5 earn 5s more each than new ones; 75% of them sell in Expected
+    local paid = Run(function(_, n) return n, n * 500 end)
+    H.eq(Raw(paid) - Raw(now), 0.75 * 5 * 500, "Expected: +18s 75c")
+    local line
+    for _, l in ipairs(paid.reasons) do if l[1] == "l" and l[2] == "Your 5 held" then line = l[3] end end
+    H.eq(line, "+" .. Mo(FM, 9000) .. "|cFF9D9D9D  per item against " .. Mo(FM, 500) .. ": you paid|r", "the tooltip line")
+    -- what you paid for 2 of them: the other 3 at what a new one costs
+    local part = Run(function() return 2, 1000 end)
+    for _, l in ipairs(part.reasons) do if l[1] == "l" and l[2] == "Your 5 held" then line = l[3] end end
+    H.eq(line, "+" .. Mo(FM, 8700) .. "|cFF9D9D9D  per item against " .. Mo(FM, 800) .. ": you paid for 2, one more now for 3|r",
+        "a partial basis")
+end)
+
+-- Rule: a pick whose Expected falls to 0 or below only through the units you hold at what you paid says so, not that
+-- the deposits eat it. 10 held made when the materials cost 1g each; a new one costs 50s and sells at 60s (7s a unit
+-- after the cut, over 10% of 50s): 18 listed, 75% sell, Expected 90s for new ones, -3g 75s for the 10 held
+H.test("held: units you paid more for than new ones cost make the pick none, the reason says so", function()
+    local FM, env = Setup({ ["164"] = 27 })
+    Hold(FM, "164", 10)
+    FM.Deposit = function(_, n) return 100 * (n or 1) end
+    local craft = Craft("164", 400, 1, 6000)
+    craft.cost, craft.parts[1].unit, craft.profit = 5000, 5000, 6000 * 0.95 - 5000
+    local view = View({ ["164"] = { ladder = { { 6000, 50 } }, qty = 50, own = 0 },
+        ["900"] = { ladder = { { 5000, 100000 } }, qty = 100000, own = 0 } })
+    local out = { crafts = { craft } }
+    H.eq(Compute(FM, env, out, view)["164"] ~= nil, true, "without a record of what you paid: a pick")
+    FM.PaidBasis = function(_, n) return n, n * 10000 end
+    out = { crafts = { craft } }
+    H.eq(Compute(FM, env, out, view)["164"], nil, "at 1g each: no pick")
+    H.eq(out.pickWhy["164"], "your 10 held cost " .. Mo(FM, 10000) .. " each (you paid): listed with the new ones they "
+        .. "lose more than the new ones earn", "the reason names them")
+end)
+
+H.test("held: a Stock pick earns at least your Profit against what you paid, a list price under Sell at least says why", function()
+    -- you hold 20 (the batch is 18): a Stock pick at 10s; you paid 9s 40c each, 10% of that is more than 1s left
+    local FM, env, r = Setup({ ["161"] = 27 })
+    Hold(FM, "161", 20)
+    FM.PaidBasis = function(_, n) return n, n * 9400 end
+    local out = { crafts = { Craft("161", 400) } }
+    H.eq(Compute(FM, env, out)["161"], nil, "no Stock pick")
+    H.eq(out.pickWhy["161"], "under your minimum profit per item, 10% = " .. Mo(FM, 940) .. " (your 18 cost " .. Mo(FM, 9400)
+        .. " each: you paid)", "the reason names what you paid")
+    -- 5 held at 98s each next to new crafts at 10s: they sell at a loss, the new ones carry the pick
+    FM, env = Setup({ ["162"] = 27 })
+    Hold(FM, "162", 5)
+    FM.PaidBasis = function(_, n) return n, n * 9800 end
+    FM.Deposit = function(_, n) return 10 * (n or 1) end
+    local pick = Compute(FM, env, { crafts = { Craft("162", 400) } })["162"]
+    H.eq(Reason(pick, string.format("List at %s is under %s, the Sell at least of your 5 on the item tooltip (what you "
+        .. "paid and one lost 8h deposit, after the cut): each one sells at a loss of %s; the pick is chosen for its new "
+        .. "units, Expected counts that loss.", Mo(FM, 10000), Mo(FM, math.ceil((9800 * 5 + 50) / (5 * 0.95))), Mo(FM, 300)))
+        ~= nil, true, "the note")
+    -- what you paid is known for 2 of the 5 (the others at 10s, one more now): the item tooltip's own Sell at least
+    -- (FM.CostInfo: 2 at what you paid, 3 at today's AH price) is the line, 1g 0s 50c, over the 1g list price
+    FM, env = Setup({ ["163"] = 27 })
+    Hold(FM, "163", 5)
+    FM.PaidBasis = function() return 2, 2 * 9800 end
+    FM.CostInfo = function() return { owned = true, n = 5, basisN = 2, min8 = 10050 } end
+    pick = Compute(FM, env, { crafts = { Craft("163", 400) } })["163"]
+    local heldUnit = (2 * 9800 + 3 * 1000) / 5
+    H.eq(Reason(pick, string.format("List at %s is under %s, the Sell at least of your 5 on the item tooltip (what you "
+        .. "paid for 2, today's AH price for 3 and one lost 8h deposit, after the cut): each one that sells still earns %s, "
+        .. "Expected counts the deposits of those that do not.", Mo(FM, 10000), Mo(FM, 10050), Mo(FM, 10000 * 0.95 - heldUnit)))
+        ~= nil, true, "a partial basis: the tooltip's number")
+    -- the tooltip's line is under the list price: no note
+    FM.CostInfo = function() return { owned = true, n = 5, basisN = 2, min8 = 9990 } end
+    pick = Compute(FM, env, { crafts = { Craft("163", 400) } })["163"]
+    for _, r in ipairs(pick.reasons) do
+        H.eq(r[1] == "n" and r[2]:find("^List at ") ~= nil, false, "no note: " .. tostring(r[2]))
+    end
 end)

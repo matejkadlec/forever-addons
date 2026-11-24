@@ -114,7 +114,8 @@ local function GroupLines(lines, group, total, single)
     else
         lines[#lines + 1] = { string_format("%s (%s of %s pcs)", title, FM.FormatCount(group.n), total) }
     end
-    lines[#lines + 1] = Row("now", group.now, NowColor(group.now, group.paid))
+    -- each row says what it is based on (FRV-134): today's prices of the AH (crafted: of the materials), what you paid
+    lines[#lines + 1] = Row("today's prices", group.now, NowColor(group.now, group.paid))
     local label = "you paid"
     if group.kind == "crafted" and group.paid and group.paidN < group.n then
         label = string_format("you paid (%s of %s)", FM.FormatCount(group.paidN), FM.FormatCount(group.n))
@@ -142,8 +143,18 @@ local function CostLines(key)
             lines = {}
             for _, group in ipairs(info.groups) do GroupLines(lines, group, n, #info.groups == 1) end
         end
-        -- the lowest unit price that doesn't sell under the AH value, per listing duration
-        lines[#lines + 1] = { string_format("Sell at least (%s pcs)", n) }
+        -- the lowest unit price that nets what your units cost you after the cut and one lost deposit, per listing
+        -- duration (FRV-134): what you paid where the logs tell, today's AH price of the item for the rest
+        local basis = info.basisN or 0
+        local from
+        if basis >= info.n then
+            from = "from what you paid"
+        elseif basis <= 0 then
+            from = "from today's AH price"
+        else
+            from = string_format("%s at what you paid, %s at today's AH price", FM.FormatCount(basis), FM.FormatCount(info.n - basis))
+        end
+        lines[#lines + 1] = { string_format("Sell at least (%s pcs, %s)", n, from) }
         lines[#lines + 1] = Row("8h listing", info.min8, WHITE, true)
         lines[#lines + 1] = Row("24h listing", info.min24, WHITE, true)
     end

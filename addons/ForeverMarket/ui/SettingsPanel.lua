@@ -97,8 +97,9 @@ local OPTIONS = {
 local COIN = { "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r" }
 local COIN_COPPER = { 10000, 100, 1 }
 local INPUT_TIPS = {
-    -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper)
-    tableMinProfit = "Rows of the Craft, Vendor and Flip tabs and picks that earn less per item are hidden, crafts without a known profit too. 0g 0s 0c: no minimum. Whole numbers, silver and copper 0 to 99 (default 0g 0s 1c).",
+    -- Market table: rows earning less per item are hidden (cheap cooking with a big profit per 1g but a few copper); Picks
+    -- has its own Profit in its row since FRV-126
+    tableMinProfit = "Rows of the Craft, Vendor and Flip tabs that earn less per item are hidden, crafts without a known profit too. Picks has its own minimum: Profit in its row. 0g 0s 0c: no minimum. Whole numbers, silver and copper 0 to 99 (default 0g 0s 1c).",
     -- Picks: a pick plans at most this share of what circulates of the item in 24h (C/24h), your listings included
     tableCircPct = "The most of an item's C/24h one pick may add to the AH, your listings on all characters included. Whole numbers 1 to 100 (default 25).",
     -- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
@@ -184,6 +185,41 @@ local function MoneyInput(label, text, settingKey)
     end)
 end
 
+-- How the % and the amount of the Picks row's Invest and Profit combine with both boxes checked (FRV-126): one dropdown
+-- each, "Either must apply" / "Both must apply"
+local LOGIC_CHOICES = { { value = "either", text = "Either must apply" }, { value = "both", text = "Both must apply" } }
+local LOGIC_TIPS = {
+    tableInvestLogic = "With both boxes of Invest checked in the Picks row (the % of your gold and the amount set). Both must apply (default): the plan stays within both budgets, so the smaller one is the budget. Either must apply: within at least one of them, so the larger one. Allow picks budget over current gold still applies to each.",
+    tableProfitLogic = "With both boxes of Profit checked in the Picks row (the % of a unit's cost and the amount). Either must apply (default): a pick passes when it earns the % or the amount per item, so the lower of the two is the minimum. Both must apply: it must earn both, so the higher one.",
+}
+local dropdowns = {}
+
+-- Blizzard's dropdown (WowStyle1DropdownTemplate, as the market table's) right of the label; a choice is saved and
+-- plans the picks again at once
+local function LogicDropdown(label, text, settingKey)
+    local dd = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    dd:SetWidth(170)
+    dd:SetPoint("LEFT", label, "RIGHT", 12, 0)
+    if dd.SetupMenu then
+        dd:SetupMenu(function(_, root)
+            local function IsSelected(value) return FM.GetSettings()[settingKey] == value end
+            local function SetSelected(value) SaveSetting(settingKey, value) end
+            for _, choice in ipairs(LOGIC_CHOICES) do root:CreateRadio(choice.text, IsSelected, SetSelected, choice.value) end
+        end)
+    end
+    -- the template has its own OnEnter / OnLeave (Blizzard_Menu/Mainline/MenuTemplates.xml): hooked, not replaced
+    dd:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(text)
+        GameTooltip:AddLine(LOGIC_TIPS[settingKey], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    dd:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    dd.settingKey = settingKey
+    dropdowns[#dropdowns + 1] = dd
+    return dd
+end
+
 -- One box with "%" after it (or the rest of the sentence: suffix)
 local function PercentInput(label, text, settingKey, suffix)
     local box = FM.NumberBox(panel, 3)
@@ -210,6 +246,10 @@ local function Refresh()
         local typing = false
         for _, box in ipairs(input.boxes) do typing = typing or box:HasFocus() end
         if not typing then input.Show() end
+    end
+    -- the dropdowns show the saved choice's text
+    for _, dd in ipairs(dropdowns) do
+        if dd.GenerateMenu then dd:GenerateMenu() end
     end
     if infoText and FM.realm then
         local r = FM.realm
@@ -268,11 +308,14 @@ function FM.RegisterSettingsPanel()
         Make(label, text .. (suffix and (" [N]" .. suffix) or ""), settingKey, suffix)
         y = y - 34
     end
-    InputRow("Market table: minimum profit per item", MoneyInput, "tableMinProfit")
+    InputRow("Craft, Vendor and Flip tabs: minimum profit per item", MoneyInput, "tableMinProfit")
     InputRow("Picks: share of an item's C/24h one pick may plan", PercentInput, "tableCircPct")
     InputRow("Picks: first batch of a commodity without your sales, share of C/24h", PercentInput, "tableFirstPct")
     InputRow("Buy a craftable material when it costs at most", PercentInput, "tableTimePct",
         "% more per second of crafting it saves")
+    -- the Picks row's pairs with both boxes checked (FRV-126)
+    InputRow("% + manual invest logic", LogicDropdown, "tableInvestLogic")
+    InputRow("% + manual profit logic", LogicDropdown, "tableProfitLogic")
     y = y - 6
 
     local tableButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -287,8 +330,10 @@ function FM.RegisterSettingsPanel()
     snipeButton:SetText("Open sniper")
     snipeButton:SetScript("OnClick", function() FM.ShowSnipe() end)
 
+    -- the realm lines right of the buttons (FRV-126: under them they ran past the settings canvas, about 600 px tall
+    -- in Blizzard_SettingsPanel.xml, once the two logic dropdowns came)
     infoText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", tableButton, "BOTTOMLEFT", 0, -14)
+    infoText:SetPoint("TOPLEFT", snipeButton, "TOPRIGHT", 20, 0)
     infoText:SetJustifyH("LEFT")
 
     panel:SetScript("OnShow", Refresh)

@@ -36,12 +36,22 @@ FM.DEFAULTS = {
     tooltip = true, -- the AH price line (where Auctionator leaves none) and the cost section on item tooltips
     chatSummary = true, -- one chat line after each processed scan
     tableNoOutliers = true, -- market table: hide outliers (far off profit per 1g, junk vendor markups)
-    tableMinProfit = 1, -- market table and picks: rows earning less per item are hidden, in copper (settings panel)
+    tableMinProfit = 1, -- market table: rows earning less per item are hidden, in copper (settings panel; Picks has
+                        -- its own Profit since FRV-126)
     tableInvestPct = 90, -- picks: "[X] %": the share of your gold the whole plan may use, in percent (at most 90 counts
                          -- unless tablePicksOverGold, then 999)
     tableInvestPicks = 3, -- picks: "Picks [Y]": the plan has up to this many picks
-    tableInvestManual = false, -- picks: "| [g] [s] [c] [x]" checked: the budget is tableInvestAmount, not the % (FRV-95)
+    tableInvestPctOn = true, -- picks: "Invest [X] % [x]" checked: the % of your gold is a budget (FRV-126: one or both)
+    tableInvestManual = false, -- picks: "[g] [s] [c] [x]" checked: tableInvestAmount is a budget (FRV-95; FRV-126: one or both)
     tableInvestAmount = 0, -- picks: the budget set by hand, in copper (capped at 90% of your gold unless tablePicksOverGold)
+    tableInvestLogic = "both", -- picks: "% + manual invest logic" (settings panel, FRV-126), both boxes checked:
+                               -- "both" = within both budgets (the smaller), "either" = within one of them (the larger)
+    tableProfitPct = 10, -- picks: "Profit [P] %": a pick earns at least P % of what one unit costs you per item (FRV-126)
+    tableProfitPctOn = true, -- picks: the Profit % checked
+    tableProfitAmount = 10, -- picks: "Profit ... [g] [s] [c]": a pick earns at least this per item, in copper (FRV-126)
+    tableProfitManual = false, -- picks: the Profit amount checked
+    tableProfitLogic = "either", -- picks: "% + manual profit logic" (settings panel, FRV-126), both boxes checked:
+                                 -- "either" = one of them is met (the lower), "both" = both are met (the higher)
     tablePicksOverGold = false, -- picks: "Allow picks budget over current gold" (settings panel, FRV-95)
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
@@ -169,7 +179,35 @@ FM.SETTING_RANGE = {
     -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
     tableInvestPct = { 1, 999 },
     tableInvestAmount = { 0, 999999 * 10000 + 9999 },
+    -- the Picks row's Profit (FRV-126): the % of a unit's cost (3 digits) and the amount (999g 99s 99c, as the table's
+    -- minimum profit per item)
+    tableProfitPct = { 0, 999 },
+    tableProfitAmount = { 0, 999 * 10000 + 9999 },
 }
+
+-- The two checkboxes of the Picks row's Invest and Profit (FRV-126): the % and the amount; with both checked, the
+-- logic setting combines them. At least one box of a pair is always checked
+FM.PICK_PAIRS = {
+    invest = { pct = "tableInvestPctOn", manual = "tableInvestManual", logic = "tableInvestLogic" },
+    profit = { pct = "tableProfitPctOn", manual = "tableProfitManual", logic = "tableProfitLogic" },
+}
+FM.PICK_LOGIC = { either = true, both = true }
+
+-- A click on one box of a pair ("pct" or "manual"): it checks or unchecks that box, but the last checked box of the
+-- pair stays checked (the click is refused). Returns true when the setting changed
+function FM.PicksToggle(s, pairId, side)
+    local pair = FM.PICK_PAIRS[pairId]
+    if not pair then return false end
+    local key, other = pair[side], pair[side == "pct" and "manual" or "pct"]
+    if not key then return false end
+    if s[key] == true then
+        if s[other] ~= true then return false end -- the last checked box stays checked
+        s[key] = false
+    else
+        s[key] = true
+    end
+    return true
+end
 
 -- Such a setting's value: a whole number, clamped to its range; nil when it is no number at all
 function FM.SettingClamp(key, value)
@@ -194,6 +232,10 @@ function FM.InitializeSavedData()
     local db = ForeverMarketDB
     db.version = db.version or 1
     if type(db.settings) ~= "table" then db.settings = {} end
+    -- the Invest pair became two checkboxes (FRV-126): a choice saved before stays, the % or the amount alone
+    if db.settings.tableInvestPctOn == nil and db.settings.tableInvestManual ~= nil then
+        db.settings.tableInvestPctOn = db.settings.tableInvestManual ~= true
+    end
     for key, value in pairs(FM.DEFAULTS) do
         if db.settings[key] == nil then
             db.settings[key] = value
@@ -208,6 +250,13 @@ function FM.InitializeSavedData()
     -- got the default 1c above, a broken value gets the default
     for key in pairs(FM.SETTING_RANGE) do
         db.settings[key] = FM.SettingClamp(key, db.settings[key]) or FM.DEFAULTS[key]
+    end
+    -- the Picks pairs (FRV-126): booleans, one box at least checked (the %), a logic of the two choices
+    for _, pair in pairs(FM.PICK_PAIRS) do
+        local s = db.settings
+        s[pair.pct], s[pair.manual] = s[pair.pct] == true, s[pair.manual] == true
+        if not s[pair.pct] and not s[pair.manual] then s[pair.pct] = true end
+        if not FM.PICK_LOGIC[s[pair.logic]] then s[pair.logic] = FM.DEFAULTS[pair.logic] end
     end
     if type(db.realms) ~= "table" then db.realms = {} end
     -- the bag and bank counts of watched items (R.inv) were written only for reading outside the game (FRV-85)
