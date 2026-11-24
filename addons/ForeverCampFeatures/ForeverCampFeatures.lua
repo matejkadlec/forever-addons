@@ -635,6 +635,30 @@ function ns.SetAllObjects(enabled)
     end
 end
 
+-- Switch every object of one profession on, or off when all of them are on already (a click on the profession's
+-- name in the settings); returns the new state, nil for a profession without objects
+function ns.ToggleProfession(profession)
+    local found, allOn = false, true
+    for _, object in ipairs(ns.OBJECTS) do
+        if object.profession == profession then
+            found = true
+            allOn = allOn and ns.IsObjectEnabled(object.key)
+        end
+    end
+    if not found then
+        return nil
+    end
+    for _, object in ipairs(ns.OBJECTS) do
+        if object.profession == profession then
+            StoreObjectEnabled(object.key, not allOn)
+        end
+    end
+    if ns.RefreshSettingsPanel then
+        ns.RefreshSettingsPanel()
+    end
+    return not allOn
+end
+
 -- Restore the default settings (every object on, the alert's sound, look and place; the known objects stay)
 function ns.ResetToDefaults()
     for key, value in pairs(DEFAULTS) do

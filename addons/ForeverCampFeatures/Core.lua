@@ -4,13 +4,16 @@ local L = ns.L
 
 -- Pure logic without game calls (tests/forevercampfeatures/ runs it outside the client): the shared message
 -- format and its validation, the rate limit per sender, the list of known objects (merging, expiry, alerting
--- once), distances, the texts of coordinates, ages and distances, and the checks of the alert's sound and look.
+-- once), distances, the texts of coordinates, ages and distances, the checks of the alert's sound and look, and
+-- the match of the settings' feature search.
 
 local math_floor = math.floor
 local math_max = math.max
 local math_min = math.min
 local math_sqrt = math.sqrt
 local pairs = pairs
+local select = select
+local string_find = string.find
 local string_format = string.format
 local string_lower = string.lower
 local string_sub = string.sub
@@ -305,6 +308,26 @@ end
 ns.FONT_SIZE_MIN = 10
 ns.FONT_SIZE_MAX = 40
 ns.FONT_SIZE_DEFAULT = 20
+
+-- True when the search text is part of one of the names given after it (any case, as plain text, spaces around it
+-- ignored); an empty search matches everything. The settings' feature search asks it with a feature's name and
+-- its profession's
+function ns.MatchesSearch(search, ...)
+    if type(search) ~= "string" then
+        return true
+    end
+    search = string_lower((search:gsub("^%s+", ""):gsub("%s+$", "")))
+    if search == "" then
+        return true
+    end
+    for index = 1, select("#", ...) do
+        local name = select(index, ...)
+        if type(name) == "string" and string_find(string_lower(name), search, 1, true) then
+            return true
+        end
+    end
+    return false
+end
 
 -- Words a sound's name keeps in capitals
 local SOUND_ACRONYMS = { UI = true, IG = true, GS = true, PVP = true, LFG = true, NPC = true, AH = true }

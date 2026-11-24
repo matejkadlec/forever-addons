@@ -111,13 +111,16 @@ local L = {
     PANEL_DEFAULTS = "Defaults",
     PANEL_ALERTS = "Alerts",
     PANEL_SHARING = "Sharing with other players who run the AddOn",
-    PANEL_OBJECTS = "Objects",
+    PANEL_SHARING_NOTE = "Sharing sends the camp feature, its map, its coordinates and when it was placed or seen, "
+        .. "nothing else. While either option is on, your character is in the AddOn's chat channel, whose member "
+        .. "list anyone who joins it can see.",
+    PANEL_OBJECTS = "Features",
     PANEL_ALL_ON = "All on",
     PANEL_ALL_OFF = "All off",
-    PANEL_NOTE = "Placed objects stay about 15 minutes. In range works for objects a recipe you know needs nearby "
-        .. "(Iron Oven, forges, ...). Hover works for anything you can point at. Sharing sends the object, its map, "
-        .. "its coordinates and when it was placed or seen; nothing else. While either sharing option is on, your "
-        .. "character is in the AddOn's chat channel, whose member list anyone who joins it can see.",
+    PANEL_SEARCH_TOOLTIP = "Greys out every camp feature whose name or profession does not contain this text",
+    PANEL_PROFESSION_TOOLTIP = "Click to switch all %s features on, or off when all of them are on",
+    PANEL_NOTE = "Placed camp features stay about 15 minutes. In range works for a feature that a recipe you know "
+        .. "needs nearby, such as the Iron Oven or a forge. Hover works for anything you can point at.",
     OPTION_ENABLED = "Enable Forever Camp Features",
     OPTION_ALERT_TEXT = "Text in the middle of the screen",
     OPTION_ALERT_SOUND = "Sound",
@@ -125,7 +128,8 @@ local L = {
     PANEL_FONT = "Font",
     PANEL_FONT_SIZE = "Size",
     PANEL_TEXT_COLOR = "Text color",
-    PANEL_BACKGROUND = "Background (color and opacity; opacity 0 = none)",
+    PANEL_BACKGROUND = "Background",
+    PANEL_BACKGROUND_TOOLTIP = "Color and opacity of the box behind the text. Opacity 0 shows no background",
     PANEL_MOVE = "Move",
     PANEL_MOVE_DONE = "Done",
     PANEL_MOVE_TOOLTIP = "Shows the alerts as a preview you can drag anywhere on the screen",
@@ -133,9 +137,11 @@ local L = {
     PANEL_TEST = "Test",
     FONT_DEFAULT = "Game default",
     FONT_SHARED = "LibSharedMedia",
-    OPTION_WAYPOINT = "TomTom waypoint when TomTom is loaded (else the coordinates in the chat)",
-    OPTION_SHARE = "Share the objects I place or find (their place and the time)",
-    OPTION_SHOW_SHARED = "Show objects others found",
+    OPTION_WAYPOINT = "TomTom waypoint instead of the coordinates in the chat",
+    OPTION_WAYPOINT_TOOLTIP = "Needs the TomTom AddOn. Without it, and for a camp feature found by hovering, the "
+        .. "coordinates go to the chat",
+    OPTION_SHARE = "Share the camp features I place or find",
+    OPTION_SHOW_SHARED = "Show camp features others found",
 
     -- professions
     PROFESSION_COOKING = "Cooking",

@@ -9,18 +9,26 @@ local CreateFrame = CreateFrame
 local ipairs = ipairs
 local pairs = pairs
 local math_floor = math.floor
+local string_format = string.format
 local tostring = tostring
 
 local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
 local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
 local CHILD_CATEGORY_NAME = L.PANEL_NAME
 local CHILD_DESCRIPTION = L.PANEL_DESCRIPTION
--- The object grid: a profession label, then up to three objects per row
+-- The feature list: a profession's name, then up to three features per row, and a line between the professions
 local OBJECT_COLUMNS = { 150, 310, 470 }
-local OBJECT_ROW_HEIGHT = 20
--- The scrolled page: its width, and the room left below the last line
+local OBJECT_ROW_HEIGHT = 22
+local GROUP_LEFT = 32
+local GROUP_PADDING = 4
+local DIVIDER_HEIGHT = 2
+local PROFESSION_WIDTH = 112
+-- The feature search: its width, and how far a feature that does not match fades
+local SEARCH_WIDTH = 118
+local SEARCH_DIM_ALPHA = 0.35
+-- The scrolled page: its width, and the room left below the last line (the note under the features)
 local CONTENT_WIDTH = 620
-local CONTENT_BOTTOM = 70
+local CONTENT_BOTTOM = 50
 -- The sound menu scrolls past this height (it lists every sound of the game)
 local SOUND_MENU_HEIGHT = 400
 -- Wait this long on a sound in the menu before its preview plays, so moving the mouse down the list stays quiet
@@ -29,8 +37,10 @@ local HOVER_PREVIEW_DELAY = 0.35
 local panel
 local content
 local category
-local controls = { objects = {} }
+local controls = { objects = {}, groups = {} }
 local refreshing = false
+-- What the feature search holds (it only fades the features it does not match, it is no setting)
+local searchText = ""
 -- Every sound of the game, A-Z (built once, when the sound menu first opens)
 local soundList
 
@@ -125,6 +135,25 @@ local function CreateLabel(text, x, y)
     label:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
     label:SetText(text)
     return label
+end
+
+-- Create a grey note that wraps across the page
+local function CreateNote(text, x, y)
+    local note = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    note:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+    note:SetWidth(CONTENT_WIDTH - x - 20)
+    note:SetJustifyH("LEFT")
+    note:SetText(text)
+    return note
+end
+
+-- Draw a thin line across the page: the options' own divider (Blizzard_SettingsList.xml)
+local function CreateDivider(y)
+    local line = content:CreateTexture(nil, "ARTWORK")
+    line:SetAtlas("Options_HorizontalDivider")
+    line:SetPoint("TOPLEFT", content, "TOPLEFT", GROUP_LEFT, y)
+    line:SetSize(CONTENT_WIDTH - GROUP_LEFT - 10, DIVIDER_HEIGHT)
+    return line
 end
 
 -- Create a checkbox, small = indented child option
@@ -366,10 +395,28 @@ end
 local OPTIONS = {
     { key = "alertText", label = "OPTION_ALERT_TEXT", x = 32, y = -86 },
     { key = "alertSound", label = "OPTION_ALERT_SOUND", x = 300, y = -86 },
-    { key = "waypoint", label = "OPTION_WAYPOINT", x = 32, y = -222 },
+    { key = "waypoint", label = "OPTION_WAYPOINT", tooltip = L.OPTION_WAYPOINT_TOOLTIP, x = 32, y = -222 },
     { key = "share", label = "OPTION_SHARE", x = 32, y = -276 },
     { key = "showShared", label = "OPTION_SHOW_SHARED", x = 32, y = -298 }
 }
+-- Below them (y on the scrolled page): the note on what sharing sends, then the features' header row
+local SHARING_NOTE_Y = -324
+local FEATURES_Y = -374
+
+-- Fade every feature the search does not match (by its name or its profession's), and a profession none of whose
+-- features match. A faded checkbox still works: the search only helps to find one
+local function ApplySearch()
+    for _, group in ipairs(controls.groups) do
+        local professionName = L["PROFESSION_" .. group.profession]
+        local anyMatch = false
+        for _, object in ipairs(group.objects) do
+            local matches = ns.MatchesSearch(searchText, ns.ObjectName(object), professionName)
+            controls.objects[object.key]:SetAlpha(matches and 1 or SEARCH_DIM_ALPHA)
+            anyMatch = anyMatch or matches
+        end
+        group.button:SetAlpha(anyMatch and 1 or SEARCH_DIM_ALPHA)
+    end
+end
 
 -- Sync every control with the saved settings
 local function RefreshSettingsPanel()
@@ -420,11 +467,13 @@ local function RefreshSettingsPanel()
         checkbox:SetChecked(ns.IsObjectEnabled(key))
         SetControlEnabled(checkbox, enabled)
     end
-    for _, label in ipairs(controls.professionLabels) do
-        label:SetFontObject(enabled and "GameFontNormalSmall" or "GameFontDisableSmall")
+    for _, group in ipairs(controls.groups) do
+        group.button:SetEnabled(enabled)
     end
     controls.allOn:SetEnabled(enabled)
     controls.allOff:SetEnabled(enabled)
+    -- the names above may be new: the search follows them
+    ApplySearch()
     refreshing = false
 end
 
@@ -479,6 +528,7 @@ local function CreateAlertControls()
         CreateColorSwatch("ForeverCampFeaturesSettingsBackground", "alertBackground", true, 200, -158,
             L.PANEL_BACKGROUND)
     }
+    AddTooltip(controls.swatches[2], L.PANEL_BACKGROUND_TOOLTIP)
 
     controls.move = CreateButton("ForeverCampFeaturesSettingsMove", 56, -190, 100, L.PANEL_MOVE, function()
         ns.SetMoving(not ns.IsMoving())
@@ -489,6 +539,55 @@ local function CreateAlertControls()
             ns.SetStyle("alertPosition", nil)
         end)
     controls.test = CreateButton("ForeverCampFeaturesSettingsTest", 288, -190, 80, L.PANEL_TEST, ns.ShowTestAlert)
+end
+
+-- Create the feature search: Blizzard's search box (magnifier, "Search" until you type, its clear button; its own
+-- scripts stay, ours is hooked)
+local function CreateSearchBox(x, y)
+    local search = CreateFrame("EditBox", "ForeverCampFeaturesSettingsSearch", content, "SearchBoxTemplate")
+    search:SetSize(SEARCH_WIDTH, 20)
+    search:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+    search:SetAutoFocus(false)
+    search:SetMaxLetters(40)
+    search:HookScript("OnTextChanged", function(self)
+        searchText = self:GetText() or ""
+        ApplySearch()
+    end)
+    AddTooltip(search, L.PANEL_SEARCH_TOOLTIP)
+    return search
+end
+
+-- Empty the feature search (the page closed): the next time the list is whole again
+local function ClearSearch()
+    searchText = ""
+    controls.search:SetText("")
+    controls.search:ClearFocus()
+    ApplySearch()
+end
+
+-- Create a profession's name as a button: a click switches all of its features on, or off when all of them are on
+local function CreateProfessionButton(profession, y)
+    local name = L["PROFESSION_" .. profession]
+    local button = CreateFrame("Button", "ForeverCampFeaturesSettingsProfession_" .. profession, content)
+    button:SetSize(PROFESSION_WIDTH, OBJECT_ROW_HEIGHT)
+    button:SetPoint("TOPLEFT", content, "TOPLEFT", GROUP_LEFT, y)
+    -- gold like the headers, white under the mouse, grey while the AddOn is disabled
+    local text = button:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    text:SetPoint("LEFT", button, "LEFT", 4, 0)
+    text:SetJustifyH("LEFT")
+    button:SetFontString(text)
+    button:SetNormalFontObject("GameFontNormal")
+    button:SetHighlightFontObject("GameFontHighlight")
+    button:SetDisabledFontObject("GameFontDisable")
+    button:SetText(name)
+    button:SetScript("OnClick", function()
+        if PlaySound and SOUNDKIT then
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        end
+        ns.ToggleProfession(profession)
+    end)
+    AddTooltip(button, string_format(L.PANEL_PROFESSION_TOOLTIP, name))
+    return button
 end
 
 -- Build the panel and register it under "Jim's Forever AddOns"
@@ -539,24 +638,29 @@ local function RegisterSettingsPanel()
             L[option.label], true, function(checked)
                 ns.SetOption(key, checked)
             end)
+        if option.tooltip then
+            AddTooltip(controls.options[key], option.tooltip)
+        end
     end
     CreateAlertControls()
+    -- what sharing sends and who can see that you run the AddOn, right under the two options
+    CreateNote(L.PANEL_SHARING_NOTE, 58, SHARING_NOTE_Y)
 
-    -- one row per profession (two for Cooking), each object switched on or off
-    CreateHeader(L.PANEL_OBJECTS, -332)
-    controls.allOn = CreateButton("ForeverCampFeaturesSettingsAllOn", 310, -328, 80, L.PANEL_ALL_ON, function()
+    -- the features: All on, All off and the search, then under a line each one group per profession (two rows for
+    -- Cooking), each feature switched on or off and the profession's name switching its whole group
+    CreateHeader(L.PANEL_OBJECTS, FEATURES_Y - 4)
+    controls.allOn = CreateButton("ForeverCampFeaturesSettingsAllOn", 310, FEATURES_Y, 80, L.PANEL_ALL_ON, function()
         ns.SetAllObjects(true)
     end)
-    controls.allOff = CreateButton("ForeverCampFeaturesSettingsAllOff", 400, -328, 80, L.PANEL_ALL_OFF, function()
+    controls.allOff = CreateButton("ForeverCampFeaturesSettingsAllOff", 400, FEATURES_Y, 80, L.PANEL_ALL_OFF, function()
         ns.SetAllObjects(false)
     end)
-    controls.professionLabels = {}
-    local y = -354
+    controls.search = CreateSearchBox(496, FEATURES_Y - 1)
+    local y = FEATURES_Y - 32
     for _, group in ipairs(ObjectsByProfession()) do
-        local label = content:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-        label:SetPoint("TOPLEFT", content, "TOPLEFT", 36, y - 5)
-        label:SetText(L["PROFESSION_" .. group.profession])
-        controls.professionLabels[#controls.professionLabels + 1] = label
+        CreateDivider(y)
+        y = y - DIVIDER_HEIGHT - GROUP_PADDING
+        group.button = CreateProfessionButton(group.profession, y)
         for index, object in ipairs(group.objects) do
             local column = (index - 1) % #OBJECT_COLUMNS + 1
             if index > 1 and column == 1 then
@@ -568,15 +672,13 @@ local function RegisterSettingsPanel()
                     ns.SetObjectEnabled(key, checked)
                 end)
         end
-        y = y - OBJECT_ROW_HEIGHT
+        y = y - OBJECT_ROW_HEIGHT - GROUP_PADDING
+        controls.groups[#controls.groups + 1] = group
     end
-
-    local note = content:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", content, "TOPLEFT", 18, y - 12)
-    note:SetWidth(580)
-    note:SetJustifyH("LEFT")
-    note:SetText(L.PANEL_NOTE)
-    content:SetHeight(math_floor(-(y - 12)) + CONTENT_BOTTOM)
+    CreateDivider(y)
+    y = y - DIVIDER_HEIGHT - 10
+    CreateNote(L.PANEL_NOTE, GROUP_LEFT, y)
+    content:SetHeight(math_floor(-y) + CONTENT_BOTTOM)
 
     -- optional Settings callbacks: refresh when shown, "Restore All Defaults"
     panel.OnRefresh = RefreshSettingsPanel
@@ -584,10 +686,11 @@ local function RegisterSettingsPanel()
     panel:SetScript("OnShow", RefreshSettingsPanel)
     -- alerts showing while the page opens or closes move above or back below the settings window
     panel:HookScript("OnShow", ns.UpdateAlertStrata)
-    -- leaving the page ends Move (the preview cannot stay without its Done button)
+    -- leaving the page ends Move (the preview cannot stay without its Done button) and empties the search
     panel:HookScript("OnHide", function()
         ns.SetMoving(false)
         ns.UpdateAlertStrata()
+        ClearSearch()
     end)
 
     local parentPanel = EnsureForeverAddOnsCategory()
