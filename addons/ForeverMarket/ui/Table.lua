@@ -1202,11 +1202,13 @@ local function SnipeLabel(targets)
     return (t.units and (FM.FormatCount(t.units) .. " ") or "") .. Name(t.key) .. " up to " .. FM.FormatMoney(t.price)
 end
 
-local function SnipeRow(targets, row)
+-- mode (FRV-128): "add" (Shift+click, the menu's Snipe) adds the units to what each item already snipes and keeps
+-- what was bought; "restart" (Shift+right-click) sets the limits to the units and starts the counts at 0
+local function SnipeRow(targets, row, mode)
     if #targets > 1 then
-        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey)
+        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey, mode)
     else
-        FM.SnipeFromTable(targets[1].key, targets[1].price, targets[1].units)
+        FM.SnipeFromTable(targets[1].key, targets[1].price, targets[1].units, mode)
     end
 end
 
@@ -1271,7 +1273,9 @@ local function RowHints(tab, row)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
     local targets = FM.ahOpen and SnipeTargets(row)
     if targets then
-        GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets), HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets) .. " (adds to what it already snipes)",
+            HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
     else
         GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B)
     end
@@ -1390,7 +1394,7 @@ local function ShowRowMenu(button, row)
             FM.RefreshTable()
         end)
         if targets and FM.SnipeFromTable then
-            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of) end)
+            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add") end)
         end
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
@@ -1444,17 +1448,23 @@ local function OnRowClick(button, mouseButton)
         end
         return
     end
+    local shift = IsShiftKeyDown and IsShiftKeyDown()
+    -- AH open: Shift+click snipes what the row buys at the AH at the table's prices (a pick: all its AH purchases),
+    -- adding to what each item already snipes; Shift+right-click the same with the counts from 0 (FRV-128)
+    local targets, of
+    if shift and FM.ahOpen and FM.SnipeFromTable then targets, of = SnipeTargets(row) end
     if mouseButton == "RightButton" then
         GameTooltip:Hide()
-        ShowRowMenu(button, row)
+        if targets then
+            SnipeRow(targets, of, "restart")
+        else
+            ShowRowMenu(button, row)
+        end
         return
     end
-    if IsShiftKeyDown and IsShiftKeyDown() then
-        -- AH open: snipe what the row buys at the AH at the table's prices (a pick: all its AH purchases)
-        local targets, of
-        if FM.ahOpen and FM.SnipeFromTable then targets, of = SnipeTargets(row) end
+    if shift then
         if targets then
-            SnipeRow(targets, of)
+            SnipeRow(targets, of, "add")
             return
         end
         local link = ItemLink(row.key)

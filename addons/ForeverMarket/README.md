@@ -836,11 +836,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     tool it buys there); Flip, vendor resells and items without a craft the item itself. With nothing to buy on the
     AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level materials
 
-  Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan; see Sniper).
+  Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan, added to what
+  each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see Sniper).
   Right-click: the menu above, with Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the
   row's tooltip as a sticky window (below).
 * The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
-  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ..."),
+  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
+  "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
   (Auctionator)   Shift-click: link" and "Right-click: " with the menu's entries). Farm: "Click: TomTom arrow to the
   spawns", "Shift+click: link the best drop to chat", the Alt+click line; the column headers say "Shift+click" too.
@@ -1275,9 +1277,9 @@ per purchase.
   (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
   number under what was bought leaves the item done); only the add row's x by "max units" followed by Update
   (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after removing it, or for the first
-  time) starts it at 0. The market table's Snipe keeps it too, with the same number or another one: a new plan whose
-  number is under what was bought leaves the item done ("100 / 60 bought, done" in the chat line), and the x starts it
-  again. Until 1.42 a new number, typed into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
+  time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
+  Shift+right-click sets the limit and starts the count again (below, Market table). Until 1.42 a new number, typed
+  into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
   "Resume sniping this item") stops an item without removing it: a paused item is not searched in a round, has no hit
   (a new result of it only updates Cheapest now) and is never bought; pausing also cancels a purchase of it that
@@ -1295,6 +1297,15 @@ per purchase.
   window opens on the main one; Craft and Learn: the main material at the max material price (the item keeps its
   number); Flip: its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip
   names what it snipes ("Shift-click: snipe its 3 AH purchases").
+  * Shift-click and the menu's Snipe add (1.43, FRV-128, the maintainer's rule after review round 2): the units go
+    on top of the limit an item already has and what was bought stays counted, so two picks that need the same
+    material add up (Heavy Leather 60 and 40: 20/100 when 20 were bought; the chat line says "40 added"); an item
+    sniped without a limit stays without one; a new item, or one removed and added again, gets the units from 0.
+    Clicking the same pick twice adds it twice: which pick an item was sent for is not tracked yet.
+  * Shift+right-click (at the AH) starts again: each item's limit becomes the pick's units and Bought now starts
+    at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100 of 144
+    bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. A material listed twice in one plan sums
+    up in both. Until 1.42 a number other than the item's started the count again, the same one kept it.
 * Only commodities: unstackable items (sold per auction) are refused.
 * While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
 

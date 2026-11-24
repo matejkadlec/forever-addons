@@ -167,22 +167,52 @@ H.test("sniper: the count runs without a number, and an item added to the list a
     H.eq(state.units, 20, "Bought today stays")
 end)
 
-H.test("sniper: the market table's number keeps the count, the same one or another (FRV-128)", function()
+-- FRV-128, the maintainer's rule after review round 2: Shift+click (mode "add", also the menu's Snipe) adds a pick's
+-- units to the item's limit and keeps what was bought, so two picks needing one material sum up; Shift+right-click
+-- (mode "restart") sets the limit to the pick's units and starts the count at 0
+H.test("sniper: the market table's Shift+click adds a pick's units to the item's limit and keeps the count", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)
-    FM.SnipeFromTable(key, 275, 144)
+    FM.SnipeFromTable(key, 275, 60, "add") -- the first pick needs 60
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 0, 60 }, "a new item: its units, from 0")
+    Offer(env, ah, LEATHER, 250, 20)
+    Buy(FM, env, ah, 250)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    env.printed = {}
+    FM.SnipeFromTable(key, 275, 40, "add") -- a second pick needs 40 of the same material
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 20, 100 }, "60 + 40: 20/100")
+    H.eq(env.printed[1]:find("20 / 100 bought, 40 added", 1, true) ~= nil, true, "the chat line says what was added")
+    FM.SnipeFromTable(key, 275, 40) -- without a mode: the same
+    H.eq(FM.SnipeSaved(key).n, 140, "the default mode adds")
+end)
+
+H.test("sniper: the market table's Shift+right-click sets the limit to the pick's units and starts the count at 0", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeFromTable(key, 275, 144, "add")
     Offer(env, ah, LEATHER, 250, 100)
     Buy(FM, env, ah, 250)
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     env.printed = {}
-    FM.SnipeFromTable(key, 275, 144) -- the same pick clicked again
-    H.eq(FM.SnipeSaved(key).got, 100, "what is bought stays")
-    H.eq(env.printed[1]:find("100 / 144 bought", 1, true) ~= nil, true, "the chat line says so")
-    env.printed = {}
-    FM.SnipeFromTable(key, 275, 60) -- a new plan with another number
-    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 100, 60 }, "the count stays, with the new number")
-    H.eq((select(2, Hit(FM, LEATHER))).done, true, "100 of 60: done")
-    H.eq(env.printed[1]:find("100 / 60 bought, done", 1, true) ~= nil, true, "the chat line names the real count")
+    FM.SnipeFromTable(key, 275, 44, "restart") -- a new plan after the 100 reached the bags
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n, state.left }, { 0, 44, 44 }, "0/44: it buys the 44 the plan still needs")
+    H.eq(state.units, 100, "Bought today stays")
+    H.eq(env.printed[1]:find("count started again", 1, true) ~= nil, true, "the chat line says so")
+end)
+
+H.test("sniper: Shift+click keeps an item without a limit unlimited, a pick's material listed twice sums up", function()
+    local FM, env = Load()
+    local key, thick = tostring(LEATHER), tostring(THICK)
+    FM.SnipeSet(key, 100) -- sniped in the window without a limit
+    FM.SnipeFromTable(key, 275, 40, "add")
+    H.eq(FM.SnipeSaved(key).n, nil, "no limit stays: it already buys what the budget allows")
+    FM.SnipeFromPlan("Belt", { { key = thick, price = 500, units = 10 }, { key = thick, price = 500, units = 5 },
+        { key = key, price = 275, units = 3 } }, thick, "restart")
+    H.eq(FM.SnipeSaved(thick).n, 15, "restart: 10 and 5 of the same plan sum up")
+    FM.SnipeFromPlan("Belt", { { key = thick, price = 500, units = 10 }, { key = thick, price = 500, units = 5 },
+        { key = key, price = 275, units = 3 } }, thick, "add")
+    H.eq(FM.SnipeSaved(thick).n, 30, "add: the plan's 15 more")
 end)
 
 H.test("sniper: a done item removed from the list starts again when the table adds it with the same number", function()
