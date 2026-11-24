@@ -378,7 +378,9 @@ function FM.FinalizeSnapshot(snap, onDone)
                 and string.format(", %s sold across %d items in the last %s", FM.FormatCount(totals.sold), totals.soldItems, FM.FormatAge(gap))
                 or ""
             local auctionatorText = (snap.auctionatorWritten or 0) > 0 and ", Auctionator prices updated" or ""
-            FM.Print(string.format("Deep scan saved: %s auctions, %s items%s%s.",
+            -- "rep": another AddOn's full scan that the deep scan read (FRV-130)
+            FM.Print(string.format("%s saved: %s auctions, %s items%s%s.",
+                snap.source == "rep" and "Another AddOn's full scan" or "Deep scan",
                 FM.FormatCount(snap.nAuctions), FM.FormatCount(#snap.order), sinceText, auctionatorText))
         end
         if FM.OnDeepScanSaved then

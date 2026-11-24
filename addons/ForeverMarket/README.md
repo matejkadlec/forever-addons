@@ -8,8 +8,9 @@ tooltips and the sniper, all in the game.
 
 | Source | When | What |
 |---|---|---|
-| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or "FM: scan" at the AH, `/fm scan`) | every auction: item, stack, buyout, time left band (Forever hides the seller of other players' auctions and names yours "First Surname"; the rest of yours are recognized from your auctions and posts) |
+| Deep scan (own replicate walk) | AH opens and 15 min passed, again every 15 min while it stays open (or "FM: scan" at the AH, `/fm scan`); the request waits until the AH is free (1.41, below) | every auction: item, stack, buyout, time left band (Forever hides the seller of other players' auctions and names yours "First Surname"; the rest of yours are recognized from your auctions and posts) |
 | Auctionator replicate scan | if Auctionator is set to replicate full scans | same as deep scan |
+| Another AddOn's full scan | any other `ReplicateItems` call, or a list nobody here asked for (1.41) | same as deep scan, saved when it could be read completely |
 | Auctionator incremental scan | Auctionator's normal full scan | min price + quantity per item |
 | Item / commodity searches | every time the AH shows one item (selling, buying) | full price ladder, exact diff by auction ID |
 | Your posts | every PostItem / PostCommodity | item, qty, unit price, duration, auction ID |
@@ -49,6 +50,41 @@ counted the auction as bought (or "sold or expired") and listed again: in the ma
 11/20, 637 units in 16 scans of items you listed had that trace, 554 of them counted as buyers (about 8% of the
 buyers of those items). The feed's Python port does the same (`services/forever-market-feed`; its own snapshots
 have no marks, so its records stay as they were).
+
+### When the deep scan asks (1.41, FRV-130: scan/DeepScan.lua, scan/AHTraffic.lua)
+
+On 2026-11-23 the deep scan stopped several times in a row with "no answer from the Auction House": its request
+(`C_AuctionHouse.ReplicateItems`) went out in the middle of posts, searches and the query of your auctions, no list
+came within 60 s, and because the 15 minutes counted from the request, the next try came only 15 minutes later.
+
+* **A free AH first.** The request is queued until the AH is free (`FM.AHBusyReason`): the message throttle is
+  ready (`IsThrottledMessageSystemReady`), no item search (also Blizzard's refresh of one), browse search, query of
+  your auctions, bids or a bidder's name, post, purchase or cancel waits for its answer, no post of several auctions
+  runs, the list of your auctions is not still loading (`FM.OwnedListLoading`, scan/Ledger.lua) and nothing went out
+  in the last second. scan/AHTraffic.lua follows every such request of any code (`hooksecurefunc` on the `C_AuctionHouse` functions that send them, which
+  changes nothing) until one of its answer events, or for 5 to 10 s when none comes. The automatic scan is queued as
+  the AH opens and may go 4 s later (Auctionator may start its own scan then); while it waits past that, and while
+  it waits for the server, the query of your auctions and the sniper's searches hold back (`FM.DeepScanWantsAH`),
+  so it goes first. A click on "FM: scan" or `/fm scan` that has to wait says why in the chat, the button's tooltip
+  too
+* **No answer costs minutes, not 15.** The server's 15 minutes (`lastReplicateT`) start with a request it answered.
+  No list within 60 s: the chat says so and when it tries again, the same request goes 90 s later, up to 3 times
+  (4 tries), and only after the last one the 15 minutes count from it. A list that still comes within 5 minutes of a
+  request without an answer is that request's late answer: saved as the deep scan, the retry dropped. Closing the
+  AH ends a queued or waiting request and the retries
+* **Another AddOn's full scan.** Its `ReplicateItems` call (hooked) or a list that arrives in several updates
+  without any request seen here starts the 15 minutes (`lastReplicateBy` says whose), and ForeverMarket reads the
+  list like its own and saves it as a deep snapshot (source `rep`, also into Auctionator's prices) when at least 99%
+  of its auctions could be read and it was not cut off while still changing. Inside the 15 minutes no new list can
+  come: a call is only noted and an update then is the list read already. Auctionator's own full scan keeps its
+  integration (scan/Auctionator.lua, `aucr`). Seen in the maintainer's AddOns on 2026-11-23: only Auctionator calls
+  `ReplicateItems` (its replicate scan switched off), ForeverArtisan_Core only listens to the list
+* **`/fm scanlog [n]`** prints the last n attempts (10 without n) and what the deep scan does right now: when, whose
+  (automatic, manual, retry, another AddOn's, Auctionator's, a list nobody asked for, a late answer), the try, the
+  outcome, how long it was queued and why, the throttle at the request, the requests of the 10 s before it, the
+  requests, throttle events (`AUCTION_HOUSE_THROTTLED_MESSAGE_SENT` / `QUEUED` / `DROPPED` / `RESPONSE_RECEIVED`,
+  `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`) and AH errors (`AUCTION_HOUSE_SHOW_ERROR`) while it waited, and how long
+  the list took. The last 50 are kept (`scanLog`, below), so the next failure shows its cause
 
 ## In game
 
@@ -146,7 +182,7 @@ have no marks, so its records stay as they were).
   written into the AddOn's `data/` folder, the reload offer after the AH closed, `/fm save`, the bag counts of watched
   items `inv`) and the chat alerts for undercuts and buy prices (`/fm popup`, `/fm alerts`); their saved keys go at
   load
-* `/fm` or the key `U` opens the market table (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of), settings under Options → AddOns → Jim's Forever AddOns → Market
+* `/fm` or the key `U` opens the market table (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of; `/fm scanlog [n]` the last deep scan attempts, below), settings under Options → AddOns → Jim's Forever AddOns → Market
 * Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and "toggle sniper
   window". The market table gets `U` and the sniper window `Z` (1.34, FRV-94; Z also when the game's
   Sheathe/Unsheathe Weapon has it) once per binding set (account, or a character with its own bindings), replacing
@@ -155,9 +191,10 @@ have no marks, so its records stay as they were).
 * `/fm snipe`, the key `Z` or "FM: snipe" at the AH opens and closes the sniper (below)
 * AH title bar buttons, right to left (ui/AHButton.lua): "FM: snipe", "FM: scan" (1.30, FRV-84, back where it was
   until 1.7: a click starts the same deep scan as the automatic one, `FM.StartDeepScan(true)`; disabled while a
-  scan waits, reads or saves, while Auctionator runs its own full scan and until the server's 15 minutes are over,
-  and its tooltip says why, from `FM.DeepScanRefusal`, which `/fm scan` prints too; it also shows the age of the
-  latest snapshot and what made it: a deep scan, Auctionator's full scan or the Battle.net feed), "FM: table"
+  scan waits for a free AH (1.41), waits for the server, reads or saves, while Auctionator runs its own full scan,
+  until the retry of a request without an answer and until the server's 15 minutes are over, and its tooltip says
+  why, from `FM.DeepScanRefusal`, which `/fm scan` prints too; it also shows the age of the latest snapshot and what
+  made it: a deep scan, Auctionator's full scan, another AddOn's full scan or the Battle.net feed), "FM: table"
 * Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
   its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
@@ -530,7 +567,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     Blizzard's Auctions tab (or another AddOn) asks for it, so until 1.23 a list was as old as the last look at that
     tab. Since 1.23 (FRV-57) ForeverMarket asks for it itself (`C_AuctionHouse.QueryOwnedAuctions`, the sorts of
     Blizzard's Auctions tab): 1.5 s after the AH opens and 3 s after the last of a row of posts, never while its
-    deep scan waits for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s
+    deep scan waits for a free AH (1.41, FRV-130: the automatic one is queued as the AH opens, so it goes first) or
+    for the server, an Auctionator scan runs, the AH's message throttle is busy (then every 3 s
     until the AH closes) or Blizzard's Auctions tab is shown (it asks itself). An auction missing from the second
     list of one visit counts as cancelled only when it could not have run out between the two lists (else `ogone`,
     the mail tells). A list still loading lacks running auctions (1.38.5, FRV-109): while
@@ -1093,7 +1131,8 @@ per purchase.
   chat line then names this option)
 * Runs only while the window is open at the AH: the sniped items are searched round robin with
   `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
-  AH throttle; pauses in combat, while a deep scan runs, on Blizzard's commodity Sell page and on the Buy page of
+  AH throttle; pauses in combat, while a deep scan runs or its request waits for a free AH (1.41), on Blizzard's
+  commodity Sell page and on the Buy page of
   an item you don't snipe: those pages read the results of their own item and reset on every new result, so a
   search of another item would empty them). On the Buy page of a sniped item (1.17.2, before it paused there
   too) only that item is searched, every 2 s (its list jumps to the top on every result), and its hits are
@@ -1220,6 +1259,18 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new,othersMin` (the diff's
   fields empty without a diff; othersMin = the cheapest unit price of others, 1.26 on)
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
+* `lastReplicateT` (seconds, `time()`) when the server's 15 minutes of full scans last started; `lastReplicateBy`
+  (1.41) whose list started them: `fm` the deep scan (also when its retries ran out: the last request), `rep` another
+  AddOn's full scan, `aucr` Auctionator's
+* `scanLog` (1.41, FRV-130) the last 50 deep scan attempts for `/fm scanlog`, one table each: `t` the request
+  (seconds), `how` (`auto`, `manual`, `retry`, `addon` another AddOn's call, `auc` Auctionator's, `list` a list nobody
+  here asked for, `late` a late answer, then `req` = its request), `try`, `q` seconds queued and `busy` why, `thr` the
+  throttle at the request (`ready` / `busy` / `?`), `before` the requests of the 10 s before it, `during` / `tev` /
+  `err` the requests, throttle events and AH errors while it waited, `first` seconds to the list, `n` auctions in it,
+  `read` auctions read, `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
+  a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
+  not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
+  not finished), `next` the next try (seconds)
 * `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
 * `plans` (1.40, FRV-103) `t,char,key,kind,batch,invest,expected,conf,rank,x`: the picks of every plan (Picks, the
   order and the plan to be measured later against what sold, FRV-125), one line each: t = when it was planned, kind

@@ -625,3 +625,23 @@ H.test("sniper: a done item that is paused still reads done (FRV-101)", function
     Offer(env, ah, LEATHER, 50, 100)
     H.eq(Hit(FM, LEATHER), 0, "resumed, a done item still gets no hit")
 end)
+
+-- FRV-130: while the deep scan's request waits for a free AH or for the server, the searches hold back
+H.test("sniper: no search while the deep scan wants the AH, then searching goes on (FRV-130)", function()
+    local FM, env, ah = Load()
+    local searched, Round = Searching(env, ah)
+    FM.SnipeStop()
+    FM.SnipeStart()
+    FM.SnipeSet(tostring(THICK), 300)
+    local wants = true
+    FM.DeepScanWantsAH = function() return wants end -- scan/DeepScan.lua
+    for _ = 1, 3 do
+        env.clock = env.clock + 1
+        Round(1)
+    end
+    H.eq(#searched, 0, "no search while it wants the AH")
+    H.eq((FM.SnipeStatus()):find("Paused while the deep scan runs", 1, true) ~= nil, true, "the banner says why")
+    wants = false
+    Round(2)
+    H.eq(#searched, 2, "searching goes on")
+end)

@@ -22,6 +22,7 @@ local function PrintHelp()
     PrintHelpLine("help", "This list")
     PrintHelpLine("status", "What is stored, last scans")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
+    PrintHelpLine("scanlog [n]", "The last deep scan attempts (10 without n): what the AH was busy with and what came back")
     PrintHelpLine("watch <item links or IDs>", "Keep full market depth for these items")
     PrintHelpLine("unwatch <item links or IDs>", "Stop watching items")
     PrintHelpLine("watchlist", "List watched items")
@@ -166,6 +167,8 @@ local function HandleSlash(msg)
         Status()
     elseif command == "scan" then
         FM.StartDeepScan(true)
+    elseif command == "scanlog" then
+        FM.PrintScanLog(tonumber(arg))
     elseif command == "watch" or command == "unwatch" then
         local keys = FM.KeysFromText(rest)
         if #keys == 0 then

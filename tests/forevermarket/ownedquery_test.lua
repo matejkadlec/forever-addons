@@ -63,6 +63,25 @@ H.test("owned query: waits while the AH is busy, then asks", function()
     H.eq(tries, 5, "after waiting")
 end)
 
+H.test("owned query: waits while the deep scan's request is queued for a free AH, then asks (FRV-130)", function()
+    local FM, env, ah = Load()
+    FM.deep.state = "queued" -- the automatic deep scan is queued as the AH opens: it goes first
+    local tries = 0
+    local after = env.C_Timer.After
+    env.C_Timer.After = function(seconds, fn)
+        after(seconds, function()
+            tries = tries + 1
+            if tries == 2 then FM.deep.state = "waiting" end -- its request went out
+            if tries == 4 then FM.deep.state = "walking" end -- the server answered, the list is read
+            fn()
+        end)
+    end
+    OpenAH(FM, env)
+    env.FlushTimers()
+    H.eq(#ah.queries, 1, "asked once the deep scan had its answer")
+    H.eq(tries, 4, "after waiting")
+end)
+
 H.test("owned query: keeps asking while the AH stays busy for minutes, stops when it closes", function()
     local FM, env, ah = Load()
     ah.ready = false
