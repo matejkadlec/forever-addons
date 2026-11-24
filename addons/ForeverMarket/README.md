@@ -1360,8 +1360,9 @@ per purchase.
     added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
     (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
     pick that is in it (the plan or "Also good") the units its plan buys at the AH now, but the picks of an item
-    together never more than they were sent with less what was bought for them (`Capped`, review rounds 1 and 2; each
-    pick keeps that ceiling as `max`, so a plan that once asked less does not lower it for good): the sniper's
+    together never more than they were sent with less what was bought for them (`Capped`, review rounds 1 to 3; one
+    ceiling for the item, `tracedMax`, so a plan that once asked less does not lower it for good and picks cut
+    unevenly never raise it): the sniper's
     purchases come by mail ("Auction won") and a plan counts only your bags and bank, so until you take the mail out it
     asks for those units again. One pick may get more than before where another needs less; more than the picks were
     sent with comes only from Shift+right-click. A pick that bought all it may stays traced at 0 while its plan still
@@ -1585,11 +1586,11 @@ Picks skip).
   `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
   with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
   reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
-  true while the item is paused, 1.39, FRV-101, optional; `picks[pickKey] = { n, at, max }` = the picks of the market
+  true while the item is paused, 1.39, FRV-101, optional; `picks[pickKey] = { n, at }` = the picks of the market
   table the item is sniped for (1.45, FRV-143, optional): `n` units still to buy for it as of `tracedGot` (the item's
   `got` then; what was bought since comes off the picks in proportion; 0 = all it may bought, its plan still asks),
-  `max` the most it may still buy then (what it was sent with less what was bought for it), `at` the time of its plan
-  (`FM.trade.pickAt`); a
+  `at` the time of its plan (`FM.trade.pickAt`); `tracedMax` the most the item's picks may still buy together as of
+  `tracedGot` (what they were sent with less what was bought for them); a
   `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
   (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
   conversion)
