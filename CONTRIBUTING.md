@@ -27,12 +27,18 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
 
 1. Follow the naming format `Forever[AddOnName]` for consistency, with a three letter shortname starting with `F` for its chat prefix and its slash command
 2. Each AddOn must be fully standalone, with no dependency on another AddOn of this repository
-3. Required `.toc` fields (the rest, with the chat messages, the settings panel and the slash commands, is in [`addons/AGENTS.md`](addons/AGENTS.md)):
+3. Required `.toc` fields, as in [`addons/AGENTS.md`](addons/AGENTS.md) (which also has the rules for chat messages, the settings panel and the slash commands), plus `## X-Collaboration:`:
    ```ini
+   ## Interface: 16001
+   ## Title: |cFFFF8000Forever|r {Addon Name}
+   ## Notes: One sentence description.
    ## Category: Jim's Forever AddOns
    ## IconTexture: Interface\Icons\{IconName}
+   ## Author: Matej Kadlec (https://github.com/matejkadlec)
+   ## Version: 1.0.0
    ## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
    ## X-Repository: https://github.com/matejkadlec/forever-addons
+   ## SavedVariables: Forever{AddonName}Settings
    ```
 4. Add it to the `AddOn` dropdown of both issue forms (`.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml`) and to `ADDON_LABELS` in `.github/scripts/issue_labels.py`, with a label as in [`AGENTS.md`, AddOn Labels](AGENTS.md#addon-labels) (`tests/run.sh` fails until they agree); the maintainer creates the label on GitHub
 
