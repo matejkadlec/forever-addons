@@ -47,13 +47,15 @@ local addonName, FM = ...
 --
 -- Which picks an item is sniped for (FRV-143): a pick sent from the market table is traced by its item key and the time
 -- of its plan (FM.trade.pickAt). saved[key].picks[pickKey] = { n = units still to buy for that pick, at = its plan },
--- as of tracedGot (the item's got then); what was bought since is taken off the picks in proportion (TracedLeft). The
+-- as of tracedGot (the item's got then); what was bought since is taken off the picks in proportion (TracedNow). The
 -- rest of the limit is yours (a number set in the window, or units of an item sniped before a pick came). The same
 -- pick of the same plan again adds nothing; a newer plan (FM.SnipeFollowPlan after every new plan, or Shift+click on the
--- pick) gives each traced pick that is in it the units it still needs, which leave out what you bought for it (those
--- units are in your bags, the plan counts them); a traced pick not in the plan any more needs none. The limit is then
--- Bought now + your part + the picks' units. A number set by hand, a reset or the item added to the list again drops the
--- trace.
+-- pick) gives each traced pick that is in it the units its plan buys now, but the picks of an item together never more
+-- than they still had to buy (Capped): a purchase comes by mail ("Auction won", docs/forever-api-notes.md) and a plan
+-- counts only your bags and bank, so until you take the mail out it asks for those units again (review round 1). A pick
+-- in the plan that no longer buys the item needs none; one the plan does not show (another filter, a profession you
+-- look at) stays as it was. The limit is then Bought now + your part + the picks' units; more than that comes from
+-- Shift+right-click. A number set by hand, a reset or the item added to the list again drops the trace.
 --
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
@@ -288,9 +290,41 @@ function FM.SnipeTrace(key)
     return out
 end
 
--- New units for the traced picks of an item: shares[pick] = what it still needs to buy now (false or 0: none, it leaves
--- the trace), add[pick] the same for a pick not traced yet. Your part of the limit stays. Returns the new limit, or 0
--- when nothing is left to buy and nothing was bought
+-- The units a newer plan gives traced picks (wanted[pick], the plan's AH units), so that together they never ask for more
+-- than they still had to buy (their `left`): the sniper's purchases are in your mail until you take them out, where no
+-- plan sees them. One pick may get more than before where another needs less. Over that cap the units are cut in
+-- proportion (whole units, the rest one by one in pick order). list = TracedNow's
+local function Capped(list, wanted)
+    local cap, sum = 0, 0
+    for _, t in ipairs(list) do
+        if wanted[t.pick] ~= nil then
+            cap = cap + t.left
+            sum = sum + math_max(0, math_floor(tonumber(wanted[t.pick]) or 0))
+        end
+    end
+    if sum <= cap then return wanted end
+    local out, given = {}, 0
+    for _, t in ipairs(list) do
+        if wanted[t.pick] ~= nil then
+            local w = math_max(0, math_floor(tonumber(wanted[t.pick]) or 0))
+            out[t.pick] = math_floor(w * cap / sum)
+            given = given + out[t.pick]
+        end
+    end
+    for _, t in ipairs(list) do
+        if given >= cap then break end
+        local w = wanted[t.pick] ~= nil and math_max(0, math_floor(tonumber(wanted[t.pick]) or 0))
+        if w and out[t.pick] < w then
+            out[t.pick] = out[t.pick] + 1
+            given = given + 1
+        end
+    end
+    return out
+end
+
+-- New units for the traced picks of an item: shares[pick] = what it still needs to buy now (0 or less: none, it leaves
+-- the trace). Your part of the limit and the picks not in shares stay. Returns the new limit, or 0 when nothing is left
+-- to buy and nothing was bought
 local function Retrace(saved, shares, at)
     local list, traced = TracedNow(saved)
     local got = math_max(0, math_floor(tonumber(saved.got) or 0))
@@ -603,8 +637,9 @@ local function AddFromTable(key, price, units, mode, restarted, trace)
     if units and sniped and not reset then
         local base = n or (saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0)
         if type(traced) == "table" then
-            -- this pick from a newer plan: its units are what it still needs now, they replace what it was sent with
-            limit, how = Retrace(saved, { [trace.pick] = math_floor(units) }, trace.at), "updated"
+            -- this pick from a newer plan: its units replace what it was sent with, never more than it still had to buy
+            -- (Capped: what the sniper bought for it may still be in your mail, which the plan does not count)
+            limit, how = Retrace(saved, Capped(TracedNow(saved), { [trace.pick] = math_floor(units) }), trace.at), "updated"
         else
             limit, added = base + math_floor(units), math_floor(units)
         end
@@ -758,8 +793,9 @@ end
 
 -- A new Picks plan (trade/Calc.lua, after Refresh or an automatic plan with the lock off; FRV-143): every sniped item
 -- traced for a pick of an older plan follows the new one. A pick in it gets the units its plan buys of the item at the
--- AH now (they leave out what you bought for it: it is in your bags), one not in it or no longer buying the item none;
--- your part of the limit and the other picks' stay. Only the units follow: the price stays the one you sniped at (a
+-- AH now, the item's picks together never more than they still had to buy (Capped: purchases wait in your mail, which
+-- the plan does not count); a pick in it that no longer buys the item at the AH none. A pick the plan does not show
+-- stays as it was, and so does your part of the limit. Only the units follow: the price stays the one you sniped at (a
 -- Shift+click on the pick sets the new plan's). picks = the plan's picks (also those out of scope), at = its time.
 -- One chat line names the items whose limit changed; an item nothing is left to buy for and nothing was bought of
 -- leaves the list (its saved price and number stay, as after the window's X)
@@ -783,14 +819,15 @@ function FM.SnipeFollowPlan(picks, at)
         local saved = s.saved[key]
         local shares, follow = {}, false
         for _, t in ipairs(TraceList(saved)) do
-            if t.at ~= at then
+            -- only a pick this plan has (review round 1: a filter or profession you only look at keeps the others)
+            if t.at ~= at and plan[t.pick] then
                 follow = true
-                shares[t.pick] = plan[t.pick] and plan[t.pick][key] or false
+                shares[t.pick] = plan[t.pick][key] or 0
             end
         end
         if follow then
             local before = Left(key)
-            local limit = Retrace(saved, shares, at)
+            local limit = Retrace(saved, Capped(TracedNow(saved), shares), at)
             if limit < 1 then
                 FM.SnipeRemove(key) -- no pick needs it and nothing was bought: it leaves the list
                 removed[#removed + 1] = Name(key)

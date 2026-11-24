@@ -2,7 +2,9 @@
 --   * a craft pick's Make is its plan's target; the units of its item the logged-in character crafted since the plan
 --     was made (the craft log, FM.CraftedSince) count toward it: the tooltip's Make reads "20 / 51" ("0 / 51" before
 --     the first craft), the make step "make 31 more", "made 51" once the target is reached (more: "55 / 51")
---   * "Lock plan after refresh" on: the plan is held as it was made, only those lines follow your crafts
+--   * "Lock plan after refresh" on: the plan is held as it was made, only those lines follow your crafts, and the buy
+--     step follows your AH purchases since the plan (review round 1: "buy 31 more ...", the purchase log, FM.BoughtSince;
+--     a purchase waits in your mail, which a plan made again would not see)
 --   * lock off, an automatic plan (FM.PickCarry, ctx.carry): a pick that stays in the plan keeps its target and its
 --     progress; it makes only the rest, the crafted units you hold go to the AH with it and are not units you hold that
 --     add to the plan, whatever the room or the batch say now (they were about the target); the materials to buy follow
@@ -16,7 +18,7 @@ local H = require("harness")
 local F = require("fixtures")
 
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Places.lua", "trade/Calc.lua",
-    "trade/Listings.lua", "trade/Crafts.lua", "trade/Picks.lua" }
+    "trade/Listings.lua", "trade/Cost.lua", "trade/Crafts.lua", "trade/Picks.lua" }
 local B = F.Base36
 local NOW_MINUTES = 400000
 
@@ -123,8 +125,15 @@ H.test("pick progress: make 51, craft 20: \"Make: 20 / 51\" and \"make 31 more\"
     H.eq((FM.PickMakeStep(pick)), "make 51", "the make step")
     H.eq(Steps(pick), "buy 51 item:900 up to " .. Mo(FM, 1000) .. " > make 51 > list at " .. Mo(FM, 10000) .. " for 8h",
         "the plan's steps")
-    -- 20 crafted since the plan; the plan is held (no new pass)
+    H.eq(pick.buyStep, 1, "the buy step")
+    H.eq(FM.PickBuyStep(pick), nil, "nothing bought since the plan: the step as planned")
+    -- 20 bought on the AH (the purchase log) and crafted since the plan; the plan is held (no new pass)
     env.clock = env.clock + 600
+    r.buys = { string.format("%d,900,5,5000,%s", pick.since - 60, FM.PlayerName()), -- bought before the plan: not counted
+        string.format("%d,900,20,20000,%s", env.clock - 60, FM.PlayerName()) } -- newest last
+    local buyText, bought = FM.PickBuyStep(pick)
+    H.eq(buyText, "buy 31 more item:900 up to " .. Mo(FM, 1000), "the materials to buy follow the 31 left")
+    H.eq(bought, false, "not all bought yet")
     Crafted(FM, r, env.clock, 20)
     Hold(FM, 20)
     H.eq(FM.PickMakeText(pick), "20 / 51", "crafted / target")
@@ -132,7 +141,11 @@ H.test("pick progress: make 51, craft 20: \"Make: 20 / 51\" and \"make 31 more\"
     H.eq(step, "make 31 more", "only the rest")
     H.eq(made, false, "not done yet")
     H.eq(FM.PickRunsLeft(pick), 31, "Ctrl+click's count box: the crafts left")
-    -- 31 more: the target is made, the listing is next
+    -- 31 more bought and crafted: the target is made, the listing is next
+    r.buys[#r.buys + 1] = string.format("%d,900,31,31000,%s", env.clock + 200, FM.PlayerName())
+    buyText, bought = FM.PickBuyStep(pick)
+    H.eq(buyText, "bought the materials", "nothing left to buy")
+    H.eq(bought, true, "the buy step is done")
     Crafted(FM, r, env.clock + 300, 31)
     H.eq(FM.PickMakeText(pick), "51 / 51, done", "done")
     step, made = FM.PickMakeStep(pick)

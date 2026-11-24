@@ -662,8 +662,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     that makes several, "55 / 51, done" past it), the make step "make 31 more", and once the target is made "made 51"
     with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With the
     lock on the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
-    of your bags); the materials of the plan stay as planned (it used your stock first, so what it buys is still what
-    the target needs). With the lock off an automatic plan carries each craft pick that is in it again over
+    of your bags), and the buy step follows your AH purchases since the plan (review round 1, `FM.PickBuyStep`,
+    `FM.BoughtSince` in trade/Cost.lua: the purchase log of this character): "buy 31 more Heavy Leather up to 2s 75c",
+    grey "bought the materials" once nothing is left to buy (the plan used your stock first, so the purchases are what
+    the target needs beyond it; the use step and the tooltip's material lines stay as planned). A purchase waits in
+    your mail until you take it out, and a plan made again counts it only then. With the lock off an automatic plan carries each craft pick that is in it again over
     (`FM.PickCarry`: its target, the time of its plan and what you held then): it makes only the rest, its materials to
     buy follow the rest, the crafted units you still hold go to the AH with it ("list 51 at ... (20 you hold)", the
     tooltip's "You hold: 20 in your bags, listed with them (20 crafted for this pick)") and are no units you hold that
@@ -1355,14 +1358,19 @@ per purchase.
     pick of the same plan again adds nothing: "Already sniping 2 items for Deviate Scale Belt with this plan, nothing
     added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
     (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
-    pick that is in it (the plan or "Also good") the units its plan buys at the AH now, which leave out what the sniper
-    bought for it (those units are in your bags, which the plan counts); a traced pick no longer in it needs none. The
-    item's limit is then Bought now + your own part + what the picks still need, so it never buys more than they need:
-    Heavy Leather for two picks (60 and 40), 20 bought, the plan made again with the first needing 40: 20/100, 80 to
-    buy, no Shift+right-click needed. Only the units follow, the price stays the one sniped at; a Shift-click on a pick
-    of a newer plan replaces its units and sets its price ("updated to the new plan"). One chat line names the items
-    whose limit changed ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any
-    more, with nothing bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
+    pick that is in it (the plan or "Also good") the units its plan buys at the AH now, but the picks of an item
+    together never more than they still had to buy (`Capped`, review round 1): the sniper's purchases come by mail
+    ("Auction won") and a plan counts only your bags and bank, so until you take the mail out it asks for those units
+    again. One pick may get more than before where another needs less; more than the picks were sent with comes only
+    from Shift+right-click. A traced pick in the plan that no longer buys the item at the AH needs none; one the plan
+    does not show (a filter or profession you only look at) stays as it was ("(older plan)"). The item's limit is then
+    Bought now + your own part + the picks' units, so it never buys more than they need: Heavy Leather for two picks
+    (60 and 40), 20 bought and taken from the mail, the plan made again with the first needing 40: 20/100, 80 to buy,
+    no Shift+right-click needed; with the 20 still in the mail the plan asks 60 and 40, and it stays at 80. Only the
+    units follow, the price stays the one sniped at; a Shift-click on a pick of a newer plan replaces its units (capped
+    the same way) and sets its price ("updated to the new plan"). One chat line names the items whose limit changed
+    ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any more, with nothing
+    bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
     to their units; your own part is the rest of the limit (a number typed in the window, or what an item had before a
     pick came). A number set in the window, a reset (Shift+right-click, the window's x) or the item added to the list
     again forgets the picks. The sniper's row tooltip lists "Sniped for" with each pick and what it still has to buy

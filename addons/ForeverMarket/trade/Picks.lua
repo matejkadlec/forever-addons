@@ -1475,6 +1475,7 @@ local function EvaluateCraft(c)
             pick.target, pick.since, pick.base = made, P.now, 0
         end
         pick.made, pick.makes, pick.heldOwn, pick.craftedHeld = made, makes, held - craftedHeld, craftedHeld
+        pick.planAt = P.now -- this evaluation: its purchases are counted from here (FM.PickBuyStep)
         return pick
     end
     local reasons = {}
@@ -1581,7 +1582,11 @@ local function EvaluateCraft(c)
         steps[#steps + 1] = use
         pick.useStep = #steps -- marked later when the pick is out of scope and plan picks use those units (FRV-133)
     end
+    local beforeBuy = #steps
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
+    -- the buy step follows your AH purchases since this plan (FRV-104, review round 1: FM.PickBuyStep; Evaluate keeps
+    -- the plan's purchases for it)
+    if c.kind ~= "level" and #steps > beforeBuy then pick.buyStep, pick.toolsToBuy = #steps, toolsToBuy end
     steps[#steps + 1] = string_format("make %s", Count(made))
     -- the make step follows your crafts (FRV-104: "make 31 more", "made 51"), a recipe to level for has none
     if c.kind ~= "level" then pick.makeStep = #steps end
@@ -2042,6 +2047,8 @@ local function Evaluate(c)
         pick, reason = EvaluateCraft(c)
     end
     if not pick then return pick, reason end
+    -- what the buy step's purchases are, for FM.PickBuyStep (review round 1)
+    if pick.buyStep and pick.trial then pick.purchases = Purchases(pick.trial) end
     pick.listHours = LISTING_HOURS
     pick.steps = pick.steps or {}
     if pick.listAt then
@@ -2372,6 +2379,35 @@ function FM.PickMakeStep(pick)
     if left <= 0 then return "made " .. Count(crafted), true end
     if crafted > 0 then return "make " .. Count(left) .. " more", false end
     return "make " .. Count(target), false
+end
+
+-- The buy step of a craft pick as it is now (review round 1): the plan's AH purchases less what this character bought of
+-- each on the AH since the plan was made (FM.BoughtSince, the purchase log), "buy 31 more Heavy Leather up to 2s 75c";
+-- vendor purchases and tools as planned. nil while nothing was bought since (the step as planned); "bought the
+-- materials" and true when nothing is left to buy at the AH or a vendor. A purchase is in your mail until you take it
+-- out: a plan made again counts it only then, this step at once
+function FM.PickBuyStep(pick)
+    if type(pick) ~= "table" or type(pick.purchases) ~= "table" or type(pick.planAt) ~= "number" then return nil end
+    local list, changed = {}, false
+    for _, e in ipairs(pick.purchases) do
+        local bought = (e.ah or 0) > 0 and FM.BoughtSince and FM.BoughtSince(e.key, pick.planAt) or 0
+        local ah = math_max(0, (e.ah or 0) - bought)
+        if ah ~= (e.ah or 0) then changed = true end
+        if ah + (e.vendor or 0) > 0 then
+            list[#list + 1] = { key = e.key, ah = ah, vendor = e.vendor or 0, top = e.top, more = ah ~= (e.ah or 0) }
+        end
+    end
+    if not changed then return nil end
+    local tools = pick.toolsToBuy or EMPTY
+    if not list[1] then
+        if tools[1] then return "buy " .. table_concat(tools, ", "), false end
+        return "bought the materials", true
+    end
+    local first = list[1]
+    local text = BuyText(first)
+    if first.more then text = text:gsub("^buy (%S+)", "buy %1 more", 1) end
+    local more = #list - 1 + #tools
+    return text .. (more > 0 and string_format(" (+%d more)", more) or ""), false
 end
 
 -- The crafts left of a craft pick (Ctrl+click's count box, FRV-132): what its target still needs, else its plan's runs

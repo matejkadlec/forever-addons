@@ -1926,12 +1926,16 @@ end
 local function StepsText(p)
     local steps = p.steps or {}
     local parts = {}
-    local makeText, made
+    local makeText, made, buyText, bought
     if p.makeStep and FM.PickMakeStep then makeText, made = FM.PickMakeStep(p) end
+    -- the buy step follows your AH purchases since the plan (review round 1: "buy 31 more ...")
+    if p.buyStep and FM.PickBuyStep then buyText, bought = FM.PickBuyStep(p) end
     for i, step in ipairs(steps) do
         if i == p.makeStep and makeText then step = makeText end
+        if i == p.buyStep and buyText then step = buyText end
         step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
-        parts[i] = (made and i <= p.makeStep) and (GREY .. step .. "|r") or step
+        local done = (made and i <= p.makeStep) or (bought and i == p.buyStep)
+        parts[i] = done and (GREY .. step .. "|r") or step
     end
     return table.concat(parts, GREY .. "  >  |r")
 end
