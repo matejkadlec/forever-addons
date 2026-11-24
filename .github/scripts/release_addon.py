@@ -382,8 +382,8 @@ def multipart(metadata, zip_name, zip_bytes):
     """Return (body, content type) of the upload: the fields 'metadata' (JSON) and 'file' (the zip)."""
     boundary = "----forever-addons-" + uuid.uuid4().hex
     parts = [
-        ("--%s\r\nContent-Disposition: form-data; name=\"metadata\"\r\n"
-         "Content-Type: application/json\r\n\r\n" % boundary).encode("utf-8"),
+        # a plain form field, as the packager's curl -F "metadata=<-" sends it
+        ("--%s\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n" % boundary).encode("utf-8"),
         json.dumps(metadata).encode("utf-8"),
         ("\r\n--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n"
          "Content-Type: application/zip\r\n\r\n" % (boundary, zip_name)).encode("utf-8"),

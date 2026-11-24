@@ -407,7 +407,7 @@ class CurseForgeTests(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         boundary = request.get_header("Content-type").split("boundary=")[1]
         body = request.data
-        self.assertIn(b'name="metadata"\r\nContent-Type: application/json\r\n\r\n{"gameVersions": [13002]}\r\n', body)
+        self.assertIn(b'name="metadata"\r\n\r\n{"gameVersions": [13002]}\r\n', body)
         self.assertIn(b'name="file"; filename="TestCamp-1.2.3.zip"\r\nContent-Type: application/zip\r\n\r\nPK zip\r\n', body)
         self.assertTrue(body.startswith(("--" + boundary).encode()))
         self.assertTrue(body.endswith(("--" + boundary + "--\r\n").encode()))
