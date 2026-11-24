@@ -46,6 +46,9 @@ FOREVER_INTERFACE_RE = re.compile(r"^16[0-9]{3}$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 # Agent guide files at an AddOn's top level are not AddOn files (AGENTS.md): never shipped
 AGENT_FILES = ("AGENTS.md", "CLAUDE.md")
+# A folder entry's attributes: Unix drwxr-xr-x and the MS-DOS directory flag, so unzip on Linux and
+# macOS makes a folder the game can read (a bare ZipInfo would extract as mode 000)
+FOLDER_ATTR = (0o40755 << 16) | 0x10
 
 
 class ReleaseError(Exception):
@@ -274,7 +277,9 @@ def build(root, info, message):
             for depth in range(1, len(parts) + 1):
                 folders.add("%s/%s/" % (addon, "/".join(parts[:depth])))
         for name in sorted(folders):
-            archive.writestr(zipfile.ZipInfo(name), b"")
+            folder_info = zipfile.ZipInfo(name)
+            folder_info.external_attr = FOLDER_ATTR
+            archive.writestr(folder_info, b"")
             entries.append(name)
         for path in files:
             archive.write(os.path.join(folder, path), "%s/%s" % (addon, path))

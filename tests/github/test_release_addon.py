@@ -262,6 +262,12 @@ class BuildTests(unittest.TestCase):
         self.assertIn("TestCamp/", names)
         self.assertIn("TestCamp/ui/", names)
         self.assertEqual(files["TestCamp/LICENSE"], "MIT own\n")
+        # folders extract as drwxr-xr-x with unzip on Linux and macOS, never as mode 000
+        with zipfile.ZipFile(os.path.join(self.repo.root, "dist", "TestCamp-1.2.3.zip")) as archive:
+            for name in ("TestCamp/", "TestCamp/ui/"):
+                attr = archive.getinfo(name).external_attr
+                self.assertEqual(attr >> 16, 0o40755, name)
+                self.assertTrue(attr & 0x10, name)
 
     def test_the_repository_license_when_the_addon_has_none(self):
         self.repo.close()
