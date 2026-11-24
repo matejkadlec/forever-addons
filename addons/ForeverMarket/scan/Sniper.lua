@@ -61,7 +61,7 @@ local addonName, FM = ...
 --
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
---   saved  = { [key] = { p = copper, n, got, paid, paused, picks, tracedGot, tracedMax } }  price and "buy at most",
+--   saved  = { [key] = { p = copper, n, got, paid, paused, picks, tracedGot, tracedMax, traceId } }  price, "buy at most",
 --                                                      kept after removal (its count starts again when it is added
 --                                                      again); paused = true while it is paused (FRV-101); picks and
 --                                                      tracedGot, tracedMax: the picks it is sniped for (FRV-143)
@@ -262,6 +262,7 @@ local function TracedNow(saved)
     local sum = 0
     for _, t in ipairs(list) do sum = sum + t.n end
     local got = math_max(0, math_floor(tonumber(saved and saved.got) or 0))
+    local pool = math_max(sum, math_floor(tonumber(saved and saved.tracedMax) or sum))
     local bought = math_min(sum, math_max(0, got - math_floor(tonumber(saved and saved.tracedGot) or got)))
     local taken = 0
     for _, t in ipairs(list) do
@@ -276,13 +277,48 @@ local function TracedNow(saved)
             taken = taken + 1
         end
     end
-    local pool = math_max(sum, math_floor(tonumber(saved and saved.tracedMax) or sum))
     return list, sum - bought, pool - bought
 end
 
 local function ClearTrace(saved)
     if type(saved) ~= "table" then return end
-    saved.picks, saved.tracedGot, saved.tracedMax = nil, nil, nil
+    saved.picks, saved.tracedGot, saved.tracedMax, saved.traceId = nil, nil, nil, nil
+end
+
+-- A trace started anew (a new item, a restart, the first pick of an item) gets its own id: a purchase counted while
+-- it ran can give its units back to it alone (GiveBack)
+local traceSeq = 0
+local function NewTraceId()
+    traceSeq = traceSeq + 1
+    return tostring(FM.Now()) .. ":" .. traceSeq
+end
+
+-- A purchase of d units that the trace took off its picks when it was written again (tracedGot above got now) failed:
+-- the units go back to the picks in proportion and to the item's ceiling (review round 4: else they became your own
+-- part, which no plan lowers)
+local function GiveBack(saved, d)
+    local list = TraceList(saved)
+    if not list[1] or d <= 0 then return end
+    local sum = 0
+    for _, t in ipairs(list) do sum = sum + t.n end
+    local given = 0
+    for _, t in ipairs(list) do
+        local share = sum > 0 and math_floor(d * t.n / sum) or 0
+        saved.picks[t.pick].n = t.n + share
+        given = given + share
+    end
+    -- the remainder one by one in pick order (all to the first pick when every pick is at 0)
+    local rest = d - given
+    for _, t in ipairs(list) do
+        if rest <= 0 then break end
+        if sum <= 0 or t.n > 0 then
+            local add = sum <= 0 and rest or 1
+            saved.picks[t.pick].n = saved.picks[t.pick].n + add
+            rest = rest - add
+        end
+    end
+    saved.tracedMax = math_max(sum, math_floor(tonumber(saved.tracedMax) or sum)) + d
+    saved.tracedGot = math_max(0, math_floor(tonumber(saved.tracedGot) or 0) - d)
 end
 
 -- The picks of a sniped item with what each still has to buy: { { pick = key, left, at }, ... }, or nil without
@@ -497,6 +533,7 @@ local function CountUnits(buy)
     saved.got = (tonumber(saved.got) or 0) + buy.qty
     saved.paid = (tonumber(saved.paid) or 0) + (buy.reserved or 0)
     buy.counted = S.countSet[buy.key] or 0 -- the count it went into
+    buy.traceId = type(saved.picks) == "table" and saved.traceId or nil -- the trace it may be taken off (FRV-143)
 end
 
 -- The server says it failed: its units are not bought (unless the item's count started again since)
@@ -509,6 +546,11 @@ local function UncountUnits(buy)
     if not saved then return end
     saved.got = math_max(0, (tonumber(saved.got) or 0) - buy.qty)
     saved.paid = math_max(0, (tonumber(saved.paid) or 0) - (buy.reserved or 0))
+    -- the trace written again since took these units off its picks: they go back to it (review round 4)
+    local tracedGot = tonumber(saved.tracedGot)
+    if buy.traceId and saved.traceId == buy.traceId and type(saved.picks) == "table" and tracedGot and tracedGot > saved.got then
+        GiveBack(saved, math_min(buy.qty, tracedGot - saved.got))
+    end
 end
 
 ---------------------------------------------------------------- list
@@ -645,7 +687,15 @@ local function AddFromTable(key, price, units, mode, restarted, trace)
     local reset = mode == "restart" and not (restarted and restarted[key])
     local saved = FM.SnipeSaved(key)
     local traced = trace and sniped and not reset and saved and type(saved.picks) == "table" and saved.picks[trace.pick]
-    if type(traced) == "table" and tonumber(traced.at) == trace.at then return true, nil, 0, "again" end
+    if type(traced) == "table" and tonumber(traced.at) == trace.at then
+        -- the same pick of the plan shown: FM.SnipeFollowPlan already gave it this plan's units, nothing is added; a
+        -- new "up to" price of the plan is set, the limit, the count and the picks stay (review round 4)
+        if math_floor(price) ~= Limit(key) then
+            if not Set(key, price, nil) then return false, "price" end
+            return true, nil, 0, "price"
+        end
+        return true, nil, 0, "again"
+    end
     local limit, added, how = units, nil, nil
     if units and sniped and not reset then
         local base = n or (saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0)
@@ -669,11 +719,13 @@ local function AddFromTable(key, price, units, mode, restarted, trace)
             picks[trace.pick] = { n = math_floor(units), at = trace.at }
             saved.picks, saved.tracedGot = picks, math_max(0, math_floor(tonumber(saved.got) or 0))
             saved.tracedMax = (list[1] and ceil or 0) + math_floor(units) -- the ceiling grows by what this pick is sent with
+            if not list[1] then saved.traceId = NewTraceId() end
         else
             -- a new item, or its count started again: this pick alone (FM.SnipeFromPlan sends a traced pick's
             -- material once, a material listed twice summed up)
             saved.picks = { [trace.pick] = { n = math_floor(units), at = trace.at } }
             saved.tracedGot, saved.tracedMax = math_max(0, math_floor(tonumber(saved.got) or 0)), math_floor(units)
+            saved.traceId = NewTraceId()
         end
     end
     return true, nil, added, how
@@ -683,7 +735,8 @@ end
 -- when it is above the number ("(150 / 60 bought, done)"); added: "40 added" to the limit (FRV-128), restarted:
 -- "count started again", how: "already sniped for this plan" ("again") or "updated to the new plan" (FRV-143);
 -- "(paused)" after it while the item is paused in the window (FRV-101)
-local HOW_TEXT = { again = "already sniped for this plan", updated = "updated to the new plan" }
+local HOW_TEXT = { again = "already sniped for this plan", updated = "updated to the new plan",
+    price = "this plan's price, no units added" }
 local function Describe(key, added, restarted, how)
     local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
     local left, n = Left(key)

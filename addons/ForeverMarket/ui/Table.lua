@@ -1200,9 +1200,11 @@ local function SnipeTargets(row)
     return list, row, trace
 end
 
--- Whether every purchase of a pick is already sniped for it with the plan shown (FRV-143): a Shift+click adds nothing
+-- Whether every purchase of a pick is already sniped for it with the plan shown (FRV-143): a Shift+click adds nothing;
+-- the second value: some of them are sniped at another price than this plan's, which the click sets (review round 4)
 local function SnipedForPlan(targets, trace)
     if not (trace and FM.SnipeTrace) then return false end
+    local repriced = false
     for _, t in ipairs(targets) do
         if not t.units then return false end
         local found = false
@@ -1210,8 +1212,10 @@ local function SnipedForPlan(targets, trace)
             if e.pick == trace.pick and e.at == trace.at then found = true end
         end
         if not found or not FM.IsSniped(t.key) then return false end
+        local saved = FM.SnipeSaved(t.key)
+        if saved and tonumber(saved.p) ~= t.price then repriced = true end
     end
-    return true
+    return true, repriced
 end
 
 -- A pick's tooltip, the sniper part (FRV-143): what of its AH purchases the sniper buys for it, still to buy
@@ -1314,8 +1318,11 @@ local function RowHints(tab, row)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
     local targets, _, trace
     if FM.ahOpen then targets, _, trace = SnipeTargets(row) end
-    if targets and SnipedForPlan(targets, trace) then
-        GameTooltip:AddLine("Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
+    local sniped, repriced
+    if targets then sniped, repriced = SnipedForPlan(targets, trace) end
+    if sniped then
+        GameTooltip:AddLine(repriced and "Shift+click: sniped for this plan, sets this plan's prices (adds no units)"
+            or "Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
     elseif targets then
         GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets) .. " (adds to what it already snipes)",

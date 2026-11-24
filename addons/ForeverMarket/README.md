@@ -1371,8 +1371,13 @@ per purchase.
     Bought now + your own part + the picks' units, so it never buys more than they need: Heavy Leather for two picks
     (60 and 40), 20 bought and taken from the mail, the plan made again with the first needing 40: 20/100, 80 to buy,
     no Shift+right-click needed; with the 20 still in the mail the plan asks 60 and 40, and it stays at 80. Only the
-    units follow, the price stays the one sniped at; a Shift-click on a pick of a newer plan replaces its units (capped
-    the same way) and sets its price ("updated to the new plan"). One chat line names the items whose limit changed
+    units follow, the price stays the one sniped at. The follow runs before the table shows the new plan, so a
+    Shift-click on a pick of the plan shown adds no units; it sets this plan's "up to" price where that differs
+    ("this plan's price, no units added", the hint "Shift+click: sniped for this plan, sets this plan's prices (adds
+    no units)"; review round 4: before, the click could not change the price at all). A traced pick the follow did not
+    reach (a plan made while it was out of the list) is updated by the click the same way ("updated to the new plan").
+    A purchase that fails after the trace was written again gives its units back to the picks it was taken off, not to
+    your own part (review round 4; one counted before the item had a trace stays yours). One chat line names the items whose limit changed
     ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any more, with nothing
     bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
     to their units; your own part is the rest of the limit (a number typed in the window, or what an item had before a
@@ -1582,7 +1587,7 @@ Picks skip).
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
-* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused, picks, tracedGot }` (kept after removal;
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused, picks, tracedGot, tracedMax, traceId }` (kept after removal;
   `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
   with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
   reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
@@ -1590,7 +1595,8 @@ Picks skip).
   table the item is sniped for (1.45, FRV-143, optional): `n` units still to buy for it as of `tracedGot` (the item's
   `got` then; what was bought since comes off the picks in proportion; 0 = all it may bought, its plan still asks),
   `at` the time of its plan (`FM.trade.pickAt`); `tracedMax` the most the item's picks may still buy together as of
-  `tracedGot` (what they were sent with less what was bought for them); a
+  `tracedGot` (what they were sent with less what was bought for them); `traceId` which trace a purchase was counted
+  in (a failed one goes back to that trace only); a
   `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
   (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
   conversion)
