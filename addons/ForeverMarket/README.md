@@ -1375,9 +1375,10 @@ per purchase.
     Shift-click on a pick of the plan shown adds no units; it sets this plan's "up to" price where that differs
     ("this plan's price, no units added", the hint "Shift+click: sniped for this plan, sets this plan's prices (adds
     no units)"; review round 4: before, the click could not change the price at all). A traced pick the follow did not
-    reach (a plan made while it was out of the list) is updated by the click the same way ("updated to the new plan").
-    A purchase that fails after the trace was written again gives its units back to the picks it was taken off, not to
-    your own part (review round 4; one counted before the item had a trace stays yours). One chat line names the items whose limit changed
+    reach (its follow did not run, after an error) is updated by the click the same way ("updated to the new plan");
+    an item removed from the list and sent again starts from 0 with that pick alone.
+    A purchase that fails after the trace was written again gives the units it took off the picks back to them, the
+    rest to your own part (review rounds 4 and 5; one counted before the item had a trace stays yours). One chat line names the items whose limit changed
     ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any more, with nothing
     bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
     to their units; your own part is the rest of the limit (a number typed in the window, or what an item had before a

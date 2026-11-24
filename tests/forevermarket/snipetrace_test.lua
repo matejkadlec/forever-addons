@@ -12,8 +12,9 @@
 --   * the same pick of a newer plan Shift+clicked replaces its units in the same way, never above what it still had
 --   * a Shift+click on a pick of the plan shown, which the follow already gave this plan's units, adds nothing but sets
 --     this plan's price when it differs (review round 4)
---   * a purchase that fails after the trace was written again gives its units back to the picks it was taken off, not
---     to your own part; one counted before the item had a trace stays yours (review round 4)
+--   * a purchase that fails after the trace was written again gives the units it took off the picks back to them, the
+--     rest to your own part; one counted before the item had a trace stays yours; either way later purchases come off the
+--     picks first again (review rounds 4 and 5)
 --   * the cap is what the item's picks were sent with less what was bought for them, one ceiling for the item (review
 --     round 3: picks cut unevenly never raise it): a plan that asked less once does not lower it for good, and a pick that bought all it may stays traced at 0 while its plan still asks (review round 2), so
 --     a later Shift+click of the same plan adds nothing and one of a newer plan nothing either
@@ -252,6 +253,24 @@ H.test("snipe trace: a purchase that fails after the trace was written again goe
     env.FireEvent("COMMODITY_PURCHASE_FAILED")
     H.same(State(FM, LEATHER), { 0, 160, 160 }, "your 100 and the belt's 60")
     H.eq(Trace(FM, LEATHER), BELT .. "=60@1000", "the belt keeps its 60")
+    Bought(FM, env, ah, LEATHER, 250, 30)
+    H.eq(Trace(FM, LEATHER), BELT .. "=30@1000", "a later purchase comes off the belt first again")
+    -- a purchase larger than what the picks still had (review round 5): only their part goes back to them
+    FM, env, ah = Load()
+    FM.SnipeSet(leather, 300, 100) -- 100 set by hand
+    Send(FM, BELT, 1000, { { key = leather, price = 275, units = 10 } })
+    H.same(State(FM, LEATHER), { 0, 110, 110 }, "your 100 and the belt's 10")
+    Offer(env, ah, LEATHER, 250, 40)
+    FM.SnipeBuyClick()
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 250, 250 * 40) -- 40: the belt's 10 and 30 of yours
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 10, top = 275 } } } }, 2000)
+    env.FireEvent("COMMODITY_PURCHASE_FAILED")
+    H.same(State(FM, LEATHER), { 0, 110, 110 }, "failed: 110 to buy again")
+    H.eq(Trace(FM, LEATHER), BELT .. "=10@2000", "the belt gets back its 10, not 40")
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 10, top = 275 } } } }, 3000)
+    H.same(State(FM, LEATHER), { 0, 110, 110 }, "the next plan keeps your 100")
+    Bought(FM, env, ah, LEATHER, 250, 5)
+    H.eq(Trace(FM, LEATHER), BELT .. "=5@3000", "a later purchase comes off the belt first")
 end)
 
 H.test("snipe trace: a plan that asked less once does not lower a pick for good", function()

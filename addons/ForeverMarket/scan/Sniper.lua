@@ -293,10 +293,12 @@ local function NewTraceId()
     return tostring(FM.Now()) .. ":" .. traceSeq
 end
 
--- A purchase of d units that the trace took off its picks when it was written again (tracedGot above got now) failed:
--- the units go back to the picks in proportion and to the item's ceiling (review round 4: else they became your own
--- part, which no plan lowers)
-local function GiveBack(saved, d)
+-- A purchase failed after the trace was written again (tracedGot above got now): tracedGot comes down by its units
+-- (shift), so later purchases come off the picks first again, and the d of them the trace took off its picks go back to
+-- them in proportion and to the item's ceiling (review rounds 4 and 5: else they became your own part, which no plan
+-- lowers; what it took off your own part stays there)
+local function GiveBack(saved, d, shift)
+    saved.tracedGot = math_max(0, math_floor(tonumber(saved.tracedGot) or 0) - shift)
     local list = TraceList(saved)
     if not list[1] or d <= 0 then return end
     local sum = 0
@@ -318,7 +320,6 @@ local function GiveBack(saved, d)
         end
     end
     saved.tracedMax = math_max(sum, math_floor(tonumber(saved.tracedMax) or sum)) + d
-    saved.tracedGot = math_max(0, math_floor(tonumber(saved.tracedGot) or 0) - d)
 end
 
 -- The picks of a sniped item with what each still has to buy: { { pick = key, left, at }, ... }, or nil without
@@ -530,10 +531,13 @@ end
 local function CountUnits(buy)
     local saved = FM.SnipeSaved(buy.key)
     if not saved then return end
+    -- the trace it may be taken off (FRV-143), and how many of its units: the picks' still to buy come first
+    local _, left = TracedNow(saved)
+    buy.traceId = type(saved.picks) == "table" and saved.traceId or nil
+    buy.traceQty = math_min(buy.qty, left)
     saved.got = (tonumber(saved.got) or 0) + buy.qty
     saved.paid = (tonumber(saved.paid) or 0) + (buy.reserved or 0)
     buy.counted = S.countSet[buy.key] or 0 -- the count it went into
-    buy.traceId = type(saved.picks) == "table" and saved.traceId or nil -- the trace it may be taken off (FRV-143)
 end
 
 -- The server says it failed: its units are not bought (unless the item's count started again since)
@@ -546,10 +550,13 @@ local function UncountUnits(buy)
     if not saved then return end
     saved.got = math_max(0, (tonumber(saved.got) or 0) - buy.qty)
     saved.paid = math_max(0, (tonumber(saved.paid) or 0) - (buy.reserved or 0))
-    -- the trace written again since took these units off its picks: they go back to it (review round 4)
+    -- a trace written since counted these units as bought: they come off its tracedGot, and the ones it took off its
+    -- picks (the trace they were counted in) go back to them (review rounds 4 and 5)
     local tracedGot = tonumber(saved.tracedGot)
-    if buy.traceId and saved.traceId == buy.traceId and type(saved.picks) == "table" and tracedGot and tracedGot > saved.got then
-        GiveBack(saved, math_min(buy.qty, tracedGot - saved.got))
+    if type(saved.picks) == "table" and tracedGot and tracedGot > saved.got then
+        local shift = math_min(buy.qty, tracedGot - saved.got)
+        local same = buy.traceId and saved.traceId == buy.traceId
+        GiveBack(saved, same and math_min(buy.traceQty or 0, shift) or 0, shift)
     end
 end
 
