@@ -158,6 +158,24 @@ H.test("pick progress: make 51, craft 20: \"Make: 20 / 51\" and \"make 31 more\"
     H.eq((FM.PickMakeStep(pick)), "made 55", "made 55")
 end)
 
+H.test("pick progress: two picks buying one material count each purchase once, the first pick first", function()
+    local FM, env, r = Setup()
+    r.items["802"] = { d = Records(200) }
+    local belt = Cloak(204)
+    belt.key, belt.craft = "802", { makes = 1, prof = "lw", recipe = "Belt", profName = "Leatherworking" }
+    local out = { crafts = { Cloak(204), belt } }
+    FM.ComputePicks(out, { view = View(), sources = { profs = {} }, now = env.clock, nowMinutes = NOW_MINUTES },
+        function() end)
+    env.FlushTimers()
+    FM.trade = { picks = out.picks }
+    local first, second = out.picks[1], out.picks[2]
+    H.eq(first.purchases[1].ah, 51, "pick #1 buys 51")
+    H.eq(second.purchases[1].ah, 51, "pick #2 buys 51")
+    r.buys = { string.format("%d,900,60,60000,%s", env.clock + 60, FM.PlayerName()) }
+    H.eq((FM.PickBuyStep(first)), "bought the materials", "pick #1 takes 51 of the 60")
+    H.eq((FM.PickBuyStep(second)), "buy 42 more item:900 up to " .. Mo(FM, 1000), "pick #2 the other 9")
+end)
+
 H.test("pick progress: the lock off, an automatic plan keeps the target and makes only the rest", function()
     local FM, env, r = Setup()
     local first, out = Plan(FM, env, 204)

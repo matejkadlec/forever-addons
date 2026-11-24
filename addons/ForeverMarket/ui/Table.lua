@@ -1229,7 +1229,8 @@ local function PickSnipeLines(pick)
     if not lines[1] then return end
     Header("Sniped for this pick")
     for _, l in ipairs(lines) do
-        Line(Name(l[1]), FM.FormatCount(l[2]) .. " still to buy" .. (l[3] and (GREY .. "  for an older plan|r") or ""))
+        Line(Name(l[1]), (l[2] > 0 and (FM.FormatCount(l[2]) .. " still to buy") or "all bought")
+            .. (l[3] and (GREY .. "  for an older plan|r") or ""))
     end
 end
 

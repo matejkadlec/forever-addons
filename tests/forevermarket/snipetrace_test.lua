@@ -10,6 +10,9 @@
 --     longer buys the item needs none; one the plan does not show (another filter, another profession) stays as it
 --     was. The price stays
 --   * the same pick of a newer plan Shift+clicked replaces its units in the same way, never above what it still had
+--   * the cap is what the picks were sent with less what was bought for them: a plan that asked less once does not lower
+--     it for good, and a pick that bought all it may stays traced at 0 while its plan still asks (review round 2), so
+--     a later Shift+click of the same plan adds nothing and one of a newer plan nothing either
 --   * what was bought since a pick was sent comes off the picks in proportion (what each still has to buy)
 --   * a number set in the window, a reset (Shift+right-click, the window's x) or the item added to the list again
 --     forgets the picks; an item no pick needs, with nothing bought, leaves the list
@@ -159,6 +162,34 @@ H.test("snipe trace: the purchases still in your mail are not asked for again by
     -- a Shift+click on the belt from a newer plan that still asks 60 cannot raise it either
     Send(FM, BELT, 4000, { { key = leather, price = 275, units = 60 } })
     H.same(State(FM, LEATHER), { 100, 100, 0 }, "still done")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=0@3000 " .. BELT .. "=0@4000", "both stay traced at 0: all bought, in the mail")
+    -- the same pick again, of the same plan and of a newer one: nothing is added
+    env.printed = {}
+    Send(FM, BELT, 4000, { { key = leather, price = 275, units = 60 } })
+    H.eq(Has(env.printed[1], "Already sniping"), true, "the same plan: already sniped")
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 60, top = 275 } } },
+        { key = CLOAK, buys = { { key = leather, ah = 40, top = 275 } } } }, 5000)
+    Send(FM, BELT, 6000, { { key = leather, price = 275, units = 60 } })
+    H.same(State(FM, LEATHER), { 100, 100, 0 }, "a newer plan and a newer click: still done, nothing bought twice")
+    -- the mail taken out, the plan asks nothing any more: the picks leave the trace
+    FM.SnipeFollowPlan({ { key = BELT, buys = {} }, { key = CLOAK, buys = {} } }, 7000)
+    H.eq(FM.SnipeTrace(leather), nil, "no pick needs it")
+    H.same(State(FM, LEATHER), { 100, 100, 0 }, "the count stays")
+end)
+
+H.test("snipe trace: a plan that asked less once does not lower a pick for good", function()
+    local FM, env, ah = Load()
+    local leather = tostring(LEATHER)
+    Send(FM, BELT, 1000, { { key = leather, price = 275, units = 60 } })
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 40, top = 275 } } } }, 2000) -- Invest lowered a moment
+    H.same(State(FM, LEATHER), { 0, 40, 40 }, "lowered to 40")
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 60, top = 275 } } } }, 3000) -- and back
+    H.same(State(FM, LEATHER), { 0, 60, 60 }, "back to the 60 it was sent with")
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 80, top = 275 } } } }, 4000)
+    H.same(State(FM, LEATHER), { 0, 60, 60 }, "never above it")
+    Bought(FM, env, ah, LEATHER, 250, 25)
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 60, top = 275 } } } }, 5000)
+    H.same(State(FM, LEATHER), { 25, 60, 35 }, "25 bought: at most the 35 left of the 60")
 end)
 
 H.test("snipe trace: a pick in the plan that no longer buys the item needs none, one the plan does not show stays", function()
@@ -213,9 +244,11 @@ H.test("snipe trace: the same pick from a newer plan Shift+clicked replaces its 
     H.eq(Trace(FM, LEATHER), CLOAK .. "=32@1000 " .. BELT .. "=40@2000", "the belt's new units")
     H.eq(FM.SnipeSaved(leather).p, 280, "the click sets its price")
     H.eq(Has(env.printed[1], "updated to the new plan"), true, env.printed[1])
-    -- a newer plan asking more than the belt still has (its purchases may wait in the mail): capped at its 40
+    -- a newer plan asking more than the belt may still buy (its purchases may wait in the mail): capped at 48, the 60
+    -- it was sent with less its 12 of the 20 bought (the 40 of the plan before is no ceiling)
     Send(FM, BELT, 3000, { { key = leather, price = 280, units = 70 } })
-    H.eq(Trace(FM, LEATHER), CLOAK .. "=32@1000 " .. BELT .. "=40@3000", "the belt stays at 40")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=32@1000 " .. BELT .. "=48@3000", "the belt at 48")
+    H.same(State(FM, LEATHER), { 20, 100, 80 }, "never more than the two picks were sent with")
 end)
 
 H.test("snipe trace: Shift+right-click starts the count and the trace again with this pick alone", function()

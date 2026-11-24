@@ -571,7 +571,7 @@ local function RowTooltip(self)
         for _, t in ipairs(trace) do
             sum = sum + t.left
             GameTooltip:AddDoubleLine("  " .. (FM.GetName and FM.GetName(t.pick) or t.pick),
-                FM.FormatCount(t.left) .. (t.at ~= at and "  (older plan)" or ""), 1, 1, 1, 1, 1, 1)
+                (t.left > 0 and FM.FormatCount(t.left) or "all bought") .. (t.at ~= at and "  (older plan)" or ""), 1, 1, 1, 1, 1, 1)
         end
         local own = state.left and math_max(0, state.left - sum) or 0
         if own > 0 then GameTooltip:AddDoubleLine("  Set by you", FM.FormatCount(own), 0.7, 0.7, 0.7, 0.7, 0.7, 0.7) end

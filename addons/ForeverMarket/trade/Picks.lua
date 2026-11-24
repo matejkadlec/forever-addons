@@ -2381,16 +2381,38 @@ function FM.PickMakeStep(pick)
     return "make " .. Count(target), false
 end
 
+-- Of the AH purchases of an item since a plan was made, the part a pick's purchase of it gets: the picks of the plan
+-- shown take them in their order, each up to what it buys (review round 2: two picks needing one material count each
+-- unit once, pick #1 first, as the plan hands out your stock); a pick not in it (an older plan) all of them
+local function BoughtFor(pick, key, planAt)
+    local total = FM.BoughtSince and FM.BoughtSince(key, planAt) or 0
+    local picks = FM.trade and FM.trade.picks
+    if total <= 0 or type(picks) ~= "table" then return total end
+    local left = total
+    for _, p in ipairs(picks) do
+        if type(p) == "table" and p.planAt == planAt and type(p.purchases) == "table" then
+            for _, e in ipairs(p.purchases) do
+                if e.key == key and (e.ah or 0) > 0 then
+                    local take = math_min(left, e.ah)
+                    if p == pick then return take end
+                    left = left - take
+                end
+            end
+        end
+    end
+    return total
+end
+
 -- The buy step of a craft pick as it is now (review round 1): the plan's AH purchases less what this character bought of
--- each on the AH since the plan was made (FM.BoughtSince, the purchase log), "buy 31 more Heavy Leather up to 2s 75c";
--- vendor purchases and tools as planned. nil while nothing was bought since (the step as planned); "bought the
--- materials" and true when nothing is left to buy at the AH or a vendor. A purchase is in your mail until you take it
--- out: a plan made again counts it only then, this step at once
+-- each on the AH since the plan was made (FM.BoughtSince, the purchase log, shared out over the plan's picks in their
+-- order: BoughtFor), "buy 31 more Heavy Leather up to 2s 75c"; vendor purchases and tools as planned. nil while nothing
+-- was bought since (the step as planned); "bought the materials" and true when nothing is left to buy at the AH or a
+-- vendor. A purchase is in your mail until you take it out: a plan made again counts it only then, this step at once
 function FM.PickBuyStep(pick)
     if type(pick) ~= "table" or type(pick.purchases) ~= "table" or type(pick.planAt) ~= "number" then return nil end
     local list, changed = {}, false
     for _, e in ipairs(pick.purchases) do
-        local bought = (e.ah or 0) > 0 and FM.BoughtSince and FM.BoughtSince(e.key, pick.planAt) or 0
+        local bought = (e.ah or 0) > 0 and BoughtFor(pick, e.key, pick.planAt) or 0
         local ah = math_max(0, (e.ah or 0) - bought)
         if ah ~= (e.ah or 0) then changed = true end
         if ah + (e.vendor or 0) > 0 then
