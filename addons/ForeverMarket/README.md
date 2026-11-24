@@ -1275,10 +1275,9 @@ per purchase.
   (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
   number under what was bought leaves the item done); only the add row's x by "max units" followed by Update
   (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after removing it, or for the first
-  time) starts it at 0. From the market table another number than the item has is a new plan, whose number is what it
-  still has to buy (the plan counts what you hold), and starts the count again (FRV-43, kept for the table); the same
-  number again (the same pick clicked twice) keeps it. Until 1.42 a new number typed into the box started the count
-  again too. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
+  time) starts it at 0. The market table's Snipe keeps it too, with the same number or another one: a new plan whose
+  number is under what was bought leaves the item done ("100 / 60 bought, done" in the chat line), and the x starts it
+  again. Until 1.42 a new number, typed into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
   "Resume sniping this item") stops an item without removing it: a paused item is not searched in a round, has no hit
   (a new result of it only updates Cheapest now) and is never bought; pausing also cancels a purchase of it that

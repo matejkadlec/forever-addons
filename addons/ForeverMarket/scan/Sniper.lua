@@ -36,8 +36,8 @@ local addonName, FM = ...
 -- was last reset, with or without a number (paid = what they cost; the window's "Bought now", FRV-128). A hit never
 -- takes more than N - got; an item at N is done: not searched, never bought. Since 1.43 (FRV-128) a new number or
 -- price keeps the count (190 of 200 bought, 300 set: 190 of 300); it starts again only on a reset (the window's x by
--- "max units") or when the item is added to the list (again); the market table's pick with another number than the
--- item has is a new plan and starts it again too (FRV-43). The daily reset doesn't touch it.
+-- "max units") or when the item is added to the list (again), also for the market table's Snipe with another number
+-- (until 1.42 a new number, typed or from the table, started it again). The daily reset doesn't touch it.
 -- A purchase's total and units are counted the moment it is confirmed and only given back when the server
 -- reports that it failed; when no answer comes at all, they stay counted (better too careful than too much spent).
 -- Paused (FRV-101, saved[key].paused, the window's pause button): the item stays in the list with its price, its
@@ -468,31 +468,30 @@ function FM.SnipeSetPaused(key, on)
     return true
 end
 
--- One snipe from the market table: true, or false and why ("price", "auction"). The number a sniped item already
--- has (the same pick clicked again) keeps what is bought of it; another number is a new plan, whose number is what
--- it still has to buy (it counts what you hold), and starts the count again (FRV-43), as does an item removed from
--- the list and added again
+-- One snipe from the market table: true, or false and why ("price", "auction"). Its number becomes the item's
+-- "buy at most" and what was bought of it stays counted, whatever the number (FRV-128: only the window's x or
+-- removing the item starts the count again; FRV-43 started it again for another number); an item added to the list
+-- (again) starts at 0
 local function AddFromTable(key, price, units)
     price = tonumber(price)
     if type(key) ~= "string" or not price or price < 1 then return false, "price" end
     if Kind(key) == "item" then return false, "auction" end
-    units = tonumber(units)
-    local _, n = Left(key)
-    local reset = false
-    if units and units >= 1 then reset = math_min(MAX_UNITS, math_floor(units)) ~= n end
-    if not FM.SnipeSet(key, price, units, reset) then return false, "price" end
+    if not FM.SnipeSet(key, price, tonumber(units)) then return false, "price" end
     return true
 end
 
--- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat; "(paused)" after
--- it while the item is paused in the window (FRV-101)
+-- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat, the real count also
+-- when it is above the number ("(150 / 60 bought, done)"); "(paused)" after it while the item is paused in the window
+-- (FRV-101)
 local function Describe(key)
     local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
     local left, n = Left(key)
-    if n and left == n then
+    local saved = FM.SnipeSaved(key)
+    local got = saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0
+    if n and got == 0 then
         text = FM.FormatCount(n) .. " " .. text
     elseif n then
-        text = text .. string_format(" (%s / %s bought%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and ", done" or "")
+        text = text .. string_format(" (%s / %s bought%s)", FM.FormatCount(got), FM.FormatCount(n), left <= 0 and ", done" or "")
     end
     if Paused(key) then text = text .. " (paused)" end
     return text
@@ -505,7 +504,7 @@ local function OpenAt(key)
 end
 
 -- The market table (Shift-click, the row menu): snipe this item at the table's price. units = the plan's number
--- ("buy at most", a new number starts its count again), nil keeps the item's number as it is
+-- ("buy at most"; what was bought stays counted, FRV-128), nil keeps the item's number as it is
 function FM.SnipeFromTable(key, price, units)
     local ok, why = AddFromTable(key, price, units)
     if not ok then

@@ -8,9 +8,9 @@
 --     purchase failed, stay counted when no answer comes
 --   * FRV-128: a new number or price keeps the count (190 of 200 bought, 300 set: 190 of 300), so does removing the
 --     number; only a reset (the window's x by "max units") or adding the item to the list (again) starts it at 0;
---     the count runs without a number too; the day's units are never touched by either. From the market table
---     another number than the item has is a new plan and starts the count again (FRV-43), the same one keeps it;
---     an item without a number buys what the budget allows, as before
+--     the count runs without a number too; the day's units are never touched by either; the market table's number
+--     keeps it too, the same one or another (FRV-43 started it again for another); an item without a number buys
+--     what the budget allows, as before
 --   * a pick sends every AH purchase with its units; items sold per auction are skipped and named in one chat line
 --   * FRV-94: a refresh starts the budget again from your gold now (or the manual amount) and keeps what the sniper
 --     spent and bought today; only the daily reset zeroes that; not while a purchase waits for the server's answer
@@ -167,7 +167,7 @@ H.test("sniper: the count runs without a number, and an item added to the list a
     H.eq(state.units, 20, "Bought today stays")
 end)
 
-H.test("sniper: the same number from the market table again keeps the count, another one starts it again", function()
+H.test("sniper: the market table's number keeps the count, the same one or another (FRV-128)", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)
     FM.SnipeFromTable(key, 275, 144)
@@ -178,9 +178,11 @@ H.test("sniper: the same number from the market table again keeps the count, ano
     FM.SnipeFromTable(key, 275, 144) -- the same pick clicked again
     H.eq(FM.SnipeSaved(key).got, 100, "what is bought stays")
     H.eq(env.printed[1]:find("100 / 144 bought", 1, true) ~= nil, true, "the chat line says so")
+    env.printed = {}
     FM.SnipeFromTable(key, 275, 60) -- a new plan with another number
-    H.eq(FM.SnipeSaved(key).got, 0, "another number starts the count again")
-    H.eq(FM.SnipeSaved(key).n, 60, "with that number")
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 100, 60 }, "the count stays, with the new number")
+    H.eq((select(2, Hit(FM, LEATHER))).done, true, "100 of 60: done")
+    H.eq(env.printed[1]:find("100 / 60 bought, done", 1, true) ~= nil, true, "the chat line names the real count")
 end)
 
 H.test("sniper: a done item removed from the list starts again when the table adds it with the same number", function()
