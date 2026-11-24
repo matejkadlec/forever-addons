@@ -412,7 +412,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   11g 90s  ·  expected +1g 64s" (`FM.trade.pickGold`, `pickFunds`, `pickProfit`, `pickPlan`, `pickNeed`,
   `pickExpected`; "Plan for your 10g 22s: ..." until 1.34). A plan with fewer picks than "Picks [Y]" says why (1.42,
   FRV-133, `pickShort`): "3 of 5 picks (nothing else earns enough after these)", "(the budget ends here)", "(no other
-  candidate)"; hovering it shows the budget, whose gold, the minimum profit and that reason in full. The header and the list sit two rows lower on this tab (one until 1.34). Two sections (1.17, they replace the orange "beyond your gold now" and
+  candidate)"; hovering it shows the budget, whose gold, the minimum profit, the gold the plan needs and its Expected (the line can run past the window's width with both boxes of a pair checked) and that reason in full. The header and the list sit two rows lower on this tab (one until 1.34). Two sections (1.17, they replace the orange "beyond your gold now" and
   the footer sentence): **Plan, fitting parameters**, then **Also good, but out of scope** (1.20; "Plan: fits your gold" and
   "Also good, beyond your gold" before, which read as if the second could not be afforded. Each of its picks is
   judged on its own with one pick's share of the plan's gold, as if the plan did not exist, so it can take the place

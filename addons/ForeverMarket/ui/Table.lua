@@ -2632,6 +2632,12 @@ local function CreateTable()
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         BudgetTooltip(funds, "The plan's budget")
         ProfitTooltip(FM.trade.pickProfit)
+        -- the plan's totals too: with both boxes of a pair checked and a short plan the line can run past the window's
+        -- width and lose its end (FRV-126, FRV-133)
+        if (FM.trade.pickPlan or 0) > 0 then
+            GameTooltip:AddDoubleLine("Needs", Money(FM.trade.pickNeed), 1, 0.82, 0, 1, 1, 1)
+            GameTooltip:AddDoubleLine("Expected", P1g(FM.trade.pickExpected), 1, 0.82, 0, 1, 1, 1)
+        end
         -- fewer picks than "Picks [Y]" (FRV-133): why
         local short = FM.trade.pickShort
         if short and SHORT_TIP[short] and (FM.trade.pickPlan or 0) > 0 then
