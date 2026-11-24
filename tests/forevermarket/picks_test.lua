@@ -2057,6 +2057,26 @@ H.test("held: units you hold count at what you paid, the tooltip says so", funct
         "a partial basis")
 end)
 
+-- Rule: a pick whose Expected falls to 0 or below only through the units you hold at what you paid says so, not that
+-- the deposits eat it. 10 held made when the materials cost 1g each; a new one costs 50s and sells at 60s (7s a unit
+-- after the cut, over 10% of 50s): 18 listed, 75% sell, Expected 90s for new ones, -3g 75s for the 10 held
+H.test("held: units you paid more for than new ones cost make the pick none, the reason says so", function()
+    local FM, env = Setup({ ["164"] = 27 })
+    Hold(FM, "164", 10)
+    FM.Deposit = function(_, n) return 100 * (n or 1) end
+    local craft = Craft("164", 400, 1, 6000)
+    craft.cost, craft.parts[1].unit, craft.profit = 5000, 5000, 6000 * 0.95 - 5000
+    local view = View({ ["164"] = { ladder = { { 6000, 50 } }, qty = 50, own = 0 },
+        ["900"] = { ladder = { { 5000, 100000 } }, qty = 100000, own = 0 } })
+    local out = { crafts = { craft } }
+    H.eq(Compute(FM, env, out, view)["164"] ~= nil, true, "without a record of what you paid: a pick")
+    FM.PaidBasis = function(_, n) return n, n * 10000 end
+    out = { crafts = { craft } }
+    H.eq(Compute(FM, env, out, view)["164"], nil, "at 1g each: no pick")
+    H.eq(out.pickWhy["164"], "your 10 held cost " .. Mo(FM, 10000) .. " each (you paid): listed with the new ones they "
+        .. "lose more than the new ones earn", "the reason names them")
+end)
+
 H.test("held: a Stock pick earns at least your Profit against what you paid, a list price under Sell at least says why", function()
     -- you hold 20 (the batch is 18): a Stock pick at 10s; you paid 9s 40c each, 10% of that is more than 1s left
     local FM, env, r = Setup({ ["161"] = 27 })

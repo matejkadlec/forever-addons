@@ -1346,6 +1346,16 @@ local function SellAtLeastNote(list, key, n, heldUnit, known, listAt)
         ORANGE }
 end
 
+-- Why a pick with new units and units you hold is none when its Expected is not above 0 (FRV-134): the held units at
+-- what you paid when without them (heldPart: what they add to Expected) it would be above 0, else the deposits
+local function NoExpected(commodity, expected, heldPart, held, known, heldUnit)
+    if held > 0 and known > 0 and expected - heldPart > 0 then
+        return string_format("your %s held cost %s each (%s): listed with the new ones they lose more than the new ones earn",
+            Count(held), M(heldUnit), HeldBasisText(held, known))
+    end
+    return DepositsEat(commodity)
+end
+
 -- What you hold covers the pick (1.29, FRV-89): nothing to make or buy, list n of what you hold (heldAll; "Stock",
 -- its Type). Its margin is the sale against what the units cost you (FRV-134, HeldUnit: what you paid where the logs
 -- tell, else unitCost, what one more unit would cost the pick now); conf and notes are the candidate's own. w
@@ -1506,7 +1516,7 @@ local function EvaluateCraft(c)
         expected, sold = ListingExpected(items, m, dep, commodity)
         expected = expected + q * heldGain
     end
-    if expected <= 0 then return nil, DepositsEat(commodity) end
+    if expected <= 0 then return nil, NoExpected(commodity, expected, q * heldGain, held, heldKnown, heldUnit) end
     local score = expected * conf * (waiting and LISTING_HOURS / (LISTING_HOURS + waiting.hours) or 1)
     if c.kind == "learn" then
         -- the recipe pays only through what you make: back within 3 days of their sales
@@ -1668,8 +1678,9 @@ local function EvaluateVendor(c)
     -- the units you hold at what they cost you (FRV-134), else at the vendor's price
     local heldUnit, heldKnown = HeldUnit(row.key, held, unit)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
-    expected = expected + (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unit - heldUnit)
-    if expected <= 0 then return nil, DepositsEat(d.commodity) end
+    local heldPart = (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unit - heldUnit)
+    expected = expected + heldPart
+    if expected <= 0 then return nil, NoExpected(d.commodity, expected, heldPart, held, heldKnown, heldUnit) end
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
     local score = expected * conf
@@ -1763,10 +1774,13 @@ local function EvaluateFlip(c)
     -- what you hold at what it cost you (FRV-134), else at what the flip pays per unit now
     local heldUnit, heldKnown = HeldUnit(row.key, held, unitCost)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
-    expected = expected + (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unitCost - heldUnit)
-    if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then
+    local heldPart = (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unitCost - heldUnit)
+    expected = expected + heldPart
+    if (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) or (expected <= 0 and expected - heldPart <= 0) then
         return nil, "no profit left after the cut and deposits"
     end
+    -- what you hold at what you paid makes it none (FRV-134): that is the reason
+    if expected <= 0 then return nil, NoExpected(d.commodity, expected, heldPart, held, heldKnown, heldUnit) end
     -- the Profit of the Picks row (FRV-126) holds for flips too
     if m < MinUnit(unitCost) then return nil, UnderProfit(unitCost) end
     local score = expected * conf

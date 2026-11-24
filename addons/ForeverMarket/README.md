@@ -499,7 +499,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     units without a basis): Expected adds 75% (40%) of what they earn more or less per unit than new ones, the tooltip
     a line "Your 2 held: +32s 37c per item against 2g 40s 17c: you paid", a Stock pick measures its margin and the
     Profit against it ("under your minimum profit per item, 10% = 24s 2c (your 2 cost 2g 40s 17c each: you paid)"), and
-    a pick that lists them under the item tooltip's Sell at least says why in orange. Until 1.39: what buyers take of one 8h or 24h listing at the rate above, the better of the two.
+    a pick that lists them under the item tooltip's Sell at least says why in orange. A pick that their cost alone
+    makes none says so ("your 10 held cost 1g each (you paid): listed with the new ones they lose more than the new
+    ones earn"), not that the deposits eat it. Until 1.39: what buyers take of one 8h or 24h listing at the rate above, the better of the two.
   * **Craft and wait** and **Stock, wait** (1.40, FRV-103, `WaitInfo`): when the cheapest price of others is at most
     85% of the usual price (median daily low, last week), a scan of the last 24h saw it at 95% of usual or more (the
     dip is new) and the wait table of the analysis says it comes back (the chance within 2 days and the hours it
