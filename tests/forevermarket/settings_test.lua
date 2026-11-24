@@ -198,3 +198,58 @@ H.test("settings: the thresholds clamp to their minimums, a tab on the global fi
     H.eq(set.learn, false, "the global value")
     H.eq(FM.TableFilters("picks").learn, true, "Picks keeps its own")
 end)
+
+-- FRV-126: the Picks row's Profit (the % of a unit's cost, default 10 and checked; the amount, default 10c, unchecked)
+-- and the two dropdowns of the settings panel (Invest: "both" by default, Profit: "either")
+H.test("settings: Profit and the two logic settings start at their defaults", function()
+    local s = Load(nil).GetSettings()
+    H.eq(s.tableProfitPct, 10, "Profit %: 10")
+    H.eq(s.tableProfitPctOn, true, "the % checked")
+    H.eq(s.tableProfitAmount, 10, "the amount pre-filled with 10c")
+    H.eq(s.tableProfitManual, false, "the amount unchecked")
+    H.eq(s.tableProfitLogic, "either", "% + manual profit logic: Either must apply")
+    H.eq(s.tableInvestPctOn, true, "Invest %: checked")
+    H.eq(s.tableInvestManual, false, "Invest amount: unchecked")
+    H.eq(s.tableInvestLogic, "both", "% + manual invest logic: Both must apply")
+end)
+
+-- Rule: the Invest pair was one choice before FRV-126 (tableInvestManual alone): that choice stays, the % or the
+-- amount; a pair with neither box checked gets its %; a logic that is neither "either" nor "both" its default; the
+-- Profit numbers load in range (% 0 to 999, the amount up to 999g 99s 99c)
+H.test("settings: a saved Invest choice stays, a pair never loads with no box checked", function()
+    local s = Load({ settings = { tableInvestManual = true, tableInvestAmount = 50000 } }).GetSettings()
+    H.same({ s.tableInvestPctOn, s.tableInvestManual }, { false, true }, "the amount set by hand stays the budget alone")
+    s = Load({ settings = { tableInvestManual = false } }).GetSettings()
+    H.same({ s.tableInvestPctOn, s.tableInvestManual }, { true, false }, "the % stays the budget alone")
+    s = Load({ settings = { tableInvestPctOn = false, tableInvestManual = false, tableProfitPctOn = false } }).GetSettings()
+    H.same({ s.tableInvestPctOn, s.tableInvestManual }, { true, false }, "Invest: neither checked, the % again")
+    H.same({ s.tableProfitPctOn, s.tableProfitManual }, { true, false }, "Profit: neither checked, the % again")
+    s = Load({ settings = { tableInvestPctOn = true, tableInvestManual = true, tableProfitManual = true } }).GetSettings()
+    H.same({ s.tableInvestPctOn, s.tableInvestManual }, { true, true }, "both checked stay")
+    H.same({ s.tableProfitPctOn, s.tableProfitManual }, { true, true }, "Profit: both checked")
+    s = Load({ settings = { tableInvestLogic = "x", tableProfitLogic = 3 } }).GetSettings()
+    H.same({ s.tableInvestLogic, s.tableProfitLogic }, { "both", "either" }, "broken logic: the defaults")
+    s = Load({ settings = { tableInvestLogic = "either", tableProfitLogic = "both" } }).GetSettings()
+    H.same({ s.tableInvestLogic, s.tableProfitLogic }, { "either", "both" }, "saved choices stay")
+    s = Load({ settings = { tableProfitPct = 5000, tableProfitAmount = -4 } }).GetSettings()
+    H.same({ s.tableProfitPct, s.tableProfitAmount }, { 999, 0 }, "clamped")
+    s = Load({ settings = { tableProfitPct = 0, tableProfitAmount = 2500.7 } }).GetSettings()
+    H.same({ s.tableProfitPct, s.tableProfitAmount }, { 0, 2500 }, "0% may be saved, whole copper")
+end)
+
+-- Rule: a click on a box of a pair checks or unchecks it; unchecking the last checked box is refused, both may be checked
+H.test("settings: the last checked box of a pair stays checked, both may be checked", function()
+    local FM = Load(nil)
+    for _, id in ipairs({ "invest", "profit" }) do
+        local pair = FM.PICK_PAIRS[id]
+        local s = { [pair.pct] = true, [pair.manual] = false }
+        H.eq(FM.PicksToggle(s, id, "pct"), false, id .. ": unchecking the only checked box is refused")
+        H.same({ s[pair.pct], s[pair.manual] }, { true, false }, id .. ": it stays checked")
+        H.eq(FM.PicksToggle(s, id, "manual"), true, id .. ": the amount checked too")
+        H.same({ s[pair.pct], s[pair.manual] }, { true, true }, id .. ": both checked")
+        H.eq(FM.PicksToggle(s, id, "pct"), true, id .. ": the % unchecked")
+        H.same({ s[pair.pct], s[pair.manual] }, { false, true }, id .. ": the amount alone")
+        H.eq(FM.PicksToggle(s, id, "manual"), false, id .. ": the amount is the last one, refused")
+        H.same({ s[pair.pct], s[pair.manual] }, { false, true }, id .. ": still the amount alone")
+    end
+end)

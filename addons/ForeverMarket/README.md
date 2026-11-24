@@ -109,7 +109,7 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   computed its numbers in the session (opening it or a deep scan), so after a login a crafted item showed its own
   AH price
   * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
-    * **now**: the materials of one unit at today's prices, priced the way the market table prices them
+    * **today's prices** ("now" until 1.41, FRV-134): the materials of one unit at today's prices, priced the way the market table prices them
       (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, whichever is cheaper, an intermediate you
       can make yourself up to 2 levels deep unless buying it costs at most the allowance of the crafting time it
       saves, FRV-69, see Picks), here on the freshest ladders (below);
@@ -121,13 +121,13 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
       materials that had no price at such a craft
   * **Cost (n pcs)** for units you bought, and for anything that is no craft of yours, exactly as before 1.21:
     * **vendor** instead of the next two rows for an item a vendor sells without limit: what the vendor sells it for
-    * **now**: buying your units now: the AH ladder walked for that many units. Prices come from your last AH search
+    * **today's prices** ("now" until 1.41): buying your units now: the AH ladder walked for that many units. Prices come from your last AH search
       of an item (`item.a`, others' auctions only) when it is newer than the latest snapshot, else from the snapshot.
       One scan is no fact: price levels under 75% of the cheapest price of the scan before (deep / feed record or
       search, 5 min to 2 days older) are left out until a later scan shows them too (8-10c for hours, then 2c once =
       2c skipped); when every level is that cheap, the whole market moved and it counts. Tooltip only: the market
       table keeps cheap units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper,
-      green 5%+ dearer (the same colors for "now" of crafted units)
+      green 5%+ dearer (the same colors for "today's prices" of crafted units)
     * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
       "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; kept on
       `COMMODITY_PURCHASE_SUCCEEDED`, each purchase with its own price since 1.36.3, FRV-102: the sniper logs its own
@@ -165,9 +165,18 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
     `crafts`). `/fm item <item>` adds a line with what you hold of it (bags, bank and how the bank was
     counted, 1.35) and one with your crafts of it (how many, the newest and its
     materials' basis per unit)
-  * **Sell at least (n pcs)**, rows **8h listing** / **24h listing**: a guard against selling under price by
-    mistake: the lowest price per unit that still nets the units' AH value (the item's cheapest price of others,
-    from the same freshest source, x n, whatever you paid) after the 5% cut and one lost deposit. Deposit =
+  * **Sell at least (n pcs, from what you paid)**, rows **8h listing** / **24h listing** (1.42, FRV-134): the
+    lowest price per unit that still nets what your units cost you after the 5% cut and one lost deposit, the price
+    under which selling loses money you spent: (what you paid for the units with a known basis, the **you paid** of
+    the groups above (crafted at the craft log's basis, bought at your purchases) + the item's cheapest price of
+    others, from the same freshest source, x the units without one + the deposit) / (0.95 n). The header says the
+    basis: "from what you paid", "3 at what you paid, 2 at today's AH price", "from today's AH price" (units you never
+    bought or crafted with a known basis, a vendor item, units you do not hold). `FM.PaidBasis` in trade/Cost.lua is
+    this basis, and Picks values the units of a pick's item you hold with it (Picks, your stock). Until 1.41 every
+    unit counted at the item's AH price whatever you paid, so the line always sat above the AH price: the
+    maintainer's crafted Turtle Scale Helm (paid 2g 40s 17c, materials today 2g 80s 17c) read 3g 19s 54c = (the
+    helm's 2g 88s + its 15s 56c 8h deposit) / 0.95, over the plan's 2g 87s; now (2g 40s 17c + 15s 56c) / 0.95 =
+    2g 69s 19c. Deposit =
     max(1s, share x vendor sell price x units), share 20% for 8h and 60% for 24h (Medium Leather sells for 50c:
     8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
     replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
@@ -398,14 +407,26 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   in (1.40, FRV-103; by a day's expected profit before), with the reasons in the tooltip. The formula is on the
   Confluence page [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)
   (what each signal is, the constants and why, worked examples, the backtest). Above the header the budget row (1.35, FRV-95, below) and under it a summary line (1.17): your gold,
-  the budget, the number of plan picks, the gold they need together and the sum of their Expected, "Gold: 16g 53s  ·
-  Budget: 75% of your gold = 12g 40s:   3 picks  ·  needs 11g 90s  ·  expected +1g 64s" (`FM.trade.pickGold`,
-  `pickFunds`, `pickPlan`, `pickNeed`, `pickExpected`; "Plan for your 10g 22s: ..." until 1.34); hovering it shows
-  the budget and whose gold. The header and the list sit two rows lower on this tab (one until 1.34). Two sections (1.17, they replace the orange "beyond your gold now" and
+  the budget, the minimum profit per item (1.42, FRV-126), the number of plan picks, the gold they need together and
+  the sum of their Expected, "Gold: 16g 53s  ·  Budget: 75% of your gold = 12g 40s  ·  Profit: 10%:   3 picks  ·  needs
+  11g 90s  ·  expected +1g 64s" (`FM.trade.pickGold`, `pickFunds`, `pickProfit`, `pickPlan`, `pickNeed`,
+  `pickExpected`; "Plan for your 10g 22s: ..." until 1.34). A plan with fewer picks than "Picks [Y]" says why (1.42,
+  FRV-133, `pickShort`): "3 of 5 picks (nothing else earns enough after these)", "(the budget ends here)", "(no other
+  candidate)"; hovering it shows the budget, whose gold, the minimum profit and that reason in full. The header and the list sit two rows lower on this tab (one until 1.34). Two sections (1.17, they replace the orange "beyond your gold now" and
   the footer sentence): **Plan, fitting parameters**, then **Also good, but out of scope** (1.20; "Plan: fits your gold" and
   "Also good, beyond your gold" before, which read as if the second could not be afforded. Each of its picks is
-  judged on its own with one pick's share of the plan's gold, so it can take the place of a plan pick; up to 20
-  picks together; `pick.extra`); sorting works inside each section, the default is the
+  judged on its own with one pick's share of the plan's gold, as if the plan did not exist, so it can take the place
+  of a plan pick, not be added to it; up to 20 picks together; `pick.extra`). The plan is greedy: each next pick is
+  judged after the picks before it took their materials (your stock left, the AH units they buy) and it ends when no
+  candidate is a pick any more, slots and gold left or not. So an out of scope pick's tooltip starts with why it is
+  not in the plan (1.42, FRV-133, `OutsideNote` in trade/Picks.lua), from the step it dropped out at: "Not in the
+  plan: pick #2 (Turtle Scale Bracers) uses 72 Turtle Scale from your bags and 72 on the AH up to 6s 28c; after that
+  it would buy Turtle Scale up to 7s 10c. Judged again then: under your minimum profit per item, 10% = 25s 12c.";
+  one that stayed a pick to the end "Not in the plan: its 5 picks earn more per gold put in."; its use step marks
+  your units the plan's picks take ("use 72 Turtle Scale from your bags (used by pick #2)"). The maintainer's case
+  (Turtle Scale Helm after Turtle Scale Bracers, 2026-11-24) was this, no bug: his plan log of that morning has the
+  helm out of scope next to bracers that bought Turtle Scale on the AH and in the plan next to bracers made from his
+  stock alone); sorting works inside each section, the default is the
   rank. Recipes worth leveling for left Picks in 1.17: they are nothing to do now (`FM.trade.pickLevels`, up to 3;
   their rows on Learn carry a green arrow and say so in the tooltip; a recipe you cannot learn yet because of your
   skill or your character level is one of them, within the Picks filters' caps). Your stock (1.29, FRV-89, FRV-90;
@@ -472,8 +493,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     your listings); each sold unit earns its margin, each unsold one loses its 8h deposit (trade/Cost.lua, else the
     share of the price your sale mails show). "Sells: about 23 of 31 in 8h" in the tooltip; a pick whose Expected is
     not above 0 is no pick ("the deposits of what does not sell eat the profit: about 40% of a commodity listing
-    sells"). The minimum profit per unit (10c and 3% of its cost), the minimum score and the worst case at the usual
-    low price stay. Until 1.39: what buyers take of one 8h or 24h listing at the rate above, the better of the two.
+    sells"). The minimum profit per item (the Profit of the budget row since 1.42, FRV-126; 10c and 3% of its cost
+    before), the minimum score and the worst case at the usual low price stay. Units of the pick's item you hold count
+    at what they cost you (1.42, FRV-134: `FM.PaidBasis`, the item tooltip's "you paid"; what one more costs now for
+    units without a basis): Expected adds 75% (40%) of what they earn more or less per unit than new ones, the tooltip
+    a line "Your 2 held: +32s 37c per item against 2g 40s 17c: you paid", a Stock pick measures its margin and the
+    Profit against it ("under your minimum profit per item, 10% = 24s 2c (your 2 cost 2g 40s 17c each: you paid)"), and
+    a pick that lists them under the item tooltip's Sell at least says why in orange. Until 1.39: what buyers take of one 8h or 24h listing at the rate above, the better of the two.
   * **Craft and wait** and **Stock, wait** (1.40, FRV-103, `WaitInfo`): when the cheapest price of others is at most
     85% of the usual price (median daily low, last week), a scan of the last 24h saw it at 95% of usual or more (the
     dip is new) and the wait table of the analysis says it comes back (the chance within 2 days and the hours it
@@ -525,14 +551,27 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks
-    [Y] Invest [X] % [x] | [g] [s] [c] [ ]**, with "Lock plan after refresh" at its right (the maintainer's layout
-    after his test, 1.35.5; first "Picks: [Y] | [X] % [x] | Invest: [g s c] [ ]"). Y (`tableInvestPicks`,
-    default 3, 1 to 12) is how many picks the plan has at most; fewer when fewer good picks exist. The two checkboxes
-    are one choice, always one of them checked, the other's boxes greyed out and disabled (`tableInvestManual`):
-    **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90, 1 to 90: 10% stay for deposits; an
-    older X above 90 counts as 90), the money boxes = the amount typed in (`tableInvestAmount`, copper, up to 999999g
-    99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed to 60 / 34 / 34 px for 6 and 2 digits),
-    capped at 90% of your gold, which the row's tooltip says. "Allow picks budget
+    [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]** (Profit since 1.42, FRV-126), with "Lock
+    plan after refresh" at its right (the maintainer's layout after his test, 1.35.5; first "Picks: [Y] | [X] % [x] |
+    Invest: [g s c] [ ]"). Y (`tableInvestPicks`, default 3, 1 to 12) is how many picks the plan has at most; fewer
+    when fewer good picks exist (the summary says why). The two checkboxes of Invest and of Profit (1.42, FRV-126; one
+    choice of the two until 1.41): one or both checked, a click on the last checked one of a pair is refused (it stays
+    checked, `FM.PicksToggle` in core/Core.lua), an unchecked one's boxes greyed out and disabled
+    (`tableInvestPctOn` / `tableInvestManual`, `tableProfitPctOn` / `tableProfitManual`; a saved choice of 1.41 stays,
+    the % or the amount alone). Invest: **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90,
+    1 to 90: 10% stay for deposits; an older X above 90 counts as 90), the money boxes = the amount typed in
+    (`tableInvestAmount`, copper, up to 999999g 99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed
+    to 60 / 34 / 34 px for 6 and 2 digits), capped at 90% of your gold, which the row's tooltip says; both checked,
+    the settings panel's "% + manual invest logic" decides (`tableInvestLogic`): "Both must apply" (default) = within
+    both budgets, the smaller one, "Either must apply" = within one of them, the larger ("12g 40s (75% and 20g, the
+    smaller)" in the summary). **Profit** is the minimum profit per item of a pick, after the AH cut, against what one
+    unit costs you (`FM.PicksProfit`, `FM.PicksMinUnit` in trade/Picks.lua): P % of that cost (`tableProfitPct`,
+    default 10, checked, 0 to 999) and / or the amount (`tableProfitAmount`, default 10c, unchecked, up to 999g 99s
+    99c; gold box 3 digits); both checked, "% + manual profit logic" (`tableProfitLogic`): "Either must apply"
+    (default) = a pick meeting one of them passes, the lower minimum, "Both must apply" = the higher. It replaces the
+    built-in 10c and 3% and the settings panel's table minimum for picks; it holds for every kind (crafts run by run,
+    Stock picks against what you paid, vendor resells, flips), and the reason names it: "under your minimum profit per
+    item, 10% = 8c", "10% = 33c or 25c, the lower one". "Allow picks budget
     over current gold" (settings panel, `tablePicksOverGold`, off) lets X go to 999 and the amount above your gold:
     the plan is sized as if you had it (turning it off brings X back to 90 at most). `FM.PicksBudget` in
     trade/Picks.lua; with "Gold of all characters" (Filters) your gold is that of all your characters. Every box
@@ -617,12 +656,14 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     picks whose gold stayed reserved): the Picks filters (its own or the global ones; "Include not learned recipes"
     off plans without recipes to learn, "Exclude already listed items" leaves out what you list, "Over skill level"
     and "Over character level" set which recipes to learn are "Level for" information), the profession dropdown
-    limits crafts and recipes only (vendor resells and flips stay), the settings panel's minimum profit per item
-    leaves out picks that earn less per item, its share of C/24h sets the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
+    limits crafts and recipes only (vendor resells and flips stay), the budget row's Profit leaves out picks that earn
+    less per item (the settings panel's minimum profit per item until 1.41), the settings panel's share of C/24h sets
+    the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
-  * One plan for the budget (X % of your gold or the amount set), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
+  * One plan for the budget (X % of your gold, the amount set, or both combined), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
-    they would sell for), never buying what you list. Crafting stops when a craft earns under max(10c, 3%).
+    they would sell for), never buying what you list. Crafting stops when a craft earns under the Profit of the budget
+    row (max(10c, 3%) until 1.41).
   * A material you can craft yourself (Cured Heavy Hide from Heavy Hide + Salt) is bought or crafted craft run by
     craft run (1.27, FRV-78): one run crafted, its materials from what is
     left of their ladders, against buying the units still needed next on the AH or at the vendor, per unit (a
@@ -753,14 +794,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   Only the realm bucket the feed was matched to imports (`bucket`), `ForeverMarketDB.feedImported[bucket]` tells
   the feed what the game already has.
 * Outliers (settings panel, on by default, `tableNoOutliers`) hides rows whose PPG is beyond 3x the
-  interquartile range of the tab, and vendor items listed at over 10x the vendor price. Minimum profit per item
-  (`tableMinProfit`, in copper) hides the rows of the Craft, Vendor and Flip tabs that earn less per item, and crafts
-  without a known profit; 0g 0s 0c is no minimum (the old "Any"); on Picks the plan leaves them out instead (1.17). Below it the Picks' share of an
+  interquartile range of the tab, and vendor items listed at over 10x the vendor price. "Craft, Vendor and Flip tabs:
+  minimum profit per item" (`tableMinProfit`, in copper; "Market table: ..." until 1.41) hides the rows of those tabs
+  that earn less per item, and crafts without a known profit; 0g 0s 0c is no minimum (the old "Any"); Picks has its own
+  minimum since 1.42, Profit in its budget row (FRV-126; from 1.17 to 1.41 the plan left such picks out). Below it the Picks' share of an
   item's C/24h one pick may plan (1.19, `tableCircPct`), the first batch of a commodity without your sales (1.31,
   FRV-71, `tableFirstPct`; see Picks, Room on the AH) and the buy or craft rate (1.33, FRV-69, `tableTimePct`: "Buy a
   craftable material when it costs at most [N]% more per second of crafting it saves", 0 to 20, default 2, 0 = always
   the cheaper route; see Picks, buy or craft). Its checkbox "Allow picks budget over current gold (% up to 999, any
-  amount set)" (1.35, FRV-95, `tablePicksOverGold`, off) is the budget row's: see Picks; a click plans again.
+  amount set)" (1.35, FRV-95, `tablePicksOverGold`, off) is the budget row's: see Picks; a click plans again. Under the
+  number inputs two dropdowns (1.42, FRV-126, Blizzard's `WowStyle1DropdownTemplate`): "% + manual invest logic"
+  (`tableInvestLogic`, default "Both must apply") and "% + manual profit logic" (`tableProfitLogic`, default "Either
+  must apply"), how the budget row's % and amount combine with both boxes checked (see Picks); each choice's meaning
+  is in its tooltip, a choice plans again at once.
 * The first three are number inputs since 1.32 (FRV-86; dropdowns before), the rate one since it came (1.33): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
   25; the first batch 1 to 10, default 2, the bounds of its dropdown), the rate "[N]% more per second ..." (0 to 20,

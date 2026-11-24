@@ -1722,8 +1722,19 @@ local function FooterText(total)
 end
 
 -- The plan's budget (FRV-95): "75% of your gold = 12g 40s", "20g (set manually)", "14g 88s (20g set manually, capped
--- at 90% of your gold)"; short (the summary line): "14g 88s (capped at 90% of your gold)"
+-- at 90% of your gold)"; short (the summary line): "14g 88s (capped at 90% of your gold)". Both checked (FRV-126):
+-- "12g 40s: 75% of your gold = 12g 40s and 20g set manually, the smaller one"; short "12g 40s (75% and 20g, the smaller)"
 local function BudgetText(funds, short)
+    if funds.mode == "both" then
+        local larger = funds.logic == "either"
+        local join, which = larger and "or" or "and", larger and "larger" or "smaller"
+        if short then
+            return string_format("%s (%d%% %s %s, the %s)", Money(funds.budget), funds.pct or 0, join, Money(funds.amount), which)
+        end
+        return string_format("%s: %d%% of your gold = %s %s %s set manually%s, the %s one", Money(funds.budget), funds.pct or 0,
+            Money(funds.pctBudget), join, Money(funds.amount),
+            (funds.manualBudget or 0) < (funds.amount or 0) and (" (capped at " .. Money(funds.manualBudget) .. ")") or "", which)
+    end
     if funds.mode == "manual" then
         if funds.capped then
             if short then return Money(funds.budget) .. " (capped at 90% of your gold)" end
@@ -1740,8 +1751,18 @@ local function GoldText(funds)
     return Money(funds.gold) .. ((funds.all and n > 1) and string_format(" (%d characters)", n) or "")
 end
 
--- Picks, above the header: "Gold: 16g 53s  ·  Budget: 75% of your gold = 12g 40s:   3 picks  ·  needs 9g 80s  ·
--- expected +1g 64s" (a plan made before 1.35 has no budget: "Plan for your 10g 22s")
+-- Why the plan has fewer picks than "Picks [Y]" (FRV-133, trade.pickShort from trade/Picks.lua)
+local SHORT_TEXT = { earn = "nothing else earns enough after these", budget = "the budget ends here",
+    none = "no other candidate" }
+local SHORT_TIP = {
+    earn = "The plan is greedy: each next pick is judged after the picks before it took their materials (your stock, the cheaper AH units) and gold. Every good candidate left is no pick then; its row under \"Also good, but out of scope\" says why.",
+    budget = "The plan's gold is used up, or every good candidate left needs more than the share it would get.",
+    none = "No other candidate is a pick with these parameters.",
+}
+
+-- Picks, above the header: "Gold: 16g 53s  ·  Budget: 75% of your gold = 12g 40s  ·  Profit: 10%:   3 of 5 picks
+-- (nothing else earns enough after these)  ·  needs 9g 80s  ·  expected +1g 64s" (a plan made before 1.35 has no
+-- budget: "Plan for your 10g 22s"; one before FRV-126 no Profit; a plan that fills its slots: "5 picks")
 local function PickSummary()
     local trade = FM.trade
     if not (trade and trade.picks and trade.pickGold) then return "" end
@@ -1749,11 +1770,21 @@ local function PickSummary()
     local held = FM.PicksLocked() and trade.pickAt and (GREY .. " (locked " .. date("%H:%M", trade.pickAt) .. ")|r") or ""
     local sep = GREY .. "  ·  |r"
     local funds = trade.pickFunds
+    local profit = (trade.pickProfit and FM.PicksProfitText) and (sep .. "Profit: " .. FM.PicksProfitText(trade.pickProfit, nil, "short")) or ""
     local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. BudgetText(funds, true))
-        or ("Plan for your " .. Money(trade.pickGold))) .. held .. ":   "
+        or ("Plan for your " .. Money(trade.pickGold))) .. profit .. held .. ":   "
     if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
-    return text .. string_format("%d pick%s", n, n == 1 and "" or "s") .. sep .. "needs " .. Money(trade.pickNeed)
-        .. sep .. "expected " .. P1g(trade.pickExpected)
+    local count = string_format("%d pick%s", n, n == 1 and "" or "s")
+    if trade.pickShort and trade.pickSlots and n < trade.pickSlots then
+        count = string_format("%d of %d picks", n, trade.pickSlots) .. GREY .. " (" .. (SHORT_TEXT[trade.pickShort] or trade.pickShort) .. ")|r"
+    end
+    return text .. count .. sep .. "needs " .. Money(trade.pickNeed) .. sep .. "expected " .. P1g(trade.pickExpected)
+end
+
+-- The minimum profit per item in a tooltip (FRV-126): "Minimum profit: at least 10% or 25c per item, the lower one"
+local function ProfitTooltip(rule)
+    if not (rule and FM.PicksProfitText) then return end
+    GameTooltip:AddDoubleLine("Minimum profit", FM.PicksProfitText(rule, nil, "line"), 1, 0.82, 0, 1, 1, 1)
 end
 
 -- The budget in a tooltip (the summary line and the budget row): which budget, whose gold, each character's with
@@ -1767,6 +1798,11 @@ local function BudgetTooltip(funds, title)
     if title then GameTooltip:AddLine(title) end
     if not funds then return end
     GameTooltip:AddDoubleLine("Budget", BudgetText(funds), 1, 0.82, 0, 1, 1, 1)
+    if funds.mode == "both" then
+        -- both boxes checked (FRV-126): the settings panel's "% + manual invest logic" combined them
+        GameTooltip:AddLine(funds.logic == "either" and "Both checked, Either must apply (settings panel): the plan stays within one of the two budgets, the larger one."
+            or "Both checked, Both must apply (settings panel): the plan stays within both budgets, the smaller one.", 0.6, 0.6, 0.6, true)
+    end
     if funds.capped then
         GameTooltip:AddLine("The amount set is more than 90% of your gold: the plan uses 90% (the rest pays deposits). Allow picks budget over current gold (settings panel) lifts the cap.", 1, 0.6, 0.2, true)
     elseif funds.over and funds.budget > funds.cap then
@@ -1950,23 +1986,27 @@ Render = function()
     frame.lock:SetShown(tab.picks and true or false)
     frame.lock.label:SetShown(tab.picks and true or false)
     frame.lock:SetChecked(FM.PicksLocked())
-    -- the budget row (FRV-95): the saved values (not in a box you type in), the chosen budget's boxes on, the other's
-    -- greyed out
+    -- the budget row (FRV-95, FRV-126): the saved values (not in a box you type in), the checked boxes' inputs on, an
+    -- unchecked one's greyed out
     frame.budget:SetShown(tab.picks and true or false)
     if tab.picks then
         local s = Settings()
-        local manual = s.tableInvestManual == true
-        if not frame.invest:HasFocus() then frame.invest:SetText(tostring(s.tableInvestPct or 90)) end
         if not frame.slots:HasFocus() then frame.slots:SetText(tostring(s.tableInvestPicks or 3)) end
-        local money = FM.MoneyInput
-        local amount = tonumber(s.tableInvestAmount) or 0
-        if money and not money.Focused(frame.manual) and money.Read(frame.manual) ~= amount then money.Write(frame.manual, amount) end
-        frame.pctCheck:SetChecked(not manual)
-        frame.manualCheck:SetChecked(manual)
-        frame.invest:SetEnabled(not manual)
-        frame.invest:SetAlpha(manual and 0.45 or 1)
-        frame.pctSign:SetAlpha(manual and 0.45 or 1)
-        if money then money.Enabled(frame.manual, manual) end
+        for _, w in ipairs({ frame.investPair, frame.profitPair }) do
+            local pair = FM.PICK_PAIRS[w.pair]
+            local manualOn = s[pair.manual] == true
+            local pctOn = s[pair.pct] ~= false or not manualOn
+            if not w.pct:HasFocus() then w.pct:SetText(tostring(s[w.pctKey] or w.pctDefault)) end
+            local money = FM.MoneyInput
+            local amount = tonumber(s[w.amountKey]) or 0
+            if money and not money.Focused(w.manual) and money.Read(w.manual) ~= amount then money.Write(w.manual, amount) end
+            w.pctCheck:SetChecked(pctOn)
+            w.manualCheck:SetChecked(manualOn)
+            w.pct:SetEnabled(pctOn)
+            w.pct:SetAlpha(pctOn and 1 or 0.45)
+            w.sign:SetAlpha(pctOn and 1 or 0.45)
+            if money then money.Enabled(w.manual, manualOn) end
+        end
     end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
     LayoutFilters(frame)
@@ -2331,27 +2371,42 @@ local function CreateTable()
         GameTooltip:Show()
     end)
     f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    -- Picks' budget row (FRV-95), on the line above the summary: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]";
-    -- Y = the picks the plan has at most, the budget X % of your gold or the amount set (the two checkboxes are one
-    -- choice, always one of them checked; the other's boxes greyed out). Every box applies on Enter or a lost focus,
-    -- Esc shows the saved value again, a change plans again
+    -- Picks' budget row (FRV-95, FRV-126), on the line above the summary: "Picks [Y] Invest [X] % [x] | [g] [s] [c] [ ]
+    -- Profit [P] % [x] | [g] [s] [c] [ ]"; Y = the picks the plan has at most, the budget X % of your gold and / or the
+    -- amount set, the minimum profit per item P % of a unit's cost and / or the amount set. The two checkboxes of a pair:
+    -- one or both checked (the last checked one stays, FM.PicksToggle; with both, the settings panel's logic combines
+    -- them), an unchecked one's boxes greyed out. Every box applies on Enter or a lost focus, Esc shows the saved value
+    -- again, a change plans again
     local budget = CreateFrame("Frame", nil, f)
     budget:SetPoint("LEFT", f, "TOPLEFT", 14, LINE_Y)
     budget:SetPoint("RIGHT", f, "TOPRIGHT", -14, LINE_Y)
     budget:SetHeight(ROW_H)
     budget:Hide()
     f.budget = budget
-    local function BudgetTip(widget, title, text)
+    -- a widget's tooltip: its title and text, then what the plan shown (or a plan now) uses
+    local function RowTip(widget, title, text, Details)
         widget:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(title)
             GameTooltip:AddLine(text, 1, 1, 1, true)
             GameTooltip:AddLine(" ")
-            BudgetTooltip(FM.trade and FM.trade.pickFunds or nil, FM.trade and FM.trade.pickFunds and "The plan shown" or "A plan now")
+            Details()
             GameTooltip:Show()
         end)
         widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
         if widget.SetMotionScriptsWhileDisabled then widget:SetMotionScriptsWhileDisabled(true) end
+    end
+    local function BudgetTip(widget, title, text)
+        RowTip(widget, title, text, function()
+            BudgetTooltip(FM.trade and FM.trade.pickFunds or nil, FM.trade and FM.trade.pickFunds and "The plan shown" or "A plan now")
+        end)
+    end
+    local function ProfitTip(widget, title, text)
+        RowTip(widget, title, text, function()
+            local shown = FM.trade and FM.trade.pickProfit
+            GameTooltip:AddLine(shown and "The plan shown" or "A plan now")
+            ProfitTooltip(shown or (FM.PicksProfit and FM.PicksProfit(Settings())))
+        end)
     end
     local function Replan()
         view.offset = 0
@@ -2382,92 +2437,109 @@ local function CreateTable()
     end)
     BudgetTip(slots, "Picks", string_format("The plan has up to this many picks (default 3, 1 to %d). Each pick gets a fair share of the budget that is left; what one does not use goes to the later ones. 1 = everything into the best pick. The picks out of scope are sized with one pick's share. Enter or click elsewhere to apply.", slotsMax))
     f.slots = slots
-    -- "Invest [X] %": the % right after the picks, the money boxes behind the one separator (the maintainer, 2026-11-22)
-    local investLabel = Text(budget, "GameFontHighlight", "LEFT", 16, 0, slots, "RIGHT")
-    investLabel:SetText("Invest")
-    local invest = FM.NumberBox(budget, 3)
-    invest:SetPoint("LEFT", investLabel, "RIGHT", 10, 0)
-    invest:HookScript("OnEditFocusLost", function(self)
-        if self.restore then
-            self.restore = nil
-            self:SetText(tostring(Settings().tableInvestPct or 90))
-            return
-        end
-        local n = math_floor(tonumber(self:GetText() or "") or Settings().tableInvestPct or 90)
-        n = math_max(1, math_min(FM.PicksPctMax and FM.PicksPctMax() or 90, n))
-        self:SetText(tostring(n))
-        if n == Settings().tableInvestPct then return end
-        Settings().tableInvestPct = n
-        Replan()
-    end)
-    invest:SetScript("OnEscapePressed", function(self)
-        self.restore = true
-        self:ClearFocus()
-    end)
-    local pctTip = "The budget is this share of your gold (checked, the default): 1 to 90 (default 90; the rest of your gold pays deposits), 1 to 999 with Allow picks budget over current gold (settings panel). With Gold of all characters (Filters) your gold is that of all your characters. Enter or click elsewhere to apply."
-    BudgetTip(invest, "Budget: % of your gold", pctTip)
-    f.invest = invest
-    local pctSign = Text(budget, "GameFontHighlight", "LEFT", 4, 0, invest, "RIGHT")
-    pctSign:SetText("%")
-    f.pctSign = pctSign
-    local pctCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
-    pctCheck:SetSize(22, 22)
-    pctCheck:SetPoint("LEFT", pctSign, "RIGHT", 2, 0)
-    BudgetTip(pctCheck, "Budget: % of your gold", pctTip)
-    f.pctCheck = pctCheck
-    local sep2 = Text(budget, "GameFontDisable", "LEFT", 12, 0, pctCheck, "RIGHT")
-    sep2:SetText("|")
-    -- the sniper's money boxes (MoneyInputFrameTemplate, FM.MoneyInput in ui/SniperPanel.lua): the same inputs, narrower
-    -- (the template's 70 / 48 / 48 px fit 7 digits of gold and leave silver and copper half empty): gold up to 999999
-    -- (6 digits, FM.SETTING_RANGE), silver and copper 2 digits each, every box with its coin at the right
-    local manual = CreateFrame("Frame", "ForeverMarketPicksInvest", budget, "MoneyInputFrameTemplate")
-    manual:SetPoint("LEFT", sep2, "RIGHT", 16, 0)
-    if manual.gold and manual.silver and manual.copper then
-        manual.gold:SetWidth(60)
-        manual.gold:SetMaxLetters(6)
-        manual.silver:SetWidth(34)
-        manual.copper:SetWidth(34)
-        manual:SetWidth(60 + 10 + 34 + 10 + 34)
-    end
-    local manualTip = "The budget is this amount (checked): the plan is sized for it whatever your gold. Without Allow picks budget over current gold (settings panel) an amount over 90% of your gold is capped there, and this tooltip says so. Enter or click elsewhere to apply, Esc keeps the saved amount."
+    -- one pair: "Label [X] % [x] | [g] [s] [c] [ ]" right of `after` (the maintainer's layout, 2026-11-22: the % right
+    -- after the label, the money boxes behind the one separator). The money boxes are the sniper's (MoneyInputFrameTemplate,
+    -- FM.MoneyInput in ui/SniperPanel.lua), narrower (the template's 70 / 48 / 48 px fit 7 digits of gold and leave
+    -- silver and copper half empty): gold up to spec.goldDigits digits (FM.SETTING_RANGE), silver and copper 2 each
     local money = FM.MoneyInput
-    for _, box in ipairs(money and money.Boxes(manual) or {}) do
-        box:HookScript("OnEditFocusLost", function()
-            if manual.restore then
-                manual.restore = nil
-            elseif not money.Empty(manual) then
-                local value = FM.SettingClamp("tableInvestAmount", money.Read(manual))
-                if value and value ~= Settings().tableInvestAmount then
-                    Settings().tableInvestAmount = value
-                    if Settings().tableInvestManual then Replan() end
-                end
+    local function Pair(spec)
+        local w = { pair = spec.pair, pctKey = spec.pctKey, pctDefault = spec.pctDefault, amountKey = spec.amountKey }
+        local label = Text(budget, "GameFontHighlight", "LEFT", 16, 0, spec.after, "RIGHT")
+        label:SetText(spec.label)
+        local pct = FM.NumberBox(budget, 3)
+        pct:SetPoint("LEFT", label, "RIGHT", 10, 0)
+        pct:HookScript("OnEditFocusLost", function(self)
+            local saved = tonumber(Settings()[spec.pctKey]) or spec.pctDefault
+            if self.restore then
+                self.restore = nil
+                self:SetText(tostring(saved))
+                return
             end
-            local amount = tonumber(Settings().tableInvestAmount) or 0
-            if not money.Focused(manual) and money.Read(manual) ~= amount then money.Write(manual, amount) end
+            local n = math_floor(tonumber(self:GetText() or "") or saved)
+            n = math_max(spec.pctMin, math_min(spec.PctMax(), n))
+            self:SetText(tostring(n))
+            if n == Settings()[spec.pctKey] then return end
+            Settings()[spec.pctKey] = n
+            Replan()
         end)
-        box:SetScript("OnEscapePressed", function(self)
-            manual.restore = true
+        pct:SetScript("OnEscapePressed", function(self)
+            self.restore = true
             self:ClearFocus()
         end)
-        BudgetTip(box, "Budget: set manually", manualTip)
-    end
-    f.manual = manual
-    local manualCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
-    manualCheck:SetSize(22, 22)
-    manualCheck:SetPoint("LEFT", manual.copper or manual, "RIGHT", 6, 0)
-    BudgetTip(manualCheck, "Budget: set manually", manualTip)
-    f.manualCheck = manualCheck
-    -- one choice: a click checks its box and unchecks the other (a click on the checked one keeps it)
-    local function Choose(manualOn)
-        if (Settings().tableInvestManual == true) ~= manualOn then
-            Settings().tableInvestManual = manualOn
-            Replan()
-        else
-            Render()
+        spec.Tip(pct, spec.pctTitle, spec.pctTip)
+        w.pct = pct
+        local sign = Text(budget, "GameFontHighlight", "LEFT", 4, 0, pct, "RIGHT")
+        sign:SetText("%")
+        w.sign = sign
+        local pctCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
+        pctCheck:SetSize(22, 22)
+        pctCheck:SetPoint("LEFT", sign, "RIGHT", 2, 0)
+        spec.Tip(pctCheck, spec.pctTitle, spec.pctTip)
+        w.pctCheck = pctCheck
+        local sep = Text(budget, "GameFontDisable", "LEFT", 12, 0, pctCheck, "RIGHT")
+        sep:SetText("|")
+        local manual = CreateFrame("Frame", spec.moneyName, budget, "MoneyInputFrameTemplate")
+        manual:SetPoint("LEFT", sep, "RIGHT", 16, 0)
+        if manual.gold and manual.silver and manual.copper then
+            manual.gold:SetWidth(60)
+            manual.gold:SetMaxLetters(spec.goldDigits)
+            manual.silver:SetWidth(34)
+            manual.copper:SetWidth(34)
+            manual:SetWidth(60 + 10 + 34 + 10 + 34)
         end
+        for _, box in ipairs(money and money.Boxes(manual) or {}) do
+            box:HookScript("OnEditFocusLost", function()
+                if manual.restore then
+                    manual.restore = nil
+                elseif not money.Empty(manual) then
+                    local value = FM.SettingClamp(spec.amountKey, money.Read(manual))
+                    if value and value ~= Settings()[spec.amountKey] then
+                        Settings()[spec.amountKey] = value
+                        -- it counts only while its box is checked
+                        if Settings()[FM.PICK_PAIRS[spec.pair].manual] then Replan() end
+                    end
+                end
+                local amount = tonumber(Settings()[spec.amountKey]) or 0
+                if not money.Focused(manual) and money.Read(manual) ~= amount then money.Write(manual, amount) end
+            end)
+            box:SetScript("OnEscapePressed", function(self)
+                manual.restore = true
+                self:ClearFocus()
+            end)
+            spec.Tip(box, spec.manualTitle, spec.manualTip)
+        end
+        w.manual = manual
+        local manualCheck = CreateFrame("CheckButton", nil, budget, "UICheckButtonTemplate")
+        manualCheck:SetSize(22, 22)
+        manualCheck:SetPoint("LEFT", manual.copper or manual, "RIGHT", 6, 0)
+        spec.Tip(manualCheck, spec.manualTitle, spec.manualTip)
+        w.manualCheck = manualCheck
+        -- a click checks or unchecks its box; unchecking the last checked box of the pair is refused (Render shows it
+        -- checked again)
+        local function Toggle(side)
+            if FM.PicksToggle(Settings(), spec.pair, side) then Replan() else Render() end
+        end
+        pctCheck:SetScript("OnClick", function() Toggle("pct") end)
+        manualCheck:SetScript("OnClick", function() Toggle("manual") end)
+        return w
     end
-    pctCheck:SetScript("OnClick", function() Choose(false) end)
-    manualCheck:SetScript("OnClick", function() Choose(true) end)
+    local INVEST_BOTH = " Both boxes checked: the settings panel's \"% + manual invest logic\" combines them (default Both must apply: the plan stays within both, the smaller budget; Either must apply: the larger)."
+    f.investPair = Pair({ label = "Invest", after = slots, pair = "invest", pctKey = "tableInvestPct", pctDefault = 90, pctMin = 1,
+        PctMax = function() return FM.PicksPctMax and FM.PicksPctMax() or 90 end, amountKey = "tableInvestAmount",
+        moneyName = "ForeverMarketPicksInvest", goldDigits = 6, Tip = BudgetTip,
+        pctTitle = "Budget: % of your gold",
+        pctTip = "The budget is this share of your gold (checked, the default): 1 to 90 (default 90; the rest of your gold pays deposits), 1 to 999 with Allow picks budget over current gold (settings panel). With Gold of all characters (Filters) your gold is that of all your characters." .. INVEST_BOTH .. " Enter or click elsewhere to apply.",
+        manualTitle = "Budget: set manually",
+        manualTip = "The budget is this amount (checked): the plan is sized for it whatever your gold. Without Allow picks budget over current gold (settings panel) an amount over 90% of your gold is capped there, and this tooltip says so." .. INVEST_BOTH .. " Enter or click elsewhere to apply, Esc keeps the saved amount." })
+    local PROFIT_WHAT = "Minimum profit per item: a pick must earn at least this much on each unit it sells (after the AH cut). %: of what one unit costs you."
+    local PROFIT_BOTH = " Both boxes checked: the settings panel's \"% + manual profit logic\" combines them (default Either must apply: a pick meeting one of them passes, the lower minimum; Both must apply: the higher)."
+    f.profitPair = Pair({ label = "Profit", after = f.investPair.manualCheck, pair = "profit", pctKey = "tableProfitPct", pctDefault = 10,
+        pctMin = 0, PctMax = function() return 999 end, amountKey = "tableProfitAmount", moneyName = "ForeverMarketPicksProfit",
+        goldDigits = 3, Tip = ProfitTip,
+        pctTitle = "Profit: % of a unit's cost",
+        pctTip = PROFIT_WHAT .. " This % (checked, the default): 0 to 999, default 10." .. PROFIT_BOTH .. " Enter or click elsewhere to apply.",
+        manualTitle = "Profit: amount per item",
+        manualTip = PROFIT_WHAT .. " This amount (checked; default 10c, unchecked)." .. PROFIT_BOTH .. " Enter or click elsewhere to apply, Esc keeps the saved amount." })
     -- profession filter: Blizzard's dropdown with every profession of this character
     local prof = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
     prof:SetWidth(130)
@@ -2559,6 +2631,14 @@ local function CreateTable()
         if not funds then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         BudgetTooltip(funds, "The plan's budget")
+        ProfitTooltip(FM.trade.pickProfit)
+        -- fewer picks than "Picks [Y]" (FRV-133): why
+        local short = FM.trade.pickShort
+        if short and SHORT_TIP[short] and (FM.trade.pickPlan or 0) > 0 then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(string_format("%d of %d picks: %s", FM.trade.pickPlan, FM.trade.pickSlots or 0, SHORT_TEXT[short]))
+            GameTooltip:AddLine(SHORT_TIP[short], 1, 1, 1, true)
+        end
         if FM.PicksLocked() and FM.trade.pickAt then
             GameTooltip:AddLine(string_format("Locked at %s: the plan keeps this gold and budget until you refresh it.", date("%H:%M", FM.trade.pickAt)), 0.6, 0.6, 0.6, true)
         end

@@ -365,7 +365,7 @@ H.test("cost: an item you only bought keeps its cost as before", function()
     r.buys = { (NOW - 3600) .. ",1,10,500,Tester" }
     Ladder(r, "1", 60)
     env.counts = { ["1"] = 4 }
-    H.same(FM.CostInfo("1").groups, { { kind = "cost", n = 4, now = 60, paid = 50 } }, "groups")
+    H.same(FM.CostInfo("1").groups, { { kind = "cost", n = 4, now = 60, paid = 50, paidN = 4 } }, "groups")
 end)
 
 H.test("cost: a vendor item keeps its single vendor price", function()
@@ -375,6 +375,62 @@ H.test("cost: a vendor item keeps its single vendor price", function()
     H.eq(info.vendor, true, "vendor")
     H.eq(info.now, 30, "vendor price")
     H.eq(info.groups, nil, "no groups")
+end)
+
+-- FRV-134: "Sell at least" of n units you hold nets what they cost you after the cut and one lost deposit: (what you paid
+-- for the units with a known basis + the item's AH price x the rest + the deposit) / 0.95 n. Before 1.42 every unit
+-- counted at the AH price, so the line always sat above it (the maintainer's Turtle Scale Helm: 3g 19s 54c from the
+-- helm's 2g 88s and its 15s 56c deposit, not from what its materials cost). Measured deposits: 8h 1c a unit, at least
+-- 1s; 24h 3c a unit, at least 3s
+local function Deposits(r, key)
+    r.deposits = r.deposits or {}
+    r.deposits[key] = { t = NOW, [2] = { 1, 100 }, [3] = { 3, 300 } }
+end
+
+H.test("cost: Sell at least of crafted units you hold starts from what you paid, not today's prices", function()
+    local FM, env, r = Load()
+    r.crafts = { Line(NOW - 3600, "100", 3, 3, 900, "1:6:300/2:3:600") }
+    Ladder(r, "1", 60)
+    Ladder(r, "2", 250)
+    Ladder(r, "100", 2000)
+    Deposits(r, "100")
+    env.counts = { ["100"] = 3 }
+    local info = FM.CostInfo("100")
+    H.eq(info.basisN, 3, "all 3 at what you paid")
+    -- (3 x 3s + 1s) / (3 x 0.95), never (3 x 20s + 1s) / 2.85 from the bracers' AH price
+    H.eq(info.min8, (3 * 300 + 100) / (3 * 0.95), "8h: 3s 51c")
+    H.eq(info.min24, (3 * 300 + 300) / (3 * 0.95), "24h: 4s 21c")
+    H.eq(FM.PaidBasis("100", 3), 3, "Picks' basis: 3 units")
+    H.eq(select(2, FM.PaidBasis("100", 3)), 900, "at 9s")
+    -- your lines cover 3 of 5: the other 2 at the AH price
+    FM.sources.byKey["100"] = { key = "100", learned = true, makes = 1, reagents = { { key = "1", n = 2 }, { key = "2", n = 1 } } }
+    env.counts = { ["100"] = 5 }
+    info = FM.CostInfo("100")
+    H.eq(info.basisN, 3, "3 of 5 with a basis")
+    H.eq(info.min8, (3 * 300 + 2 * 2000 + 100) / (5 * 0.95), "the rest at 20s")
+    -- units you do not hold have cost you nothing yet: the AH price
+    env.counts = {}
+    info = FM.CostInfo("100")
+    H.same({ info.owned, info.basisN }, { false, 0 }, "a stack you would make")
+    H.eq(info.min8, (20 * 2000 + 100) / (20 * 0.95), "20 at the AH price")
+end)
+
+H.test("cost: Sell at least of bought units starts from what you paid, units without a basis from today's AH price", function()
+    local FM, env, r = Load()
+    r.buys = { (NOW - 3600) .. ",1,10,500,Tester" }
+    Ladder(r, "1", 60)
+    Ladder(r, "2", 250)
+    Deposits(r, "1")
+    Deposits(r, "2")
+    env.counts = { ["1"] = 4, ["2"] = 5 }
+    local info = FM.CostInfo("1")
+    H.eq(info.basisN, 4, "bought: all 4 at what you paid")
+    H.eq(info.min8, (4 * 50 + 100) / (4 * 0.95), "(4 x 50c + 1s) / 3.8")
+    info = FM.CostInfo("2")
+    H.eq(info.basisN, 0, "never bought or crafted: no basis")
+    H.eq(info.min8, (5 * 250 + 100) / (5 * 0.95), "today's AH price as before")
+    H.same({ FM.PaidBasis("2", 5) }, { 0, 0 }, "Picks gets no basis either")
+    H.same({ FM.PaidBasis("3", 7) }, { 0, 0 }, "nor for a vendor item")
 end)
 
 H.test("crafts: /fm item reports your crafts of an item", function()

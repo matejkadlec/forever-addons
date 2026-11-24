@@ -20,10 +20,11 @@ local _, FM = ...
 --     24h, and the wait table says it comes back: make now only with materials 10%+ under their usual cost and list
 --     later at 95% of the usual price; units you hold wait as "Stock, wait". The gold is tied up longer: the score
 --     counts 8 / (8 + the hours it takes)
---   * one plan for a budget: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ]" (1.20; 1.35, FRV-95: Y = its picks at most,
---     default 3; the budget X % of your gold, default and at most 90, or an amount set by hand, capped at 90% of your
---     gold unless "Allow picks budget over current gold" (settings panel; % up to 999 then); with "Gold of all
---     characters" (FRV-36) your gold counts your other characters' as last recorded). Picks are chosen greedily, each
+--   * one plan for a budget: "Picks [Y] Invest [X] % [ ] | [g] [s] [c] [ ] Profit [P] % [ ] | [g] [s] [c] [ ]" (1.20;
+--     1.35, FRV-95: Y = its picks at most, default 3; the budget X % of your gold, default and at most 90, or an amount
+--     set by hand, capped at 90% of your gold unless "Allow picks budget over current gold" (settings panel; % up to 999
+--     then), or both (1.42, FRV-126: the smaller by default, a setting); with "Gold of all characters" (FRV-36) your
+--     gold counts your other characters' as last recorded). Picks are chosen greedily, each
 --     gets a fair share of the budget that is left (left / picks still open), so what one does not use goes to the
 --     later ones; each buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
@@ -33,15 +34,22 @@ local _, FM = ...
 --     stays as "Stock": list them); your own materials are used first unless "Exclude stock for crafting" (FRV-90;
 --     valued at what they would sell for), nothing is bought that you are selling
 --   * no loss: at the usual low price (or the lowest of the last 3 days) still a profit
+--   * the minimum profit per item (1.42, FRV-126): the Profit of the Picks row, P % of what one unit costs you (default
+--     10) and / or an amount (default 10c, unchecked), both checked the lower by default (a setting); 10c and 3% of the
+--     cost were built in before
+--   * units of the pick's item you hold count at what you paid for them (1.42, FRV-134, FM.PaidBasis: the item
+--     tooltip's basis), what one more costs now where no log tells
 --   * recipes to learn need a known price and a known skill requirement; the price is part of the plan. One you
 --     cannot learn yet (its skill or its character level above yours, within the caps of "Over skill level" and
 --     "Over character level", FRV-91) is "Level for" information, never a step of the plan; one of a Leatherworking
 --     specialization you have not chosen (FRV-110, craft.specNeed) is neither: its reason names the specialization
 --   * after the plan: further good picks, each judged on its own with one pick's share of the plan's gold ("out
---     of scope"), so each can take the place of a plan pick
+--     of scope"), so each can take the place of a plan pick; its tooltip says why it is not in the plan (1.42,
+--     FRV-133: the plan pick that took what it would use and what it would pay after it), the summary why the plan has
+--     fewer picks than Y
 --   * every filter of the Picks tab is an input of the plan, never a filter of a finished plan: the Picks filters
 --     (FM.TableFilters("picks"): its own or the global ones, FRV-89), "Invest [X] % across [Y] picks", the profession
---     (crafts and recipes only) and the settings panel's minimum profit per item and share of C/24h
+--     (crafts and recipes only), its Profit, and the settings panel's share of C/24h and logic dropdowns
 --   * room on the AH (1.19): a batch is at most a share of what circulates of the item in 24h (the table's
 --     C/24h, default 25%); what you already list on all your characters (FM.OwnListings: the auction lists and the
 --     posts since) comes off the batch. No room for one craft or one unit = no pick. Your bags and bank do not touch it
@@ -70,8 +78,8 @@ local PICK_SLOTS = 3            -- default "across [Y] picks": the plan has up t
 local OLD_RECORD_FACTOR = 0.3   -- records from before soldLow: share of early-gone units that were bought
 local BURST_SHARE = 0.3         -- over this share of the listings gone in one interval, with relists...
 local BURST_KEEP = 0.15         -- ...counts as at most this share bought
-local MIN_UNIT = 10             -- profit per item at least 10c...
-local MIN_UNIT_SHARE = 0.03     -- ...and 3% of its cost
+local PROFIT_PCT = 10           -- "Profit [P] %" (FRV-126): a pick earns at least 10% of a unit's cost per item...
+local PROFIT_AMOUNT = 10        -- ...or, its amount checked, 10c (the defaults; 10c and 3% were built in before)
 local MIN_SCORE = 200           -- 2s expected profit, or 1% of one pick's share of the plan's gold when that is more
 local MAX_PICKS = 12
 local MAX_SHOWN = 20            -- plan picks and further good ones together
@@ -170,9 +178,65 @@ end
 
 local GREY, ORANGE, WHITE = "|cFF9D9D9D", "|cFFFF9933", "|cFFFFFFFF"
 
+---------------------------------------------------------------- the minimum profit per item (FRV-126)
+
+-- The Picks row's "Profit [P] % [x] [g] [s] [c] [ ]": the minimum profit per item of a pick, after the AH cut, against
+-- what one unit costs you. The % of that cost, the amount, or both checked: tableProfitLogic "either" (the default)
+-- passes a pick that meets one of them (the lower minimum), "both" one that meets both (the higher).
+-- Returns { pct, amount (nil = unchecked), logic ("either" | "both", only with both) }
+function FM.PicksProfit(s)
+    s = s or FM.GetSettings()
+    local amountOn = s.tableProfitManual == true
+    local pctOn = s.tableProfitPctOn ~= false or not amountOn -- one box at least
+    local rule = {}
+    if pctOn then rule.pct = Clamp(math_floor(tonumber(s.tableProfitPct) or PROFIT_PCT), 0, 999) end
+    if amountOn then rule.amount = math_max(0, math_floor(tonumber(s.tableProfitAmount) or PROFIT_AMOUNT)) end
+    if pctOn and amountOn then rule.logic = s.tableProfitLogic == "both" and "both" or "either" end
+    return rule
+end
+
+-- The minimum profit of one unit that costs you unitCost (copper)
+function FM.PicksMinUnit(rule, unitCost)
+    local byPct = rule.pct and rule.pct / 100 * math_max(0, unitCost or 0)
+    if byPct and rule.amount then
+        return rule.logic == "both" and math_max(byPct, rule.amount) or math_min(byPct, rule.amount)
+    end
+    return byPct or rule.amount or 0
+end
+
+-- The rule in words. The reasons (with a unit's cost): "10% = 8c", "25c", "10% = 33c or 25c, the lower one" ("... and
+-- 25c, the higher one"); style "short" (the summary line): "10%", "10% or 25c, the lower"; style "line" (tooltips):
+-- "at least 10% or 25c per item, the lower one"
+function FM.PicksProfitText(rule, unitCost, style)
+    local pct
+    if rule.pct then
+        pct = rule.pct .. "%"
+        if unitCost and not style then pct = pct .. " = " .. M(rule.pct / 100 * math_max(0, unitCost)) end
+    end
+    local amount = rule.amount and M(rule.amount)
+    local main, tail = pct or amount or M(0), nil
+    if pct and amount then
+        local both = rule.logic == "both"
+        main = pct .. (both and " and " or " or ") .. amount
+        tail = both and "the higher" or "the lower"
+    end
+    if style == "line" then return "at least " .. main .. " per item" .. (tail and (", " .. tail .. " one") or "") end
+    if style == "short" then return main .. (tail and (", " .. tail) or "") end
+    return main .. (tail and (", " .. tail .. " one") or "")
+end
+
 ---------------------------------------------------------------- pass state
 
 local P -- state of one pass: view, demand cache, own position, plan state
+
+-- A pick's minimum profit of a unit that costs unitCost (the Profit of the Picks row, FRV-126), and why one earns less
+local function MinUnit(unitCost)
+    return FM.PicksMinUnit(P.profit, unitCost)
+end
+
+local function UnderProfit(unitCost)
+    return "under your minimum profit per item, " .. FM.PicksProfitText(P.profit, unitCost)
+end
 
 -- Units you own (bags and bank, not what you wear): usable for crafting
 local function ItemCount(key)
@@ -575,12 +639,25 @@ local function FromStock(trial)
     return list
 end
 
--- The use step: "use 9 Heavy Leather from your bags (+1 more)" (the tooltip's material lines name each)
-local function UseStep(trial)
+-- The plan picks that take your units of an item (P.taken, FRV-98): "pick #2", "picks #1, #2"
+local function TakenBy(key)
+    local taken = P.taken[key]
+    if not taken or not taken[1] then return nil end
+    local ranks = {}
+    for i, t in ipairs(taken) do ranks[i] = "#" .. t.rank end
+    return (#ranks > 1 and "picks " or "pick ") .. table_concat(ranks, ", ")
+end
+
+-- The use step: "use 9 Heavy Leather from your bags (+1 more)" (the tooltip's material lines name each). marked: a
+-- pick out of scope, judged before the plan took your units (FRV-133): " (used by pick #2)" when the plan's picks
+-- leave fewer of them than it uses
+local function UseStep(trial, marked)
     local list = FromStock(trial)
     local first = list[1]
     if not first then return nil end
+    local by = marked and (P.stockLeft[first.key] or StockOf(first.key)) < first.n and TakenBy(first.key)
     return string_format("use %s %s from %s", Count(first.n), Name(first.key), StockWhere(first.n, OwnedOf(first.key)[4]))
+        .. (by and (" (used by " .. by .. ")") or "")
         .. (#list > 1 and string_format(" (+%d more)", #list - 1) or "")
 end
 
@@ -765,8 +842,10 @@ local function PlanCraft(row, cap, unitsCap, sellAt)
             break
         end
         local runProfit = sellNet * makes - value
-        if runProfit < math_max(MIN_UNIT * makes, MIN_UNIT_SHARE * value) then
+        -- each unit of the run earns at least the Profit of the Picks row (FRV-126)
+        if runProfit < MinUnit(value / makes) * makes then
             plan.stop = "margin"
+            plan.tried = run -- the run that no longer earns it: what its materials would cost (FRV-133)
             break
         end
         if plan.capital + capital > cap then
@@ -1204,27 +1283,81 @@ local function SellsLine(list, sold, n)
     list[#list + 1] = { "l", "Sells", string_format("about %s of %s in 8h", Units(sold), Count(n)) }
 end
 
+-- What the n units of a pick's item you hold cost you (FRV-134), the basis of the item tooltip (FM.PaidBasis in
+-- trade/Cost.lua: your craft lines' material basis and your purchases): what you paid where the logs tell, `now`
+-- (what one more unit costs the pick now) for the rest. Returns the cost per unit and the units with a known basis
+local function HeldUnit(key, n, now)
+    if n <= 0 or not FM.PaidBasis then return now, 0 end
+    local id = key .. ":" .. n
+    local basis = P.paid[id]
+    if not basis then
+        local known, total = FM.PaidBasis(key, n)
+        basis = { math_max(0, math_min(tonumber(known) or 0, n)), tonumber(total) or 0 }
+        P.paid[id] = basis
+    end
+    local known, total = basis[1], basis[2]
+    if known <= 0 then return now, 0 end
+    return (total + (n - known) * now) / n, known
+end
+
+-- How that cost is known: "you paid", "you paid for 3, one more now for 2", "one more now"
+local function HeldBasisText(n, known)
+    if known >= n then return "you paid" end
+    if known <= 0 then return "one more now" end
+    return string_format("you paid for %s, one more now for %s", Count(known), Count(n - known))
+end
+
+-- The tooltip line of your held units next to new ones when what you paid for them is known (FRV-134): "Your 2
+-- held: +32s 37c per item against 2g 40s 17c you paid"; mHeld = what one of them earns when it sells
+local function HeldLine(list, held, known, heldUnit, mHeld)
+    if held <= 0 or known <= 0 then return end
+    list[#list + 1] = { "l", string_format("Your %s held", Count(held)), Signed(mHeld) .. GREY .. string_format("  per item "
+        .. "against %s: %s|r", M(heldUnit), HeldBasisText(held, known)) }
+end
+
+-- The item tooltip's "Sell at least" of your n held units (FRV-134, FM.CostInfo: what they cost you and one lost 8h
+-- deposit, after the cut). A pick that lists them under it says why (only when what you paid for all of them is known,
+-- the tooltip's own basis then)
+local function SellAtLeastNote(list, key, n, heldUnit, known, listAt)
+    if n <= 0 or known < n or not listAt then return end
+    local dep = FM.Deposit and FM.Deposit(key, n, 2)
+    if type(dep) ~= "number" then return end
+    local least = (heldUnit * n + dep) / (n * (1 - AH_CUT))
+    if listAt >= least then return end
+    local earn = listAt * (1 - AH_CUT) - heldUnit
+    list[#list + 1] = { "n", string_format("List at %s is under %s, the Sell at least of your %s held on the item tooltip "
+        .. "(what you paid and one lost 8h deposit, after the cut): %s", M(listAt), M(math_ceil(least)), Count(n),
+        earn >= 0 and string_format("each one that sells still earns %s, Expected counts the deposits of those that do not.", M(earn))
+            or string_format("each one sells at a loss of %s; the pick is chosen for its new units, Expected counts that loss.", M(-earn))),
+        ORANGE }
+end
+
 -- What you hold covers the pick (1.29, FRV-89): nothing to make or buy, list n of what you hold (heldAll; "Stock",
--- its Type). Its margin is the sale against unitCost, what one more unit would cost the pick now; conf and notes are
--- the candidate's own. w (WaitInfo, waiting pays, FRV-103): "Stock, wait", listed at the target price once the
--- price is back; its gold is tied up longer, the score counts 8 / (8 + the hours)
+-- its Type). Its margin is the sale against what the units cost you (FRV-134, HeldUnit: what you paid where the logs
+-- tell, else unitCost, what one more unit would cost the pick now); conf and notes are the candidate's own. w
+-- (WaitInfo, waiting pays, FRV-103): "Stock, wait", listed at the target price once the price is back; its gold is
+-- tied up longer, the score counts 8 / (8 + the hours)
 local function StockPick(c, row, n, heldAll, d, room, b, unitCost, conf, notes, w)
     local commodity = d.commodity
     local q = commodity and SELLS_COMMODITY or SELLS_ITEM
     local sellNet = row.sell * (1 - AH_CUT)
+    local paidUnit, known = HeldUnit(row.key, n, unitCost)
     local m, expected, sold, listAt
     if w then
         -- the price is back at T (P48), or it is not and the units sell at 85% of the price now
-        m = w.T * (1 - AH_CUT) - unitCost
+        m = w.T * (1 - AH_CUT) - paidUnit
         sold = q * n
-        expected = n * (q * (w.P48 * w.T + (1 - w.P48) * w.p * MISS_PRICE) * (1 - AH_CUT) - q * unitCost - (1 - q) * b.dep)
+        expected = n * (q * (w.P48 * w.T + (1 - w.P48) * w.p * MISS_PRICE) * (1 - AH_CUT) - q * paidUnit - (1 - q) * b.dep)
         listAt = w.T
     else
-        m = sellNet - unitCost
+        m = sellNet - paidUnit
         expected, sold = ListingExpected(n, m, b.dep, commodity)
         listAt = row.sell
     end
-    if m < math_max(MIN_UNIT, MIN_UNIT_SHARE * unitCost) then return nil, "under 10c profit per item" end
+    if m < MinUnit(paidUnit) then
+        return nil, UnderProfit(paidUnit) .. (known > 0 and string_format(" (your %s cost %s each: %s)", Count(n),
+            M(paidUnit), HeldBasisText(n, known)) or "")
+    end
     if expected <= 0 then return nil, DepositsEat(commodity) end
     local score = expected * conf * (w and LISTING_HOURS / (LISTING_HOURS + w.hours) or 1)
     if score < P.minScore then return nil, TooSmall(score, conf) end
@@ -1239,12 +1372,14 @@ local function StockPick(c, row, n, heldAll, d, room, b, unitCost, conf, notes, 
         { "n", w and "What you hold is the pick: nothing to make or buy, list it once the price is back."
             or "What you hold covers the pick: nothing to make or buy, list them.", GREY },
         { "l", "Expected profit", M(expected) },
-        { "l", "Profit per item", M(m) .. GREY .. "  against " .. M(unitCost) .. " for one more now|r" },
+        { "l", "Profit per item", M(m) .. GREY .. "  against " .. M(paidUnit) .. (known > 0 and (": " .. HeldBasisText(n, known))
+            or " for one more now") .. "|r" },
     }
     SellsLine(list, sold, n)
-    if w then WaitLines(list, row, w, nil, nil, (ListingExpected(n, sellNet - unitCost, b.dep, commodity))) end
+    if w then WaitLines(list, row, w, nil, nil, (ListingExpected(n, sellNet - paidUnit, b.dep, commodity))) end
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(listAt) }
+    SellAtLeastNote(list, row.key, n, paidUnit, known, listAt)
     if d.perDay then list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay)) } end
     OwnSalesLines(list, b)
     list[#list + 1] = { "l", "Listed by others", Count(row.qty - (row.own or 0)) }
@@ -1274,7 +1409,7 @@ local function EvaluateCraft(c)
     local w = c.kind == "craft" and WaitInfo(row, d) or nil
     local waiting = w and w.pays and w or nil
     -- a craft that earns too little at the price now is a pick only as a wait
-    if c.dipOnly and not waiting then return nil, "under 10c profit per item" end
+    if c.dipOnly and not waiting then return nil, UnderProfit(tableCost) end
     -- the batch's margin is the one of the price it lists at (a wait lists at its target)
     local b, noBatch = Batch(row, d, (waiting and waiting.T * (1 - AH_CUT) or sellNet) - tableCost, dep, room)
     if not b then return nil, noBatch end
@@ -1312,13 +1447,20 @@ local function EvaluateCraft(c)
     if runsMax < 1 then return OnlyHeld(BatchShort(b, room, makes)) end
     if cap <= 0 then return OnlyHeld(NoGold()) end
     local plan = PlanCraft(row, cap, runsMax * makes, waiting and waiting.T or nil)
+    P.tried = plan.tried or plan.trial -- what the materials would cost, for the reason of a later drop (FRV-133)
     if plan.runs == 0 then
         if plan.stop == "gold" then return OnlyHeld(NoGold()) end
-        return OnlyHeld("no craft earns its margin with the materials on the AH now")
+        return OnlyHeld(plan.stop == "margin" and string_format("no craft earns your minimum profit per item (%s) with the "
+            .. "materials on the AH now", FM.PicksProfitText(P.profit, nil, "short"))
+            or "no craft earns its margin with the materials on the AH now")
     end
     local made = plan.items
     local items = made + held
     local costPerItem = plan.value / made
+    -- the units you hold at what they cost you (FRV-134): what you paid where the logs tell, else as a new one; they
+    -- earn heldGain more (less) per sale than new ones
+    local heldUnit, heldKnown = HeldUnit(row.key, held, costPerItem)
+    local heldGain = held * (costPerItem - heldUnit)
     local commodity = d.commodity
     local q = commodity and SELLS_COMMODITY or SELLS_ITEM
     local notes = {}
@@ -1331,14 +1473,14 @@ local function EvaluateCraft(c)
         local up = waiting.T * (1 - AH_CUT) - costPerItem
         local down = waiting.p * MISS_PRICE * (1 - AH_CUT) - costPerItem
         evu = waiting.P48 * up + (1 - waiting.P48) * down
-        if not cheap or evu < math_max(MIN_UNIT, MIN_UNIT_SHARE * costPerItem)
+        if not cheap or evu < MinUnit(costPerItem)
             or waiting.P48 * up < UPSIDE * (1 - waiting.P48) * math_max(0, -down) then
             if held > 0 then return OnlyHeld() end
             return nil, WaitLater(waiting, cheap)
         end
         m = up
         sold = q * items
-        expected = items * (q * evu - (1 - q) * dep)
+        expected = items * (q * evu - (1 - q) * dep) + q * heldGain
     else
         -- worst case: selling at the usual low (median daily low, last week) when that is under the price now; one
         -- dip in a scan is not the price you must take, you can wait it out
@@ -1346,8 +1488,9 @@ local function EvaluateCraft(c)
         pessProfit = pessSell * (1 - AH_CUT) - costPerItem
         if pessProfit <= 0 then return nil, "could lose money at its usual low price" end
         m = sellNet - costPerItem
-        if m < math_max(MIN_UNIT, MIN_UNIT_SHARE * costPerItem) then return nil, "under 10c profit per item" end
+        if m < MinUnit(costPerItem) then return nil, UnderProfit(costPerItem) end
         expected, sold = ListingExpected(items, m, dep, commodity)
+        expected = expected + q * heldGain
     end
     if expected <= 0 then return nil, DepositsEat(commodity) end
     local score = expected * conf * (waiting and LISTING_HOURS / (LISTING_HOURS + waiting.hours) or 1)
@@ -1368,7 +1511,11 @@ local function EvaluateCraft(c)
     -- what to do, in order (Evaluate adds the listing): learn > use > buy > make > wait
     local steps = {}
     if c.kind == "learn" then steps[#steps + 1] = LearnStep(c) end
-    if c.kind ~= "level" then steps[#steps + 1] = UseStep(plan.trial) end
+    local use = c.kind ~= "level" and UseStep(plan.trial) or nil
+    if use then
+        steps[#steps + 1] = use
+        pick.useStep = #steps -- marked later when the pick is out of scope and plan picks use those units (FRV-133)
+    end
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
     steps[#steps + 1] = string_format("make %s", Count(made))
     if waiting then steps[#steps + 1] = WaitStep(waiting) end
@@ -1403,6 +1550,7 @@ local function EvaluateCraft(c)
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
     list[#list + 1] = { "l", "Profit per item", M(m) .. (waiting and (GREY .. "  at " .. M(waiting.T) .. "|r") or "") }
+    HeldLine(list, held, heldKnown, heldUnit, m + costPerItem - heldUnit)
     if pessProfit then
         list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" }
     end
@@ -1421,6 +1569,7 @@ local function EvaluateCraft(c)
     for _, r in ipairs(reasons) do list[#list + 1] = r end
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(pick.listAt) .. (row.capped and (GREY .. "  usual price; cheapest now " .. M(row.capped) .. "|r") or "") }
+    SellAtLeastNote(list, row.key, held, heldUnit, heldKnown, pick.listAt)
     if row.rawMin and row.rawMax then list[#list + 1] = { "l", "Last 3 days", M(row.rawMin) .. " - " .. M(row.rawMax) } end
     if d.perDay then
         list[#list + 1] = { "l", "Buyers", string_format("%s per day%s", Count(d.perDay), d.source == "estimated" and " (estimated)" or "") }
@@ -1501,8 +1650,11 @@ local function EvaluateVendor(c)
     local pessProfit = pessSell * (1 - AH_CUT) - unit
     if pessProfit <= 0 then return nil, "could lose money at its usual price" end
     local m = row.sell * (1 - AH_CUT) - unit
-    if m < MIN_UNIT or m < MIN_UNIT_SHARE * unit then return nil, "under 10c profit per item" end
+    if m < MinUnit(unit) then return nil, UnderProfit(unit) end
+    -- the units you hold at what they cost you (FRV-134), else at the vendor's price
+    local heldUnit, heldKnown = HeldUnit(row.key, held, unit)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
+    expected = expected + (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unit - heldUnit)
     if expected <= 0 then return nil, DepositsEat(d.commodity) end
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
@@ -1524,11 +1676,13 @@ local function EvaluateVendor(c)
     end
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
+    HeldLine(list, held, heldKnown, heldUnit, m + unit - heldUnit)
     list[#list + 1] = { "l", "Worst case per item", M(pessProfit) .. GREY .. "  at " .. M(pessSell) .. "|r" }
     SellsLine(list, sold, items)
     if row.offer.limited then list[#list + 1] = { "n", "Limited stock: " .. row.offer.limited .. " at a time.", ORANGE } end
     list[#list + 1] = { "h", "Sell" }
     list[#list + 1] = { "l", "List at", M(row.sell) }
+    SellAtLeastNote(list, row.key, held, heldUnit, heldKnown, row.sell)
     if row.usual then list[#list + 1] = { "l", "Usual price", M(row.usual) } end
     if d.perDay then list[#list + 1] = { "l", "Buyers", string_format("%s per day", Count(d.perDay)) } end
     OwnSalesLines(list, b)
@@ -1581,6 +1735,7 @@ local function EvaluateFlip(c)
             trial.top[row.key] = level[1]
         end
     end
+    P.tried = trial -- what the flip would buy, for the reason of a later drop (FRV-133)
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
     if n < 1 then
@@ -1589,13 +1744,17 @@ local function EvaluateFlip(c)
         return StockPick(c, row, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(row, d))
     end
     local items = n + held
-    -- what you hold at what the flip pays per unit now
     local unitCost = cost / n
     local m = row.sell * (1 - AH_CUT) - unitCost
+    -- what you hold at what it cost you (FRV-134), else at what the flip pays per unit now
+    local heldUnit, heldKnown = HeldUnit(row.key, held, unitCost)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
+    expected = expected + (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unitCost - heldUnit)
     if expected <= 0 or (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) then
         return nil, "no profit left after the cut and deposits"
     end
+    -- the Profit of the Picks row (FRV-126) holds for flips too
+    if m < MinUnit(unitCost) then return nil, UnderProfit(unitCost) end
     local score = expected * conf
     if score < P.minScore then return nil, TooSmall(score, conf) end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
@@ -1612,6 +1771,8 @@ local function EvaluateFlip(c)
         pick.reasons[#pick.reasons + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held),
             StockWhere(held, OwnedOf(row.key)[3])) }
     end
+    HeldLine(pick.reasons, held, heldKnown, heldUnit, m + unitCost - heldUnit)
+    SellAtLeastNote(pick.reasons, row.key, held, heldUnit, heldKnown, row.sell)
     for _, line in ipairs({
         { "l", "Gold needed", M(cost) },
         { "l", "List at", M(row.sell) .. GREY .. string_format("  %s others wait at %s", Count(row.support), M(row.wall)) .. "|r" },
@@ -1701,11 +1862,20 @@ local function ListedOut(key)
     return string_format("you list %s already, worth %s (Exclude already listed items)", Count(n), M(value))
 end
 
--- A learned craft whose price is in a dip (its sell price at most 85% of the usual one) that would earn at least 10c a
--- unit listed at 95% of the usual price: Craft and wait may make it a pick although it earns too little now
+-- A learned craft whose price is in a dip (its sell price at most 85% of the usual one) that would earn your minimum
+-- profit per item (FRV-126) listed at 95% of the usual price: Craft and wait may make it a pick although it earns too
+-- little now
 local function MayWait(row)
     if not (row.usual and row.sell and row.cost) or row.sell > DIP * row.usual then return false end
-    return math_floor(TARGET * row.usual) * (1 - AH_CUT) - row.cost / (row.craft.makes or 1) >= MIN_UNIT
+    local unit = row.cost / (row.craft.makes or 1)
+    return math_floor(TARGET * row.usual) * (1 - AH_CUT) - unit >= MinUnit(unit)
+end
+
+-- A craft row of the table earns too little per item for a pick now (no known profit, or under your minimum profit per
+-- item of the Picks row, FRV-126)
+local function TooLittle(row)
+    local makes = row.craft.makes or 1
+    return not row.profit or row.profit / makes < MinUnit(row.cost / makes)
 end
 
 local function Candidates(out, why)
@@ -1725,15 +1895,14 @@ local function Candidates(out, why)
             why[row.key] = "no price to sell at"
         elseif row.missing or not row.cost or not row.parts then
             why[row.key] = "a material has no price"
-        elseif (not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT) and not (row.learned and MayWait(row)) then
-            why[row.key] = "under 10c profit per item"
+        elseif TooLittle(row) and not (row.learned and MayWait(row)) then
+            why[row.key] = UnderProfit(row.cost / (row.craft.makes or 1))
         elseif P.prof and row.craft.prof ~= P.prof then
             -- the profession dropdown limits crafts and recipes only, vendor resells and flips stay
             why[row.key] = "another profession is chosen in the table"
         elseif row.learned then
-            -- under 10c now, but listed later at 95% of its usual price it would earn: only a wait can make it a pick
-            local dipOnly = (not row.profit or row.profit / (row.craft.makes or 1) < MIN_UNIT) or nil
-            list[#list + 1] = { kind = "craft", row = row, dipOnly = dipOnly }
+            -- too little now, but listed later at 95% of its usual price it would earn: only a wait can make it a pick
+            list[#list + 1] = { kind = "craft", row = row, dipOnly = TooLittle(row) or nil }
         elseif not P.filters.learn then
             why[row.key] = "recipes to learn are off (Include not learned recipes)"
         else
@@ -1782,8 +1951,12 @@ local function Candidates(out, why)
     return list
 end
 
+-- One candidate judged in the plan's state now. The minimum profit per item is the Picks row's Profit (FRV-126,
+-- MinUnit in each evaluator); the settings panel's "Market table: minimum profit per item" no longer applies here.
+-- P.tried: what a craft or a flip would buy, kept for a candidate that drops out (FRV-133)
 local function Evaluate(c)
     local pick, reason
+    P.tried = nil
     if c.kind == "vendor" then
         pick, reason = EvaluateVendor(c)
     elseif c.kind == "flip" then
@@ -1792,10 +1965,6 @@ local function Evaluate(c)
         pick, reason = EvaluateCraft(c)
     end
     if not pick then return pick, reason end
-    -- the settings panel's minimum profit per item is an input of the plan, like every Picks filter
-    if P.minProfit and (pick.unitProfit or 0) < P.minProfit then
-        return nil, string_format("under your minimum profit per item (%s, settings panel)", M(P.minProfit))
-    end
     pick.listHours = LISTING_HOURS
     pick.steps = pick.steps or {}
     if pick.listAt then
@@ -1894,6 +2063,115 @@ local function Commit(pick, rank)
     end
 end
 
+---------------------------------------------------------------- why a pick is out of scope (FRV-133)
+-- The plan is greedy: each next pick is judged after the picks before it took their materials (your stock left, the
+-- AH ladder they bought from), and it ends when no candidate is a pick any more, slots and gold left or not. A pick
+-- "Also good, but out of scope" is judged on its own (with one pick's share of the gold, as if the plan did not
+-- exist): an alternative to a plan pick, not one more. Its tooltip says why it is not in the plan.
+
+-- The highest AH price a trial (and the trials it chains to) pays for an item
+local function TopOf(trial, key)
+    local top
+    while trial do
+        local t = trial.top[key]
+        if t and (not top or t > top) then top = t end
+        trial = trial.parent
+    end
+    return top
+end
+
+-- What a plan pick takes of an item: "72 Turtle Scale from your bags and 72 on the AH up to 6s 28c", nil for none
+local function TakesText(pick, key)
+    local trial = pick.trial
+    if not trial then return nil end
+    local fromStock = (trial.stock[key] or 0) - (trial.fromMade[key] or 0)
+    local used = trial.used[key] or 0
+    local name = Name(key)
+    local where = fromStock > 0 and StockWhere(fromStock, OwnedOf(key)[4])
+    if fromStock > 0 and used > 0 then
+        return string_format("%s %s from %s and %s on the AH up to %s", Count(fromStock), name, where, Count(used), M(trial.top[key]))
+    elseif fromStock > 0 then
+        return string_format("%s %s from %s", Count(fromStock), name, where)
+    elseif used > 0 then
+        return string_format("%s %s on the AH up to %s", Count(used), name, M(trial.top[key]))
+    end
+    return nil
+end
+
+-- The items a pick's own reading takes from your stock or the AH, sorted
+local function UsedKeys(trial)
+    local keys, seen = {}, {}
+    for key, n in pairs(trial.stock) do
+        if n - (trial.fromMade[key] or 0) > 0 and not seen[key] then seen[key] = true; keys[#keys + 1] = key end
+    end
+    for key, n in pairs(trial.used) do
+        if n > 0 and not seen[key] then seen[key] = true; keys[#keys + 1] = key end
+    end
+    table_sort(keys)
+    return keys
+end
+
+-- The first note of a pick out of scope: why it is not in the plan. drop (from Step) = { why, after = the plan picks
+-- before the step it dropped out at, tried = what it would buy then }: the plan picks before it that take what it
+-- uses, what it would pay for that after them when dearer, and why it was no pick then. Without a drop it was a pick
+-- to the end: the plan's picks earned more per gold, or they used the budget up
+local function OutsideNote(p, drop, chosen)
+    if not drop then
+        if #chosen >= P.slots then
+            return string_format("Not in the plan: its %d pick%s more per gold put in.", #chosen,
+                #chosen == 1 and " earns" or "s earn")
+        end
+        return "Not in the plan: its picks use up the budget."
+    end
+    local after = math_min(drop.after or 0, #chosen)
+    local keys = UsedKeys(p.trial)
+    local parts, shared = {}, {}
+    for rank = 1, after do
+        local q = chosen[rank]
+        local bits = {}
+        for _, key in ipairs(keys) do
+            local text = TakesText(q, key)
+            if text then
+                bits[#bits + 1] = text
+                shared[#shared + 1] = key
+            end
+        end
+        if bits[1] then parts[#parts + 1] = string_format("pick #%d (%s) uses %s", rank, Name(q.key), table_concat(bits, ", ")) end
+    end
+    local why = drop.why or "no pick"
+    if not parts[1] then
+        if after < 1 then return "Not in the plan: " .. why .. "." end
+        return string_format("Not in the plan: judged again after pick #%d (%s): %s.", after, Name(chosen[after].key), why)
+    end
+    -- what it would pay after them, where dearer than on its own
+    local dearer, seen = {}, {}
+    for _, key in ipairs(shared) do
+        local top = not seen[key] and drop.tried and TopOf(drop.tried, key)
+        seen[key] = true
+        if top and top > (p.trial.top[key] or 0) then dearer[#dearer + 1] = string_format("%s up to %s", Name(key), M(top)) end
+    end
+    return "Not in the plan: " .. table_concat(parts, "; ")
+        .. (dearer[1] and ("; after that it would buy " .. table_concat(dearer, ", ")) or "")
+        .. ". Judged again then: " .. why .. "."
+end
+
+-- Why the plan has fewer picks than "Picks [Y]" (FRV-133): "budget" (its gold is used up, or every good candidate
+-- left wants more than the share it would get), "earn" (the good candidates left are no pick after these), "none" (no
+-- other good candidate). nil when the plan fills its slots
+local function ShortReason(candidates, taken, chosen)
+    if #chosen >= P.slots then return nil end
+    if P.budgetLeft <= 0 then return "budget" end
+    local left, gold = 0, 0
+    for i, c in ipairs(candidates) do
+        if not taken[i] and c.valid and c.kind ~= "level" then
+            left = left + 1
+            if c.drop and c.drop.gold then gold = gold + 1 end
+        end
+    end
+    if left == 0 then return "none" end
+    return gold == left and "budget" or "earn"
+end
+
 -- The gold the plan counts (FRV-36): yours now, and with "Gold of all characters" (a Picks filter) also your other
 -- characters' of this realm and faction as last recorded (R.goldLast through FM.Characters: /fm forget drops one).
 -- Returns the copper and the characters counted, yours first: { key, name, class, copper, t (nil = now), current }
@@ -1921,27 +2199,48 @@ function FM.PicksPctMax(s)
     return s.tablePicksOverGold == true and OVER_PCT_MAX or PCT_MAX
 end
 
--- The plan's budget of this gold (FRV-95): X % of it ("%" checked, default: tableInvestPct, at most FM.PicksPctMax,
--- an older X above it counts as the most) or the amount set by hand ("Invest" checked: tableInvestManual,
--- tableInvestAmount in copper), which without "Allow picks budget over current gold" is capped at 90% of the gold.
--- Returns { budget, gold, mode = "pct" | "manual", pct, amount, capped, cap = 90% of the gold, over }
+-- The plan's budget of this gold (FRV-95, FRV-126): X % of it ("%" checked, tableInvestPctOn, the default:
+-- tableInvestPct, at most FM.PicksPctMax, an older X above it counts as the most), the amount set by hand ("[g] [s]
+-- [c]" checked: tableInvestManual, tableInvestAmount in copper, which without "Allow picks budget over current gold" is
+-- capped at 90% of the gold), or both: tableInvestLogic "both" (the default) stays within both budgets (the smaller
+-- one), "either" within one of them (the larger). Settings saved before FRV-126 have no tableInvestPctOn: the % then
+-- counts when the amount is not checked. Returns { budget, gold, mode = "pct" | "manual" | "both", pct, pctBudget,
+-- amount, manualBudget, logic (with both), capped (the amount capped and in use), cap = 90% of the gold, over }
 function FM.PicksBudget(gold, s)
     s = s or FM.GetSettings()
     gold = math_max(0, tonumber(gold) or 0)
     local over = s.tablePicksOverGold == true
     local b = { gold = gold, over = over, cap = gold * GOLD_SHARE }
-    if s.tableInvestManual == true then
-        local amount = math_max(0, math_floor(tonumber(s.tableInvestAmount) or 0))
-        b.mode, b.amount = "manual", amount
-        if not over and amount > b.cap then
-            b.budget, b.capped = b.cap, true
-        else
-            b.budget = amount
-        end
-    else
+    local manualOn = s.tableInvestManual == true
+    local pctOn = s.tableInvestPctOn
+    if pctOn == nil then pctOn = not manualOn end
+    pctOn = pctOn == true or not manualOn -- one box at least
+    local capped
+    if pctOn then
         local pct = math_floor(tonumber(s.tableInvestPct) or PCT_MAX)
-        b.mode, b.pct = "pct", Clamp(pct, 1, FM.PicksPctMax(s))
-        b.budget = gold * b.pct / 100
+        b.pct = Clamp(pct, 1, FM.PicksPctMax(s))
+        b.pctBudget = gold * b.pct / 100
+    end
+    if manualOn then
+        local amount = math_max(0, math_floor(tonumber(s.tableInvestAmount) or 0))
+        b.amount = amount
+        if not over and amount > b.cap then
+            b.manualBudget, capped = b.cap, true
+        else
+            b.manualBudget = amount
+        end
+    end
+    if pctOn and manualOn then
+        b.mode = "both"
+        b.logic = s.tableInvestLogic == "either" and "either" or "both"
+        local pick = b.logic == "both" and math_min or math_max
+        b.budget = pick(b.pctBudget, b.manualBudget)
+        b.used = b.budget == b.pctBudget and "pct" or "manual" -- which one the budget is (the % on a tie)
+        b.capped = (capped and b.used == "manual") or nil
+    elseif manualOn then
+        b.mode, b.budget, b.capped = "manual", b.manualBudget, capped
+    else
+        b.mode, b.budget = "pct", b.pctBudget
     end
     return b
 end
@@ -1960,7 +2259,8 @@ function FM.ComputePicks(out, ctx, done)
         listInfo = listInfo, yours = {}, book = FM.ListingsRecord(ctx.nowMinutes), usual = {}, deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
-        minProfit = type(s.tableMinProfit) == "number" and s.tableMinProfit > 0 and s.tableMinProfit or nil }
+        profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
+        paid = {} } -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
     -- is left
     local funds = FM.PicksBudget(gold, s)
@@ -1979,6 +2279,7 @@ function FM.ComputePicks(out, ctx, done)
     P.firstShare = (firstPct and math_max(1, math_min(100, firstPct)) or FIRST_PCT) / 100
     out.pickGold = gold
     out.pickFunds = funds -- the summary line and its tooltip: which budget, whose gold
+    out.pickProfit = P.profit -- and the minimum profit per item it planned with (FRV-126)
 
     local why = {}
     local candidates = Candidates(out, why)
@@ -2002,6 +2303,14 @@ function FM.ComputePicks(out, ctx, done)
                 if iteration == 1 then
                     first[i] = pick -- judged on its own, with one pick's share of the plan's gold
                     if pick then c.valid = true elseif reason then why[c.row.key] = reason end
+                elseif c.valid and c.kind ~= "level" then
+                    -- a good candidate that is no pick after the plan's picks so far (FRV-133): the step it dropped
+                    -- out at (the last time it did), why, and what it would buy then
+                    if pick then
+                        c.drop = nil
+                    elseif not c.drop then
+                        c.drop = { why = reason, after = #chosen, tried = P.tried, gold = reason ~= nil and reason == NoGold() }
+                    end
                 end
                 if pick then pick.rate = Rate(pick) end
                 if pick and c.kind ~= "level" and (not best or pick.rate > cache[best].rate) then best = i end
@@ -2045,8 +2354,17 @@ function FM.ComputePicks(out, ctx, done)
                 shown[p.key] = true
                 p.extra = true
                 picks[#picks + 1] = p
+                -- why it is not in the plan, and its use step marking your units the plan's picks take (FRV-133)
+                local ok, note = pcall(OutsideNote, p, p.cand and p.cand.drop, chosen)
+                if not ok and geterrorhandler then geterrorhandler()(note) end
+                p.reasons = p.reasons or {}
+                if ok and note then table.insert(p.reasons, 1, { "n", note, ORANGE }) end
+                table.insert(p.reasons, ok and note and 2 or 1, { "n", "Out of scope: judged on its own with one pick's share "
+                    .. "of the gold, as if the plan did not exist; it can take the place of a plan pick.", GREY })
+                if p.useStep and p.trial and p.steps then p.steps[p.useStep] = UseStep(p.trial, true) or p.steps[p.useStep] end
             end
         end
+        out.pickShort = ShortReason(candidates, taken, chosen)
         local levelTop = {}
         for _, p in ipairs(levels) do levelTop[p.key] = true end
         for _, c in ipairs(candidates) do

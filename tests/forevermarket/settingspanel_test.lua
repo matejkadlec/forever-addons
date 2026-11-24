@@ -8,10 +8,15 @@ local H = require("harness")
 -- Edit boxes keep their text and focus; ClearFocus runs the OnEditFocusLost hooks as the client does
 local function EditBoxes(env)
     local create = env.CreateFrame
-    local boxes = {}
+    local boxes = { dropdowns = {} }
     env.CreateFrame = function(kind, name, parent, template)
         local f = create(kind, name, parent, template)
         f.Text = create() -- a check button's label
+        if kind == "DropdownButton" then
+            -- a dropdown keeps its menu's generator (FRV-126)
+            function f:SetupMenu(generator) self.generator = generator end
+            table.insert(boxes.dropdowns, f)
+        end
         if kind == "EditBox" then
             f.hooks = {}
             function f:SetText(text) self.text = tostring(text) end
@@ -139,4 +144,31 @@ H.test("settings panel: Esc shows the saved value again and saves nothing", func
     H.eq(FM.GetSettings().tableMinProfit, 1, "still 1c")
     H.eq(Shown(boxes), "0 0 1 25 2 2", "the saved values shown")
     H.eq(plans(), 0, "nothing planned")
+end)
+
+-- FRV-126: "% + manual invest logic" and "% + manual profit logic", each "Either must apply" / "Both must apply"; a
+-- choice is saved (it survives a /reload with the saved variables) and plans the picks again at once
+H.test("settings panel: the two logic dropdowns save their choice and plan the picks again", function()
+    local FM, boxes, plans = Load(nil)
+    H.eq(#boxes.dropdowns, 2, "two dropdowns")
+    local function Radios(dd)
+        local list = {}
+        dd.generator(dd, { CreateRadio = function(_, text, IsSelected, SetSelected, value)
+            list[#list + 1] = { text = text, IsSelected = IsSelected, SetSelected = SetSelected, value = value }
+        end })
+        return list
+    end
+    local invest, profit = Radios(boxes.dropdowns[1]), Radios(boxes.dropdowns[2])
+    H.same({ invest[1].text, invest[2].text }, { "Either must apply", "Both must apply" }, "the choices")
+    H.same({ invest[1].IsSelected(invest[1].value), invest[2].IsSelected(invest[2].value) }, { false, true },
+        "Invest: Both must apply by default")
+    H.same({ profit[1].IsSelected(profit[1].value), profit[2].IsSelected(profit[2].value) }, { true, false },
+        "Profit: Either must apply by default")
+    profit[2].SetSelected(profit[2].value)
+    H.eq(FM.GetSettings().tableProfitLogic, "both", "saved")
+    H.eq(plans(), 1, "the picks plan again")
+    profit[2].SetSelected(profit[2].value)
+    H.eq(plans(), 1, "the same choice again changes nothing")
+    invest[1].SetSelected(invest[1].value)
+    H.same({ FM.GetSettings().tableInvestLogic, plans() }, { "either", 2 }, "Invest: Either must apply")
 end)
