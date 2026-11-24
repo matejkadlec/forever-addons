@@ -839,10 +839,28 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan, added to what
   each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see Sniper).
   Right-click: the menu above, with Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the
-  row's tooltip as a sticky window (below).
+  row's tooltip as a sticky window (below). Ctrl+click: the row's recipe in its profession window (below).
+* Ctrl+click on a craft row (1.44, FRV-132, `ui/OpenRecipe.lua`): a craft pick ("Craft and sell", "Craft and wait"), a
+  Craft row, a favorite or ignored item whose best use is a craft, or a Learn row of a recipe you already know opens
+  that recipe's profession window (`C_TradeSkillUI.OpenTradeSkill` with the profession's base skill line, the call
+  ForeverCraftQueue opens professions with, verified in game on 2026-11-24; the ticket asked for a secure action
+  button over the row, which would have made the table's own frames protected in combat) and selects the recipe,
+  scrolled into view (Blizzard's `RecipeList:SelectRecipe`). A pick also puts its crafts into the count box
+  (Deviate Scale Belt, "make 2": 2), so Create (Create All) crafts the plan; Blizzard clamps the box to what your
+  bags allow and the chat says so ("count 1, the materials in your bags make 1 of the plan's 2"; no materials: the
+  box stays at 0). With that profession's window open already only the recipe is selected. A search text or a
+  filter of the window that hides the recipe is cleared once (`SearchBoxTemplate_ClearText`,
+  `Professions.SetDefaultFilters(true)`: the skill line stays) and the rebuilt list searched again; a recipe still
+  not in the list is shown in the form all the same. The window is looked at every 0.25 s for 10 s after the click
+  (then a chat line). In combat nothing happens but a chat line; rows without a craft you know say why ("not a
+  craft", "a Stock pick: nothing to craft", "you don't know this recipe yet"). The skill lines: Leatherworking 165,
+  Cooking 185, First Aid 129, Tailoring 197, Blacksmithing 164, Alchemy 171, Engineering 202, or the one the open
+  window reports for the profession (`GetBaseProfessionInfo`). A craft pick keeps its crafts as `pick.runs`
+  (trade/Picks.lua). Not yet verified in game
 * The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
   AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
-  "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128),
+  "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
+  FRV-132: the profession's name, only on rows where Ctrl+click works, `FM.CraftHint`),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
   (Auctionator)   Shift-click: link" and "Right-click: " with the menu's entries). Farm: "Click: TomTom arrow to the
   spawns", "Shift+click: link the best drop to chat", the Alt+click line; the column headers say "Shift+click" too.
