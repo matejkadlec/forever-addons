@@ -310,6 +310,17 @@ def build(root, info, message):
     return entries
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Hands a redirect back as its own status instead of following it (a POST must not turn into a GET)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def no_redirect_open(request, timeout=None):
+    return urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout)
+
+
 def api_request(url, token, data=None, content_type=None, opener=urllib.request.urlopen, timeout=60):
     """Return (status, body) of a CurseForge API call; HTTP errors come back as their status and body."""
     request = urllib.request.Request(url, data=data, method="POST" if data is not None else "GET")
@@ -382,7 +393,7 @@ def multipart(metadata, zip_name, zip_bytes):
     return b"".join(parts), "multipart/form-data; boundary=" + boundary
 
 
-def curseforge_upload(info, metadata, zip_bytes, token, opener=urllib.request.urlopen):
+def curseforge_upload(info, metadata, zip_bytes, token, opener=no_redirect_open):
     """Upload the zip to the AddOn's CurseForge project; return the new file's ID."""
     body, content_type = multipart(metadata, os.path.basename(info["zip"]), zip_bytes)
     url = "%s/projects/%s/upload-file" % (CF_API, info["project_id"])
@@ -400,9 +411,14 @@ def curseforge_upload(info, metadata, zip_bytes, token, opener=urllib.request.ur
     if status != 200:
         raise ReleaseError("the CurseForge upload failed (HTTP %d): %s" % (status, response[:500]))
     try:
-        return json.loads(response).get("id")
+        file_id = json.loads(response).get("id")
     except (ValueError, AttributeError):
-        return None
+        file_id = None
+    # Only an answer that names the new file proves the upload (the packager also treats anything else as an error)
+    if not isinstance(file_id, int) or isinstance(file_id, bool):
+        raise ReleaseError("CurseForge answered the upload without a file ID, so it may not have arrived: %s"
+                           % response[:300])
+    return file_id
 
 
 def write_outputs(info, path):
@@ -420,7 +436,7 @@ def load_info(root):
         return json.load(handle)
 
 
-def main(argv=None, root=ROOT, env=None, opener=urllib.request.urlopen):
+def main(argv=None, root=ROOT, env=None, opener=None):
     argv = sys.argv[1:] if argv is None else argv
     env = os.environ if env is None else env
     command = argv[0] if argv else ""
@@ -463,7 +479,7 @@ def main(argv=None, root=ROOT, env=None, opener=urllib.request.urlopen):
                 notice("No CURSEFORGE_API_TOKEN secret: the dry run skips the game version lookup")
             with open(os.path.join(root, DIST, "changelog.md"), encoding="utf-8") as handle:
                 changelog = handle.read().strip()
-            metadata = curseforge_metadata(info, changelog, token, opener=opener)
+            metadata = curseforge_metadata(info, changelog, token, opener=opener or urllib.request.urlopen)
             with open(os.path.join(root, DIST, "curseforge.json"), "w", encoding="utf-8") as handle:
                 json.dump(metadata, handle, indent=2)
             print("CurseForge project %s gets %s with this metadata%s:" % (
@@ -485,7 +501,7 @@ def main(argv=None, root=ROOT, env=None, opener=urllib.request.urlopen):
                 raise ReleaseError("dist/curseforge.json has no game version IDs: run cf-metadata with the token first")
             with open(os.path.join(root, info["zip"]), "rb") as handle:
                 zip_bytes = handle.read()
-            file_id = curseforge_upload(info, metadata, zip_bytes, token, opener=opener)
+            file_id = curseforge_upload(info, metadata, zip_bytes, token, opener=opener or no_redirect_open)
             print("Uploaded %s to CurseForge project %s as file %s" % (
                 os.path.basename(info["zip"]), info["project_id"], file_id))
             return 0

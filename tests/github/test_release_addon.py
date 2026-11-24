@@ -413,10 +413,21 @@ class CurseForgeTests(unittest.TestCase):
         self.assertTrue(body.endswith(("--" + boundary + "--\r\n").encode()))
 
     def test_upload_errors(self):
-        for status, error in ((404, "has no project 123456"), (403, "refused the token"), (500, r"HTTP 500\): boom")):
+        for status, error in ((404, "has no project 123456"), (403, "refused the token"), (500, r"HTTP 500\): boom"),
+                              (302, r"HTTP 302\): boom")):
             api = FakeApi(upload=(status, "boom"))
             with self.assertRaisesRegex(ra.ReleaseError, error):
                 ra.curseforge_upload(self.info, {"gameVersions": [1]}, b"zip", "secret-token", opener=api)
+
+    def test_an_answer_without_a_file_id_is_no_upload(self):
+        for body in ("<html>Sign in</html>", "{}", '{"id": "4242"}', '{"id": true}', "[]"):
+            api = FakeApi(upload=(200, body))
+            with self.assertRaisesRegex(ra.ReleaseError, "without a file ID", msg=body):
+                ra.curseforge_upload(self.info, {"gameVersions": [1]}, b"zip", "secret-token", opener=api)
+
+    def test_the_upload_follows_no_redirect(self):
+        handler = ra._NoRedirect()
+        self.assertIsNone(handler.redirect_request(None, None, 302, "Found", {}, "https://example.invalid/"))
 
 
 class MainTests(unittest.TestCase):
