@@ -32,9 +32,13 @@ local addonName, FM = ...
 --          reset zeroes them (FRV-94; until 1.34 Reset dropped them with the budget)
 --   all items together may spend snipeUniversalPct % of base, or the manual amount (snipeManual, FRV-94), then
 --   sniping stops; it also never takes your gold under base minus that (the floor), whatever the bookkeeping says
--- Buy at most N units of an item (FRV-43, optional): saved[key].n = N, saved[key].got = units bought since N was
--- set (paid = what they cost). A hit never takes more than N - got; an item at N is done: not searched, never
--- bought. A new number starts the count again, a new price keeps it, the daily reset doesn't touch it.
+-- Buy at most N units of an item (FRV-43, optional): saved[key].n = N. saved[key].got = units bought since the count
+-- was last reset, with or without a number (paid = what they cost; the window's "Bought now", FRV-128). A hit never
+-- takes more than N - got; an item at N is done: not searched, never bought. Since 1.43 (FRV-128) a new number or
+-- price keeps the count (190 of 200 bought, 300 set: 190 of 300); it starts again only on a reset (the window's x by
+-- "max units") or when the item is added to the list (again). The market table's Shift+click adds a pick's units to
+-- the limit and keeps the count, its Shift+right-click sets the limit and starts the count again (until 1.42 a new
+-- number, typed or from the table, started it again). The daily reset doesn't touch it.
 -- A purchase's total and units are counted the moment it is confirmed and only given back when the server
 -- reports that it failed; when no answer comes at all, they stay counted (better too careful than too much spent).
 -- Paused (FRV-101, saved[key].paused, the window's pause button): the item stays in the list with its price, its
@@ -44,7 +48,8 @@ local addonName, FM = ...
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
 --   saved  = { [key] = { p = copper, n, got, paid, paused } }  price and "buy at most" of an item, kept after
---                                                      removal; paused = true while it is paused (FRV-101)
+--                                                      removal (its count starts again when it is added again);
+--                                                      paused = true while it is paused (FRV-101)
 --                                                      (the pct of an item from before 1.25 is left unused)
 --   budget = { [character] = { base, since, reset, total, day, spent = { [key] = copper }, units = { [key] = n } } }
 -- }
@@ -100,7 +105,8 @@ local S = {
     quoteHold = 0,   -- GetTime() until which a late quote of a cancelled purchase may still arrive
     calling = nil,   -- "start" / "confirm" while that purchase call runs (blocked calls report during it)
     lastSave = {},   -- [key] = GetTime() of the last market log record while sniping
-    numberSet = {},  -- [key] = how often its "buy at most" was set this session (a purchase counted for an older one is not taken back)
+    countSet = {},   -- [key] = how often its count started again this session (a purchase counted before is not taken back)
+    wheelAt = nil,   -- GetTime() of the last wheel step that reached the sniper (the window's light, FRV-128)
     bindWanted = nil, -- binding change waiting for the end of combat
     wheel = nil,     -- true while a wheel step on the catcher runs (a purchase call the game blocks then turns it off)
     button = nil,    -- true while a row's Buy button runs (FRV-40; a blocked purchase call turns the buttons off)
@@ -342,21 +348,22 @@ local function Release(b, key, amount, qty)
     end
 end
 
--- A confirmed purchase of an item with a number counts its units as bought (and their gold as paid)
+-- A confirmed purchase counts its units as bought (and their gold as paid), with or without a number (FRV-128: the
+-- window's "Bought now")
 local function CountUnits(buy)
     local saved = FM.SnipeSaved(buy.key)
-    if not (saved and Left(buy.key)) then return end
+    if not saved then return end
     saved.got = (tonumber(saved.got) or 0) + buy.qty
     saved.paid = (tonumber(saved.paid) or 0) + (buy.reserved or 0)
-    buy.counted = S.numberSet[buy.key] or 0 -- the number it was counted for
+    buy.counted = S.countSet[buy.key] or 0 -- the count it went into
 end
 
--- The server says it failed: its units are not bought (unless the item got a new number since)
+-- The server says it failed: its units are not bought (unless the item's count started again since)
 local function UncountUnits(buy)
     if buy.counted == nil then return end
     local counted = buy.counted
     buy.counted = nil
-    if counted ~= (S.numberSet[buy.key] or 0) then return end
+    if counted ~= (S.countSet[buy.key] or 0) then return end
     local saved = FM.SnipeSaved(buy.key)
     if not saved then return end
     saved.got = math_max(0, (tonumber(saved.got) or 0) - buy.qty)
@@ -396,9 +403,11 @@ local function EvaluateHeld(key)
     if ok and IsNumber(n) and n > 0 then Evaluate(itemID) end
 end
 
--- Add or update a snipe. units: nil keeps the item's "buy at most" and its count (a new price only), false or 0
--- removes it (no limit but the budget), a number N sets "buy at most N" and starts its count again
-function FM.SnipeSet(key, price, units)
+-- Add or update a snipe. units: nil keeps the item's "buy at most" (a new price only), false or 0 removes it (no
+-- limit but the budget), a number N sets "buy at most N". What it bought stays counted (FRV-128: 190 of 200 bought,
+-- 300 set = 190 of 300), unless reset (the window's x by "max units") or the item is added to the list (again): then
+-- the count starts at 0
+function FM.SnipeSet(key, price, units, reset)
     price = tonumber(price)
     if type(key) ~= "string" or not FM.ItemIDFromKey(key) or not price or price ~= price or price < 1 then return false end
     local s = Data()
@@ -409,16 +418,20 @@ function FM.SnipeSet(key, price, units)
     if units ~= nil then
         units = tonumber(units)
         if units and units == units and units >= 1 then
-            saved.n, saved.got, saved.paid = math_min(MAX_UNITS, math_floor(units)), 0, 0
+            saved.n = math_min(MAX_UNITS, math_floor(units))
         else
-            saved.n, saved.got, saved.paid = nil, nil, nil
+            saved.n = nil
         end
-        S.numberSet[key] = (S.numberSet[key] or 0) + 1
     end
     s.saved[key] = saved
-    if not IndexOf(s.list, key) then
+    local added = not IndexOf(s.list, key)
+    if added then
         s.list[#s.list + 1] = key
         saved.paused = nil -- an item added to the list snipes; one already in it keeps its pause
+    end
+    if reset or added then
+        saved.got, saved.paid = 0, 0
+        S.countSet[key] = (S.countSet[key] or 0) + 1
     end
     S.hits[key] = nil -- an old hit was sized for the old price
     if S.buy and S.buy.key == key and S.buy.stage ~= "confirm" then CancelBuy() end
@@ -456,30 +469,50 @@ function FM.SnipeSetPaused(key, on)
     return true
 end
 
--- One snipe from the market table: true, or false and why ("price", "auction"). The number a sniped item already
--- has (the same pick clicked again) keeps what is bought of it; another number, or an item removed from the list
--- and added again, starts the count again
-local function AddFromTable(key, price, units)
+-- One snipe from the market table (FRV-128, the maintainer's rule after review round 2): true and the units added to
+-- the item's limit, or false and why ("price", "auction"). mode "add" (Shift+click, the row menu's Snipe) adds the
+-- units to the limit the item has and keeps what was bought (two picks needing one material sum up); an item in the
+-- list without a limit gets its Bought now plus the units (review round 3: left unlimited it would buy far more than
+-- the pick at the pick's price); mode "restart" (Shift+right-click) sets the limit to the units and starts the count
+-- at 0. An item added to the list (again) gets the units and starts at 0 either way. units nil keeps the item's
+-- limit. restarted[key] = true once a restart in this call reset it: the same material again adds to it
+local function AddFromTable(key, price, units, mode, restarted)
     price = tonumber(price)
     if type(key) ~= "string" or not price or price < 1 then return false, "price" end
     if Kind(key) == "item" then return false, "auction" end
     units = tonumber(units)
+    if units and (units ~= units or units < 1) then units = nil end
+    local sniped = FM.IsSniped(key)
     local _, n = Left(key)
-    if units and n and FM.IsSniped(key) and math_min(MAX_UNITS, math_floor(units)) == n then units = nil end
-    if not FM.SnipeSet(key, price, units) then return false, "price" end
-    return true
+    local reset = mode == "restart" and not (restarted and restarted[key])
+    local limit, added = units, nil
+    if units and sniped and not reset then
+        local saved = FM.SnipeSaved(key)
+        local base = n or (saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0)
+        limit, added = base + math_floor(units), math_floor(units)
+    end
+    if not FM.SnipeSet(key, price, limit, reset) then return false, "price" end
+    if reset and restarted then restarted[key] = true end
+    return true, nil, added
 end
 
--- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat; "(paused)" after
--- it while the item is paused in the window (FRV-101)
-local function Describe(key)
+-- "144 Heavy Leather up to 2s 75c", "Heavy Leather up to 2s 75c (37 / 144 bought)" for the chat, the real count also
+-- when it is above the number ("(150 / 60 bought, done)"); added: "40 added" to the limit (FRV-128), restarted:
+-- "count started again"; "(paused)" after it while the item is paused in the window (FRV-101)
+local function Describe(key, added, restarted)
     local text = Name(key) .. " up to " .. FM.FormatMoney(Limit(key))
     local left, n = Left(key)
-    if n and left == n then
-        text = FM.FormatCount(n) .. " " .. text
+    local saved = FM.SnipeSaved(key)
+    local got = saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0
+    local notes = {}
+    if n and got > 0 then
+        notes[#notes + 1] = string_format("%s / %s bought%s", FM.FormatCount(got), FM.FormatCount(n), left <= 0 and ", done" or "")
     elseif n then
-        text = text .. string_format(" (%s / %s bought%s)", FM.FormatCount(n - left), FM.FormatCount(n), left <= 0 and ", done" or "")
+        text = FM.FormatCount(n) .. " " .. text
     end
+    if added and added > 0 then notes[#notes + 1] = FM.FormatCount(added) .. " added" end
+    if restarted then notes[#notes + 1] = "count started again" end
+    if notes[1] then text = text .. " (" .. table_concat(notes, ", ") .. ")" end
     if Paused(key) then text = text .. " (paused)" end
     return text
 end
@@ -491,9 +524,11 @@ local function OpenAt(key)
 end
 
 -- The market table (Shift-click, the row menu): snipe this item at the table's price. units = the plan's number
--- ("buy at most", a new number starts its count again), nil keeps the item's number as it is
-function FM.SnipeFromTable(key, price, units)
-    local ok, why = AddFromTable(key, price, units)
+-- ("buy at most"), nil keeps the item's number as it is; mode "add" (default: adds the units to the item's limit,
+-- what was bought stays counted) or "restart" (the limit is the units, the count starts at 0), FRV-128
+function FM.SnipeFromTable(key, price, units, mode)
+    local restarted = {}
+    local ok, why, added = AddFromTable(key, price, units, mode, restarted)
     if not ok then
         if why == "auction" then
             FM.PrintError("Failed to snipe " .. Name(key) .. ": only stackable items (commodities) can be sniped.")
@@ -502,28 +537,36 @@ function FM.SnipeFromTable(key, price, units)
         end
         return false
     end
-    FM.Print("Sniping " .. Describe(key))
+    FM.Print("Sniping " .. Describe(key, added, restarted[key]))
     OpenAt(key)
     return true
 end
 
 -- A pick of the market table (FRV-44): snipe every AH purchase of its plan, each at its "up to" price with its units.
--- buys = { { key, price, units }, ... }, the biggest spend first; one chat line names them all, the window opens
--- with mainKey loaded (the AH open)
-function FM.SnipeFromPlan(name, buys, mainKey)
+-- buys = { { key, price, units }, ... }, the biggest spend first; mode as FM.SnipeFromTable (a material listed twice
+-- sums up, also after a restart); one chat line names each item once, the window opens with mainKey loaded (the AH
+-- open)
+function FM.SnipeFromPlan(name, buys, mainKey, mode)
     if type(buys) ~= "table" or #buys <= 1 then
         local b = type(buys) == "table" and buys[1]
-        return b and FM.SnipeFromTable(b.key, b.price, b.units) or false
+        return b and FM.SnipeFromTable(b.key, b.price, b.units, mode) or false
     end
-    local added, skipped, first = {}, {}, nil
+    local order, addedOf, before, skipped, first, restarted = {}, {}, {}, {}, nil, {}
     for _, b in ipairs(buys) do
-        local ok, why = AddFromTable(b.key, b.price, b.units)
+        if before[b.key] == nil then before[b.key] = FM.IsSniped(b.key) end
+        local ok, why, more = AddFromTable(b.key, b.price, b.units, mode, restarted)
         if ok then
-            added[#added + 1] = Describe(b.key)
+            if addedOf[b.key] == nil then order[#order + 1] = b.key end
+            addedOf[b.key] = (addedOf[b.key] or 0) + (more or 0)
             first = first or b.key
         elseif why == "auction" then
             skipped[#skipped + 1] = Name(b.key)
         end
+    end
+    -- "40 added" only for an item that was in the list before this click and kept its count
+    local added = {}
+    for i, key in ipairs(order) do
+        added[i] = Describe(key, before[key] and not restarted[key] and addedOf[key] or nil, restarted[key])
     end
     local sold = #skipped > 0 and ("sold per auction, can't be sniped: " .. table_concat(skipped, ", ")) or nil
     if not first then
@@ -1195,8 +1238,20 @@ buyButton:SetSize(1, 1)
 buyButton:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -50, 50)
 buyButton:EnableMouse(false)
 buyButton:RegisterForClicks("AnyDown", "AnyUp")
+-- A wheel step reached the sniper, through the catcher or the bindings: the window's light shows it (FRV-128)
+local function WheelStep()
+    S.wheelAt = GetTime()
+    if FM.SnipeWheelSeen then pcall(FM.SnipeWheelSeen) end -- the light never stops the step's purchase
+end
+
+-- When the last wheel step reached the sniper (GetTime()), nil before the first one
+function FM.SnipeLastWheel()
+    return S.wheelAt
+end
+
 buyButton:SetScript("OnClick", function(self, _, down)
     local now = GetTime()
+    WheelStep()
     if down == false and self.lastDown and now - self.lastDown < PAIR_GAP then return end
     if down then self.lastDown = now end
     local ok, err = pcall(FM.SnipeBuyClick)
@@ -1235,6 +1290,7 @@ catcher:Hide()
 local catcherOff = false -- the game blocked a purchase call from it: the bindings buy until /reload
 
 catcher:SetScript("OnMouseWheel", function()
+    WheelStep()
     S.wheel = true
     local ok, err = pcall(FM.SnipeBuyClick)
     S.wheel = nil
@@ -1324,6 +1380,7 @@ function FM.SnipeStop()
     SetBindings(false)
     ShowCatcher(false)
     S.waiting = nil
+    S.wheelAt = nil -- the window's light is off, also when sniping starts again within its half second (FRV-128)
     wipe(S.hits)
     if S.buy and S.buy.stage ~= "confirm" then CancelBuy() end
     Refresh()
@@ -1454,8 +1511,9 @@ function FM.SnipeHalted()
 end
 
 -- State of one sniped item for the window's list: hit, seen, kind, budget info, what the sniper bought of it today
--- (units, spent; FRV-40), whether its quote waits for a confirm (confirm), its "buy at most" (n, got, paid, left,
--- done; n nil without a number), whether it is paused (paused, FRV-101)
+-- (units, spent; FRV-40), whether its quote waits for a confirm (confirm), its "buy at most" (n, left, done; nil
+-- without a number), what it bought since its count was last reset (got, paid; with or without a number, FRV-128),
+-- whether it is paused (paused, FRV-101)
 function FM.SnipeItemState(key)
     local hit = FreshHit(key)
     local seen = S.seen[key]
@@ -1474,8 +1532,8 @@ function FM.SnipeItemState(key)
         units = budget and tonumber(budget.units[key]) or 0,
         spent = budget and tonumber(budget.spent[key]) or 0,
         n = n,
-        got = n and (n - left) or nil,
-        paid = n and saved and tonumber(saved.paid) or nil,
+        got = saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0,
+        paid = saved and tonumber(saved.paid) or 0,
         left = left,
         done = left ~= nil and left <= 0,
         paused = Paused(key)

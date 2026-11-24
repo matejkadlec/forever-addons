@@ -213,7 +213,7 @@ local function Render()
     p.empty:Hide()
 
     -- the line from 0 at the plot's left edge (green when the range went up, red when down), dots colored by their
-    -- change, 0 always in the scale
+    -- change, 0 always in the scale; the y-axis on round steps up to the first one the line does not reach (FRV-117)
     local values = {}
     for i, per in ipairs(periods) do values[i] = per.value end
     p.chart:Draw({
@@ -223,8 +223,7 @@ local function Render()
         lineColor = ChangeColor(series.change),
         startValue = 0,
         withZero = true,
-        minSpan = 100,
-        yText = function(v) return math_abs(v) < 0.5 and "0" or (v < 0 and "-" or "") .. Coins(v, 2) end,
+        roundSteps = true,
     })
 end
 

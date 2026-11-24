@@ -6,8 +6,14 @@
 --   * an item with a number N buys N units at most: a hit takes no more than N - bought, also when one offer holds
 --     more; at N it is done (no hit, not searched); units count at the confirm, come back when the server says the
 --     purchase failed, stay counted when no answer comes
---   * a new number starts the count again, a new price alone keeps it; an item without a number buys what the
---     budget allows, as before
+--   * FRV-128: a new number or price keeps the count (190 of 200 bought, 300 set: 190 of 300), so does removing the
+--     number; only a reset (the window's x by "max units") or adding the item to the list (again) starts it at 0;
+--     the count runs without a number too; the day's units are never touched by either; an item without a number
+--     buys what the budget allows, as before
+--   * FRV-128, the market table (the maintainer's rule after review round 2): Shift+click adds a pick's units to the
+--     item's limit and keeps the count (picks needing one material sum up; an item without a limit gets its Bought
+--     now plus the units, review round 3), Shift+right-click sets the limit to the units and starts the count at 0;
+--     a material listed twice in one plan sums up in both
 --   * a pick sends every AH purchase with its units; items sold per auction are skipped and named in one chat line
 --   * FRV-94: a refresh starts the budget again from your gold now (or the manual amount) and keeps what the sniper
 --     spent and bought today; only the daily reset zeroes that; not while a purchase waits for the server's answer
@@ -122,36 +128,100 @@ H.test("sniper: a purchase that fails gives its units back, one without an answe
     H.eq(FM.SnipeBudgetInfo().total, 20 * 90, "like its gold")
 end)
 
-H.test("sniper: a new number starts the count again, a new price keeps it", function()
+H.test("sniper: a new number or price keeps the count, a reset starts it again, the day's units stay (FRV-128)", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)
-    FM.SnipeSet(key, 100, 30)
-    Offer(env, ah, LEATHER, 90, 12)
+    FM.SnipeSet(key, 100, 200)
+    Offer(env, ah, LEATHER, 90, 190)
     Buy(FM, env, ah, 90)
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     FM.SnipeSet(key, 120, nil)
-    H.eq(FM.SnipeSaved(key).got, 12, "a new price keeps the count")
-    H.eq(FM.SnipeSaved(key).n, 30, "and the number")
-    FM.SnipeSet(key, 120, 30)
-    H.eq(FM.SnipeSaved(key).got, 0, "the number set again starts it again")
+    H.eq(FM.SnipeSaved(key).got, 190, "a new price keeps the count")
+    H.eq(FM.SnipeSaved(key).n, 200, "and the number")
+    FM.SnipeSet(key, 120, 300)
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n, state.left }, { 190, 300, 110 }, "190 of 200, 300 set: 190 of 300")
     FM.SnipeSet(key, 120, false)
     H.eq(FM.SnipeSaved(key).n, nil, "false removes the number")
+    H.eq((select(2, Hit(FM, LEATHER))).got, 190, "and the count stays: Bought now 190")
+    FM.SnipeSet(key, 120, false, true)
+    _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n }, { 0, nil }, "a reset: no limit and the count at 0")
+    H.eq(state.paid, 0, "what it paid starts again too")
+    H.eq(state.units, 190, "Bought today is not touched")
 end)
 
-H.test("sniper: the same number from the market table again keeps the count, another one starts it again", function()
+H.test("sniper: the count runs without a number, and an item added to the list again starts at 0 (FRV-128)", function()
     local FM, env, ah = Load()
     local key = tostring(LEATHER)
-    FM.SnipeFromTable(key, 275, 144)
+    FM.SnipeSet(key, 100)
+    Offer(env, ah, LEATHER, 90, 20)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.paid, state.n }, { 20, 20 * 90, nil }, "20 bought without a number, and what they cost")
+    FM.SnipeSet(key, 100, 50)
+    _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.left }, { 20, 30 }, "a number set later counts them")
+    FM.SnipeRemove(key) -- the x of its row
+    FM.SnipeSet(key, 100) -- added again from the add row, its number from before still shown
+    _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n }, { 0, 50 }, "added again: the count starts at 0, the number stays")
+    H.eq(state.units, 20, "Bought today stays")
+end)
+
+-- FRV-128, the maintainer's rule after review round 2: Shift+click (mode "add", also the menu's Snipe) adds a pick's
+-- units to the item's limit and keeps what was bought, so two picks needing one material sum up; Shift+right-click
+-- (mode "restart") sets the limit to the pick's units and starts the count at 0
+H.test("sniper: the market table's Shift+click adds a pick's units to the item's limit and keeps the count", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeFromTable(key, 275, 60, "add") -- the first pick needs 60
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 0, 60 }, "a new item: its units, from 0")
+    Offer(env, ah, LEATHER, 250, 20)
+    Buy(FM, env, ah, 250)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    env.printed = {}
+    FM.SnipeFromTable(key, 275, 40, "add") -- a second pick needs 40 of the same material
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 20, 100 }, "60 + 40: 20/100")
+    H.eq(env.printed[1]:find("20 / 100 bought, 40 added", 1, true) ~= nil, true, "the chat line says what was added")
+    FM.SnipeFromTable(key, 275, 40) -- without a mode: the same
+    H.eq(FM.SnipeSaved(key).n, 140, "the default mode adds")
+end)
+
+H.test("sniper: the market table's Shift+right-click sets the limit to the pick's units and starts the count at 0", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    FM.SnipeFromTable(key, 275, 144, "add")
     Offer(env, ah, LEATHER, 250, 100)
     Buy(FM, env, ah, 250)
     env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     env.printed = {}
-    FM.SnipeFromTable(key, 275, 144) -- the same pick clicked again
-    H.eq(FM.SnipeSaved(key).got, 100, "what is bought stays")
-    H.eq(env.printed[1]:find("100 / 144 bought", 1, true) ~= nil, true, "the chat line says so")
-    FM.SnipeFromTable(key, 275, 60) -- a new plan with another number
-    H.eq(FM.SnipeSaved(key).got, 0, "another number starts the count again")
-    H.eq(FM.SnipeSaved(key).n, 60, "with that number")
+    FM.SnipeFromTable(key, 275, 44, "restart") -- a new plan after the 100 reached the bags
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n, state.left }, { 0, 44, 44 }, "0/44: it buys the 44 the plan still needs")
+    H.eq(state.units, 100, "Bought today stays")
+    H.eq(env.printed[1]:find("count started again", 1, true) ~= nil, true, "the chat line says so")
+end)
+
+H.test("sniper: Shift+click caps an item without a limit at its Bought now plus the pick, a material listed twice sums up", function()
+    local FM, env, ah = Load()
+    local key, thick = tostring(LEATHER), tostring(THICK)
+    FM.SnipeSet(key, 100) -- sniped in the window without a limit
+    Offer(env, ah, LEATHER, 90, 20)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    FM.SnipeFromTable(key, 275, 40, "add")
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n, state.left }, { 20, 60, 40 }, "20 bought + the pick's 40: 20/60, it buys the pick's 40")
+    Offer(env, ah, LEATHER, 250, 500)
+    H.eq(Hit(FM, LEATHER), 40, "a large offer at the pick's price: only the 40")
+    FM.SnipeFromPlan("Belt", { { key = thick, price = 500, units = 10 }, { key = thick, price = 500, units = 5 },
+        { key = key, price = 275, units = 3 } }, thick, "restart")
+    H.eq(FM.SnipeSaved(thick).n, 15, "restart: 10 and 5 of the same plan sum up")
+    FM.SnipeFromPlan("Belt", { { key = thick, price = 500, units = 10 }, { key = thick, price = 500, units = 5 },
+        { key = key, price = 275, units = 3 } }, thick, "add")
+    H.eq(FM.SnipeSaved(thick).n, 30, "add: the plan's 15 more")
 end)
 
 H.test("sniper: a done item removed from the list starts again when the table adds it with the same number", function()

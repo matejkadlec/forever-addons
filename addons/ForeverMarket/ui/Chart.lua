@@ -23,6 +23,7 @@ local INSET = 14 -- first and last dot from the plot's edges
 local DASH, DASH_GAP = 6, 4 -- the dashed line's pieces
 local BAR_SHARE = 0.3 -- the highest bar reaches this share of the plot's height
 local MARK = 5 -- a mark's size; marks stack above their dot
+local STEP_LABEL_GAP = 12 -- round steps (FRV-117): lines closer than this (a label's height) keep only the first one
 local HOLE_RGB = { 0.05, 0.05, 0.05 } -- the inside of a hollow dot: the dark of the frames' inset
 local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
@@ -40,6 +41,64 @@ function FM.ChartCoins(copper, parts, plain)
     if c > 0 and #out < (parts or 3) then out[#out + 1] = c .. cl end
     if #out == 0 then return "0" .. cl end
     return table.concat(out, " ")
+end
+
+---------------------------------------------------------------- round steps (FRV-117)
+
+-- The Profit tab's y-axis steps the 1 - 2.5 - 5 series in copper: ... 10c, 25c, 50c, 1s, 2.5s, ... 10g, 25g, 50g,
+-- 100g, 250g ... Step k = 0 is 10c, the smallest top line; the two lines under a top line may go below it (5c, 2.5c)
+local STEP_MULT = { 1, 2.5, 5 }
+local STEP_MAX = 60 -- k far past any gold amount (a guard against a value that never ends the search)
+
+local function StepAt(k)
+    return 10 ^ (math_floor(k / 3) + 1) * STEP_MULT[k % 3 + 1]
+end
+
+-- The smallest step strictly above v (v >= 0): its k
+local function StepAbove(v)
+    local k = 0
+    while k < STEP_MAX and StepAt(k) <= v do k = k + 1 end
+    return k
+end
+
+-- The y range and the grid lines for values from lo to hi (0 included): the top is the smallest step the highest
+-- value does not reach, with the two steps before it; when a value goes under 0, the same mirrored below it; 0 is
+-- always a line. Without any value above 0 only the negative side shows, without any value at all the smallest
+-- steps. lines are in the order they keep their label when two would meet: 0, the outer steps, then inward
+function FM.ChartSteps(lo, hi)
+    lo, hi = math_min(lo or 0, 0), math_max(hi or 0, 0)
+    local up, down = {}, {}
+    if hi > 0 or lo >= 0 then
+        local k = StepAbove(hi)
+        for j = 0, 2 do up[#up + 1] = StepAt(k - j) end
+    end
+    if lo < 0 then
+        local k = StepAbove(-lo)
+        for j = 0, 2 do down[#down + 1] = -StepAt(k - j) end
+    end
+    local lines = { 0 }
+    for j = 1, 3 do
+        if up[j] then lines[#lines + 1] = up[j] end
+        if down[j] then lines[#lines + 1] = down[j] end
+    end
+    return { lo = down[1] or 0, hi = up[1] or 0, lines = lines }
+end
+
+-- A step's label: the round value only, "100g", "2.5g", "1,000g", "50s", "25c", "-25g" (the coin letters colored)
+function FM.ChartStepText(v)
+    if math_abs(v) < 0.5 then return "0" end
+    local a = math_abs(v)
+    local amount, letter
+    if a >= 10000 then
+        amount, letter = a / 10000, "|cFFFFD700g|r"
+    elseif a >= 100 then
+        amount, letter = a / 100, "|cFFC7C7CFs|r"
+    else
+        amount, letter = a, "|cFFEDA55Fc|r"
+    end
+    local whole = math_floor(amount + 0.5)
+    local text = math_abs(amount - whole) < 0.001 and FM.FormatCount(whole) or string_format("%.1f", amount)
+    return (v < 0 and "-" or "") .. text .. letter
 end
 
 -- "11/18/2026", "Week of 11/16/2026", "November 2026"
@@ -224,6 +283,8 @@ end
 --   lineColor = { r, g, b }; yText(v) -> a grid label
 --   startValue = the line starts at the plot's left edge at this value (Profit: 0), nil = at the first dot
 --   withZero = 0 stays in the y range, minSpan = the smallest range shown (copper)
+--   roundSteps = the y range and its lines on round steps (FM.ChartSteps, FRV-117: the Profit tab), labeled by
+--     FM.ChartStepText; a line too close to one already labeled is left out. Without it 4 evenly spaced lines
 --   ref = { value, text, color = { r, g, b } } a dashed horizontal line with its label, nil = none
 --   refs = { { value, text, color, solid } } more of them (solid: a thin solid line)
 --   bars = { values = { v or nil per dot }, color = { r, g, b } } bars from the bottom on their own scale
@@ -247,25 +308,48 @@ function Chart:Draw(spec)
     for _, ref in ipairs(spec.refs or {}) do refs[#refs + 1] = ref end
     for _, ref in ipairs(refs) do lo, hi = lo and math_min(lo, ref.value) or ref.value, hi and math_max(hi, ref.value) or ref.value end
     if not lo then lo, hi = 0, 0 end
-    local span = math_max(hi - lo, spec.minSpan or 100)
-    if spec.withZero then
-        if lo < 0 then lo = lo - span * 0.12 end
+    local steps
+    if spec.roundSteps then
+        -- the top and bottom are round steps themselves, so the line ends under the top one (FRV-117)
+        steps = FM.ChartSteps(lo, hi)
+        lo, hi = steps.lo, steps.hi
     else
-        lo = math_max(0, lo - span * 0.12)
+        local span = math_max(hi - lo, spec.minSpan or 100)
+        if spec.withZero then
+            if lo < 0 then lo = lo - span * 0.12 end
+        else
+            lo = math_max(0, lo - span * 0.12)
+        end
+        hi = hi + span * 0.12
     end
-    hi = hi + span * 0.12
     if hi <= lo then hi = lo + 1 end
     local plotBottom, plotTop = self.plotBottom, self.plotTop
     local function Y(v) return plotBottom + (v - lo) / (hi - lo) * (plotTop - plotBottom) end
-    if n > 0 or refs[1] or spec.withZero then
+    local function GridLine(v, text)
+        local y = Y(v)
+        local g = Take(self.grid)
+        g:ClearAllPoints()
+        g:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self.plotLeft, y)
+        g:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMLEFT", self.plotRight, y)
+        self:Label(text, self.plotLeft - 8, y, "RIGHT")
+    end
+    if steps then
+        -- each line at its real height; one closer than a label's height to a line drawn before is left out
+        local drawn = {}
+        for _, v in ipairs(steps.lines) do
+            local y, free = Y(v), true
+            for _, other in ipairs(drawn) do
+                if math_abs(other - y) < STEP_LABEL_GAP then free = false end
+            end
+            if free then
+                drawn[#drawn + 1] = y
+                GridLine(v, FM.ChartStepText(v))
+            end
+        end
+    elseif n > 0 or refs[1] or spec.withZero then
         for k = 0, 3 do
             local v = lo + (hi - lo) * k / 3
-            local y = Y(v)
-            local g = Take(self.grid)
-            g:ClearAllPoints()
-            g:SetPoint("BOTTOMLEFT", self.frame, "BOTTOMLEFT", self.plotLeft, y)
-            g:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMLEFT", self.plotRight, y)
-            self:Label(spec.yText and spec.yText(v) or FM.ChartCoins(v, 2), self.plotLeft - 8, y, "RIGHT")
+            GridLine(v, spec.yText and spec.yText(v) or FM.ChartCoins(v, 2))
         end
     end
 

@@ -4,17 +4,22 @@ local _, FM = ...
 -- while this window is open at the Auction House. One frame (FRV-39), top to bottom:
 --   banner    what sniping does now, colored by its state (FRV-40): an offer to buy large and green with a pulse,
 --             buying blue, paused orange, stopped red (with "Try again" when sniping stopped itself), a purchase
---             named for 3 seconds, else how many items are watched and how long a round over them takes
+--             named for 3 seconds, else how many items are watched and how long a round over them takes; at its
+--             right end the wheel light (FRV-128): a green "ON" for half a second after each wheel step that reached
+--             the sniper, else a red "OFF" (so it stays red while another frame takes the wheel, and away from the AH)
 --   add row   the item box (Blizzard's SearchBoxTemplate: type a name, Shift+click or drag an item onto the window;
---             8 suggestions with Up / Down and Enter, the earlier snipes while it is empty), the price per unit
---             (Blizzard's MoneyInputFrameTemplate), "max units" (buy at most), Add / Save. Under it the picked
---             item's cheapest and usual price (and a vendor's price when yours is not under it), or the form's
+--             8 suggestions with Up / Down and Enter, the earlier snipes while it is empty), the buyout per unit
+--             (Blizzard's MoneyInputFrameTemplate), "max units" (buy at most, right-aligned) with its x (clears the
+--             limit and starts the count again, FRV-128), Add / Update (Update keeps what was bought). Under it the
+--             picked item's cheapest and usual price (and a vendor's price when yours is not under it), or the form's
 --             message for 5 seconds (FRV-41)
---   list      the sniped items in Blizzard's ScrollBox (8 rows, a scroll bar with more): item, max price, cheapest
---             now (with the units at or under your price), bought today, the state in words, a Buy button on a
---             row with an offer (FRV-40), pause / resume (FRV-101: a paused row is greyed with "paused"), x = stop
---             sniping it, the two at the row's right end; a click loads the item into the add row. Without the
---             scroll bar the rows reach the end of the header line (FRV-101)
+--   list      the sniped items in Blizzard's ScrollBox (8 rows, a scroll bar with more): item, buyout, cheapest now
+--             (with the units at or under your buyout), bought now (against the limit, "490/600", or since the count
+--             was last reset), bought today, the state in words, a Buy button on a row with an offer (FRV-40), pause /
+--             resume (FRV-101: a paused row is greyed with "paused"), x = stop sniping it, the two at the row's right
+--             end; a click loads the item into the add row. Without the scroll bar the rows reach the end of the
+--             header line (FRV-101). Each column is as wide as its widest value (FRV-128, Layout: measured in the
+--             row's font when the window is made, the window widened for them), a long name takes a second line
 --   budget    "Automatically refresh budget", "Budget [%] [bar] [refresh]", "Set budget manually [] [g s c]"
 --             (FRV-94); hovering the budget row says what it is, what the sniper spent today and what is left
 -- It opens next to the AH (until it is dragged), hides when the AH closes and comes back with it unless it was closed
@@ -28,6 +33,8 @@ local tonumber = tonumber
 local pcall = pcall
 local math_floor = math.floor
 local math_min = math.min
+local math_max = math.max
+local math_ceil = math.ceil
 local string_format = string.format
 local string_lower = string.lower
 local string_find = string.find
@@ -38,25 +45,42 @@ local table_concat = table.concat
 local FRAME_NAME = "ForeverMarketSnipe"
 local PRICE_NAME = "ForeverMarketSnipePrice"   -- MoneyInputFrameTemplate names its boxes after its frame
 local MANUAL_NAME = "ForeverMarketSnipeManual"
-local W, H = 620, 428
+local MIN_W, H = 620, 428
+local W = MIN_W           -- the window's width: at least MIN_W, wider when the columns need it (Layout, FRV-128)
 local ROW_H, ROWS = 22, 8
 local LIST_LEFT, LIST_TOP = 14, -142
 local LIST_RIGHT = 16     -- the list's right end without its scroll bar: the end of the header line
 local LIST_RIGHT_BAR = 34 -- with the scroll bar (more than 8 items), which sits in the room between
 local SCROLL_BAR_X = 26   -- the scroll bar's left edge, from the frame's right
-local LIST_W = W - LIST_LEFT - LIST_RIGHT_BAR -- the narrower list, with its scroll bar
+local LIST_W = W - LIST_LEFT - LIST_RIGHT_BAR -- the narrower list, with its scroll bar (Layout sets it again)
 local HINT_ROWS, HINT_H, HINT_W = 8, 20, 340
 local MESSAGE_SECONDS = 5
 local BAR_WARN = 0.75 -- the budget bar turns yellow from this share spent
+local WHEEL_LIGHT = 0.5 -- seconds the wheel light stays on after a wheel step reached the sniper (FRV-128)
 
--- Columns of a list row (x and width inside the row) and of the header above it; at the right of the row the Buy
--- button, pause / resume and remove take the last 90 px (FRV-101), so the state ends left of Buy also with the bar
-local COL = {
-    name = 24, nameW = 128,
-    price = 156, priceW = 72,
-    cheap = 232, cheapW = 100,
-    bought = 336, boughtW = 78,
-    state = 418, stateW = 62,
+-- Columns of a list row (x and width inside the row) and of the header above it, set by Layout; at the right of the
+-- row the Buy button, pause / resume and remove take the last ROW_TAIL px (FRV-101), so the state ends left of Buy
+-- also with the bar
+local COL = {}
+local NAME_X, NAME_W = 24, 150 -- the item's name wraps onto a second line rather than being cut
+local COL_GAP = 8
+local ROW_TAIL = 92
+
+-- The columns after the name, each as wide as the widest of its header and values (FRV-128: nothing is cut with
+-- "..."); fallback = the width where the client cannot measure. A buyout up to 999g 99s 99c, units up to the box's
+-- 99,999 and thousands separators as everywhere in the AddOn
+local function MoneySample()
+    return FM.FormatMoney(999 * 10000 + 99 * 100 + 99)
+end
+local COLUMNS = {
+    { id = "price", header = "Buyout", fallback = 84, samples = function() return { MoneySample() } end },
+    { id = "cheap", header = "Cheapest now", fallback = 140,
+        samples = function() return { MoneySample() .. "  (99,999)", "none listed" } end },
+    { id = "now", header = "Bought now", fallback = 84, samples = function() return { "99,999/99,999" } end },
+    { id = "today", header = "Bought today", fallback = 72, samples = function() return { "999,999" } end },
+    { id = "state", fallback = 76, samples = function()
+        return { "not stackable", "done", "paused", "confirm", "buying", "at your price", "budget spent", "over budget" }
+    end },
 }
 
 -- Blizzard's own play / pause pair (the stopwatch's, Blizzard_TimeManager)
@@ -92,7 +116,7 @@ local frame
 local selected        -- key loaded into the add row
 local selectedText = "" -- what Select wrote into the item box (a never seen item shows "item:<id>" until its name loads)
 local settingText = false -- the item box is being written by this file, not typed in
-local unitsEdited = false -- the units box was typed in since the item was loaded (a new number)
+local resetCount = false -- the x by "max units" was clicked since the item was loaded: Update starts its count again
 local hintKeys = {}
 local marked = 0      -- the suggestion Up / Down marked (0: none, Enter takes the first)
 local messageText, messageUntil = nil, 0
@@ -376,8 +400,9 @@ local function ShowHints(text)
     hints:Show()
 end
 
+-- "Update" for an item in the list (it keeps what was bought, FRV-128), "Add" for a new one
 local function UpdateAddButton()
-    frame.add:SetText(selected and FM.IsSniped(selected) and "Save" or "Add")
+    frame.add:SetText(selected and FM.IsSniped(selected) and "Update" or "Add")
 end
 
 -- Load an item into the add row (its saved price and number, if it was sniped before); focusPrice: the focus moves to
@@ -396,7 +421,7 @@ Select = function(key, focusPrice)
     local n = saved and tonumber(saved.n)
     frame.units:SetText(n and n >= 1 and tostring(math_floor(n)) or "")
     frame.units:SetCursorPosition(0)
-    unitsEdited = false
+    resetCount = false
     messageText = nil
     if key then RequestItem(key) end
     if focusPrice then
@@ -450,29 +475,24 @@ local function SubmitSnipe()
         Message("Enter a price per unit.", RED)
         return
     end
-    -- a typed number is a new one (its count starts again), an untouched box keeps the item's number and count.
-    -- When the item submitted is not the one loaded into the row (another name typed over it), what the box shows
-    -- applies to it: its count stays only when that is the number it already has
-    local units = nil
-    if unitsEdited or key ~= selected then
-        local typed = frame.units:GetText() or ""
-        local shown = nil
-        if typed ~= "" then
-            shown = tonumber(typed)
-            if not shown or shown < 1 then
-                Message("Max units: a number of units, 1 or more (empty = no limit).", RED)
-                return
-            end
-            shown = math_floor(shown)
+    -- what the box shows is the limit (empty = none); Update keeps what was bought (FRV-128: 190 of 200, 300 typed =
+    -- 190 of 300), only the x by the box starts the count again. A new item's count starts at 0 anyway
+    local typed = frame.units:GetText() or ""
+    local units = false
+    if typed ~= "" then
+        local shown = tonumber(typed)
+        if not shown or shown < 1 then
+            Message("Max units: a number of units, 1 or more (empty = no limit).", RED)
+            return
         end
-        local saved = FM.SnipeSaved(key)
-        local current = saved and tonumber(saved.n)
-        if unitsEdited or shown ~= current then units = shown or false end
+        units = math_floor(shown)
     end
     local wasSniped = FM.IsSniped(key)
-    if FM.SnipeSet(key, price, units) then
+    local reset = resetCount and wasSniped and key == selected -- the x counts only for the item it was clicked for
+    if FM.SnipeSet(key, price, units, reset) then
         local saved = FM.SnipeSaved(key)
         local n = saved and tonumber(saved.n)
+        local got = FM.SnipeItemState(key).got
         -- the row empties; after a new item the focus goes back to the item box for the next one, after an edit
         -- it leaves the row (Blizzard's own Enter in a price box has moved it on already)
         Select(nil)
@@ -482,8 +502,14 @@ local function SubmitSnipe()
         else
             frame.search:SetFocus()
         end
-        Message((wasSniped and "Saved: " or "Sniping: ") .. Name(key) .. " at up to " .. FM.FormatMoney(price)
-            .. (n and (", at most " .. FM.FormatCount(n) .. " units") or ""), GREEN)
+        local count = ""
+        if reset then
+            count = ", count started again"
+        elseif wasSniped then
+            count = ", " .. FM.FormatCount(got) .. " bought now"
+        end
+        Message((wasSniped and "Updated: " or "Sniping: ") .. Name(key) .. " at up to " .. FM.FormatMoney(price)
+            .. (n and (", at most " .. FM.FormatCount(n) .. " units") or "") .. count, GREEN)
     end
 end
 
@@ -507,17 +533,19 @@ local function RowTooltip(self)
     local saved = FM.SnipeSaved(key)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:AddLine(QualityName(key))
-    GameTooltip:AddDoubleLine("Your price", FM.FormatMoney(saved and saved.p), 1, 0.82, 0, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Buyout", FM.FormatMoney(saved and saved.p), 1, 0.82, 0, 1, 1, 1)
     if state.kind == "item" then
         GameTooltip:AddLine("Sold per auction: only stackable items can be sniped.", 1, 0.35, 0.35, true)
     end
     if state.paused then
         GameTooltip:AddLine("Paused: not searched or bought until you resume it.", 0.6, 0.6, 0.6, true)
     end
-    if state.n then
+    -- what it bought since its count was last reset, against the limit when it has one (FRV-128)
+    if state.n or state.got > 0 then
         local v = state.done and 0.6 or 1
-        GameTooltip:AddLine(string_format("Bought %s of %s for %s%s", FM.FormatCount(state.got), FM.FormatCount(state.n),
-            FM.FormatMoney(state.paid or 0), state.done and "  (done)" or ""), v, v, v)
+        local now = state.n and (FM.FormatCount(state.got) .. " of " .. FM.FormatCount(state.n)) or FM.FormatCount(state.got)
+        GameTooltip:AddDoubleLine("Bought now", now .. " for " .. FM.FormatMoney(state.paid or 0) .. (state.done and "  (done)" or ""),
+            1, 0.82, 0, v, v, v)
     end
     local seen = state.seen
     if seen then
@@ -567,12 +595,11 @@ local function FillRow(row)
     else
         row.cheap:SetText(FM.FormatMoney(seen.min) .. (seen.units > 0 and (GREEN .. "  (" .. FM.FormatCount(seen.units) .. ")|r") or ""))
     end
-    -- bought today, and with a "buy at most" number what it bought of it since the number was set
-    local bought = state.units > 0 and FM.FormatCount(state.units) or ""
-    if state.n then
-        bought = bought .. (bought ~= "" and "  " or "") .. GREY .. FM.FormatCount(state.got) .. "/" .. FM.FormatCount(state.n) .. "|r"
-    end
-    row.bought:SetText(bought)
+    -- bought now: against the limit ("490/600"), without one since the count was last reset ("490"); bought today:
+    -- every unit of it the sniper bought today (FRV-128); a 0 in grey
+    local now = FM.FormatCount(state.got) .. (state.n and ("/" .. FM.FormatCount(state.n)) or "")
+    row.now:SetText(state.got > 0 and now or (GREY .. now .. "|r"))
+    row.today:SetText(state.units > 0 and FM.FormatCount(state.units) or (GREY .. "0|r"))
     local word, color, tint, dim = RowState(state)
     row.state:SetText(color .. word .. "|r")
     if tint then
@@ -622,9 +649,12 @@ local function BuildRow(row)
         return fs
     end
     row.name = Cell(COL.name, COL.nameW)
+    row.name:SetWordWrap(true) -- a long name takes a second line instead of "..." (FRV-128)
+    row.name:SetMaxLines(2)
     row.price = Cell(COL.price, COL.priceW)
     row.cheap = Cell(COL.cheap, COL.cheapW)
-    row.bought = Cell(COL.bought, COL.boughtW)
+    row.now = Cell(COL.now, COL.nowW)
+    row.today = Cell(COL.today, COL.todayW)
     row.state = Cell(COL.state, COL.stateW)
     row:SetScript("OnClick", function(self)
         if TakeCursorItem() then return end
@@ -657,7 +687,8 @@ local function BuildRow(row)
         GameTooltip:Hide()
     end)
     remove:SetScript("OnEnter", function(self)
-        Tooltip(self, "ANCHOR_RIGHT", "Stop sniping " .. Name(row.key), "Its price and number are remembered for next time.")
+        Tooltip(self, "ANCHOR_RIGHT", "Stop sniping " .. Name(row.key),
+            "Its buyout and number are remembered for next time; what it bought counts from 0 when you add it again.")
     end)
     remove:SetScript("OnLeave", HideTooltip)
     -- pause / resume (FRV-101), left of remove: the item stays in the list with its price and limits
@@ -717,10 +748,34 @@ local function RefreshBanner()
     -- "Try again" only where it can start sniping again: at the AH, after sniping stopped itself
     local retry = kind == "stopped" and FM.SnipeHalted() and FM.ahOpen and true or false
     banner.retry:SetShown(retry)
-    banner.text:SetPoint("RIGHT", banner, "RIGHT", retry and -110 or -10, 0)
+    banner.text:SetPoint("RIGHT", banner.light, "LEFT", retry and -110 or -10, 0)
     -- a short pulse when an offer shows up
     if kind == "hit" and text ~= lastHitText then banner.pulse:Play() end
     lastHitText = kind == "hit" and text or nil
+end
+
+-- The wheel light (FRV-128): "ON" in green for WHEEL_LIGHT seconds after a wheel step reached the sniper (its catcher
+-- or its bindings, scan/Sniper.lua), "OFF" in red otherwise; while it is on, its OnUpdate turns it off in time
+local function WheelOn()
+    local at = FM.SnipeLastWheel and FM.SnipeLastWheel()
+    return FM.SnipeIsActive() and IsNumber(at) and GetTime() - at < WHEEL_LIGHT or false
+end
+
+local function UpdateLight()
+    if not frame then return end
+    local light = frame.banner.light
+    local on = WheelOn()
+    if on == light.on then return end
+    light.on = on
+    light.text:SetText(on and "ON" or "OFF")
+    if on then light.text:SetTextColor(0.2, 1, 0.4) else light.text:SetTextColor(1, 0.3, 0.3) end
+    light:SetScript("OnUpdate", on and UpdateLight or nil)
+    if GameTooltip:IsOwned(light) then light:GetScript("OnEnter")(light) end
+end
+
+-- scan/Sniper.lua calls it on every wheel step that reaches the sniper
+function FM.SnipeWheelSeen()
+    if frame and frame:IsShown() then UpdateLight() end
 end
 
 ---------------------------------------------------------------- budget
@@ -814,6 +869,7 @@ end
 function FM.RefreshSnipe()
     if not (frame and frame:IsShown()) then return end
     RefreshBanner()
+    UpdateLight()
     RefreshList()
     RefreshBudget()
     UpdateAddButton()
@@ -855,6 +911,7 @@ local function CreateAddRow(f)
             ClearMessage()
             if selected and self:GetText() ~= selectedText and string_lower(Name(selected)) ~= string_lower(self:GetText() or "") then
                 selected = nil
+                resetCount = false -- the x was for the item typed over
             end
             ShowHints(self:GetText())
         elseif (self:GetText() or "") == "" then
@@ -903,7 +960,7 @@ local function CreateAddRow(f)
         ClearMessage()
         UpdateNote()
     end)
-    -- Enter in a price box adds or saves (Blizzard's own Enter moves the focus first)
+    -- Enter in a price box adds or updates (Blizzard's own Enter moves the focus first)
     for _, box in ipairs(MoneyBoxes(price)) do
         box:HookScript("OnEnterPressed", SubmitSnipe)
     end
@@ -915,15 +972,14 @@ local function CreateAddRow(f)
     units:SetAutoFocus(false)
     units:SetNumeric(true)
     units:SetMaxLetters(5)
+    units:SetJustifyH("RIGHT") -- numbers line up to the right (FRV-128)
+    units:SetTextInsets(0, 4, 0, 0)
     units.hint = units:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
     units.hint:SetPoint("LEFT", units, "LEFT", 1, 0)
     units.hint:SetText("max units")
     units:HookScript("OnTextChanged", function(self, userInput)
         self.hint:SetShown((self:GetText() or "") == "")
-        if userInput then
-            unitsEdited = true
-            ClearMessage()
-        end
+        if userInput then ClearMessage() end
     end)
     units:SetScript("OnEnterPressed", function(self)
         self:ClearFocus()
@@ -935,10 +991,34 @@ local function CreateAddRow(f)
     end)
     units:SetScript("OnEnter", function(self)
         Tooltip(self, "ANCHOR_TOP", "Buy at most",
-            "Empty: no limit but the budget. With a number, sniping stops once that many units of the item are bought, across days too. A new number starts the count again; changing only the price keeps it.")
+            "Empty: no limit but the budget. With a number, sniping stops once that many units of the item are bought now (across days too). Update keeps what was bought, also with a new number or buyout; the x next to this box starts the count again.")
     end)
     units:SetScript("OnLeave", HideTooltip)
     f.units = units
+
+    -- the x right of "max units" (FRV-128): clears the limit, and the next Update starts the count again at 0
+    local clear = CreateFrame("Button", nil, f)
+    clear:SetSize(16, 16)
+    clear:SetPoint("LEFT", units, "RIGHT", 4, 0)
+    clear:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+    clear:SetHighlightTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up", "ADD")
+    clear:SetScript("OnClick", function()
+        units:SetText("")
+        units:ClearFocus()
+        resetCount = selected ~= nil -- with no item loaded there is no count to start again
+        if selected and FM.IsSniped(selected) then
+            local got = FM.SnipeItemState(selected).got
+            Message("No limit; Update also starts Bought now again at 0 (" .. FM.FormatCount(got) .. " now).", WHITE)
+        else
+            Message("No limit but the budget.", WHITE)
+        end
+    end)
+    clear:SetScript("OnEnter", function(self)
+        Tooltip(self, "ANCHOR_TOP", "Reset limit and count",
+            "Clears the limit; Update then starts the item's Bought now again at 0. Bought today stays.")
+    end)
+    clear:SetScript("OnLeave", HideTooltip)
+    f.clearUnits = clear
 
     search:SetScript("OnTabPressed", function()
         if IsShiftKeyDown() then units:SetFocus() else price.gold:SetFocus() end
@@ -983,16 +1063,60 @@ local function CreateAddRow(f)
     f.hints = hints
 end
 
+-- The columns' x and width (COL) and the window's width (W, LIST_W), FRV-128: each column after the name as wide as
+-- the widest of its header and its values, measured in their fonts (GetUnboundedStringWidth on a probe without
+-- text afterwards), so nothing in it is cut with "..."; the window at least MIN_W wide, and wide enough that the state
+-- ends left of Buy also in the narrower list with its scroll bar
+local function Layout(f)
+    local probe = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local function Width(font, text)
+        probe:SetFontObject(font)
+        probe:SetText(text)
+        local w = probe.GetUnboundedStringWidth and probe:GetUnboundedStringWidth()
+        return IsNumber(w) and w or 0
+    end
+    COL.name, COL.nameW = NAME_X, NAME_W
+    local x = NAME_X + NAME_W + COL_GAP
+    for _, c in ipairs(COLUMNS) do
+        local w = c.header and Width("GameFontNormalSmall", c.header) or 0
+        for _, text in ipairs(c.samples()) do w = math_max(w, Width("GameFontHighlightSmall", text)) end
+        w = w > 0 and math_ceil(w) + 2 or c.fallback
+        COL[c.id], COL[c.id .. "W"] = x, w
+        x = x + w + COL_GAP
+    end
+    probe:SetText("")
+    W = math_max(MIN_W, LIST_LEFT + x + ROW_TAIL + LIST_RIGHT_BAR)
+    LIST_W = W - LIST_LEFT - LIST_RIGHT_BAR
+end
+
+-- The headers' tooltips (FRV-128)
+local HEADER_TIPS = {
+    price = "The most the sniper pays per unit: the price you set in the add row.",
+    cheap = "The cheapest unit of others in the item's last search; in green how many units are at or under your buyout.",
+    now = "Units bought since the item's count was last reset, against its limit when it has one (190/300). Update keeps the count; the x next to \"max units\" starts it again, so does adding the item to the list again.",
+    today = "Every unit of the item the sniper bought today on this character, whatever its limit or count.",
+}
+
 -- The list: a header and Blizzard's ScrollBox with its bar (it shows only with more than 8 items)
 local function CreateList(f)
-    local function Header(label, x)
+    f.headers = {}
+    local function Header(label, x, tip)
         local fs = Text(f, "GameFontNormalSmall", "TOPLEFT", LIST_LEFT + x, -124)
         fs:SetText(label)
+        f.headers[#f.headers + 1] = fs
+        if not tip then return end
+        local zone = CreateFrame("Frame", nil, f)
+        zone:SetPoint("TOPLEFT", fs, "TOPLEFT", -2, 3)
+        zone:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 2, -3)
+        zone:EnableMouse(true)
+        zone:SetScript("OnEnter", function(self) Tooltip(self, "ANCHOR_TOP", label, tip) end)
+        zone:SetScript("OnLeave", HideTooltip)
     end
     Header("Item", COL.name)
-    Header("Max price", COL.price)
-    Header("Cheapest now", COL.cheap)
-    Header("Bought today", COL.bought)
+    Header("Buyout", COL.price, HEADER_TIPS.price)
+    Header("Cheapest now", COL.cheap, HEADER_TIPS.cheap)
+    Header("Bought now", COL.now, HEADER_TIPS.now)
+    Header("Bought today", COL.today, HEADER_TIPS.today)
     local line = f:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(0.45, 0.45, 0.45, 0.6)
     line:SetHeight(1)
@@ -1120,6 +1244,7 @@ local function CreateWindow()
         f.CloseButton = close
     end
     frame = f
+    Layout(f)
     f:SetSize(W, H)
     -- above the market table (HIGH) and fully opaque, so nothing shows through or takes its clicks
     f:SetFrameStrata("DIALOG")
@@ -1178,8 +1303,21 @@ local function CreateWindow()
     banner.text:SetJustifyH("LEFT")
     banner.text:SetJustifyV("MIDDLE")
     banner.text:SetHeight(36)
+    -- the wheel light at the banner's right end, above Add (FRV-128); "Try again" left of it
+    local light = CreateFrame("Frame", nil, banner)
+    light:SetSize(36, 22)
+    light:SetPoint("RIGHT", banner, "RIGHT", -6, 0)
+    light:EnableMouse(true)
+    light.text = light:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    light.text:SetPoint("CENTER")
+    light:SetScript("OnEnter", function(self)
+        Tooltip(self, "ANCHOR_BOTTOM", "Mouse wheel: " .. (self.on and "ON" or "OFF"),
+            "Lights up while your mouse wheel steps reach the sniper.")
+    end)
+    light:SetScript("OnLeave", HideTooltip)
+    banner.light = light
     banner.retry = Button(banner, "Try again", 96, function() FM.SnipeStart() end)
-    banner.retry:SetPoint("RIGHT", banner, "RIGHT", -8, 0)
+    banner.retry:SetPoint("RIGHT", light, "LEFT", -6, 0)
     banner.retry:Hide()
     banner.pulse = banner:CreateAnimationGroup()
     local fade = banner.pulse:CreateAnimation("Alpha")

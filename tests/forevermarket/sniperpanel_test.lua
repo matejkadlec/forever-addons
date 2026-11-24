@@ -11,6 +11,13 @@
 --   * a row with an offer has a Buy button, which buys that row's offer
 --   * FRV-101: the pause button greys its row with "paused" and shows the play icon, a second click resumes it; without
 --     the scroll bar the list reaches the end of the header line
+--   * FRV-128: the headers read Item, Buyout, Cheapest now, Bought now, Bought today; each column is as wide as its
+--     widest value (99,999/99,999 in Bought now, 999g 99s 99c as a buyout) and the window wide enough for them;
+--     Bought now shows 490/1,000 against a limit, Bought today the day's units; the max units box is right-aligned;
+--     Update keeps what was bought (190/200, 300 typed: 190/300), the x by the box clears the limit and Update then
+--     starts the count at 0, Bought today unchanged; the wheel light is ON for half a second after a wheel step
+--     reached the sniper (catcher or bindings), OFF otherwise and while sniping is off; every item reaches the list's
+--     data and the list takes the wheel only while sniping is off
 -- How it looks and whether the client accepts these calls is the in-game test's job.
 
 local H = require("harness")
@@ -57,6 +64,16 @@ local function Frames(env)
         function f:SetFrameLevel(level) self.level = level end
         function f:SetNormalTexture(texture) self.normalTexture = texture end
         function f:SetAlpha(alpha) self.alpha = alpha end
+        -- FRV-128: sizes, alignment, color and the wheel are kept; a font string measures env.charWidth px per letter
+        function f:SetSize(w, h) self.width, self.height = w, h end
+        function f:SetWidth(w) self.width = w end
+        function f:SetJustifyH(justify) self.justifyH = justify end
+        function f:SetTextColor(r, g, b) self.color = { r, g, b } end
+        function f:EnableMouseWheel(on) self.mouseWheel = on and true or false end
+        function f:GetUnboundedStringWidth()
+            local plain = (self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+            return #plain * (env.charWidth or 0)
+        end
         function f:CreateTexture() return Make() end
         function f:CreateAnimationGroup()
             return { CreateAnimation = function() return Make() end, Play = function() end }
@@ -397,4 +414,144 @@ H.test("sniper window: without the scroll bar the list reaches the end of the he
     H.eq(right.point, "BOTTOMRIGHT", "the list's right end")
     H.eq(right.x, -16, "where the header line ends (16 px from the frame's right)")
     H.eq(f.scrollBox.anchorsWithBar[2].x, -34, "with the bar it makes room for it")
+end)
+
+-- FRV-128: the columns, the add row's Update and x, the wheel light, a long list
+local GREY = "|cFF9D9D9D"
+
+H.test("sniper window: the headers, and every column as wide as its widest value", function()
+    local FM, env = Load()
+    env.charWidth = 6 -- a font of 6 px per letter
+    local f = Open(FM, env)
+    local texts = {}
+    for i, fs in ipairs(f.headers) do texts[i] = fs:GetText() end
+    H.same(texts, { "Item", "Buyout", "Cheapest now", "Bought now", "Bought today" }, "the headers")
+    local key = tostring(LEATHER)
+    FM.SnipeSet(key, 100, 1000)
+    FM.SnipeSaved(key).got = 490
+    FM.SnipeBudgetInfo().units[key] = 980
+    FM.RefreshSnipe()
+    local row = f.scrollBox.rows[1]
+    H.eq(row.now:GetText(), "490/1,000", "Bought now against the limit, in full with its separator")
+    H.eq(row.today:GetText(), "980", "Bought today: the day's units")
+    -- each width = the widest of its header and values at 6 px a letter, + 2
+    H.eq(row.price.width, 12 * 6 + 2, "Buyout fits 999g 99s 99c")
+    H.eq(row.cheap.width, 22 * 6 + 2, "Cheapest now fits 999g 99s 99c  (99,999)")
+    H.eq(row.now.width, 13 * 6 + 2, "Bought now fits 99,999/99,999")
+    H.eq(row.today.width, 12 * 6 + 2, "Bought today fits its header, wider than 999,999")
+    H.eq(row.state.width, 13 * 6 + 2, "the state fits not stackable")
+    -- name 24 + 150, then each column and its 8 px gap, the 92 px of Buy, pause and remove, the list's 14 px on
+    -- the left and 34 px with the scroll bar on the right
+    local columns = 24 + 150 + 8 + (74 + 8) + (134 + 8) + (80 + 8) + (74 + 8) + (80 + 8)
+    H.eq(f.width, 14 + columns + 92 + 34, "the window widened so the state ends left of Buy also with the bar")
+end)
+
+H.test("sniper window: without a measure the columns take their fallback widths and the window at least 620", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.SnipeSet(tostring(LEATHER), 100)
+    local row = f.scrollBox.rows[1]
+    H.same({ row.price.width, row.cheap.width, row.now.width, row.today.width, row.state.width }, { 84, 140, 84, 72, 76 },
+        "the fallbacks")
+    H.eq(f.width >= 620, true, "never narrower than before")
+end)
+
+H.test("sniper window: Update keeps what was bought, the x clears the limit and starts the count again", function()
+    local FM, env = Load()
+    local key = tostring(LEATHER)
+    local f = Open(FM, env)
+    H.eq(f.units.justifyH, "RIGHT", "the max units box is right-aligned")
+    FM.SnipeSet(key, 100, 200)
+    FM.SnipeSaved(key).got = 190
+    FM.SnipeBudgetInfo().units[key] = 190
+    FM.RefreshSnipe()
+    local row = f.scrollBox.rows[1]
+    H.eq(row.now:GetText(), "190/200", "190 of 200")
+    Fire(row, "OnClick") -- the item into the add row
+    H.eq(f.add:GetText(), "Update", "an item in the list: Update")
+    H.eq(f.units:GetText(), "200", "its limit in the box")
+    Type(f.units, "300")
+    Fire(f.add, "OnClick")
+    H.eq(row.now:GetText(), "190/300", "Update with 300: 190/300")
+    H.eq(f.note:GetText():find("Updated: Heavy Leather", 1, true) ~= nil, true, "the message says Updated")
+    H.eq(f.note:GetText():find("190 bought now", 1, true) ~= nil, true, "and what was bought")
+    H.eq(f.add:GetText(), "Add", "the row empties")
+    Fire(row, "OnClick")
+    Fire(f.clearUnits, "OnClick")
+    H.eq(f.units:GetText(), "", "the x empties the box")
+    H.eq(FM.SnipeSaved(key).n, 300, "nothing changes before Update")
+    Fire(f.add, "OnClick")
+    H.eq(FM.SnipeSaved(key).n, nil, "Update: no limit")
+    H.eq(row.now:GetText(), GREY .. "0|r", "Bought now starts at 0")
+    H.eq(row.today:GetText(), "190", "Bought today unchanged")
+    H.eq(f.note:GetText():find("count started again", 1, true) ~= nil, true, "the message says so")
+end)
+
+H.test("sniper window: the x is forgotten when another item is loaded", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.SnipeSet(tostring(HIDE), 500, 50)
+    FM.SnipeSet(tostring(LEATHER), 100, 20)
+    FM.SnipeSaved(tostring(HIDE)).got = 10
+    FM.SnipeSaved(tostring(LEATHER)).got = 5
+    FM.RefreshSnipe()
+    local rows = f.scrollBox.rows
+    Fire(rows[1], "OnClick")
+    Fire(f.clearUnits, "OnClick")
+    Fire(rows[2], "OnClick") -- another item instead
+    Fire(f.add, "OnClick")
+    H.same({ FM.SnipeSaved(tostring(LEATHER)).got, FM.SnipeSaved(tostring(LEATHER)).n }, { 5, 20 }, "its count and limit stay")
+    H.eq(FM.SnipeSaved(tostring(HIDE)).got, 10, "and the first one's too")
+end)
+
+-- review round 1 of PR #59: the x clicked with no item loaded must not reset an item typed in by name afterwards
+H.test("sniper window: the x with no item loaded resets nothing typed in afterwards", function()
+    local FM, env = Load()
+    local key = tostring(LEATHER)
+    local f = Open(FM, env)
+    FM.SnipeSet(key, 100, 200)
+    FM.SnipeSaved(key).got = 190
+    Fire(f.clearUnits, "OnClick") -- the add row is empty
+    Type(f.search, "Heavy Leather") -- its exact name, no suggestion picked
+    f.price.copper.text = "100"
+    Type(f.units, "300")
+    Fire(f.add, "OnClick")
+    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 190, 300 }, "190 of 200, 300 typed: 190/300, nothing reset")
+end)
+
+H.test("sniper window: the wheel light is ON half a second after a wheel step that reached the sniper", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    local light = f.banner.light
+    H.eq(light.text:GetText(), "OFF", "no wheel step yet")
+    H.same(light.text.color, { 1, 0.3, 0.3 }, "in red")
+    Fire(env.ForeverMarketSnipeWheelCatcher, "OnMouseWheel", 1)
+    H.eq(light.text:GetText(), "ON", "a step on the catcher")
+    H.same(light.text.color, { 0.2, 1, 0.4 }, "in green")
+    env.clock = env.clock + 0.3
+    Fire(light, "OnUpdate", 0.3)
+    H.eq(light.text:GetText(), "ON", "still on 0.3 s later")
+    env.clock = env.clock + 0.3
+    Fire(light, "OnUpdate", 0.3)
+    H.eq(light.text:GetText(), "OFF", "off once half a second passed without a step")
+    H.eq(light.scripts.OnUpdate, nil, "and it stops looking")
+    Fire(env.ForeverMarketSnipeBuyButton, "OnClick", "LeftButton", true)
+    H.eq(light.text:GetText(), "ON", "a step through the bindings lights it too")
+    FM.SnipeStop() -- away from the AH
+    H.eq(light.text:GetText(), "OFF", "sniping off: OFF at once")
+    FM.SnipeStart()
+    env.clock = env.clock + 0.1
+    FM.RefreshSnipe()
+    H.eq(light.text:GetText(), "OFF", "a step from before the stop does not light it again")
+end)
+
+H.test("sniper window: 15 items all reach the list, the list takes the wheel only while sniping is off", function()
+    local FM, env = Load()
+    for i = 1, 15 do FM.SnipeSet(tostring(1000 + i), 100) end
+    local f = Open(FM, env)
+    H.eq(#f.scrollBox.rows, 15, "every item is in the list's data: 8 show, the rest scroll with the bar")
+    H.eq(f.scrollBox.mouseWheel, false, "sniping: the wheel buys, it does not scroll the list")
+    H.eq(f.scrollBar.mouseWheel, false, "nor its bar")
+    FM.SnipeStop()
+    H.eq(f.scrollBox.mouseWheel, true, "sniping off: the wheel scrolls the list")
 end)
