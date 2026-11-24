@@ -15,9 +15,9 @@ local _, FM = ...
 -- and Professions.SetDefaultFilters(true) (the skill line stays) once, then the rebuilt list is searched again; a recipe
 -- still not in the list is shown in the form the way ProfessionsUtil.OpenProfessionFrameToRecipe does (the list's
 -- OnRecipeSelected event). The count box: CreateMultipleInputBox:SetValue(crafts), which Blizzard clamps to what the
--- bags allow; nothing is written onto Blizzard's frames by this file. Not yet verified in game: TRADE_SKILL_SHOW is a
--- synchronous event, so the window's own handlers may run inside this file's OpenTradeSkill call and carry its taint
--- into the side tabs, whose profession casts are protected (docs/forever-api-notes.md; the in-game test of FRV-132).
+-- bags allow; nothing is written onto Blizzard's frames by this file. TRADE_SKILL_SHOW is a synchronous event, so the
+-- window's own handlers may run inside this file's OpenTradeSkill call; FRV-132's in-game test (2026-11-24) showed the
+-- side tabs' protected profession casts and the recast on reopening unblocked after it (docs/forever-api-notes.md).
 
 local type = type
 local pairs = pairs
