@@ -3,11 +3,12 @@ local _, ns = ...
 local L = ns.L
 
 -- "Add to queue" and "Open queue" on the profession window's crafting page (Blizzard_Professions, loaded on demand),
--- in a row above Create All: Add to queue queues the selected recipe with the count of the count box, Open queue
--- shows the queue panel. Both use Create All's own template (the page's GetButtonTemplate: Camelot's red button with
--- the golden border and font); Add to queue is exactly as wide and high as Create All, Open queue as high and as wide
--- as its text (a Create All wide one would reach the Track Recipe checkbox at the schematic form's bottom right). The
--- page is only read and hooked with hooksecurefunc / HookScript; nothing is written onto Blizzard's frames.
+-- in a row above Create All, level with the Track Recipe checkbox: Add to queue queues the selected recipe with the
+-- count of the count box, Open queue shows the queue panel. Both use Create All's own template (the page's
+-- GetButtonTemplate: Camelot's red button with the golden border and font); Add to queue is exactly as wide and high
+-- as Create All, Open queue as high and as wide as its text (a Create All wide one would reach the Track Recipe
+-- checkbox at the schematic form's bottom right). The page is only read and hooked with hooksecurefunc /
+-- HookScript; nothing is written onto Blizzard's frames.
 
 local ipairs = ipairs
 local pcall = pcall
@@ -15,7 +16,7 @@ local type = type
 local math_floor = math.floor
 local CreateFrame = CreateFrame
 
--- Room between the two buttons and between them and Create All
+-- Room between the two buttons, and between them and Create All when there is no Track Recipe checkbox to level with
 local BUTTON_GAP = 4
 -- The red button's height when Create All has none to read (SharedButtonSmallTemplate)
 local BUTTON_HEIGHT = 28
@@ -171,9 +172,24 @@ function ns.HookProfessions()
 
     addButton = CreatePageButton(page, "ForeverCraftQueueAddButton", L.ADD_TO_QUEUE, L.ADD_TOOLTIP_TITLE,
         L.ADD_TOOLTIP, OnAddClick)
-    -- anchored to both top corners of Create All, so it follows Create All's width (which grows with its count)
-    addButton:SetPoint("BOTTOMLEFT", createAll, "TOPLEFT", 0, BUTTON_GAP)
-    addButton:SetPoint("BOTTOMRIGHT", createAll, "TOPRIGHT", 0, BUTTON_GAP)
+    -- Add to queue spans Create All's left and right edge (it follows Create All's width, which grows with its
+    -- count); its vertical middle is the Track Recipe checkbox's. Two invisible frames of our own carry that: one from
+    -- Create All's bottom left corner to the middle of the checkbox's right edge, and one cut from it to Create All's
+    -- width, whose top edge is the row's middle.
+    local track = form and form.TrackRecipeCheckbox
+    if type(track) == "table" then
+        local reach = CreateFrame("Frame", nil, page)
+        reach:SetPoint("BOTTOMLEFT", createAll, "BOTTOMLEFT")
+        reach:SetPoint("TOPRIGHT", track, "RIGHT")
+        local row = CreateFrame("Frame", nil, page)
+        row:SetPoint("TOPLEFT", reach, "TOPLEFT")
+        row:SetPoint("BOTTOMRIGHT", createAll, "BOTTOMRIGHT")
+        addButton:SetPoint("LEFT", row, "TOPLEFT")
+        addButton:SetPoint("RIGHT", row, "TOPRIGHT")
+    else
+        addButton:SetPoint("BOTTOMLEFT", createAll, "TOPLEFT", 0, BUTTON_GAP)
+        addButton:SetPoint("BOTTOMRIGHT", createAll, "TOPRIGHT", 0, BUTTON_GAP)
+    end
     addButton:SetHeight(height)
     addButton:SetFrameLevel(level)
 

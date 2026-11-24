@@ -114,6 +114,7 @@ local function LoadProfessionWindow(env)
     local page = env.CreateFrame()
     frame.CraftingPage = page
     page.SchematicForm = env.CreateFrame()
+    page.SchematicForm.TrackRecipeCheckbox = env.CreateFrame()
     page.SchematicForm.GetRecipeInfo = function()
         local recipe = RECIPES[env.selected]
         return { recipeID = env.selected, name = recipe.name, icon = 132539, learned = true }

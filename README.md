@@ -183,7 +183,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 📜 A crafting queue across all your professions, right in the profession window: queue what you want to make, then craft it with one key.
 
-- **Add to queue** sits above Create All in the profession window, a red button as wide as Create All: it queues the selected recipe with the count in the count box (1 when the box is empty or off, as it is while the materials are short); adding a queued recipe again adds to its count
+- **Add to queue** sits above Create All in the profession window, level with the Track Recipe checkbox, a red button as wide as Create All: it queues the selected recipe with the count in the count box (1 when the box is empty or off, as it is while the materials are short); adding a queued recipe again adds to its count
 - **Open queue** next to it opens the queue panel
 - **The queue panel** opens when you ask for it: Open queue, `/fcq` or a key binding; with "Open queue window automatically" on (off by default) it also opens with the profession window and when you add a recipe. While the profession window is open it docks to its right (past its side tabs) and closes with it; without the window it is a free window you drag by its title
   - One list across every profession (10x Dusky Boots, 10x Hillman's Cloak, 60x Smoked Bear Meat, ...): icon, name, profession, the count (type a new one and press Enter), up / down and remove
