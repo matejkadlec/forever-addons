@@ -9,6 +9,7 @@
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
 - `services/` holds programs that run outside the game: `services/forever-market-feed` feeds ForeverMarket from the Battle.net API and has a deployed server part (see its guide)
 - `tests/` holds the tests of logic that runs without the game client (ForeverMarket's diff and records, shared with the feed service): `tests/run.sh`, details in [`tests/README.md`](tests/README.md)
+- `.github/` holds the workflows, the issue forms players report through and their labeler, and the pull request template ([GitHub Issues](#github-issues)); [`README.md`](README.md) is written for visitors (getting the AddOns, feedback, licenses), [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributors (rules for pull requests, the development setup)
 - There is no copy of the Blizzard UI source in this repository
 
 ## Guide Map
@@ -24,7 +25,7 @@ This file holds the rules for the whole repository. Before changing a subtree, a
 | [`services/forever-market-feed/AGENTS.md`](services/forever-market-feed/AGENTS.md) | The feed service: what it is, checks, deploy, documentation duties |
 | [`docs/AGENTS.md`](docs/AGENTS.md) | Rules for the documents in `docs/`; index in [`docs/README.md`](docs/README.md) |
 
-- [`SKILLS.md`](SKILLS.md) describes the reusable workflows; agent delivery (taking tickets from Jira to a merged pull request) follows [`docs/ai-development-flow.md`](docs/ai-development-flow.md) through the skills `flow1`, `flow2`, `qa1`, `qa2` and `finalize-pr` in `.claude/skills/`, with the read-only reviewer `.claude/agents/pr-reviewer.md`. Starting one of them authorizes its commits, pushes, pull requests, merges of its own pull requests and Jira updates
+- [`SKILLS.md`](SKILLS.md) describes the reusable workflows; agent delivery (taking tickets from Jira to a merged pull request) follows [`docs/ai-development-flow.md`](docs/ai-development-flow.md) through the skills `flow1`, `flow2`, `qa1`, `qa2` and `finalize-pr` in `.claude/skills/`, with the read-only reviewer `.claude/agents/pr-reviewer.md`. Starting one of them authorizes its commits, pushes, pull requests, merges of its own pull requests, Jira updates, and the comments on and closing of GitHub issues that [GitHub Issues](#github-issues) describes
 - [`CLAUDE.md`](CLAUDE.md) imports this file and adds what only Claude Code sessions need; the shared Claude Code configuration (hooks) is versioned in `.claude/`
 - Each folder with a nested guide also has a one line `CLAUDE.md` (`@AGENTS.md`), so Claude Code loads the guide when it works in that folder: add one next to every new nested guide
 - The agent guide files `AGENTS.md` and `CLAUDE.md` directly in an AddOn's folder (`addons/<AddOn>/`, `backports/<AddOn>/`) are not AddOn files: they are not synced into the game and need no version bump; anywhere deeper in an AddOn they count as AddOn files, so keep them at the top
@@ -39,7 +40,7 @@ This file holds the rules for the whole repository. Before changing a subtree, a
   - API documentation: `Interface/AddOns/Blizzard_APIDocumentationGenerated/` (functions, events, secret value flags, restrictions)
   - Camelot overrides: `Camelot/` folders and `[Game]` entries in Blizzard `.toc` files take precedence over `Mainline/`
 - Read `docs/forever-api-notes.md` before writing code, it lists verified Forever-specific behavior
-- IMPORTANT: Keep this file, the nested guides and `README.md` updated when AddOns are added, removed, renamed, backported, or when user-facing behavior, slash commands, settings, installation/sync behavior, screenshots, or documentation-relevant details change
+- IMPORTANT: Keep this file, the nested guides, `README.md` and `CONTRIBUTING.md` updated when AddOns are added, removed, renamed, backported, or when user-facing behavior, slash commands, settings, installation/sync behavior, screenshots, or documentation-relevant details change
 
 ### Interpretation Rules
 
@@ -107,7 +108,7 @@ These apply to all Lua in `addons/` and `backports/`.
 | AddOn | Slash command | Notes |
 | ----- | ------------- | ----- |
 | Quartz | `/quartz`, `/q3` | Quartz 3.7.9 cast bars ported to Forever; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
-| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based), version `v2.6.2-forever3`; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
+| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based), version `v2.6.2-forever5`; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
 
 ---
 
@@ -214,11 +215,46 @@ Nothing here runs the game: `luac5.1 -p` proves syntax only and `tests/run.sh` c
   - When a task needs Jira and the tools are missing, wait and check again every minute, and start the Jira work as soon as they are there
   - Never report Jira as unavailable and never skip or postpone the Jira step because of a first failed check; work that needs no Jira can go on while waiting
   - When the tools are still missing after 10 checks (10 minutes), tell the maintainer and keep checking every minute
-- The project holds several AddOns: label every ticket with its AddOn (`forever-marketplace` for ForeverMarket, `forever-camp-features` for ForeverCampFeatures, `forever-craft-queue` for ForeverCraftQueue; `tooling` for work on the repository itself); a ticket whose pull request waits for his in-game test also carries `in-game-qa` (see In-Game QA); a ticket that waits for the maintainer's decision carries `decision` and is never implemented before he has decided
+- The project holds several AddOns: label every ticket with its AddOn's label ([AddOn Labels](#addon-labels); `tooling` for work on the repository itself, `all-addons` for work on every first-party AddOn at once); a ticket whose pull request waits for his in-game test also carries `in-game-qa` (see In-Game QA); a ticket that waits for the maintainer's decision carries `decision` and is never implemented before he has decided
 - Work types: Epic (a larger goal), Task (a change or an analysis; analyses start with `Analysis:`), Bug, Subtask; label `fable-5.2` = must be done with the Fable 5.2 model
 - Statuses: To Do -> In Progress (work started) -> In Review (pull request open, under review) -> Done (merged)
 - Work on a ticket happens on a branch named after it (for example `frv-13-table-batch`); commit messages and the pull request title start with the key (`FRV-13: ...`), the pull request links the ticket
 - When the maintainer asks for something in the chat, file it as a ticket first (or with the work) and keep it in step with the pull request
+
+### AddOn Labels
+
+Jira tickets and GitHub issues use the same label for an AddOn:
+
+| AddOn | Label |
+| ----- | ----- |
+| ForeverTweaks | `forever-tweaks` |
+| ForeverTrackingAid | `forever-tracking-aid` |
+| ForeverRangeIndicator | `forever-range-indicator` |
+| ForeverHawkTimer | `forever-hawk-timer` |
+| ForeverMarket | `forever-marketplace` |
+| ForeverCampFeatures | `forever-camp-features` |
+| ForeverCraftQueue | `forever-craft-queue` |
+| Quartz | `quartz` |
+| Skada | `skada` |
+
+- A label is the AddOn's folder name in lower case with hyphens between the words; `forever-marketplace` is ForeverMarket's older name and stays
+- A new AddOn gets its label in the same pull request that adds it, in four places, and `tests/run.sh` fails until the first three agree with the AddOn folders:
+  - its row in this table
+  - its option in the `AddOn` dropdown of both issue forms, `.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml` (A to Z, the feature form's `A new AddOn idea` last)
+  - its entry in `ADDON_LABELS` of `.github/scripts/issue_labels.py`
+  - the GitHub label itself, which lives outside the repository: `gh label create <label> --color <hex> --description "<AddOn>: <what it is>"` when the pull request is published (a color no other label has)
+- A renamed or removed AddOn changes the same places (`gh label edit`, or `gh label delete` once no open issue carries it)
+
+### GitHub Issues
+
+Players report bugs and ideas as GitHub issues through the two issue forms (`.github/ISSUE_TEMPLATE/`, blank issues are off), not in CurseForge comments; the `Issue labels` workflow gives each one its AddOn's label and `bug` or `enhancement`. Jira stays the one place where work is planned; the board is private, an issue is public.
+
+1. **Ticket:** the maintainer, or an agent he asks, reads the new issue and creates its FRV ticket in the usual format ([flow document, Issues](docs/ai-development-flow.md#issues)): Bug for a bug the issue shows, else Task; the AddOn's label; the issue's URL in the description (`GitHub issue: https://github.com/matejkadlec/forever-addons/issues/<n>`) with the reporter's facts copied in (versions, steps, errors), since the issue can change
+2. **Key on the issue:** the issue gets a comment with the ticket's key and nothing else from Jira (`Tracked as FRV-<n>.`); an agent's comment opens with `🤖`, as its Jira comments carry a marker
+3. **Closed when Done:** the pull request of the ticket says `Closes #<n>` in its description, so GitHub closes the issue at the merge, when the ticket goes to Done; a ticket that reaches Done without that merge (an analysis, a fix in another pull request) gets its issue closed by hand with a comment saying what was done
+- **A wrong AddOn:** correct it by editing the value under `### AddOn` in the issue's body; the labeler then moves the label. An AddOn label moved by hand alone goes back at the reporter's next edit of the body (the labeler cannot tell it from a label a dropped run left); other labels (`bug` to `question`, or a removed AddOn label) stay as he set them
+- An issue that becomes no ticket (a duplicate, an answered question, a request that will not be done) is answered and closed on GitHub with the reason; it needs no ticket
+- An agent comments on or closes an issue only within these steps, and never opens issues for its own follow-ups: those are FRV tickets ([flow document, Issues](docs/ai-development-flow.md#issues))
 
 ---
 

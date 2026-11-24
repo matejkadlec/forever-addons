@@ -18,7 +18,7 @@ The run is not finished at a clean review or a green check. It ends only at one 
 
 - One pull request in `matejkadlec/forever-addons`. Before every write check `git remote get-url origin`.
 - **Only your own pull requests are merged:** GitHub shows `matejkadlec` as the author, the head branch is in this repository (not a fork), and the Claude Code attribution ends the description. Anyone else's pull request is reviewed on request and reported, never fixed, pushed to or merged.
-- It fixes verified findings on the branch, pushes that branch, comments on the pull request, merges, follows the feed deploy run and keeps the tickets in step. It never deploys by hand, re-runs the deploy workflow, touches the feed's host, weakens a check, or uses `--no-verify`, `--admin` or auto-merge.
+- It fixes verified findings on the branch, pushes that branch, comments on the pull request, merges, follows the feed deploy run, keeps the tickets in step and closes the GitHub issues they name (`AGENTS.md`, GitHub Issues). It never deploys by hand, re-runs the deploy workflow, touches the feed's host, weakens a check, or uses `--no-verify`, `--admin` or auto-merge.
 - Never mention a bot account (`@...`) on the pull request: GitHub treats a mention as a request to it.
 - Never read or print `.env` files, tokens or the feed server's private configuration, and never put them into a review bundle, a comment or a report. The one exception is `.env.sync-addons`, which holds only the game path: the sync and the saved data backup source it (`AGENTS.md`, Sync).
 
@@ -62,7 +62,7 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 
 ## After the merge
 
-1. **Tickets:** each one gets a `🤖 Claude QA` line with the merge commit and moves to Done; the label `in-game-qa` is gone.
+1. **Tickets:** each one gets a `🤖 Claude QA` line with the merge commit and moves to Done; the label `in-game-qa` is gone. A GitHub issue a ticket names is closed by the merge (`Closes #<n>`); one still open is closed with a `🤖` comment naming the merge (`AGENTS.md`, GitHub Issues).
 2. **Feed deploy:** when the merge touched the feed's paths, find the `Market feed` run for the merge commit (`gh run list --workflow market-feed.yml --branch master`), follow it to its end and report the result. A failed run is reported to the maintainer at once with the failing step; nothing is re-run and the host is not touched.
 3. **Cleanup:** remove the batch's worktree and local branch when they hold no uncommitted changes (`AGENTS.md`, Branches and Worktrees: your own, or the batch you merged).
 

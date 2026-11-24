@@ -1,0 +1,37 @@
+name: Issue labels
+
+# Issue forms cannot set a label from a dropdown: this labels a new or edited issue with the AddOn
+# chosen in its form's "AddOn" dropdown, and bug / enhancement by its form
+# (.github/scripts/issue_labels.py, tested by tests/run.sh). The issue body is only parsed as data;
+# the labels come from the script's own list.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions: {}
+
+# One run per issue at a time; GitHub keeps only the newest waiting run, so after several quick
+# edits only the last one runs, and the script then compares with the labels the issue has
+concurrency:
+  group: issue-labels-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  label:
+    name: Label
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Label the issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/issue_labels.py

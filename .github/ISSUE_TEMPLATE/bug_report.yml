@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in one of the AddOns does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! One bug per issue, please, and have a quick look at the [open issues](https://github.com/matejkadlec/forever-addons/issues) first: maybe it is reported already.
+  # The options are the AddOn folders of addons/ and backports/; the "Issue labels" workflow sets
+  # the AddOn's label from it (.github/scripts/issue_labels.py), tests/run.sh checks the list
+  - type: dropdown
+    id: addon
+    attributes:
+      label: AddOn
+      description: The AddOn the bug is in (its folder name in `Interface/AddOns`).
+      options:
+        - ForeverCampFeatures
+        - ForeverCraftQueue
+        - ForeverHawkTimer
+        - ForeverMarket
+        - ForeverRangeIndicator
+        - ForeverTrackingAid
+        - ForeverTweaks
+        - Quartz
+        - Skada
+    validations:
+      required: true
+  - type: input
+    id: addon-version
+    attributes:
+      label: AddOn version
+      description: "In the game: `Esc` -> AddOns, then rest the mouse on the AddOn; its tooltip shows the version. It is also the `## Version:` line of the AddOn's `.toc` file."
+      placeholder: "1.1.2"
+    validations:
+      required: true
+  - type: input
+    id: game-version
+    attributes:
+      label: Game version
+      description: The version at the bottom left of the login screen.
+      placeholder: "1.60.1.71037"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, as exactly as you can (the text of a message, a wrong number, what did not show up, ...).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Where you were (zone, class, in a fight, at the Auction House, ...) and what you did, step by step. If you can, try it with only this AddOn enabled.
+      placeholder: |
+        1. Log in on a Hunter
+        2. Open ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: lua-errors
+    attributes:
+      label: Lua errors
+      description: |
+        The whole error with its stack, when the game showed one.
+        - The game hides Lua errors by default: type `/console scriptErrors 1` in the chat and do the steps again, the error window then shows the error (`/console scriptErrors 0` hides errors again)
+        - With BugSack (and BugGrabber) installed, open BugSack and copy the error from there
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here or paste them. A screenshot of the problem often says more than its description.

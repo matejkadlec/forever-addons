@@ -16,7 +16,7 @@
   - Backported AddOns keep their original chat/message style unless intentionally fixed
   - Backported AddOns keep their original slash commands and parser behavior unless the user asks to normalize them
 - Do not move backported AddOns into `addons/` or make first-party AddOns depend on them
-- Respect the original license; for GPL AddOns mark every modified file with a one line `-- Modified ... for the unofficial WoW: Forever port: ...` comment below the license header
+- Respect the original license and keep its text in the AddOn's folder (Quartz `GPLv2.txt`, Skada `LICENSE`), where the README's Licenses section names it; for GPL AddOns mark every modified file with a one line `-- Modified ... for the unofficial WoW: Forever port: ...` comment below the license header
 - When adding or updating a backported AddOn `.toc`, keep original attribution and mark the backport:
   - `## Author: Original Author (backported by Matej Kadlec)`
   - `## X-Repository: https://github.com/matejkadlec/forever-addons`
@@ -28,7 +28,7 @@
 
 ### Quartz (`/quartz`, `/q3`)
 
-- Quartz 3.7.9 cast bars ported to Forever
+- Quartz 3.7.9 cast bars ported to Forever, GPL v2 (`GPLv2.txt`)
 - Swing module rewritten on `PLAYER_SWING` with an Auto Shot wind-up zone
 - Target, Focus, Buff, Interrupt and EnemyCasts disable themselves when the client hides their data
 - Tradeskill Merge learns a batch's size from `C_TradeSkillUI.CraftRecipe` / `CraftEnchant` / `CraftSalvage` (secure hooks) instead of Blizzard's `ProfessionsFrame.CraftingPage:CreateInternal`, so a batch another AddOn starts (ForeverCraftQueue's Process queue, FRV-131) shows one bar with the total time like Create All; before, such a batch kept the last count and the bar ran past its end ("-15.9 / 3.0")
@@ -46,5 +46,6 @@
   - `/skada debug` before the first fight of a session prints both self-test results
   - Totals still get condensed when only small rates fail the format check
   - `GetSetTotal` returns the secret session total in combat instead of the first source's amount (`ModuleBase.lua`)
-- Version `v2.6.2-forever3`, bump it in all three tocs (the hook only checks `Skada.toc`)
+- `LICENSE` (FRV-141): the MIT text for the license Skada declares in its `.toc` (`## X-License: MIT/X`); upstream ships no license file, so it names Zarnivoop and the Skada contributors for Skada and the maintainer for the port's changes; it does not cover the bundled fonts (Cinzel and Marcellus: SIL OFL 1.1, `media/fonts/README-fonts.md`; ABF, Accidental Presidency, Adventure, Avqest and VeraSe come with upstream Skada, which names no license for them)
+- Version `v2.6.2-forever5`, bump it in all three tocs (the hook only checks `Skada.toc`)
 - `X-Curse-Project-ID`/`X-Wago-ID` were removed so AddOn managers do not replace the port

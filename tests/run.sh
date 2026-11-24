@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs every test that needs no game client: the Lua tests (lua5.1), the feed service's parity
 # test and the parity test of fm_analyze.py's reader of your listings (python3) on the shared
-# fixtures in tests/fixtures/. Every part always runs; the exit code is non-zero when any fails.
+# fixtures in tests/fixtures/, and the issue labeler's test (python3). Every part always runs;
+# the exit code is non-zero when any fails.
 # Usage: tests/run.sh (from anywhere in the repository)
 set -uo pipefail
 
@@ -24,6 +25,9 @@ python3 -B tests/feed/test_feed.py || status=1
 
 echo "== Listings parity tests"
 python3 -B tests/tools/test_listings.py || status=1
+
+echo "== Issue labeler tests"
+python3 -B tests/github/test_issue_labels.py || status=1
 
 if [ "$status" -ne 0 ]; then
     echo "Tests FAILED" >&2

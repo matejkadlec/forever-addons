@@ -24,6 +24,10 @@ The steps below are what those skills do, for work done without them.
 7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); a change that needs the maintainer's in-game test waits for his answer first; move the ticket to Done and remove your worktree
 8. **End the response** with What changed, What to test, Verification and Tickets ([Communication Rules](AGENTS.md#ending-a-response))
 
+## Take in a GitHub issue
+
+When the maintainer asks: read the issue (its form's AddOn, versions, steps, errors), create its FRV ticket with the AddOn's label and the issue's URL, comment the key on the issue, and deliver the ticket as above with `Closes #<n>` in the pull request ([GitHub Issues](AGENTS.md#github-issues)). A duplicate or a question is answered and closed on GitHub, without a ticket.
+
 ## Verify an API
 
 1. Clone or update `untracked/wow-ui-source` (`forever` branch, [Core Rules](AGENTS.md#core-rules-very-important))
@@ -38,11 +42,11 @@ Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](
 
 ## Add a first-party AddOn
 
-Name, shortname, required `.toc` fields, icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`. A new AddOn needs a game restart, not `/reload`, and the maintainer's in-game test before the merge.
+Name, shortname, required `.toc` fields, icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`, and give it its label in Jira and on GitHub, its option in both issue forms and in the labeler ([AddOn Labels](AGENTS.md#addon-labels)); `tests/run.sh` checks the forms and the labeler. A new AddOn needs a game restart, not `/reload`, and the maintainer's in-game test before the merge.
 
 ## Fix or add a backported AddOn
 
-Read [backports/AGENTS.md](backports/AGENTS.md): conservative compatibility fixes, original name, commands and style kept, license respected, `.toc` attribution marked. Record the port change in that guide's port details and in `README.md` under `Backported AddOns`.
+Read [backports/AGENTS.md](backports/AGENTS.md): conservative compatibility fixes, original name, commands and style kept, license respected, `.toc` attribution marked. Record the port change in that guide's port details and in `README.md` under `Backported AddOns`. A new backport keeps its license file in its folder (README, Licenses) and gets its label and issue form options like a new first-party AddOn ([AddOn Labels](AGENTS.md#addon-labels)).
 
 ## Change the feed service
 

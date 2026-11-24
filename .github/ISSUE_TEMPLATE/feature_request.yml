@@ -1,0 +1,45 @@
+name: Feature request
+description: An idea for one of the AddOns, or for a new AddOn
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! One idea per issue, please, and have a quick look at the [open issues](https://github.com/matejkadlec/forever-addons/issues) first: maybe someone asked for it already. An AddOn you would rather talk over privately, or have made for you, goes to the email contact on the "New issue" page instead.
+  # The options are the AddOn folders of addons/ and backports/ plus the new AddOn option; the
+  # "Issue labels" workflow sets the AddOn's label from it, tests/run.sh checks the list
+  - type: dropdown
+    id: addon
+    attributes:
+      label: AddOn
+      description: The AddOn your idea is for, or "A new AddOn idea".
+      options:
+        - ForeverCampFeatures
+        - ForeverCraftQueue
+        - ForeverHawkTimer
+        - ForeverMarket
+        - ForeverRangeIndicator
+        - ForeverTrackingAid
+        - ForeverTweaks
+        - Quartz
+        - Skada
+        - A new AddOn idea
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What the AddOn should do, and where in the game you would use it.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?
+      description: The problem it solves, or what you do today without it.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, sketches, an AddOn of another WoW version that does something similar, ...

@@ -2,7 +2,7 @@
 
 ![Language](https://img.shields.io/badge/language-Lua-2C2D72.svg)
 ![WoW Version](https://img.shields.io/badge/WoW-Forever-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](#-licenses)
 ![Status](https://img.shields.io/badge/status-active-brightgreen.svg)
 
 Collection of custom World of Warcraft AddOns developed for **WoW: Forever**, plus third-party AddOns backported to it.
@@ -13,8 +13,19 @@ A big thanks goes to the maintainers of the [`wow-ui-source`](https://github.com
 
 First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list they share one collapsible category (each with its own icon, right-click the category to enable/disable all of them) and their in-game settings live under `Esc -> Options -> AddOns -> Jim's Forever AddOns`.
 
+## 📥 Get the AddOns
+
+Every AddOn is standalone: take only the ones you want.
+
+- **CurseForge:** ForeverCampFeatures is coming to CurseForge soon, its link will be here; the CurseForge app then installs and updates it for you
+- **GitHub Releases:** coming soon as well, a zip of each new AddOn version on this repository's Releases page
+- **From this repository, today:** `Code` -> `Download ZIP` at the top of this page (or `git clone https://github.com/matejkadlec/forever-addons.git`), then copy the AddOn folders as [Installation](#️-installation) shows. This is the newest code of every AddOn
+
+Found a bug or have an idea? See [Feedback](#-feedback).
+
 ## 📋 Table of Contents
 
+- [Get the AddOns](#-get-the-addons)
 - [Available AddOns](#-available-addons)
   - [ForeverTweaks](#forevertweaks)
   - [ForeverTrackingAid](#forevertrackingaid)
@@ -29,7 +40,8 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 - [Installation](#️-installation)
 - [Feedback](#-feedback)
 - [Contributing](#-contributing)
-  - [Development Sync](#️-development-sync)
+- [For developers](#-for-developers)
+- [Licenses](#-licenses)
 
 ## 📦 Available AddOns
 
@@ -129,7 +141,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - The server's price is checked before any gold leaves; only stackable items (commodities); the settings panel switches the sounds off or asks for a second wheel step before every purchase
   - From the market table: with the AH open Shift-click a row, or use Snipe in its right-click menu (also away from the AH): a pick snipes every AH purchase of its plan with its units, other rows their main material at the table's price
 - Market table `/fm`, the key `U` (or `FM: table` at the AH), refreshed after every deep scan:
-  - **Picks**: what to do now, one 8h listing per pick, ranked by expected profit per gold it needs (the formula, with its constants, examples and backtest: [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)): a summary line with your gold, the budget, the minimum profit, what the plan needs and what it should earn (with fewer picks than it may have, why: "3 of 5 picks (nothing else earns enough after these)"), then the plan ("Plan, fitting parameters") and, in a section of its own, further good picks ("Also good, but out of scope"), each judged on its own and sized to take the place of a plan pick, its tooltip starting with why it is not in the plan (which plan pick takes the materials it would use and what it would pay after it) and its steps marking your units a plan pick uses; each pick shows its type (Craft and sell, Craft and wait, Learn, Vendor, Flip, Stock, Stock, wait), the gold it needs, what one 8h listing should earn (about 75% of an item's units sell, 40% of a commodity's; what doesn't sell loses its deposit), the item's On AH (yours in brackets), C/8h and C/24h, and last the confidence, and below it the steps in order (learn, use your own materials, buy, make, wait, list); reasons in the tooltip (and why other rows are not picks); the budget row "Picks [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]" sets how many picks the plan has at most (default 3), each with a fair share of what is left, its budget: X % of your gold (default 90, at most 90), an amount you type in (capped at 90% of your gold, unless "Allow picks budget over current gold" in the settings panel lets the plan go beyond it, % up to 999) or both (by default the plan stays within both, the smaller), and the minimum profit per item of a pick: P % of what one unit costs you (default 10%), an amount (default 10c) or both (by default a pick meeting one of them passes, the lower); how both combine is a setting each; "Gold of all characters" (a Picks filter) counts your other characters' gold too, as last recorded, and the summary's tooltip lists each; the plan uses the materials in your bags and bank first and buys only the rest ("use 9 Heavy Leather from your bags"; a material an earlier pick uses says so: "30 from your bank (of your 150, pick #1 uses 120)"), follows what you put into or take out of your bags and bank within seconds while the plan is not locked, and units of a pick's item you already hold are part of it (it makes that many fewer; when they cover it, the pick stays as "Stock": list them), counted at what you paid for them, as the item tooltip does; a pick's batch is what one 8h listing sells: your own record first (the most of your units that sold within 8 hours of a post of yours in the last 3 days, a quarter more when they ran out, three quarters when some were left: "Proven: 25 sold within 8h, your units ran out: one listing 31 (x 1.25)"), else a first batch (an item half the buyers of 8 hours, at least 10; a commodity 6% of them and at most 2% of C/24h by default, a setting), half of it when the margin is under the deposit, twice for a commodity whose margin is 4 deposits or more, never more than a share of what circulates of the item in a day (C/24h, default 25%) and 100 units (200 of a commodity), less what you already list on all your characters; the tooltip shows it ("C/24h 43, cap 11 (25%), you list 0 -> make 11"); when the price is 15%+ under its usual level, was back near it within the last day and should come back, a craft becomes "Craft and wait" (make now while its materials are 10%+ under their usual cost, list later at 95% of the usual price: "wait until the price is 17s 52c (estimated 12h, 81% within 2 days; waits until 06:52 tomorrow at the latest)"), units you hold "Stock, wait", and the tooltip's "Why wait" says why and until when; every plan is logged for a later check of the order against what sold; a material you can craft yourself is bought or crafted run by run: bought while buying it costs at most a little more than crafting it for the crafting time that saves (2% more per second of crafting one unit by default, a setting; a 3 s craft allows 6%), up the AH ladder, the rest crafted, and the tooltip says why ("buying 4% dearer, saves 3s per unit", "buying 17% dearer"); "Lock plan after refresh" (on by default) keeps the plan while you buy, craft and post it, until you press Refresh or change a Picks setting, while the other tabs keep refreshing (Refresh's tooltip says when your bags or bank changed since); the profession, the filters and the minimum profit per item change the plan itself, they never just hide picks; "Continent" and "Zone" (right of "Use global filters") plan vendor flips only from vendors there (crafts and AH flips stay), greyed out while "Exclude vendor flips" is on
+  - **Picks**: what to do now, one 8h listing per pick, ranked by expected profit per gold it needs (the formula, with its constants, examples and backtest, is written up in the maintainer's internal notes): a summary line with your gold, the budget, the minimum profit, what the plan needs and what it should earn (with fewer picks than it may have, why: "3 of 5 picks (nothing else earns enough after these)"), then the plan ("Plan, fitting parameters") and, in a section of its own, further good picks ("Also good, but out of scope"), each judged on its own and sized to take the place of a plan pick, its tooltip starting with why it is not in the plan (which plan pick takes the materials it would use and what it would pay after it) and its steps marking your units a plan pick uses; each pick shows its type (Craft and sell, Craft and wait, Learn, Vendor, Flip, Stock, Stock, wait), the gold it needs, what one 8h listing should earn (about 75% of an item's units sell, 40% of a commodity's; what doesn't sell loses its deposit), the item's On AH (yours in brackets), C/8h and C/24h, and last the confidence, and below it the steps in order (learn, use your own materials, buy, make, wait, list); reasons in the tooltip (and why other rows are not picks); the budget row "Picks [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]" sets how many picks the plan has at most (default 3), each with a fair share of what is left, its budget: X % of your gold (default 90, at most 90), an amount you type in (capped at 90% of your gold, unless "Allow picks budget over current gold" in the settings panel lets the plan go beyond it, % up to 999) or both (by default the plan stays within both, the smaller), and the minimum profit per item of a pick: P % of what one unit costs you (default 10%), an amount (default 10c) or both (by default a pick meeting one of them passes, the lower); how both combine is a setting each; "Gold of all characters" (a Picks filter) counts your other characters' gold too, as last recorded, and the summary's tooltip lists each; the plan uses the materials in your bags and bank first and buys only the rest ("use 9 Heavy Leather from your bags"; a material an earlier pick uses says so: "30 from your bank (of your 150, pick #1 uses 120)"), follows what you put into or take out of your bags and bank within seconds while the plan is not locked, and units of a pick's item you already hold are part of it (it makes that many fewer; when they cover it, the pick stays as "Stock": list them), counted at what you paid for them, as the item tooltip does; a pick's batch is what one 8h listing sells: your own record first (the most of your units that sold within 8 hours of a post of yours in the last 3 days, a quarter more when they ran out, three quarters when some were left: "Proven: 25 sold within 8h, your units ran out: one listing 31 (x 1.25)"), else a first batch (an item half the buyers of 8 hours, at least 10; a commodity 6% of them and at most 2% of C/24h by default, a setting), half of it when the margin is under the deposit, twice for a commodity whose margin is 4 deposits or more, never more than a share of what circulates of the item in a day (C/24h, default 25%) and 100 units (200 of a commodity), less what you already list on all your characters; the tooltip shows it ("C/24h 43, cap 11 (25%), you list 0 -> make 11"); when the price is 15%+ under its usual level, was back near it within the last day and should come back, a craft becomes "Craft and wait" (make now while its materials are 10%+ under their usual cost, list later at 95% of the usual price: "wait until the price is 17s 52c (estimated 12h, 81% within 2 days; waits until 06:52 tomorrow at the latest)"), units you hold "Stock, wait", and the tooltip's "Why wait" says why and until when; every plan is logged for a later check of the order against what sold; a material you can craft yourself is bought or crafted run by run: bought while buying it costs at most a little more than crafting it for the crafting time that saves (2% more per second of crafting one unit by default, a setting; a 3 s craft allows 6%), up the AH ladder, the rest crafted, and the tooltip says why ("buying 4% dearer, saves 3s per unit", "buying 17% dearer"); "Lock plan after refresh" (on by default) keeps the plan while you buy, craft and post it, until you press Refresh or change a Picks setting, while the other tabs keep refreshing (Refresh's tooltip says when your bags or bank changed since); the profession, the filters and the minimum profit per item change the plan itself, they never just hide picks; "Continent" and "Zone" (right of "Use global filters") plan vendor flips only from vendors there (crafts and AH flips stay), greyed out while "Exclude vendor flips" is on
   - **Filters** (Picks, Craft, Learn): right of the search box, "Filters" opens the tab's own filters and "Global filters" one shared set for every tab with "Use global filters" checked, in one window you can keep open beside the table (every change applies at once, X closes it, Esc closes it with the table, it opens where you left it): "Include not learned recipes", "Over character level" (recipes that need a higher character level than yours, up to a cap; hidden by default), "Over skill level" (up to 10 points above your skill by default), and on Picks "Exclude vendor flips", "Exclude already listed items" (with a count and a value threshold), "Exclude stock for crafting" (buy every material instead of using yours) and "Gold of all characters" (the budget counts the gold of all your characters)
   - **Favorites**: your favorite items with their best use, price and market numbers; "Search all at the AH" (right of the search box) searches every favorite at once: in Auctionator's Shopping tab when Auctionator is loaded, else in Blizzard's Buy list
   - **Ignored (n)**: every item you ignored, a table like Favorites with a grey "(ignored)" after each name; ignored items show in no other tab and never become picks, and "Stop ignoring this item" in its right-click menu brings one back
@@ -242,75 +254,53 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
 
 ## ⚙️ Installation
 
-1. Download the latest release
-2. Extract the AddOn folders from the `addons/` and/or `backports/` directory to your `World of Warcraft/_forever_/Interface/AddOns` directory
-3. Ensure AddOn names match exactly (case-sensitive)
-4. Restart WoW if it was running
+1. Get the AddOn ([Get the AddOns](#-get-the-addons)); the CurseForge app installs it by itself, the steps below are for a zip
+2. Find the AddOn's folder, for example `ForeverMarket`:
+   - in a release zip it is the zip's only folder
+   - in the repository's zip (`forever-addons-master.zip`) my AddOns are in `addons/`, the backported ones in `backports/`
+3. Copy that folder, not the `addons` or `backports` folder around it, into `World of Warcraft/_forever_/Interface/AddOns`, so that you get `Interface/AddOns/ForeverMarket/ForeverMarket.toc`
+4. Keep the folder's name exactly as it is (it is case-sensitive)
+5. Restart the game if it was running: it finds new AddOns only at startup
 
-All AddOns are standalone, install only the ones you want to use.
+The `AGENTS.md` and `CLAUDE.md` files in some AddOn folders are notes for the developers' AI agents ([For developers](#-for-developers)), not part of the AddOn; the game ignores them.
 
 ## 💡 Feedback
 
-This project is under active development as of November 2026.
+This project is under active development as of November 2026. Bugs and ideas go to GitHub issues, also for an AddOn you got from CurseForge (please not into CurseForge comments, they are easy to miss):
 
-- If you encounter a bug or have a feature request for an existing AddOn, open a GitHub issue
-- The maintainer tracks the work in Jira (project FRV, https://envelopment.atlassian.net/jira/software/projects/FRV/boards/100/backlog)
-- If you have an AddOn idea, you can email me at `info@matejkadlec.cz`
-  - If I find it interesting, there's a good chance I will create it for you for a voluntary donation
-  - If I don't find it interesting, I can still do it for a fixed price (I can provide an invoice)
-- Feel free to use any of my AddOns in your project, in that case a link back to this repository is appreciated
+- 🐞 **A bug:** [report it](https://github.com/matejkadlec/forever-addons/issues/new?template=bug_report.yml); the form asks for the AddOn and game versions, what happened and how to make it happen again, and shows how to get the Lua error
+- ✨ **An idea:** [request a feature](https://github.com/matejkadlec/forever-addons/issues/new?template=feature_request.yml), for an AddOn of this repository or for a new one
+- Have a look at the [open issues](https://github.com/matejkadlec/forever-addons/issues) first: maybe someone reported it already (a 👍 on it helps too)
+
+The maintainer tracks the work internally: when an issue is picked up it gets a comment with its tracking key, and it is closed when the fix or the feature is merged.
+
+If you have an AddOn idea you would rather talk over privately, you can email me at `info@matejkadlec.cz`:
+
+- If I find it interesting, there's a good chance I will create it for you for a voluntary donation
+- If I don't find it interesting, I can still do it for a fixed price (I can provide an invoice)
 
 ## 🤝 Contributing
 
-- Contributors are welcome, just create a PR and assign it to me for a review
-- Some general rules for all PRs, as we don't want any spaghetti code:
-  - Follow Lua language conventions and WoW AddOn development best practices
-    - If you code in VSCode, I highly recommend the [WoW Bundle](https://marketplace.visualstudio.com/items?itemName=Septh.wow-bundle) extension
-  - Use PascalCase for function names and camelCase for variable names
-  - Comment your code
-  - Bump the `## Version:` of every AddOn you change
-  - Update this file so the description corresponds to the latest AddOn version
-- Additional rules for **completely new** AddOns for this repository:
-  1. Follow the naming format `Forever[AddOnName]` for consistency
-  2. Each AddOn must be fully standalone with no cross-AddOn dependencies
-  3. Required `.toc` file attributes:
-     ```ini
-     ## Category: Jim's Forever AddOns
-     ## IconTexture: Interface\Icons\{IconName}
-     ## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
-     ## X-Repository: https://github.com/matejkadlec/forever-addons
-     ```
+Contributions are welcome. Ideas and bugs go to an issue first ([Feedback](#-feedback)), so we agree on a change before anyone writes it; pull requests are welcome after that. The rules, the checks and the development setup (syncing the AddOns into your game) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- Otherwise, there are no rules for branch names etc., just make it that the commit messages make sense
+## 🧰 For developers
 
-### 🔄️ Development Sync
+This repository is developed with AI agents (Claude Code): the maintainer plans the work and tests the AddOns in the game, agents write most of the code, and an independent agent reviews every pull request before its merge. The files you may wonder about are their guides:
 
-AI agents working on this repository follow `AGENTS.md` (the shared rules for the whole repository) and the nested `AGENTS.md` guide of the folder they change (`addons/`, `addons/ForeverMarket/`, `backports/`, `services/forever-market-feed/`, `docs/`). `CLAUDE.md` imports `AGENTS.md` and adds the Claude Code specifics, `SKILLS.md` lists the workflows, `docs/README.md` indexes the documentation, and `.claude/` holds the shared Claude Code settings (a hook that checks every edited Lua file with `luac5.1 -p`), the delivery skills `flow1`, `flow2`, `qa1`, `qa2` and `finalize-pr` (their rules are in `docs/ai-development-flow.md`) and the read-only `pr-reviewer` agent that reviews every pull request before its merge. Agents sync every changed AddOn into the game automatically at the end of each change. Before a build that migrates, repairs or cleans up saved data reaches the game, they copy that AddOn's SavedVariables (`WTF/Account/...`) into the main checkout's git-ignored `untracked/backups/<branch>/<date-time>/` and keep every copy; a run without the game folder asks you to copy the file instead. `tests/run.sh` runs the tests of the logic that needs no game client (`lua5.1` and `python3`, see `tests/README.md`); the `Tests` workflow runs it on every pull request.
+- [`AGENTS.md`](AGENTS.md), and the `AGENTS.md` (with a one line `CLAUDE.md`) of some folders: the rules for the whole repository and for each part of it; the rules for code apply to human contributors too
+- [`CLAUDE.md`](CLAUDE.md) and `.claude/`: what Claude Code needs on top of them (its settings, hooks, delivery skills and the reviewer agent); [`SKILLS.md`](SKILLS.md) lists the workflows
+- [`docs/`](docs/README.md): the documents behind them, among them [`docs/forever-api-notes.md`](docs/forever-api-notes.md), what was verified about Forever's AddOn API (useful to anyone writing AddOns for Forever)
+- `tests/` holds the tests of the logic that runs without the game client, `services/forever-market-feed/` the server part of ForeverMarket's price feed
 
-If you are developing the AddOns yourself, you can sync them into your WoW: Forever client with the helper script:
+## 📜 Licenses
 
-1. Copy `.env.sync-addons.example` to `.env.sync-addons`
-2. Set `SYNC_ADDONS_DEST_DIR` to the absolute path of your `_forever_/Interface/AddOns` folder, in quotes
-   - WSL example: `SYNC_ADDONS_DEST_DIR="/mnt/c/Program Files (x86)/World of Warcraft/_forever_/Interface/AddOns"`
-3. Decide whether `SYNC_ADDONS_AUTO_INSTALL_RSYNC` should be `true` or `false`
-   - Set it to `true` if you want the script to try installing `rsync` automatically with `apt-get`
-   - Set it to `false` if you prefer the script to skip installation attempts and use `cp` fallback when needed
-4. Run `./scripts/sync-addons.sh` to sync every AddOn from `addons/` and `backports/`, or `./scripts/sync-addons.sh ForeverTweaks Quartz` to sync only some of them
-   - The agent guide files `AGENTS.md` and `CLAUDE.md` at an AddOn's top level are not copied into the game
-   - From a git worktree, point the script at your main checkout's file: `ENV_FILE=/path/to/forever-addons/.env.sync-addons ./scripts/sync-addons.sh`
-
-Optional variables:
-
-- `SYNC_ADDONS_SOURCE_DIR` if your source AddOns directory lives somewhere else (it replaces both `addons/` and `backports/`)
-- `SYNC_ADDONS_RSYNC_BIN` if you want to point to a specific `rsync` binary
-
-Optional Git hooks (`git config core.hooksPath .githooks`):
-
-- `pre-commit` rejects commits that change an AddOn without bumping its `## Version:` (the agent guide files `AGENTS.md` and `CLAUDE.md` at an AddOn's top level do not count)
-- `post-commit`, `post-merge`, `post-rewrite` and `post-checkout` automatically sync the AddOns changed by a commit, a pull (merge or rebase) or a branch switch (only when `.env.sync-addons` exists)
-  - AddOns that were removed or renamed in the repository have to be deleted from your AddOns folder manually, the hooks print a reminder
-
-The real `.env.sync-addons` file is ignored by Git, while `.env.sync-addons.example` stays in the repository as the shared template.
+- **My AddOns** (everything in `addons/`) and the rest of this repository (scripts, tests, tools, services, documentation): MIT, see [`LICENSE`](LICENSE). Feel free to use any of them in your own project; a link back to this repository is appreciated
+  - ForeverCampFeatures carries the same MIT text in its own folder ([`addons/ForeverCampFeatures/LICENSE`](addons/ForeverCampFeatures/LICENSE)), so it travels with its download
+  - ForeverRangeIndicator embeds LibRangeCheck-3.0 (MIT, [its `LICENSE`](addons/ForeverRangeIndicator/Libs/LibRangeCheck-3.0/LICENSE)) and LibStub (public domain)
+- **Backported AddOns** keep the license of the original:
+  - Quartz: GPL v2, [`backports/Quartz/GPLv2.txt`](backports/Quartz/GPLv2.txt)
+  - Skada: MIT, [`backports/Skada/LICENSE`](backports/Skada/LICENSE) (Skada declares MIT/X in its `.toc`); its bundled fonts are not under it: Cinzel and Marcellus are under the SIL Open Font License 1.1 ([`backports/Skada/media/fonts/README-fonts.md`](backports/Skada/media/fonts/README-fonts.md)), the other five (ABF, Accidental Presidency, Adventure, Avqest, VeraSe) come with upstream Skada, which names no license for them
+  - The libraries bundled with them (Ace3, LibSharedMedia, LibWindow, ...) keep the licenses of their authors
 
 ---
 

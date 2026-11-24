@@ -68,6 +68,13 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 - The in-range check pauses in combat; whatever the game hides from AddOns (secret values) is skipped, never read
 - TomTom is optional
 
+## Bugs and ideas
+
+Please report them on GitHub, not in the comments, so nothing gets lost:
+
+- A bug: [bug report](https://github.com/matejkadlec/forever-addons/issues/new?template=bug_report.yml) (the AddOn's version, the game's version, what happened, and the output of `/fcf debug` when it is about finding objects)
+- An idea: [feature request](https://github.com/matejkadlec/forever-addons/issues/new?template=feature_request.yml)
+
 ## License
 
 MIT, see `LICENSE`. Source: https://github.com/matejkadlec/forever-addons
