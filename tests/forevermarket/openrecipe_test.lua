@@ -10,8 +10,10 @@
 --   * the search text or a filter hides the recipe: the search box cleared and Blizzard's default filters set once,
 --     then selected in the rebuilt list; still not in the list: the form shows it through the list's
 --     OnRecipeSelected event
---   * the count box gets the pick's crafts, Blizzard clamps it to what the bags allow and the chat says so; a
---     disabled box (no materials) stays and the chat says so
+--   * the count box gets the pick's crafts, Blizzard clamps it to what the bags allow and the chat says so; without
+--     materials for one craft (GetCraftableCount 0) it stays; a box disabled only for a requirement or a cooldown
+--     gets the count too, and the chat says that Create waits (review round 1)
+--   * with Camelot's overview page over the recipes the recipe is selected behind it and the chat says where
 --   * in combat nothing is called and the chat says why; a window that never lists it gives up after 10 seconds
 --   * the tooltip hint names the profession, only on rows where Ctrl+click works
 -- Whether the client accepts OpenTradeSkill here and what the selection does in its window is the in-game test's job.
@@ -62,7 +64,8 @@ local function Load()
         IsShown = function() return w.shown end,
         recipesTabID = 1,
         SetTab = function() end,
-        CraftingPage = { RecipeList = list, CreateMultipleInputBox = box, IsShown = function() return true end },
+        CraftingPage = { RecipeList = list, CreateMultipleInputBox = box, IsShown = function() return not w.book end },
+        BookPage = { IsShown = function() return w.book == true end },
     }
     env.SearchBoxTemplate_ClearText = function() w.cleared = w.cleared + 1 end
     env.Professions = { SetDefaultFilters = function(ignoreSkillLine)
@@ -79,6 +82,7 @@ local function Load()
         end,
         GetRecipeInfo = function(id) return { recipeID = id } end,
         IsDataSourceChanging = function() return false end,
+        GetCraftableCount = function() return w.craftable or w.box.max end,
         IsTradeSkillLinked = function() return false end,
         IsNPCCrafting = function() return false end,
     }
@@ -173,10 +177,29 @@ H.test("open recipe: the count box is clamped to the bags, a disabled one stays,
     H.eq(w.box.value, 1, "what the bags allow")
     H.eq(env.printed[1]:find("make 1 of the plan's 2", 1, true) ~= nil, true, "the chat line says so")
     env.printed = {}
-    w.box.enabled, w.box.value = false, 0
+    w.box.enabled, w.box.value, w.craftable = false, 0, 0
     FM.OpenRecipe(FM.CraftTarget(PICKS, { key = BELT, kind = "craft", runs = 2 }))
-    H.eq(w.box.value, 0, "a disabled box stays at 0")
+    H.eq(w.box.value, 0, "no materials for one craft: the box stays")
     H.eq(env.printed[1]:find("no materials for one craft yet", 1, true) ~= nil, true, "and the chat says why")
+end)
+
+H.test("open recipe: a box disabled for a requirement or cooldown still gets the count, the chat says Create waits", function()
+    local FM, env, w = Load()
+    Show(env, w, COOKING, { STEAK_SPELL })
+    w.box.enabled, w.box.max, w.craftable = false, 4, 4 -- the materials for 4, away from a fire
+    FM.OpenRecipe(FM.CraftTarget(PICKS, { key = STEAK, kind = "craft", runs = 4 }))
+    H.eq(w.box.value, 4, "count 4, kept when Blizzard enables the box at the fire")
+    H.eq(env.printed[1]:find("Create waits for what the recipe needs", 1, true) ~= nil, true, "the chat says why it is greyed")
+    H.eq(env.printed[1]:find("no materials", 1, true), nil, "not that materials are missing")
+end)
+
+H.test("open recipe: behind Camelot's overview page the recipe is selected and the chat says where", function()
+    local FM, env, w, belt = Load()
+    Show(env, w, LW, { BELT_SPELL })
+    w.book = true
+    FM.OpenRecipe(FM.CraftTarget(CRAFT, { key = BELT, craft = belt }))
+    H.eq(w.selected, BELT_SPELL, "selected in the crafting page behind it")
+    H.eq(env.printed[1]:find("its side tab in the window shows it", 1, true) ~= nil, true, "the chat says where it is")
 end)
 
 H.test("open recipe: in combat nothing is called, a window that never shows gives up after 10 seconds", function()

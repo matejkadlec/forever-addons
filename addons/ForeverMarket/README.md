@@ -847,8 +847,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   button over the row, which would have made the table's own frames protected in combat) and selects the recipe,
   scrolled into view (Blizzard's `RecipeList:SelectRecipe`). A pick also puts its crafts into the count box
   (Deviate Scale Belt, "make 2": 2), so Create (Create All) crafts the plan; Blizzard clamps the box to what your
-  bags allow and the chat says so ("count 1, the materials in your bags make 1 of the plan's 2"; no materials: the
-  box stays at 0). With that profession's window open already only the recipe is selected. A search text or a
+  bags allow and the chat says so ("count 1, the materials in your bags make 1 of the plan's 2"; no materials for one
+  craft, `GetCraftableCount` 0: not set; a box Blizzard greys out for a requirement or a cooldown, a fire, an anvil,
+  gets the count too, which Blizzard keeps when it enables the box, and the chat says Create waits). Behind Camelot's
+  overview page the recipe is selected on the crafting page and the chat says that its side tab shows it. With that
+  profession's window open already only the recipe is selected. A search text or a
   filter of the window that hides the recipe is cleared once (`SearchBoxTemplate_ClearText`,
   `Professions.SetDefaultFilters(true)`: the skill line stays) and the rebuilt list searched again; a recipe still
   not in the list is shown in the form all the same. The window is looked at every 0.25 s for 10 s after the click

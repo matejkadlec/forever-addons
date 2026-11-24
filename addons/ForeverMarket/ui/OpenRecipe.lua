@@ -15,7 +15,9 @@ local _, FM = ...
 -- and Professions.SetDefaultFilters(true) (the skill line stays) once, then the rebuilt list is searched again; a recipe
 -- still not in the list is shown in the form the way ProfessionsUtil.OpenProfessionFrameToRecipe does (the list's
 -- OnRecipeSelected event). The count box: CreateMultipleInputBox:SetValue(crafts), which Blizzard clamps to what the
--- bags allow; nothing is written onto Blizzard's frames by this file.
+-- bags allow; nothing is written onto Blizzard's frames by this file. Not yet verified in game: TRADE_SKILL_SHOW is a
+-- synchronous event, so the window's own handlers may run inside this file's OpenTradeSkill call and carry its taint
+-- into the side tabs, whose profession casts are protected (docs/forever-api-notes.md; the in-game test of FRV-132).
 
 local type = type
 local pairs = pairs
@@ -118,19 +120,26 @@ local function StopWaiting()
     end
 end
 
--- The count box: the pick's crafts, as far as the bags allow (Blizzard clamps); a chat line when it could not
+-- The count box: the pick's crafts, as far as the bags allow (Blizzard clamps); a chat line when it could not. No
+-- materials = GetCraftableCount 0 (a box disabled for a requirement or a cooldown still has its range: review round 1,
+-- Blizzard keeps the value when its Update enables it again)
 local function SetCount(page, p)
     if not p.runs then return end
     local box = page.CreateMultipleInputBox
     if not (type(box) == "table" and box.SetValue and box.IsShown and box:IsShown()) then return end
-    if box.IsEnabled and not box:IsEnabled() then
-        FM.Print(string_format("%s: no materials for one craft yet, the count stays at 0 (the plan makes %d)", p.name, p.runs))
+    local craftable = Call(C_TradeSkillUI.GetCraftableCount, p.spell)
+    if IsNumber(craftable) and craftable <= 0 then
+        FM.Print(string_format("%s: no materials for one craft yet, the count is not set (the plan makes %d)", p.name, p.runs))
         return
     end
     Call(box.SetValue, box, p.runs)
     local got = Call(box.GetValue, box)
     if IsNumber(got) and got < p.runs then
         FM.Print(string_format("%s: count %d, the materials in your bags make %d of the plan's %d", p.name, got, got, p.runs))
+    end
+    if box.IsEnabled and not box:IsEnabled() then
+        FM.Print(string_format("%s: count %d; Create waits for what the recipe needs (a fire, an anvil, its cooldown)",
+            p.name, IsNumber(got) and got or p.runs))
     end
 end
 
@@ -148,10 +157,6 @@ local function TrySelect(p)
     end
     local info = Call(api.GetRecipeInfo, p.spell)
     if type(info) ~= "table" then return false end
-    -- the recipes page, not another tab of the window
-    if page.IsShown and not page:IsShown() and frame.SetTab and frame.recipesTabID then
-        Call(frame.SetTab, frame, frame.recipesTabID)
-    end
     local node = FindNode(list, p.spell)
     if not node then
         if not p.cleared then
@@ -172,6 +177,12 @@ local function TrySelect(p)
         Call(list.SelectRecipe, list, info, true)
     end
     SetCount(page, p)
+    -- Camelot's overview (book) page over the recipes: the selection waits behind it; switching pages from here would
+    -- run Blizzard's tab refresh in ForeverMarket's call (review round 1), so the chat says where it is
+    local book = frame.BookPage
+    if type(book) == "table" and book.IsShown and book:IsShown() then
+        FM.Print(string_format("%s is selected in %s: its side tab in the window shows it", p.name, p.profName))
+    end
     return true
 end
 
