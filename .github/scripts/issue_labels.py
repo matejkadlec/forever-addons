@@ -101,7 +101,9 @@ def label_changes(body, old_body, current):
     others = [label for label in current if label in ADDON_LABEL_SET and label != new_addon]
     # GitHub drops a waiting run when a newer one queues, so an AddOn change can come without its
     # own run: an edit that keeps the AddOn still puts right an issue that carries another AddOn's
-    # label instead of its own (with no AddOn label at all it stays: the maintainer removed it)
+    # label instead of its own (with no AddOn label at all it stays: the maintainer removed it).
+    # It cannot tell such a label from one the maintainer moved by hand, so the AddOn of an issue is
+    # corrected in its body (AGENTS.md, GitHub Issues)
     stale = bool(new_addon) and new_addon not in current and bool(others)
     if new_addon == old_addon and not stale:
         return [], []
