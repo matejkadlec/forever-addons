@@ -250,9 +250,28 @@ local function UnmetRequirement(recipeID)
     return nil
 end
 
--- The next step of Process queue (Core.lua: ns.NextStep), with the open profession of now
+-- Seconds left of a recipe's cooldown while it cannot be crafted (no charges left), else nil: what Blizzard's Create
+-- checks (Professions.IsRecipeOnCooldown; GetRecipeCooldown is used by Blizzard's Lua without generated
+-- documentation and returns cooldown, isDayCooldown, charges, maxCharges)
+local function CooldownOf(recipeID)
+    local api = C_TradeSkillUI
+    if not (api and api.GetRecipeCooldown) then
+        return nil
+    end
+    local ok, cooldown, _, charges = pcall(api.GetRecipeCooldown, recipeID)
+    if not ok or type(cooldown) ~= "number" or IsSecret(cooldown) or cooldown <= 0 then
+        return nil
+    end
+    if type(charges) == "number" and not IsSecret(charges) and charges > 0 then
+        return nil
+    end
+    return cooldown
+end
+ns.CooldownOf = CooldownOf
+
+-- The next step of Process queue (Core.lua: ns.NextStep), with the open profession and the cooldowns of now
 function ns.Step()
-    return ns.NextStep(queue, CountOf, ns.OpenSkillLine())
+    return ns.NextStep(queue, CountOf, ns.OpenSkillLine(), CooldownOf)
 end
 
 -- The profession Process queue is opening, or nil once it opened or the game did not answer in time
@@ -495,6 +514,8 @@ function ns.Process()
         if not (opening and opening.skillLine == step.row.skillLine) then
             OpenProfession(step.row)
         end
+    elseif step.cooldown then
+        ns.PrintError(string_format(L.ERROR_PROCESS_COOLDOWN, step.row.name, ns.FormatDuration(step.cooldown)))
     else
         ns.PrintError(string_format(L.ERROR_PROCESS_SHORT, step.row.name, ns.MissingText(step.row, CountOf, NameOf)))
     end
@@ -693,8 +714,10 @@ local function PrintDebug()
             step.casts and (" x" .. step.casts) or "")
     end
     for index, row in ipairs(queue) do
-        lines[#lines + 1] = string_format("%d. %s x%d (recipe %d, %s %d), materials for %d", index, row.name,
-            row.count, row.recipeID, row.profession, row.skillLine, ns.Craftable(row, CountOf))
+        local cooldown = CooldownOf(row.recipeID)
+        lines[#lines + 1] = string_format("%d. %s x%d (recipe %d, %s %d), materials for %d%s", index, row.name,
+            row.count, row.recipeID, row.profession, row.skillLine, ns.Craftable(row, CountOf),
+            cooldown and (", cooldown " .. ns.FormatDuration(cooldown)) or "")
     end
     for _, line in ipairs(lines) do
         print("  " .. COLOR.YELLOW .. line .. "|r")

@@ -36,6 +36,7 @@ local function Load(options)
     }
     -- the profession window: env.profession is the open one (nil: none), env.selected the recipe it shows
     env.requirements = {}
+    env.cooldowns = {}
     env.C_TradeSkillUI = {
         GetBaseProfessionInfo = function()
             local id = env.profession or 0
@@ -47,6 +48,11 @@ local function Load(options)
         IsTradeSkillGuild = function() return false end,
         GetRemainingRecasts = function() return 0 end,
         GetRecipeRequirements = function(id) return env.requirements[id] or {} end,
+        -- cooldown, isDayCooldown, charges, maxCharges (env.cooldowns[recipeID] = { seconds, charges })
+        GetRecipeCooldown = function(id)
+            local cooldown = env.cooldowns[id]
+            if cooldown then return cooldown[1], false, cooldown[2] or 0, cooldown[2] and 2 or 0 end
+        end,
         GetRecipeSchematic = function(id)
             local slots = {}
             for _, reagent in ipairs(RECIPES[id].reagents) do
@@ -329,6 +335,33 @@ H.test("an unmet requirement (a fire, an anvil) is named and nothing is crafted"
     env.requirements[MEAT] = { { name = "Cooking Fire", met = true, type = 0 } }
     ns.Process()
     H.same(seen.crafted[1], { MEAT, 3 }, "crafted at the fire")
+end)
+
+H.test("a recipe on cooldown (a transmute) is passed over until it is ready; charges left mean ready", function()
+    local ns, env, seen = Load()
+    LoadProfessionWindow(env)
+    Queue(ns, env, BOOTS, 3)
+    Queue(ns, env, CLOAK, 2)
+    env.bags = { [LIGHT_LEATHER] = 100, [THREAD] = 20 }
+    env.cooldowns[BOOTS] = { 3 * 3600 + 5 * 60 }
+    ns.Process()
+    H.same(seen.crafted[1], { CLOAK, 2 }, "the cloak first")
+    -- a cooldown with a charge left does not stop the craft
+    env.cooldowns[BOOTS] = { 3600, 1 }
+    ns.Process()
+    H.same(seen.crafted[2], { BOOTS, 3 }, "boots with a charge")
+end)
+
+H.test("only a row on cooldown left: the press names its time left", function()
+    local ns, env, seen = Load()
+    LoadProfessionWindow(env)
+    Queue(ns, env, BOOTS, 3)
+    env.bags = { [LIGHT_LEATHER] = 100, [THREAD] = 20 }
+    env.cooldowns[BOOTS] = { 3 * 3600 + 5 * 60 }
+    env.printed = {}
+    ns.Process()
+    H.eq(#seen.crafted, 0, "no craft")
+    H.eq(#Printed(env, "Dusky Boots is on cooldown (3 h 05 min left)"), 1, "error")
 end)
 
 H.test("a profession the game does not open is reported", function()

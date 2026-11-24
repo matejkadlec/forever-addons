@@ -230,14 +230,16 @@ end
 --------------------------------------------------------------------------------
 
 -- What the next press of Process queue does. The next row is the first one (in queue order) your bags allow at
--- least one craft of:
+-- least one craft of and that is not on cooldown (cooldownOf(recipeID) -> seconds left, or nil when it is ready):
 -- { action = "craft", index, row, casts } when its profession is the open one (openSkillLine): its whole count as
 -- one batch, or as many as the materials allow
 -- { action = "open", index, row } when another profession (or none) is open
--- { action = "short", index = 1, row = queue[1] } when no row can be crafted now; nil for an empty queue
-function ns.NextStep(queue, countOf, openSkillLine)
+-- { action = "short", index = 1, row = queue[1], cooldown } when no row can be crafted now (cooldown: the first
+-- row's seconds left, nil when it lacks materials); nil for an empty queue
+function ns.NextStep(queue, countOf, openSkillLine, cooldownOf)
     for index, row in ipairs(queue) do
-        local craftable = ns.Craftable(row, countOf)
+        local ready = not (cooldownOf and cooldownOf(row.recipeID))
+        local craftable = ready and ns.Craftable(row, countOf) or 0
         if craftable >= 1 then
             if openSkillLine and row.skillLine == openSkillLine then
                 return { action = "craft", index = index, row = row, casts = math_min(row.count, craftable) }
@@ -245,10 +247,29 @@ function ns.NextStep(queue, countOf, openSkillLine)
             return { action = "open", index = index, row = row }
         end
     end
-    if queue[1] then
-        return { action = "short", index = 1, row = queue[1] }
+    local first = queue[1]
+    if first then
+        return { action = "short", index = 1, row = first, cooldown = cooldownOf and cooldownOf(first.recipeID) or nil }
     end
     return nil
+end
+
+-- A time left as "2 d 4 h", "3 h 05 min", "12 min" or "< 1 min"
+function ns.FormatDuration(seconds)
+    seconds = math_floor(seconds > 0 and seconds or 0)
+    local days = math_floor(seconds / 86400)
+    local hours = math_floor((seconds % 86400) / 3600)
+    local minutes = math_floor((seconds % 3600) / 60)
+    if days > 0 then
+        return string_format(L.DURATION_DAYS, days, hours)
+    end
+    if hours > 0 then
+        return string_format(L.DURATION_HOURS, hours, minutes)
+    end
+    if minutes > 0 then
+        return string_format(L.DURATION_MINUTES, minutes)
+    end
+    return L.DURATION_SECONDS
 end
 
 -- A new run of the queue: the crafts made and the recipes crafted since the queue was last empty

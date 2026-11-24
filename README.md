@@ -192,6 +192,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - The next row is the first one your bags hold the materials for at least one craft of: when its profession is open, the press crafts its whole count as one batch (like Create with that count), or as many as the materials allow
   - When another profession (or none) is open, the button reads "Open Cooking" (the row's profession) and the press opens it; the next press crafts
   - A recipe that needs a fire, an anvil or a forge nearby is not started away from it: the chat says what it requires
+  - A recipe on cooldown (transmutes, Mooncloth, ...) is passed over until it is ready; its row shows the time left
   - Crafted units leave the queue as each cast succeeds, so an interrupted batch keeps the rest queued; when the queue is empty the chat says "Craft queue done: 3 recipes, 80 crafts" with a sound
   - In combat the button is off and says so; while a batch runs, a press waits for it
 - The queue is saved per character and kept over a relog

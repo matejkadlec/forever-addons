@@ -261,6 +261,40 @@ H.test("no row with materials: short, pointing at the first row; an empty queue 
     H.eq(step.index, 1, "first row")
 end)
 
+H.test("a row on cooldown is passed over like a row without materials", function()
+    local ns = Load()
+    local queue = {}
+    ns.AddToQueue(queue, MEAT, 3)
+    ns.AddToQueue(queue, Info(6681, "Roasted Meat", COOKING, "Cooking", { { itemID = BEAR_FLANK, need = 1 } }), 5)
+    local cooldowns = { [MEAT.recipeID] = 3600 }
+    local step = ns.NextStep(queue, Bags({ [BEAR_FLANK] = 10 }), COOKING, function(id) return cooldowns[id] end)
+    H.eq(step.action, "craft", "action")
+    H.eq(step.index, 2, "the second row")
+    H.eq(step.casts, 5, "casts")
+end)
+
+H.test("no row can be crafted and the first is on cooldown: short with its time left", function()
+    local ns = Load()
+    local queue = {}
+    ns.AddToQueue(queue, MEAT, 3)
+    ns.AddToQueue(queue, BOOTS, 1)
+    local step = ns.NextStep(queue, Bags({ [BEAR_FLANK] = 10 }), COOKING,
+        function(id) return id == MEAT.recipeID and 7500 or nil end)
+    H.eq(step.action, "short", "action")
+    H.eq(step.cooldown, 7500, "time left")
+    step = ns.NextStep(queue, Bags({}), COOKING, function() return nil end)
+    H.eq(step.cooldown, nil, "materials, no cooldown")
+end)
+
+H.test("a time left reads in days, hours or minutes", function()
+    local ns = Load()
+    H.eq(ns.FormatDuration(2 * 86400 + 4 * 3600 + 59), "2 d 4 h", "days")
+    H.eq(ns.FormatDuration(3 * 3600 + 5 * 60 + 30), "3 h 05 min", "hours")
+    H.eq(ns.FormatDuration(12 * 60 + 59), "12 min", "minutes")
+    H.eq(ns.FormatDuration(42), "< 1 min", "seconds")
+    H.eq(ns.FormatDuration(-5), "< 1 min", "past")
+end)
+
 --------------------------------------------------------------------------------
 -- Crafts leaving the queue
 --------------------------------------------------------------------------------

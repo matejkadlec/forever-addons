@@ -47,6 +47,11 @@ local function ShowRowTooltip(rowFrame)
     GameTooltip:SetOwner(rowFrame, "ANCHOR_RIGHT")
     GameTooltip:SetText(string_format("%s x%d", row.name, row.count), 1, 1, 1)
     GameTooltip:AddLine(row.profession, GREY[1], GREY[2], GREY[3])
+    local cooldown = ns.CooldownOf(row.recipeID)
+    if cooldown then
+        GameTooltip:AddLine(string_format(L.ROW_TOOLTIP_COOLDOWN, ns.FormatDuration(cooldown)), RED[1], RED[2], RED[3],
+            true)
+    end
     local lines = ns.ReagentLines(row, ns.CountOf)
     if #lines == 0 then
         GameTooltip:AddLine(L.ROW_TOOLTIP_NO_REAGENTS, GREY[1], GREY[2], GREY[3], true)
@@ -195,7 +200,11 @@ local function FillRow(rowFrame)
     rowFrame.icon:SetTexture(row.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     rowFrame.name:SetText(row.name)
     local craftable = ns.Craftable(row, ns.CountOf)
-    if craftable >= row.count then
+    local cooldown = ns.CooldownOf(row.recipeID)
+    if cooldown then
+        rowFrame.sub:SetText(string_format(L.ROW_COOLDOWN, row.profession, ns.FormatDuration(cooldown)))
+        rowFrame.sub:SetTextColor(RED[1], RED[2], RED[3])
+    elseif craftable >= row.count then
         rowFrame.sub:SetText(row.profession)
         rowFrame.sub:SetTextColor(GREY[1], GREY[2], GREY[3])
     elseif craftable >= 1 then
