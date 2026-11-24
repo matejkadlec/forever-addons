@@ -49,8 +49,10 @@ local function Load(options)
         GetRemainingRecasts = function() return 0 end,
         GetRecipeRequirements = function(id) return env.requirements[id] or {} end,
         -- cooldown, isDayCooldown, charges, maxCharges (env.cooldowns[recipeID] = { seconds, charges })
+        -- with env.cooldownOpenOnly the game answers only for the open profession's recipes
         GetRecipeCooldown = function(id)
             local cooldown = env.cooldowns[id]
+            if env.cooldownOpenOnly and RECIPES[id].skillLine ~= env.profession then return nil end
             if cooldown then return cooldown[1], false, cooldown[2] or 0, cooldown[2] and 2 or 0 end
         end,
         GetRecipeSchematic = function(id)
@@ -350,6 +352,42 @@ H.test("a recipe on cooldown (a transmute) is passed over until it is ready; cha
     env.cooldowns[BOOTS] = { 3600, 1 }
     ns.Process()
     H.same(seen.crafted[2], { BOOTS, 3 }, "boots with a charge")
+end)
+
+H.test("a cooldown the game shows only in its own profession is remembered: no switching back and forth", function()
+    local ns, env, seen = Load()
+    LoadProfessionWindow(env)
+    Queue(ns, env, BOOTS, 3)
+    Queue(ns, env, MEAT, 2)
+    env.bags = { [LIGHT_LEATHER] = 100, [THREAD] = 20, [BEAR_FLANK] = 10 }
+    env.cooldownOpenOnly = true
+    env.cooldowns[BOOTS] = { 3600 }
+    -- Leatherworking open: the boots' cooldown is seen, the meat is next
+    OpenWindow(env, LEATHERWORKING)
+    ns.Process()
+    H.same(seen.opened, { COOKING }, "opens Cooking")
+    CloseWindow(env)
+    OpenWindow(env, COOKING)
+    -- Cooking open: the game says nothing about the boots, the remembered cooldown passes them over
+    H.eq(ns.CooldownOf(BOOTS, LEATHERWORKING), 3600, "remembered")
+    ns.Process()
+    H.same(seen.crafted, { { MEAT, 2 } }, "the meat, no switch back")
+    H.same(seen.opened, { COOKING }, "Leatherworking not opened")
+    -- an hour later the remembered cooldown is over: the boots are next again
+    env.clock = env.clock + 3601
+    H.eq(select(1, ns.ProcessState()), "Open Leatherworking", "boots again")
+end)
+
+H.test("its own profession open and ready: a remembered cooldown is forgotten", function()
+    local ns, env = Load()
+    LoadProfessionWindow(env)
+    Queue(ns, env, BOOTS, 3)
+    env.cooldowns[BOOTS] = { 3600 }
+    H.eq(ns.CooldownOf(BOOTS, LEATHERWORKING), 3600, "seen")
+    env.cooldowns[BOOTS] = nil
+    H.eq(ns.CooldownOf(BOOTS, LEATHERWORKING), nil, "ready in its own window")
+    CloseWindow(env)
+    H.eq(ns.CooldownOf(BOOTS, LEATHERWORKING), nil, "still forgotten when closed")
 end)
 
 H.test("only a row on cooldown left: the press names its time left", function()

@@ -250,10 +250,10 @@ local function UnmetRequirement(recipeID)
     return nil
 end
 
--- Seconds left of a recipe's cooldown while it cannot be crafted (no charges left), else nil: what Blizzard's Create
--- checks (Professions.IsRecipeOnCooldown; GetRecipeCooldown is used by Blizzard's Lua without generated
--- documentation and returns cooldown, isDayCooldown, charges, maxCharges)
-local function CooldownOf(recipeID)
+-- The game's answer: seconds left of a recipe's cooldown while it cannot be crafted (no charges left), else nil;
+-- what Blizzard's Create checks (Professions.IsRecipeOnCooldown; GetRecipeCooldown is used by Blizzard's Lua without
+-- generated documentation and returns cooldown, isDayCooldown, charges, maxCharges)
+local function LiveCooldown(recipeID)
     local api = C_TradeSkillUI
     if not (api and api.GetRecipeCooldown) then
         return nil
@@ -266,6 +266,35 @@ local function CooldownOf(recipeID)
         return nil
     end
     return cooldown
+end
+
+-- When each cooldown seen ends (recipeID -> GetTime()): Blizzard asks GetRecipeCooldown only for the open
+-- profession's recipes, so a closed profession's answer cannot be trusted to show a cooldown
+local cooldownEnds = {}
+
+-- Seconds left of a row's cooldown, or nil when it can be crafted: the game's answer, else, while the recipe's own
+-- profession (skillLine) is not open, the end of the cooldown seen last (so Process queue does not open that
+-- profession only to pass the row over and switch back)
+local function CooldownOf(recipeID, skillLine)
+    local live = LiveCooldown(recipeID)
+    if live then
+        cooldownEnds[recipeID] = GetTime() + live
+        return live
+    end
+    if skillLine ~= nil and skillLine == ns.OpenSkillLine() then
+        -- its own profession is open and says it is ready
+        cooldownEnds[recipeID] = nil
+        return nil
+    end
+    local ends = cooldownEnds[recipeID]
+    if ends then
+        local left = ends - GetTime()
+        if left > 0 then
+            return left
+        end
+        cooldownEnds[recipeID] = nil
+    end
+    return nil
 end
 ns.CooldownOf = CooldownOf
 
@@ -714,7 +743,7 @@ local function PrintDebug()
             step.casts and (" x" .. step.casts) or "")
     end
     for index, row in ipairs(queue) do
-        local cooldown = CooldownOf(row.recipeID)
+        local cooldown = CooldownOf(row.recipeID, row.skillLine)
         lines[#lines + 1] = string_format("%d. %s x%d (recipe %d, %s %d), materials for %d%s", index, row.name,
             row.count, row.recipeID, row.profession, row.skillLine, ns.Craftable(row, CountOf),
             cooldown and (", cooldown " .. ns.FormatDuration(cooldown)) or "")

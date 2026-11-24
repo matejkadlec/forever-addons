@@ -230,7 +230,8 @@ end
 --------------------------------------------------------------------------------
 
 -- What the next press of Process queue does. The next row is the first one (in queue order) your bags allow at
--- least one craft of and that is not on cooldown (cooldownOf(recipeID) -> seconds left, or nil when it is ready):
+-- least one craft of and that is not on cooldown (cooldownOf(recipeID, skillLine) -> seconds left, or nil when it
+-- is ready):
 -- { action = "craft", index, row, casts } when its profession is the open one (openSkillLine): its whole count as
 -- one batch, or as many as the materials allow
 -- { action = "open", index, row } when another profession (or none) is open
@@ -238,7 +239,7 @@ end
 -- row's seconds left, nil when it lacks materials); nil for an empty queue
 function ns.NextStep(queue, countOf, openSkillLine, cooldownOf)
     for index, row in ipairs(queue) do
-        local ready = not (cooldownOf and cooldownOf(row.recipeID))
+        local ready = not (cooldownOf and cooldownOf(row.recipeID, row.skillLine))
         local craftable = ready and ns.Craftable(row, countOf) or 0
         if craftable >= 1 then
             if openSkillLine and row.skillLine == openSkillLine then
@@ -249,7 +250,8 @@ function ns.NextStep(queue, countOf, openSkillLine, cooldownOf)
     end
     local first = queue[1]
     if first then
-        return { action = "short", index = 1, row = first, cooldown = cooldownOf and cooldownOf(first.recipeID) or nil }
+        return { action = "short", index = 1, row = first,
+            cooldown = cooldownOf and cooldownOf(first.recipeID, first.skillLine) or nil }
     end
     return nil
 end
