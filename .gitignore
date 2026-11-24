@@ -26,3 +26,6 @@ services/forever-market-feed/state/
 services/forever-market-feed/*.log
 services/forever-market-feed/*.log.1
 luac.out
+
+# Release workflow output (.github/scripts/release_addon.py)
+/dist/

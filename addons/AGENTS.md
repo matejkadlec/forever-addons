@@ -25,6 +25,7 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
   ## X-Repository: https://github.com/matejkadlec/forever-addons
   ## SavedVariables: Forever{AddonName}Settings
   ```
+  - `## X-Curse-Project-ID: <id>` (after `## X-Repository:`) only for an AddOn the maintainer put on CurseForge: the `Release` workflow uploads its releases to that project ([`docs/releasing.md`](../docs/releasing.md)); it is set only with the ID he gives, and an AddOn without it is released on GitHub only
   - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name, `ForeverMarket` uses `ForeverMarketDB` (it stores market data, not only settings)
   - `## Category: Jim's Forever AddOns` groups all first-party AddOns under one collapsible header in the AddOn list (`Blizzard_AddOnList/AddonList.lua`, the header's right-click menu enables/disables the whole category); keep the exact same text in every AddOn
   - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`, Camp Features `Spell_Fire_Fire` (the campfire icon), Craft Queue `INV_Misc_Note_01`

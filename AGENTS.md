@@ -9,7 +9,7 @@
 - First-party AddOns live in `addons/`; third-party backported AddOns live in `backports/`
 - `services/` holds programs that run outside the game: `services/forever-market-feed` feeds ForeverMarket from the Battle.net API and has a deployed server part (see its guide)
 - `tests/` holds the tests of logic that runs without the game client (ForeverMarket's diff and records, shared with the feed service): `tests/run.sh`, details in [`tests/README.md`](tests/README.md)
-- `.github/` holds the workflows, the issue forms players report through and their labeler, and the pull request template ([GitHub Issues](#github-issues)); [`README.md`](README.md) is written for visitors (getting the AddOns, feedback, licenses), [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributors (rules for pull requests, the development setup)
+- `.github/` holds the workflows (among them `Release`, which packages an AddOn from a tag and uploads it to CurseForge, [Releases](#releases)), the issue forms players report through and their labeler, and the pull request template ([GitHub Issues](#github-issues)); [`README.md`](README.md) is written for visitors (getting the AddOns, feedback, licenses), [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributors (rules for pull requests, the development setup)
 - There is no copy of the Blizzard UI source in this repository
 
 ## Guide Map
@@ -290,6 +290,15 @@ Players report bugs and ideas as GitHub issues through the two issue forms (`.gi
 - Tell the maintainer what was merged; when a review could not run or did not pass, leave the pull request open and say why
 - A merged change in `services/forever-market-feed/**` or `.github/workflows/market-feed.yml` deploys the feed server: say so, check the workflow run and report a failed run to the maintainer
 - The automatic sync into the game still happens after every change, before the review and merge
+
+---
+
+## Releases
+
+- The `Release` workflow (`.github/workflows/release.yml`, running `.github/scripts/release_addon.py`) releases one AddOn of `addons/` from a pushed tag `<AddOnFolder>-v<version>`: the tag checked against the `.toc`, the AddOn's checks, a zip with only its folder at the top, a GitHub release of the tag and the upload to its CurseForge project (`## X-Curse-Project-ID:` in its `.toc`). The maintainer's guide is [`docs/releasing.md`](docs/releasing.md)
+- Agents never create or push a release tag on their own, and never run the workflow as a real release: tagging is the maintainer's step, or his explicit request in the chat or a ticket. A dry run (Actions -> Release -> Run workflow) releases nothing and may be used to check a change of the workflow
+- `## X-Curse-Project-ID:` names his CurseForge project: it is added or changed only with the ID he gives, with the AddOn's version bump. The token lives only in the repository secret `CURSEFORGE_API_TOKEN`, which he sets
+- A change of the workflow or the script keeps `docs/releasing.md` and `tests/github/test_release_addon.py` in step; the workflow names no AddOn, everything per AddOn comes from its tag and its `.toc`
 
 ---
 

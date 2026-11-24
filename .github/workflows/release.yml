@@ -1,0 +1,112 @@
+name: Release
+
+# Packages one AddOn of addons/ and releases it (.github/scripts/release_addon.py, tested by tests/run.sh;
+# the maintainer's guide is docs/releasing.md). A pushed tag <AddOnFolder>-v<version>, for example
+# ForeverCampFeatures-v1.1.3, is checked against the AddOn's .toc, the AddOn's checks run, and
+# <AddOnFolder>-<version>.zip (only <AddOnFolder>/ at its top) is attached to a GitHub release of the
+# tag and uploaded to the AddOn's CurseForge project (## X-Curse-Project-ID in its .toc; without it
+# GitHub only). Nothing is uploaded before every check passed. Run from the Actions tab it is a dry run:
+# the same checks and zip, the metadata it would send, the zip as the run's artifact; nothing is released.
+# Every AddOn comes from its tag and its .toc: this file names none. Agents never push a release tag.
+
+on:
+  push:
+    tags: ['*-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to try, <AddOnFolder>-v<version> (for example ForeverCampFeatures-v1.1.3). Dry run: nothing is released'
+        required: true
+        type: string
+
+permissions: {}
+
+# One run per tag at a time
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # the GitHub release of the tag; a dry run only reads
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+      DRY_RUN: ${{ github.event_name != 'push' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the tag against the AddOn's .toc
+        id: prepare
+        run: python3 .github/scripts/release_addon.py prepare
+
+      # After prepare checked its name: the annotated tag object holds the changelog when the AddOn
+      # has no CHANGELOG.md; a dry run reads it when the tag exists already
+      - name: Fetch the tag
+        run: |
+          if [ "$DRY_RUN" = true ]; then
+            git fetch --no-tags --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}" \
+              || echo "No tag ${RELEASE_TAG} yet: the dry run builds from ${GITHUB_REF_NAME}"
+          else
+            git fetch --no-tags --depth=1 origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          fi
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q lua5.1
+
+      - name: Check the AddOn (luac5.1 -p, its Lua tests)
+        run: python3 .github/scripts/release_addon.py check
+
+      - name: Build the zip
+        run: python3 .github/scripts/release_addon.py build
+
+      # Fails here, before anything is uploaded, when the token is missing or CurseForge has no
+      # WoW: Forever game version for the .toc's ## Interface:
+      - name: Look up the CurseForge game version
+        env:
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+        run: python3 .github/scripts/release_addon.py cf-metadata
+
+      - name: Keep the zip of the dry run
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # GitHub serves it as <name>.zip holding the release zip: the suffix keeps the two apart
+          name: ${{ steps.prepare.outputs.addon }}-${{ steps.prepare.outputs.version }}-dry-run
+          path: ${{ steps.prepare.outputs.zip }}
+          if-no-files-found: error
+          retention-days: 7
+
+      # Creates the release, or replaces its zip when the job runs again
+      - name: GitHub release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZIP: ${{ steps.prepare.outputs.zip }}
+          DISPLAY_NAME: ${{ steps.prepare.outputs.display_name }}
+          PRERELEASE: ${{ steps.prepare.outputs.prerelease }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ZIP" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            flags=()
+            if [ "$PRERELEASE" = true ]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "$DISPLAY_NAME" --notes-file dist/release-notes.md "${flags[@]}"
+          fi
+
+      - name: Upload to CurseForge
+        if: env.DRY_RUN != 'true' && steps.prepare.outputs.project_id != ''
+        env:
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
+        run: python3 .github/scripts/release_addon.py cf-upload

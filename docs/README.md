@@ -9,6 +9,7 @@ This index names the maintained source for each topic. Jira project `FRV` is the
 | Reusable workflows | [`../SKILLS.md`](../SKILLS.md) | How the common tasks are done, step by step |
 | Contributing | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | For outside contributors: issue first, pull requests, the rules for code in short, checks, the development sync and the Git hooks |
 | GitHub issues and labels | [`../AGENTS.md`](../AGENTS.md#github-issues) | The issue forms and their labeler, the AddOn labels shared by Jira and GitHub, how an issue reaches Jira |
+| Releasing an AddOn | [`releasing.md`](releasing.md) | The `Release` workflow: a tag `<AddOnFolder>-v<version>` to a zip, a GitHub release and a CurseForge file; the CurseForge token and project ID, a release step by step, what to check afterwards, failed runs |
 | AI development flow | [`ai-development-flow.md`](ai-development-flow.md) | Jira intake, batches, claims, checks, publication, the in-game QA handoff and the merge rules behind the skills in `.claude/skills/` |
 | First-party AddOn conventions | [`../addons/AGENTS.md`](../addons/AGENTS.md) | Naming and `.toc`, chat messages, settings panels, slash commands |
 | ForeverMarket | [`../addons/ForeverMarket/AGENTS.md`](../addons/ForeverMarket/AGENTS.md), [`../addons/ForeverMarket/README.md`](../addons/ForeverMarket/README.md) | Agent inventory; user documentation and data format |
