@@ -2,7 +2,7 @@
 ## Interface: 16001
 ## Notes: Modular casting bar. Unofficial WoW: Forever port (swing timer via PLAYER_SWING).
 ## Author: Nevcairiel, Nymbia (backported by Matej Kadlec)
-## Version: 3.7.9-forever1
+## Version: 3.7.9-forever2
 ## X-License: GPL v2
 ## X-Credits: Ammo (some code based on PitBull_CastBar), kergoth (Tradeskill Merge module idea), Roartindon (Lag Embed mode for Latency module)
 ## X-Repository: https://github.com/matejkadlec/forever-addons

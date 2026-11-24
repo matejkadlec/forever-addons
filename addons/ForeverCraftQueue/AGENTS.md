@@ -43,6 +43,7 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
     - the maintainer's in-game test of 1.0 decides (opening with no window and with another profession open, no blocked popup); if the game refuses it, the fallback is a secure action button that casts the profession's spellbook item
   - No row that can be crafted: a chat line names what the first row lacks, or its cooldown
 - Refused: in combat (the button is disabled and reads "In combat"), while a trade skill cast runs or a batch has casts left (`UnitCastingInfo` `isTradeskill`, `GetRemainingRecasts`), while the AddOn is off
+- The batch's cast bar: Process queue calls `CraftRecipe` itself, not Blizzard's `CreateInternal`, so a cast bar that learns the batch size only from the crafting page sees single crafts. Quartz's Tradeskill Merge (the maintainer's bar, one bar with the total time) hooks `C_TradeSkillUI.CraftRecipe` since 3.7.9-forever2 (asked in his test of 1.0.4), so Process queue's batch shows like Create All; Blizzard's own player cast bar shows one craft at a time for both
 - Crafts leave the queue on the player's `UNIT_SPELLCAST_SUCCEEDED` whose spell ID is a queued recipe ID (secret IDs are ignored); any successful cast of a queued recipe counts, also one from Blizzard's Create
 - Material counts come from `ItemUtil.GetCraftingReagentCount(itemID, false)`, the count Blizzard's Create buttons use, else `C_Item.GetItemCount(itemID)`
 

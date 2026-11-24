@@ -16,7 +16,7 @@
 	with this program; if not, write to the Free Software Foundation, Inc.,
 	51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 ]]
--- Modified 2026-11 for the unofficial WoW: Forever port: retail API paths on WoW: Forever.
+-- Modified 2026-11 for the unofficial WoW: Forever port: retail API paths on WoW: Forever; batch sizes from C_TradeSkillUI's craft calls.
 local Quartz3 = LibStub("AceAddon-3.0"):GetAddon("Quartz3")
 local L = LibStub("AceLocale-3.0"):GetLocale("Quartz3")
 
@@ -92,7 +92,17 @@ function Tradeskill:OnEnable()
 	self:RegisterEvent("UNIT_SPELLCAST_STOP")
 	self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	self:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
-	if WoWRetail then
+	if WoWRetail and C_TradeSkillUI and C_TradeSkillUI.CraftRecipe then
+		-- Forever port: learn the batch size where every craft ends (CraftRecipe, CraftEnchant, CraftSalvage), so a
+		-- batch another AddOn starts (Forever Craft Queue's Process queue) merges like Blizzard's Create All
+		self:SecureHook(C_TradeSkillUI, "CraftRecipe", "DoTradeSkillClassic")
+		if C_TradeSkillUI.CraftEnchant then
+			self:SecureHook(C_TradeSkillUI, "CraftEnchant", "DoTradeSkillClassic")
+		end
+		if C_TradeSkillUI.CraftSalvage then
+			self:SecureHook(C_TradeSkillUI, "CraftSalvage", "DoTradeSkillClassic")
+		end
+	elseif WoWRetail then
 		if ProfessionsFrame then
 			self:SecureHook(ProfessionsFrame.CraftingPage, "CreateInternal", "DoTradeSkill")
 		else
@@ -180,6 +190,10 @@ end
 
 function Tradeskill:DoTradeSkill(_, id, num)
 	completedcasts = 0
+	-- Forever port: the craft calls accept secret arguments from secure callers; a secret count is not used in math
+	if issecretvalue and issecretvalue(num) then
+		num = nil
+	end
 	repeattimes = tonumber(num) or 1
 end
 

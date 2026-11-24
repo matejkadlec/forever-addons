@@ -220,6 +220,7 @@ First-party AddOns are grouped under **Jim's Forever AddOns**: in the AddOn list
   - Auto Shot wind-up zone: the end of the ranged timer is marked, stand still there for the shot to fire
   - The ranged bar stays full while Auto Shot is on but the shot did not fire yet (for example while moving)
   - Optional out-of-range warning
+- **Tradeskill Merge** shows a batch of crafts as one bar with the total time, whether Create All or another AddOn (Forever Craft Queue's Process queue) started it
 - **GCD** is exact out of combat; in combat Forever hides cooldown timing, so the bar approximates 1.5 sec (1 sec for energy users)
 - **Target, Focus, Buff, Interrupt and EnemyCasts** disable themselves when the client hides their data (cast info of other units, combat log); their options explain why and Blizzard's own target/focus cast bars stay untouched
 - Slash commands `/quartz` and `/q3` open the settings (a standalone window in combat)
