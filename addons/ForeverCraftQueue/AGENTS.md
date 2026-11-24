@@ -30,10 +30,13 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 ## Process queue
 
 - One step per press (the panel's button or the binding): the press is the hardware event; never a loop, never a timer that crafts
-- The next row is the first one with materials for at least one craft (`ns.NextStep`)
+- The next row is the first one with materials for at least one craft and not on cooldown (`ns.NextStep`; a cooldown is `C_TradeSkillUI.GetRecipeCooldown` with no charges left, what Blizzard's Create checks in `Professions.IsRecipeOnCooldown`; transmutes, Mooncloth, Cured Rugged Hide)
   - Its profession open for your own crafting (`TRADE_SKILL_SHOW` seen and no `TRADE_SKILL_CLOSE` since, `GetBaseProfessionInfo().professionID` is the row's skill line, not loading, not linked, guild or NPC crafting): `C_TradeSkillUI.CraftRecipe(recipeID, casts)` with `casts` = the row's count or what the bags allow; a requirement of `GetRecipeRequirements` that is not met stops it with a chat line
-  - Else `C_TradeSkillUI.OpenTradeSkill(skillLine)` (the base profession's ID, as Blizzard's `OpenProfessionUIToSkillLine` passes it); the ticket asked for a secure action button, but the API is documented without `HasRestrictions`, Blizzard's own Lua calls it from unprotected code, and the live Forever AddOn ForeverFishing opens Cooking with it, so no secure frame is needed (and none can block the panel in combat)
-  - No row with materials: a chat line names what the first row lacks
+  - Else `C_TradeSkillUI.OpenTradeSkill(skillLine)` (the base profession's ID, as Blizzard's `OpenProfessionUIToSkillLine` passes it). The ticket asked for a secure action button; this route needs no protected frame (none can then freeze the panel in combat), but it rests on weaker proof than a spell cast:
+    - for it: the generated documentation has no `HasRestrictions` on it, Blizzard calls it outside secure templates (`OpenProfessionUIToSkillLine`, `ProfessionsUtil.OpenProfessionFrameToRecipe`, alert frames), and two live Forever AddOns in the maintainer's AddOns folder call it from their own code (ForeverFishing opens Cooking with it, ForeverArtisan_Camping in `pcall`)
+    - against: the documentation does not flag every protected call (`C_SpellBook.CastSpellBookItem` has no `HasRestrictions` either), and Camelot's own side tabs open a profession by casting its spellbook item (`ProfessionsLargeRightTabMixin:CastProfessionSpell`)
+    - the maintainer's in-game test of 1.0 decides (opening with no window and with another profession open, no blocked popup); if the game refuses it, the fallback is a secure action button that casts the profession's spellbook item
+  - No row that can be crafted: a chat line names what the first row lacks, or its cooldown
 - Refused: in combat (the button is disabled and reads "In combat"), while a trade skill cast runs or a batch has casts left (`UnitCastingInfo` `isTradeskill`, `GetRemainingRecasts`), while the AddOn is off
 - Crafts leave the queue on the player's `UNIT_SPELLCAST_SUCCEEDED` whose spell ID is a queued recipe ID (secret IDs are ignored); any successful cast of a queued recipe counts, also one from Blizzard's Create
 - Material counts come from `ItemUtil.GetCraftingReagentCount(itemID, false)`, the count Blizzard's Create buttons use, else `C_Item.GetItemCount(itemID)`
