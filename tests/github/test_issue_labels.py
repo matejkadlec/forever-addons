@@ -111,6 +111,19 @@ class LabelChangesTest(unittest.TestCase):
         # The maintainer turned the bug into a question and removed the AddOn label: an edit keeps that
         self.assertEqual(il.label_changes(bug("Skada", "1. New steps"), bug("Skada"), ["question"]), ([], []))
 
+    def test_edit_after_a_dropped_run_puts_the_addon_label_right(self):
+        # Opened for Skada, changed to Quartz (that run dropped by a newer one), then a typo fixed
+        self.assertEqual(il.label_changes(bug("Quartz", "1. Fixed typo"), bug("Quartz"), ["bug", "skada"]),
+                         (["quartz"], ["skada"]))
+
+    def test_edit_keeps_a_second_addon_label_the_maintainer_added(self):
+        self.assertEqual(il.label_changes(bug("Skada", "1. New steps"), bug("Skada"), ["bug", "skada", "quartz"]),
+                         ([], []))
+
+    def test_addon_change_leaves_only_the_new_addon_label(self):
+        self.assertEqual(il.label_changes(bug("ForeverTweaks"), bug("Quartz"), ["bug", "skada", "quartz"]),
+                         (["forever-tweaks"], ["skada", "quartz"]))
+
     def test_old_label_already_gone_is_not_removed(self):
         self.assertEqual(il.label_changes(bug("Quartz"), bug("Skada"), ["bug"]), (["quartz"], []))
 

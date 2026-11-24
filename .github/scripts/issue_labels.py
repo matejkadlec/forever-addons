@@ -3,9 +3,10 @@
 
 Issue forms cannot set a label from a dropdown, so the "Issue labels" workflow runs this on every
 new or edited issue: a new issue gets the label of the AddOn chosen in the form's "AddOn" dropdown
-(the same names as the Jira labels, AGENTS.md, Issue Tracking) and `bug` or `enhancement` by its
-form. An edit that changes the AddOn swaps the two AddOns' labels; any other edit changes nothing,
-and no other label is ever removed, so labels the maintainer set by hand stay.
+(the same names as the Jira labels, AGENTS.md, AddOn Labels) and `bug` or `enhancement` by its
+form. An edit that changes the AddOn moves the AddOn label to the new AddOn; any other edit
+changes nothing (unless an earlier edit's run was dropped, see label_changes), and labels that
+name no AddOn are never removed, so the ones the maintainer set by hand stay.
 
 Usage in the workflow: python3 .github/scripts/issue_labels.py (reads GITHUB_EVENT_PATH,
 GITHUB_REPOSITORY and GITHUB_TOKEN). The parsing is tested by tests/github/test_issue_labels.py.
@@ -32,6 +33,7 @@ ADDON_LABELS = {
     "Quartz": "quartz",
     "Skada": "skada",
 }
+ADDON_LABEL_SET = set(ADDON_LABELS.values())
 
 # The feature request's option for an idea that is no AddOn yet: no AddOn label
 NEW_ADDON_OPTION = "A new AddOn idea"
@@ -84,9 +86,10 @@ def label_changes(body, old_body, current):
     """Return (labels to add, labels to remove) for an issue body.
 
     old_body is the body before an edit (None for a new issue), current the issue's labels now.
-    A new issue gets its form's label and its AddOn's label. An edit acts only when it changed
-    the AddOn: the new AddOn's label in, the old one's out; any other edit changes nothing, so a
-    label the maintainer changed by hand is not put back.
+    A new issue gets its form's label and its AddOn's label. An edit that changed the AddOn makes
+    the AddOn labels the new AddOn's alone; an edit that keeps it changes nothing, so a label the
+    maintainer changed by hand is not put back, unless the issue carries another AddOn's label
+    and not its own (an earlier edit's run was dropped): then that edit puts it right too.
     """
     sections = parse_form(body)
     new_addon = addon_label(sections)
@@ -94,11 +97,16 @@ def label_changes(body, old_body, current):
         wanted = [label for label in (form_label(sections), new_addon) if label]
         return [label for label in wanted if label not in current], []
     old_addon = addon_label(parse_form(old_body))
-    if new_addon == old_addon:
+    # Labels of other AddOns the issue carries now
+    others = [label for label in current if label in ADDON_LABEL_SET and label != new_addon]
+    # GitHub drops a waiting run when a newer one queues, so an AddOn change can come without its
+    # own run: an edit that keeps the AddOn still puts right an issue that carries another AddOn's
+    # label instead of its own (with no AddOn label at all it stays: the maintainer removed it)
+    stale = bool(new_addon) and new_addon not in current and bool(others)
+    if new_addon == old_addon and not stale:
         return [], []
     add = [new_addon] if new_addon and new_addon not in current else []
-    remove = [old_addon] if old_addon and old_addon in current else []
-    return add, remove
+    return add, others
 
 
 def api(method, url, token, payload=None):

@@ -11,7 +11,8 @@ on:
 
 permissions: {}
 
-# One run per issue at a time, so a quick edit after opening is labeled after the first run
+# One run per issue at a time; GitHub keeps only the newest waiting run, so after several quick
+# edits only the last one runs, and the script then compares with the labels the issue has
 concurrency:
   group: issue-labels-${{ github.event.issue.number }}
   cancel-in-progress: false
