@@ -1315,18 +1315,32 @@ local function HeldLine(list, held, known, heldUnit, mHeld)
         .. "against %s: %s|r", M(heldUnit), HeldBasisText(held, known)) }
 end
 
--- The item tooltip's "Sell at least" of your n held units (FRV-134, FM.CostInfo: what they cost you and one lost 8h
--- deposit, after the cut). A pick that lists them under it says why (only when what you paid for all of them is known,
--- the tooltip's own basis then)
+-- The item tooltip's "Sell at least" (FRV-134): what your units cost you and one lost 8h deposit, after the cut. A pick
+-- that lists units you hold under it says why, whenever what you paid is known for some of them (units without a basis
+-- count at today's AH price there, and the tooltip's header says so). The tooltip's own number (FM.CostInfo, all your
+-- sellable units, cached per pass in P.least); without it (no trade/Cost.lua) the held units' own, when all of them
+-- have a basis
 local function SellAtLeastNote(list, key, n, heldUnit, known, listAt)
-    if n <= 0 or known < n or not listAt then return end
-    local dep = FM.Deposit and FM.Deposit(key, n, 2)
-    if type(dep) ~= "number" then return end
-    local least = (heldUnit * n + dep) / (n * (1 - AH_CUT))
-    if listAt >= least then return end
+    if n <= 0 or known <= 0 or not listAt then return end
+    local info = P.least[key]
+    if info == nil then
+        info = FM.CostInfo and FM.CostInfo(key) or false
+        P.least[key] = info
+    end
+    local least, count, basis
+    if info and info.owned and type(info.min8) == "number" and (info.basisN or 0) > 0 then
+        least, count, basis = info.min8, info.n, info.basisN
+    elseif known >= n then
+        local dep = FM.Deposit and FM.Deposit(key, n, 2)
+        if type(dep) ~= "number" then return end
+        least, count, basis = (heldUnit * n + dep) / (n * (1 - AH_CUT)), n, n
+    end
+    if not least or listAt >= least then return end
+    local paid = basis >= count and "what you paid"
+        or string_format("what you paid for %s, today's AH price for %s", Count(basis), Count(count - basis))
     local earn = listAt * (1 - AH_CUT) - heldUnit
-    list[#list + 1] = { "n", string_format("List at %s is under %s, the Sell at least of your %s held on the item tooltip "
-        .. "(what you paid and one lost 8h deposit, after the cut): %s", M(listAt), M(math_ceil(least)), Count(n),
+    list[#list + 1] = { "n", string_format("List at %s is under %s, the Sell at least of your %s on the item tooltip "
+        .. "(%s and one lost 8h deposit, after the cut): %s", M(listAt), M(math_ceil(least)), Count(count), paid,
         earn >= 0 and string_format("each one that sells still earns %s, Expected counts the deposits of those that do not.", M(earn))
             or string_format("each one sells at a loss of %s; the pick is chosen for its new units, Expected counts that loss.", M(-earn))),
         ORANGE }
@@ -2260,7 +2274,8 @@ function FM.ComputePicks(out, ctx, done)
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
-        paid = {} } -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
+        paid = {}, -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
+        least = {} } -- the item tooltip's cost info of an item you hold (SellAtLeastNote, FRV-134)
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
     -- is left
     local funds = FM.PicksBudget(gold, s)

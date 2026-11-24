@@ -2072,8 +2072,26 @@ H.test("held: a Stock pick earns at least your Profit against what you paid, a l
     FM.PaidBasis = function(_, n) return n, n * 9800 end
     FM.Deposit = function(_, n) return 10 * (n or 1) end
     local pick = Compute(FM, env, { crafts = { Craft("162", 400) } })["162"]
-    H.eq(Reason(pick, string.format("List at %s is under %s, the Sell at least of your 5 held on the item tooltip (what you "
+    H.eq(Reason(pick, string.format("List at %s is under %s, the Sell at least of your 5 on the item tooltip (what you "
         .. "paid and one lost 8h deposit, after the cut): each one sells at a loss of %s; the pick is chosen for its new "
         .. "units, Expected counts that loss.", Mo(FM, 10000), Mo(FM, math.ceil((9800 * 5 + 50) / (5 * 0.95))), Mo(FM, 300)))
         ~= nil, true, "the note")
+    -- what you paid is known for 2 of the 5 (the others at 10s, one more now): the item tooltip's own Sell at least
+    -- (FM.CostInfo: 2 at what you paid, 3 at today's AH price) is the line, 1g 0s 50c, over the 1g list price
+    FM, env = Setup({ ["163"] = 27 })
+    Hold(FM, "163", 5)
+    FM.PaidBasis = function() return 2, 2 * 9800 end
+    FM.CostInfo = function() return { owned = true, n = 5, basisN = 2, min8 = 10050 } end
+    pick = Compute(FM, env, { crafts = { Craft("163", 400) } })["163"]
+    local heldUnit = (2 * 9800 + 3 * 1000) / 5
+    H.eq(Reason(pick, string.format("List at %s is under %s, the Sell at least of your 5 on the item tooltip (what you "
+        .. "paid for 2, today's AH price for 3 and one lost 8h deposit, after the cut): each one that sells still earns %s, "
+        .. "Expected counts the deposits of those that do not.", Mo(FM, 10000), Mo(FM, 10050), Mo(FM, 10000 * 0.95 - heldUnit)))
+        ~= nil, true, "a partial basis: the tooltip's number")
+    -- the tooltip's line is under the list price: no note
+    FM.CostInfo = function() return { owned = true, n = 5, basisN = 2, min8 = 9990 } end
+    pick = Compute(FM, env, { crafts = { Craft("163", 400) } })["163"]
+    for _, r in ipairs(pick.reasons) do
+        H.eq(r[1] == "n" and r[2]:find("^List at ") ~= nil, false, "no note: " .. tostring(r[2]))
+    end
 end)
