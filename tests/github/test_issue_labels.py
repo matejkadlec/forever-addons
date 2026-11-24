@@ -2,7 +2,7 @@
 """The issue labeler (.github/scripts/issue_labels.py, the "Issue labels" workflow, FRV-140) on issue
 bodies the way GitHub writes them from the issue forms, and the lists it must agree with: every
 AddOn folder of addons/ and backports/ is in its map, in both forms' AddOn dropdowns and in the
-label table of AGENTS.md. Standard library only; run from the repository root (tests/run.sh).
+label table of AGENTS.md; config.yml keeps blank issues off and its contact links https (FRV-142). Standard library only; run from the repository root (tests/run.sh).
 """
 import importlib.util
 import io
@@ -212,6 +212,15 @@ class ListsAgreeTest(unittest.TestCase):
                 for other, other_label in il.FORM_LABELS.items():
                     if other_label != label:
                         self.assertNotIn("label: %s\n" % other, text)
+
+    def test_config_turns_blank_issues_off_with_https_contact_links(self):
+        # A mailto: contact link made GitHub ignore the whole config.yml, blank issues included (FRV-142)
+        lines = [line.strip() for line in read(os.path.join(FORMS, "config.yml")).split("\n")]
+        self.assertIn("blank_issues_enabled: false", lines)
+        urls = [line[len("url:"):].strip() for line in lines if line.startswith("url:")]
+        self.assertTrue(urls, "config.yml has a contact link")
+        for url in urls:
+            self.assertTrue(url.startswith("https://"), "contact link %s is not https" % url)
 
     def test_agents_md_lists_every_addon_label(self):
         agents = read(os.path.join(ROOT, "AGENTS.md"))

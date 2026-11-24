@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the idea! One idea per issue, please, and have a quick look at the [open issues](https://github.com/matejkadlec/forever-addons/issues) first: maybe someone asked for it already. An AddOn you would rather talk over privately, or have made for you, goes to the email contact on the "New issue" page instead.
+        Thanks for the idea! One idea per issue, please, and have a quick look at the [open issues](https://github.com/matejkadlec/forever-addons/issues) first: maybe someone asked for it already. An AddOn you would rather talk over privately, or have made for you, goes by email to info@matejkadlec.cz instead.
   # The options are the AddOn folders of addons/ and backports/ plus the new AddOn option; the
   # "Issue labels" workflow sets the AddOn's label from it, tests/run.sh checks the list
   - type: dropdown

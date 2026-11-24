@@ -1,5 +1,7 @@
 blank_issues_enabled: false
+# Contact links stay https: a mailto: link made GitHub ignore this whole file, blank issues
+# included (FRV-142), so the link opens the README's Feedback section, which gives the address
 contact_links:
-  - name: AddOn ideas and commissions by email
-    url: mailto:info@matejkadlec.cz
-    about: An AddOn idea you would rather talk over privately, or an AddOn made for you (for a voluntary donation, or for a fixed price with an invoice).
+  - name: "AddOn ideas and commissions: info@matejkadlec.cz"
+    url: https://github.com/matejkadlec/forever-addons#-feedback
+    about: Email info@matejkadlec.cz for an AddOn idea you would rather talk over privately, or an AddOn made for you (for a voluntary donation, or for a fixed price with an invoice).
