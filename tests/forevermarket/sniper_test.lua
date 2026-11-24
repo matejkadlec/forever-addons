@@ -8,9 +8,12 @@
 --     purchase failed, stay counted when no answer comes
 --   * FRV-128: a new number or price keeps the count (190 of 200 bought, 300 set: 190 of 300), so does removing the
 --     number; only a reset (the window's x by "max units") or adding the item to the list (again) starts it at 0;
---     the count runs without a number too; the day's units are never touched by either; the market table's number
---     keeps it too, the same one or another (FRV-43 started it again for another); an item without a number buys
---     what the budget allows, as before
+--     the count runs without a number too; the day's units are never touched by either; an item without a number
+--     buys what the budget allows, as before
+--   * FRV-128, the market table (the maintainer's rule after review round 2): Shift+click adds a pick's units to the
+--     item's limit and keeps the count (picks needing one material sum up; an item without a limit gets its Bought
+--     now plus the units, review round 3), Shift+right-click sets the limit to the units and starts the count at 0;
+--     a material listed twice in one plan sums up in both
 --   * a pick sends every AH purchase with its units; items sold per auction are skipped and named in one chat line
 --   * FRV-94: a refresh starts the budget again from your gold now (or the manual amount) and keeps what the sniper
 --     spent and bought today; only the daily reset zeroes that; not while a purchase waits for the server's answer
@@ -201,12 +204,18 @@ H.test("sniper: the market table's Shift+right-click sets the limit to the pick'
     H.eq(env.printed[1]:find("count started again", 1, true) ~= nil, true, "the chat line says so")
 end)
 
-H.test("sniper: Shift+click keeps an item without a limit unlimited, a pick's material listed twice sums up", function()
-    local FM, env = Load()
+H.test("sniper: Shift+click caps an item without a limit at its Bought now plus the pick, a material listed twice sums up", function()
+    local FM, env, ah = Load()
     local key, thick = tostring(LEATHER), tostring(THICK)
     FM.SnipeSet(key, 100) -- sniped in the window without a limit
+    Offer(env, ah, LEATHER, 90, 20)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
     FM.SnipeFromTable(key, 275, 40, "add")
-    H.eq(FM.SnipeSaved(key).n, nil, "no limit stays: it already buys what the budget allows")
+    local _, state = Hit(FM, LEATHER)
+    H.same({ state.got, state.n, state.left }, { 20, 60, 40 }, "20 bought + the pick's 40: 20/60, it buys the pick's 40")
+    Offer(env, ah, LEATHER, 250, 500)
+    H.eq(Hit(FM, LEATHER), 40, "a large offer at the pick's price: only the 40")
     FM.SnipeFromPlan("Belt", { { key = thick, price = 500, units = 10 }, { key = thick, price = 500, units = 5 },
         { key = key, price = 275, units = 3 } }, thick, "restart")
     H.eq(FM.SnipeSaved(thick).n, 15, "restart: 10 and 5 of the same plan sum up")

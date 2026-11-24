@@ -1300,7 +1300,8 @@ per purchase.
   * Shift-click and the menu's Snipe add (1.43, FRV-128, the maintainer's rule after review round 2): the units go
     on top of the limit an item already has and what was bought stays counted, so two picks that need the same
     material add up (Heavy Leather 60 and 40: 20/100 when 20 were bought; the chat line says "40 added"); an item
-    sniped without a limit stays without one; a new item, or one removed and added again, gets the units from 0.
+    sniped without a limit gets a limit of its Bought now plus the units (20 bought, a pick of 40: 20/60), so it buys
+    no more than the pick at the pick's price; a new item, or one removed and added again, gets the units from 0.
     Clicking the same pick twice adds it twice: which pick an item was sent for is not tracked yet.
   * Shift+right-click (at the AH) starts again: each item's limit becomes the pick's units and Bought now starts
     at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100 of 144

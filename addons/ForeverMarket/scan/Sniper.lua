@@ -471,10 +471,11 @@ end
 
 -- One snipe from the market table (FRV-128, the maintainer's rule after review round 2): true and the units added to
 -- the item's limit, or false and why ("price", "auction"). mode "add" (Shift+click, the row menu's Snipe) adds the
--- units to the limit the item has and keeps what was bought (two picks needing one material sum up; an item in the
--- list without a limit keeps none); mode "restart" (Shift+right-click) sets the limit to the units and starts the
--- count at 0. An item added to the list (again) gets the units and starts at 0 either way. units nil keeps the
--- item's limit. restarted[key] = true once a restart in this call reset it: the same material again adds to it
+-- units to the limit the item has and keeps what was bought (two picks needing one material sum up); an item in the
+-- list without a limit gets its Bought now plus the units (review round 3: left unlimited it would buy far more than
+-- the pick at the pick's price); mode "restart" (Shift+right-click) sets the limit to the units and starts the count
+-- at 0. An item added to the list (again) gets the units and starts at 0 either way. units nil keeps the item's
+-- limit. restarted[key] = true once a restart in this call reset it: the same material again adds to it
 local function AddFromTable(key, price, units, mode, restarted)
     price = tonumber(price)
     if type(key) ~= "string" or not price or price < 1 then return false, "price" end
@@ -486,11 +487,9 @@ local function AddFromTable(key, price, units, mode, restarted)
     local reset = mode == "restart" and not (restarted and restarted[key])
     local limit, added = units, nil
     if units and sniped and not reset then
-        if n then
-            limit, added = n + math_floor(units), math_floor(units)
-        else
-            limit = nil -- no limit already buys what the budget allows
-        end
+        local saved = FM.SnipeSaved(key)
+        local base = n or (saved and math_max(0, math_floor(tonumber(saved.got) or 0)) or 0)
+        limit, added = base + math_floor(units), math_floor(units)
     end
     if not FM.SnipeSet(key, price, limit, reset) then return false, "price" end
     if reset and restarted then restarted[key] = true end
