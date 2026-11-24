@@ -123,7 +123,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 - Follow [AGENTS.md](../AGENTS.md) (Development Workflow, Coding Rules, API verification) and the nearest nested guide; keep the guides and `README.md` current in the same batch
 - **The gate**, run before every push and reported command by command:
   - `luac5.1 -p` on every changed Lua file (a file with a byte order mark through `tail -c +4`)
-  - `tests/run.sh` ([tests/README.md](../tests/README.md)): the Lua tests, the feed parity test, the listings parity test and the issue labeler's test; a change of logic they cover updates or adds tests in the same batch
+  - `tests/run.sh` ([tests/README.md](../tests/README.md)): the Lua tests, the feed parity test, the listings parity test and the tests of the issue labeler and the release script; a change of logic they cover updates or adds tests in the same batch
   - The version bump, checked directly (the Git hooks are optional and may not be installed): every AddOn with a changed file in `git diff --name-only origin/master...HEAD` (its top level `AGENTS.md` and `CLAUDE.md` aside) has a changed `## Version:` in its `.toc`, Skada in all three tocs. Running `.githooks/pre-commit` on the staged change does the same check; report the hook only when it actually ran. Never `--no-verify`
   - For `services/forever-market-feed/`: the checks in [its guide](../services/forever-market-feed/AGENTS.md)
   - `git diff --check`, and for Markdown the relative links

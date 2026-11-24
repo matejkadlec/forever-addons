@@ -291,6 +291,7 @@ This repository is developed with AI agents (Claude Code): the maintainer plans 
 - [`CLAUDE.md`](CLAUDE.md) and `.claude/`: what Claude Code needs on top of them (its settings, hooks, delivery skills and the reviewer agent); [`SKILLS.md`](SKILLS.md) lists the workflows
 - [`docs/`](docs/README.md): the documents behind them, among them [`docs/forever-api-notes.md`](docs/forever-api-notes.md), what was verified about Forever's AddOn API (useful to anyone writing AddOns for Forever)
 - `tests/` holds the tests of the logic that runs without the game client, `services/forever-market-feed/` the server part of ForeverMarket's price feed
+- Releases: a pushed tag `<AddOnFolder>-v<version>` (for example `ForeverCampFeatures-v1.1.3`) has the `Release` workflow check that AddOn, zip its folder, attach the zip to a GitHub release and upload it to the AddOn's CurseForge project; [`docs/releasing.md`](docs/releasing.md) is the maintainer's guide, with the CurseForge API token (created in the CurseForge authors console, kept in the repository secret `CURSEFORGE_API_TOKEN`) and the project ID in the `.toc`
 
 ## 📜 Licenses
 
