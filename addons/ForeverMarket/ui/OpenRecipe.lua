@@ -17,7 +17,8 @@ local _, FM = ...
 -- OnRecipeSelected event). The count box: CreateMultipleInputBox:SetValue(crafts), which Blizzard clamps to what the
 -- bags allow; nothing is written onto Blizzard's frames by this file. TRADE_SKILL_SHOW is a synchronous event, so the
 -- window's own handlers may run inside this file's OpenTradeSkill call; FRV-132's in-game test (2026-11-24) showed the
--- side tabs' protected profession casts and the recast on reopening unblocked after it (docs/forever-api-notes.md).
+-- side tabs' protected profession casts unblocked after it; a reopen straight after it is inferred, not seen
+-- (docs/forever-api-notes.md).
 
 local type = type
 local pairs = pairs
