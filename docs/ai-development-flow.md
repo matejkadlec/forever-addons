@@ -25,7 +25,7 @@ They are entry points into this document, not a second source of truth: every ru
 - Project `FRV` on `envelopment.atlassian.net`; statuses To Do -> In Progress -> In Review -> Done ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)). There are no other statuses: do not look for or create any
 - The tools attach a few minutes after a session starts: wait and retry each minute, as that section says
 - Move a ticket by the transition whose target is the wanted status, and read the returned status: it must be the target
-- Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn (`forever-marketplace` for ForeverMarket, `forever-camp-features` for ForeverCampFeatures, `forever-craft-queue` for ForeverCraftQueue, `tooling` for the repository itself), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
+- Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn's label (the table in [AGENTS.md, AddOn Labels](../AGENTS.md#addon-labels), `tooling` for the repository itself, `all-addons` for every first-party AddOn at once), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
 
 ### Status model
 
@@ -47,6 +47,7 @@ A ticket is **in flight** while it is In Progress or In Review. It belongs to th
 ### Issues
 
 - Search `FRV` for an equivalent ticket first (`project = FRV AND text ~ "<terms>"`), comments included
+- A ticket for a player's GitHub issue follows [AGENTS.md, GitHub Issues](../AGENTS.md#github-issues): the issue's URL in the description, the key as a comment on the issue, `Closes #<n>` in the pull request
 - Format of the existing tickets:
   - **Type:** Task for a change or an analysis (analyses start with `Analysis:`), Bug only for confirmed broken behavior, Epic only when the maintainer asks, Subtask for a part of a ticket
   - **Title:** sentence case, the AddOn or area first where it helps (`Item tooltip and table: ...`)
@@ -141,7 +142,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 1. Commit (messages start with the ticket key), `git fetch origin`, rebase your own branch when `origin/master` moved, run the gate on the final head
 2. Push your branch and open one ready pull request against `master`
    - Title: starts with the keys, `FRV-13: ...` or `FRV-15, FRV-19: ...`
-   - Description: links to the tickets, what changed, the QA kind with its What to test, the checks that ran, and the Claude Code attribution as the last line
+   - Description: links to the tickets, `Closes #<n>` for each GitHub issue a ticket names ([AGENTS.md, GitHub Issues](../AGENTS.md#github-issues)), what changed, the QA kind with its What to test, the checks that ran, and the Claude Code attribution as the last line
    - A gated batch also carries the line `Do not merge before in-game QA` in the description
 3. Read the remote head back: it must be your last commit
 4. Each ticket: comment `🤖 Claude QA` (what was verified, the pull request, the head) and move it to In Review

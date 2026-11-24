@@ -62,7 +62,7 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 
 ## After the merge
 
-1. **Tickets:** each one gets a `🤖 Claude QA` line with the merge commit and moves to Done; the label `in-game-qa` is gone.
+1. **Tickets:** each one gets a `🤖 Claude QA` line with the merge commit and moves to Done; the label `in-game-qa` is gone. A GitHub issue a ticket names is closed by the merge (`Closes #<n>`); one still open is closed with a `🤖` comment naming the merge (`AGENTS.md`, GitHub Issues).
 2. **Feed deploy:** when the merge touched the feed's paths, find the `Market feed` run for the merge commit (`gh run list --workflow market-feed.yml --branch master`), follow it to its end and report the result. A failed run is reported to the maintainer at once with the failing step; nothing is re-run and the host is not touched.
 3. **Cleanup:** remove the batch's worktree and local branch when they hold no uncommitted changes (`AGENTS.md`, Branches and Worktrees: your own, or the batch you merged).
 
