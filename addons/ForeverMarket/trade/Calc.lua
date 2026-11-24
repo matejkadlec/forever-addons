@@ -939,9 +939,13 @@ local running = false
 local queued = false
 local planRequested = false
 
--- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked
+-- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked. Every field
+-- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
+-- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
-    "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickAt", "pickT", "pickListings", "pickStock" }
+    "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
+    "pickStock" }
+FM.PICK_FIELDS = PICK_FIELDS
 
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
 function FM.PicksLocked()

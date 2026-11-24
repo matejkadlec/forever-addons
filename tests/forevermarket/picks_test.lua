@@ -1963,6 +1963,24 @@ H.test("budget: Invest 90% and 10g both checked: the smaller budget by default, 
     H.eq(out.pickNeed, 9000, "Either must apply: 9 crafts")
 end)
 
+-- Rule: a locked plan (Lock plan after refresh) keeps every field the plan writes through an automatic pass
+-- (FM.PICK_FIELDS in trade/Calc.lua), the summary's Profit and why it has fewer picks too
+H.test("picks: a locked plan keeps every field FM.ComputePicks writes", function()
+    local FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 5 }, 10000)
+    local out = { crafts = FourCrafts() }
+    Compute(FM, env, out)
+    local kept = {}
+    for _, field in ipairs(FM.PICK_FIELDS) do kept[field] = true end
+    local missing = {}
+    for field in pairs(out) do
+        if field:find("^pick") and not kept[field] then missing[#missing + 1] = field end
+    end
+    table.sort(missing)
+    H.eq(table.concat(missing, ", "), "", "fields a locked plan would lose")
+    H.eq(out.pickProfit ~= nil and kept.pickProfit, true, "the Profit it planned with")
+    H.eq(out.pickShort ~= nil and kept.pickShort, true, "why it has fewer picks than 5")
+end)
+
 ---------------------------------------------------------------- why a pick is out of scope (FRV-133)
 -- Rule: the plan is greedy; each next pick is judged after the picks before it took their materials. A candidate that
 -- is no pick after an earlier pick took its material is "Also good, but out of scope" (judged on its own); its tooltip
