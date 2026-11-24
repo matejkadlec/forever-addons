@@ -4,7 +4,7 @@
 >
 > **Maintenance:** update this guide when a naming, `.toc`, chat, settings panel or slash command convention changes, and the lists of current icons and slash commands when an AddOn changes them.
 
-The AddOn inventory is in the root guide. ForeverMarket has its own guide: [`ForeverMarket/AGENTS.md`](ForeverMarket/AGENTS.md).
+The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue have their own guides: [`ForeverMarket/AGENTS.md`](ForeverMarket/AGENTS.md), [`ForeverCraftQueue/AGENTS.md`](ForeverCraftQueue/AGENTS.md).
 
 ---
 
@@ -27,7 +27,7 @@ The AddOn inventory is in the root guide. ForeverMarket has its own guide: [`For
   ```
   - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name, `ForeverMarket` uses `ForeverMarketDB` (it stores market data, not only settings)
   - `## Category: Jim's Forever AddOns` groups all first-party AddOns under one collapsible header in the AddOn list (`Blizzard_AddOnList/AddonList.lua`, the header's right-click menu enables/disables the whole category); keep the exact same text in every AddOn
-  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`, Camp Features `Spell_Fire_Fire` (the campfire icon)
+  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`, Camp Features `Spell_Fire_Fire` (the campfire icon), Craft Queue `INV_Misc_Note_01`
 - Key bindings go in the AddOn's `Bindings.xml` (the client loads it from the AddOn folder, it is not listed in the `.toc`) with `category="Jim's Forever AddOns"`, names in `BINDING_NAME_*` globals
 - Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
 - Update `## Interface:` when the WoW: Forever client changes its interface version
@@ -89,4 +89,5 @@ The AddOn inventory is in the root guide. ForeverMarket has its own guide: [`For
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
   - `/fcf` (also `/campfeatures`; the alias and the bare command's list were asked for in FRV-116): bare command lists the known camp objects of the current zone and ends with a pointer to `/fcf help`; `on`, `off`, `test` (a sample alert), `options` (the settings panel), `debug` (what each way of finding objects sees right now: the recipes asked and their answers, the last world tooltip, the last placement, the channel, what was sent and received), `debug objects` (every object with its item and placement spell), `help`
+  - `/fcq` (the bare command opening the queue panel was asked for in FRV-131): bare command shows or hides the queue panel; `on`, `off`, `clear` (empties the queue, asking first in the panel while that option is on), `options` (the settings panel), `debug` (the profession window's state, the next step, the last call to the game, the last successful casts and the queue), `help`
   - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `scanlog`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `item`, `held`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `options`, `wipe confirm`

@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Craft Queue
+## Notes: A crafting queue across all your professions: Add to queue in the profession window, then Process queue crafts it row by row.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\INV_Misc_Note_01
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.4
+## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverCraftQueueSettings
+## SavedVariablesPerCharacter: ForeverCraftQueueDB
+
+Locale.lua
+Core.lua
+ForeverCraftQueue.lua
+ProfessionButton.lua
+Panel.lua
+SettingsPanel.lua

@@ -34,7 +34,7 @@ The steps below are what those skills do, for work done without them.
 
 ## Change a first-party AddOn
 
-Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
+Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket, [addons/ForeverCraftQueue/AGENTS.md](addons/ForeverCraftQueue/AGENTS.md) for ForeverCraftQueue). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
 
 ## Add a first-party AddOn
 

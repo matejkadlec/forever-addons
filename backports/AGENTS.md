@@ -31,6 +31,7 @@
 - Quartz 3.7.9 cast bars ported to Forever
 - Swing module rewritten on `PLAYER_SWING` with an Auto Shot wind-up zone
 - Target, Focus, Buff, Interrupt and EnemyCasts disable themselves when the client hides their data
+- Tradeskill Merge learns a batch's size from `C_TradeSkillUI.CraftRecipe` / `CraftEnchant` / `CraftSalvage` (secure hooks) instead of Blizzard's `ProfessionsFrame.CraftingPage:CreateInternal`, so a batch another AddOn starts (ForeverCraftQueue's Process queue, FRV-131) shows one bar with the total time like Create All; before, such a batch kept the last count and the bar ran past its end ("-15.9 / 3.0")
 
 ### Skada (`/skada`)
 
