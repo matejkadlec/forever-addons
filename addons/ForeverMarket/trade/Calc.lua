@@ -1212,7 +1212,10 @@ function FM.ComputeTrade(record, onDone)
             FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes, carry = carry }, function()
                 -- when, and with which snapshot, listings and stock, this plan was made (the summary line, Refresh's
                 -- tooltip); the snapshot of the pass's start, not one a deep scan saved while it ran
-                out.pickAt, out.pickT, out.pickListings, out.pickStock = now, out.t, out.listingsVersion, out.stockVersion
+                -- pickAt also tells plans apart (the sniper's trace, FRV-143, review round 6): always later than the plan
+                -- before, also for two plans of the same second
+                local at = math_max(now, ((held and held.pickAt) or 0) + 1)
+                out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
                 done()
             end)
         end

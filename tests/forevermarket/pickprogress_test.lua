@@ -272,6 +272,13 @@ H.test("pick progress: the pass carries the craft picks over into an automatic p
     end
     Pass(function() FM.PlanPicks() end)
     H.eq(seen[1], false, "the first plan has nothing to carry")
+    H.eq(FM.trade.pickAt, env.clock, "the plan's time")
+    -- a second plan in the same second still gets a later time: the sniper's trace tells plans apart by it (review
+    -- round 6)
+    local first = FM.trade.pickAt
+    Pass(function() FM.PlanPicks() end)
+    H.eq(FM.trade.pickAt, first + 1, "one second later")
+    table.remove(seen)
     FM.GetSettings().tablePicksLock = false
     Pass(function() FM.ComputeTrade(false) end)
     H.eq(type(seen[2]), "table", "lock off, an automatic plan carries them")

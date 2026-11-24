@@ -1355,7 +1355,8 @@ per purchase.
     no more than the pick at the pick's price; a new item, or one removed and added again, gets the units from 0.
     Until 1.45 clicking the same pick twice added it twice (below).
   * Which picks an item is sniped for (1.45, FRV-143): a pick sent from the table (Shift-click, the menu's Snipe,
-    Shift+right-click) is remembered per item with its units and the time of its plan (`FM.trade.pickAt`). The same
+    Shift+right-click) is remembered per item with its units and the time of its plan (`FM.trade.pickAt`, always at
+    least a second after the plan before, so two plans of one second stay two). The same
     pick of the same plan again adds nothing: "Already sniping 2 items for Deviate Scale Belt with this plan, nothing
     added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
     (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
