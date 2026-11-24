@@ -868,6 +868,19 @@ Your **AH result** as a line from 0 with one dot per day, week or month (**Daily
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
 
+* **The y-axis on round steps** (1.43, FRV-117; `FM.ChartSteps` / `FM.ChartStepText` in `ui/Chart.lua`, the chart's
+  `roundSteps`, which only this tab turns on: the item history keeps its 4 evenly spaced lines): the steps follow
+  the 1 - 2.5 - 5 series, 10g, 25g, 50g, 100g, 250g, 500g, 1000g, 2500g and so on up, and below 10g down to 10c (5g,
+  2.5g, 1g, 50s, 25s, 10s, ... 10c). Three lines above 0: the top one is the smallest step the highest dot does not
+  reach (strictly above it: a highest dot of exactly 100g gives 250g), and the two steps before it; the chart's top
+  is that step, so the line ends under it, and the lines sit at their real heights (+82g 42s: 100g, 50g, 25g). When
+  the line goes under 0 the negative side follows the same rule from its lowest dot (-12g: -25g, -10g, -5g), 0 is
+  always a line, and without any dot above 0 only the negative side shows. A line closer than a label's height to one
+  drawn before (0 first, then the outer steps, then inward) is left out, so labels never overlap (a dip of a few
+  silver under a line up to 100g shows no negative steps). Labels are the round value only, in the coin colors:
+  "100g", "2.5g", "1,000g", "50s", "25c". Before 1.43 the 4 lines were spaced evenly over the data's range ("30g 77s",
+  "61g 54s", "92g 31s")
+
 * **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
   once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
   **All characters** is the default. With one such character there is no switch and the tab shows that character
@@ -1120,7 +1133,8 @@ Buys commodities the moment someone lists them at or under your price, one mouse
 per purchase.
 
 * Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, DIALOG strata, opaque: always above
-  the market table, which is HIGH; the whole window drags), top to bottom:
+  the market table, which is HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
+  list's columns need it, see the list), top to bottom:
   * The banner (FRV-40), as wide as the window and colored by what sniping does: an offer to buy in large green with
     a short pulse and the sound ("Scroll or click Buy: 12 Heavy Leather for 25s 20c (2s 10c each)", a price per unit
     that spans several prices "(2s 10c to 2s 20c each)"), "Buying ..." blue, paused orange (combat, a deep scan,
@@ -1130,15 +1144,24 @@ per purchase.
     the AH instead, and opening the window there starts sniping again), "Bought 12 Heavy Leather for 25s 20c"
     for 3 seconds after a purchase (the chat line stays), else "Watching 4 items · a round takes about 3 s" (the
     length of the last full round over the items searched in turn)
+  * The wheel light (1.43, FRV-128) at the banner's right end, above Add ("Try again" left of it): a green **ON**
+    for half a second after each wheel step that reached the sniper (its wheel catcher or its bindings below,
+    `FM.SnipeLastWheel`, `FM.SnipeWheelSeen`), else a red **OFF**: it stays red while another frame takes the wheel
+    (FRV-82) and while sniping is off (away from the AH; a stop forgets the last step). Its tooltip: "Lights up while
+    your mouse wheel steps reach the sniper"
   * The add row (FRV-41): the item box (Blizzard's `SearchBoxTemplate` with "Add an item" and its own clear button),
-    the price per unit (Blizzard's `MoneyInputFrameTemplate`: gold, silver and copper boxes, two digits for silver
-    and copper), "max units" (buy at most, empty = no limit) and Add (Save for an item already sniped). Typing shows
+    the buyout per unit (Blizzard's `MoneyInputFrameTemplate`: gold, silver and copper boxes, two digits for silver
+    and copper), "max units" (buy at most, empty = no limit; right-aligned since 1.43), its x (1.43, FRV-128:
+    "Reset limit and count": empties the box, and the next Update starts the item's count at 0; loading another
+    item forgets it) and Add (**Update** for an item already sniped, "Save" until 1.42; Update keeps what was bought,
+    with a new number or buyout too: 190 of 200, 300 typed = 190/300). Typing shows
     8 suggestions with icon, name and the cheapest price now (items known to be sold per auction left out, sniped
     ones marked "sniped"); the empty box with the focus shows the earlier snipes (`saved` without `list`) with their
     saved price. Up / Down mark a suggestion, Enter picks it (the first without a mark) and the focus goes to the
     price; Tab runs item, gold, silver, copper, max units and back (Shift+Tab the other way); Enter in a price box
-    or in max units adds or saves. After adding, the row empties and the focus is back in the item box for the next
-    one; after saving an edit it empties too. Shift+click an item (bags, a chat link, a row of the AH) while the
+    or in max units adds or updates. After adding, the row empties and the focus is back in the item box for the next
+    one; after an update it empties too ("Updated: ... 190 bought now", or "count started again" after the x).
+    Shift+click an item (bags, a chat link, a row of the AH) while the
     item box has the focus, or drag one onto the window: it lands in the row, also an item never scanned (its item
     ID is the key; the bag item stays where it is). With the AH open Blizzard also writes the name into the AH's
     search box, as for any Shift+click
@@ -1146,20 +1169,28 @@ per purchase.
     `FM.FairPrice`; "no AH data yet" without either) and in orange "a vendor sells it for 50c" when an unlimited
     vendor offer is not dearer than the typed price. The price is never filled in from the market. The form's
     messages show there for 5 seconds or until the next input
-  * The list (Blizzard's `WowScrollBoxList` + `MinimalScrollBar`, 8 rows, the bar shows with more): Item (icon, name
-    in its quality color), Max price, Cheapest now (the cheapest unit of others from the last search, with the units
-    at or under your price in green, "none listed", "-" before the first search), Bought today (the sniper's units
-    of the item today; with a number also "37/144" since the number was set) and the state in words: "at your
+  * The list (Blizzard's `WowScrollBoxList` + `MinimalScrollBar`, 8 rows, the bar shows with more: 15 items scroll,
+    2 show no bar): Item (icon, name in its quality color, a long name on two lines), Buyout ("Max price" until 1.42),
+    Cheapest now (the cheapest unit of others from the last search, with the units at or under your buyout in green,
+    "none listed", "-" before the first search), Bought now (1.43, FRV-128: the units counted against the item's
+    limit, "490/1,000", without a limit the units since the count was last reset, "490"; a 0 in grey), Bought today
+    (every unit of the item the sniper bought today on this character, "980"; until 1.42 one "Bought today" column
+    held both, "980  490/600") and the state in words: "at your
     price" (green row), "buying" (blue), "confirm", "budget spent", "over budget", "not stackable", "done", "paused"
     (both greyed; a done item says "done" also while paused). A row with an offer has a Buy button (Confirm while its
     quote waits for a second step, see below). At the row's right end (1.39, FRV-101): pause / resume (Blizzard's
     stopwatch pair: the pause icon while it snipes, the play icon while it is paused, below) and x = stop sniping it
-    (its price and number stay saved); without the scroll bar the rows reach the end of the header line, with it
-    (more than 8 items) they make room for it (`ScrollUtil.AddManagedScrollBarVisibilityBehavior`; until 1.38 the
-    room stayed empty). Click a row = load it into the add row. The row tooltip: your price,
-    "buy at most" progress, cheapest now, units at or under your price, when it was searched, the offer, "Bought
-    today: 37 for 1g 2s". While sniping the list and its bar take no wheel step (it scrolls by the bar), away from
-    the AH they scroll with the wheel
+    (its price and number stay saved, its count starts at 0 when it is added again); without the scroll bar the rows
+    reach the end of the header line, with it (more than 8 items) they make room for it
+    (`ScrollUtil.AddManagedScrollBarVisibilityBehavior`; until 1.38 the room stayed empty). Every column after the
+    name is as wide as the widest of its header and its values (1.43, FRV-128, `Layout`: measured with
+    `GetUnboundedStringWidth` in the row's font when the window is made: a buyout of 999g 99s 99c, "999g 99s 99c
+    (99,999)", "99,999/99,999", "999,999", the longest state), so nothing is cut with "..." (until 1.42 a limit of 1000
+    showed "980/10..."); the window is as wide as that needs, also with the scroll bar. The headers Buyout, Cheapest
+    now, Bought now and Bought today explain themselves on hover. Click a row = load it into the add row. The row
+    tooltip: the buyout, "Bought now: 190 of 300 for 4g 10s" (without a limit "190 for ..."), cheapest now, units at
+    or under your buyout, when it was searched, the offer, "Bought today: 37 for 1g 2s". While sniping the list and
+    its bar take no wheel step (it scrolls by the bar), away from the AH they scroll with the wheel
   * The budget (FRV-94): "Automatically refresh budget [x]" (on by default: every opening of the window starts the
     budget again from your gold), "Budget [50] % [bar] [refresh icon]" (the bar: spent since the budget was last
     refreshed, of the budget; yellow from 75%, red once spent; before the budget first started today "starts when
@@ -1235,14 +1266,19 @@ per purchase.
   `COMMODITY_PURCHASE_FAILED`; a refresh waits while a purchase waits for its answer. Until 1.25 the universal
   threshold could be switched off for a % per item (`snipeUniversal`, `saved.pct`): that mode is gone (FRV-42), both
   are left unused in the saved data, and items saved with their own % snipe under the one budget.
-* Buy at most N units (1.25, FRV-43): `saved.n` = N, `saved.got` = units bought since N was set, `saved.paid` =
-  what they cost. A hit takes no more than N - got, so the last purchase stops at exactly N; at N the item is done
-  (grey row, "144 / 144 done", not searched, never bought) and stays in the list until you remove it or give it a
-  new number. Units are counted with the gold: at the confirm, given back on `COMMODITY_PURCHASE_FAILED`, kept when
-  no answer comes. A new number (typed into the box, or another one from the market table) starts the count again;
-  a new price alone (an untouched box) keeps it, and so does the same number from the table again while the item is
-  in the list (the same pick clicked twice; removed and added again, it starts from 0); the daily reset doesn't touch it. The budget applies on top: whichever
-  is reached first stops the item.
+* Buy at most N units (1.25, FRV-43): `saved.n` = N, `saved.got` = units bought since the count was last reset
+  (1.43, FRV-128: counted with or without a number, the window's Bought now; until 1.42 only with a number, since it
+  was set), `saved.paid` = what they cost. A hit takes no more than N - got, so the last purchase stops at exactly N;
+  at N the item is done (grey row, "144 / 144 done", not searched, never bought) and stays in the list until you
+  remove it, raise its number or reset it. Units are counted with the gold: at the confirm, given back on
+  `COMMODITY_PURCHASE_FAILED` (not when the count started again since), kept when no answer comes. Since 1.43
+  (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
+  number under what was bought leaves the item done); only the add row's x by "max units" followed by Update
+  (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after removing it, or for the first
+  time) starts it at 0. From the market table another number than the item has is a new plan, whose number is what it
+  still has to buy (the plan counts what you hold), and starts the count again (FRV-43, kept for the table); the same
+  number again (the same pick clicked twice) keeps it. Until 1.42 a new number typed into the box started the count
+  again too. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
   "Resume sniping this item") stops an item without removing it: a paused item is not searched in a round, has no hit
   (a new result of it only updates Cheapest now) and is never bought; pausing also cancels a purchase of it that
@@ -1447,7 +1483,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
 * `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused }` (kept after removal;
-  `n`, `got`, `paid` = "buy at most", units bought and what they cost, 1.25 on and only with a number; `paused` =
+  `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
+  with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
+  reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
   true while the item is paused, 1.39, FRV-101, optional; a `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
   (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
   conversion)
