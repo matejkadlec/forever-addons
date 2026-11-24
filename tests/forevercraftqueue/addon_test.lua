@@ -104,17 +104,20 @@ local function Load(options)
 end
 
 -- The profession window of Blizzard_Professions, loaded on demand: its crafting page with the selected recipe, the
--- count box and Create
+-- count box and Create; the window keeps the scripts hooked onto it (frame.hooks.OnShow runs what its OnShow would)
 local function LoadProfessionWindow(env)
     local frame = env.CreateFrame(nil, "ProfessionsFrame")
+    frame.hooks = {}
+    function frame:HookScript(name, fn) self.hooks[name] = fn end
+    -- the side tabs the docked panel steps past (hidden: the panel takes its fallback room)
+    frame.ProfessionsOverviewTab = env.CreateFrame()
     local page = env.CreateFrame()
     frame.CraftingPage = page
-    page.SchematicForm = {
-        GetRecipeInfo = function()
-            local recipe = RECIPES[env.selected]
-            return { recipeID = env.selected, name = recipe.name, icon = 132539, learned = true }
-        end
-    }
+    page.SchematicForm = env.CreateFrame()
+    page.SchematicForm.GetRecipeInfo = function()
+        local recipe = RECIPES[env.selected]
+        return { recipeID = env.selected, name = recipe.name, icon = 132539, learned = true }
+    end
     env.countBox = 1
     page.CreateMultipleInputBox = env.CreateFrame()
     page.CreateMultipleInputBox:Show()
@@ -199,6 +202,45 @@ H.test("adding it again adds up; a count box at 0 (materials short) or hidden ad
     env.ForeverCraftQueueAddButton.scripts.OnClick()
     H.eq(Rows(ns), "Dusky Boots x5", "box hidden")
     H.eq(#Printed(env, "(now x5)"), 1, "the new total in chat")
+end)
+
+H.test("the panel opens only when asked for: Open queue, not Add to queue or the profession window", function()
+    local ns, env = Load()
+    LoadProfessionWindow(env)
+    H.eq(env.ForeverCraftQueueOpenButton:IsShown(), true, "Open queue shown")
+    Queue(ns, env, BOOTS, 3)
+    env.ProfessionsFrame:Show()
+    env.ProfessionsFrame.hooks.OnShow()
+    H.eq(env.ForeverCraftQueueFrame, nil, "no panel yet")
+    env.ForeverCraftQueueOpenButton.scripts.OnClick()
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "Open queue shows it")
+    H.eq(env.ForeverCraftQueueFrame.docked, true, "docked to the open window")
+    env.ProfessionsFrame.hooks.OnHide()
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), false, "hides with the window")
+    env.ProfessionsFrame.hooks.OnShow()
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), false, "the window does not reopen it")
+end)
+
+H.test("a panel that is open docks when the profession window opens", function()
+    local _, env = Load()
+    LoadProfessionWindow(env)
+    env.ForeverCraftQueueOpenButton.scripts.OnClick()
+    H.eq(env.ForeverCraftQueueFrame.docked, false, "free while no window is open")
+    env.ProfessionsFrame:Show()
+    env.ProfessionsFrame.hooks.OnShow()
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "still shown")
+    H.eq(env.ForeverCraftQueueFrame.docked, true, "docked")
+end)
+
+H.test("Open queue window automatically: the profession window and Add to queue open the panel", function()
+    local ns, env = Load({ settings = { autoOpen = true } })
+    LoadProfessionWindow(env)
+    env.ProfessionsFrame:Show()
+    env.ProfessionsFrame.hooks.OnShow()
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "with the window")
+    env.ForeverCraftQueueFrame:Hide()
+    Queue(ns, env, BOOTS, 1)
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "on Add to queue")
 end)
 
 H.test("a window that is not your own crafting (a linked list) adds nothing", function()
@@ -448,6 +490,7 @@ H.test("Clear queue asks first while the option is on, then empties the queue", 
     LoadProfessionWindow(env)
     Queue(ns, env, BOOTS, 2)
     Queue(ns, env, MEAT, 3)
+    env.ForeverCraftQueueOpenButton.scripts.OnClick()
     local panel = env.ForeverCraftQueueFrame
     panel.clear.scripts.OnClick()
     H.eq(#ns.Queue(), 2, "kept until confirmed")
@@ -462,6 +505,7 @@ H.test("without the confirmation option Clear queue empties at once", function()
     local ns, env = Load({ settings = { confirmClear = false } })
     LoadProfessionWindow(env)
     Queue(ns, env, BOOTS, 2)
+    env.ForeverCraftQueueOpenButton.scripts.OnClick()
     env.ForeverCraftQueueFrame.clear.scripts.OnClick()
     H.eq(#ns.Queue(), 0, "empty")
 end)
@@ -472,6 +516,7 @@ H.test("the panel shows the next step and turns Process off for an empty queue",
     Queue(ns, env, MEAT, 3)
     OpenWindow(env, LEATHERWORKING)
     env.bags = { [BEAR_FLANK] = 3 }
+    env.ForeverCraftQueueOpenButton.scripts.OnClick()
     local panel = env.ForeverCraftQueueFrame
     panel.process.SetEnabled = function(self, on) self.enabled = on end
     ns.UpdatePanel()
@@ -493,6 +538,7 @@ H.test("the saved queue is cleaned at load and stays the saved table", function(
     H.eq(Rows(ns), "Dusky Boots x10, Smoked Bear Meat x60", "queue")
     H.eq(env.ForeverCraftQueueDB.queue, ns.Queue(), "saved table")
     H.eq(env.ForeverCraftQueueSettings.enabled, true, "settings filled in")
+    H.eq(env.ForeverCraftQueueSettings.autoOpen, false, "the panel does not open by itself")
 end)
 
 H.test("/fcq off ignores presses and crafts and adds nothing; /fcq on brings it back", function()
@@ -502,6 +548,7 @@ H.test("/fcq off ignores presses and crafts and adds nothing; /fcq on brings it 
     env.bags = { [LIGHT_LEATHER] = 80, [THREAD] = 20 }
     env.SlashCmdList.FCQ("off")
     H.eq(#Printed(env, "Forever Craft Queue disabled"), 1, "off")
+    H.eq(env.ForeverCraftQueueOpenButton:IsShown(), false, "no Open queue")
     ns.Process()
     Crafted(env, BOOTS)
     Queue(ns, env, BOOTS, 1)

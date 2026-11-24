@@ -106,6 +106,8 @@ ns.GetVersion = GetVersion
 local DEFAULTS = {
     enabled = true,
     dock = true,
+    -- the panel opens with the profession window and on Add to queue (off: only when asked for)
+    autoOpen = false,
     confirmClear = true,
     doneSound = true
 }
@@ -399,7 +401,7 @@ function ns.AddRecipe(info, count)
         added = added .. string_format(L.ADDED_TOTAL, row.count)
     end
     ns.Print(L.ADDED, added)
-    if ns.ShowPanel then
+    if db.autoOpen and ns.ShowPanel then
         ns.ShowPanel()
     end
     ns.Refresh()

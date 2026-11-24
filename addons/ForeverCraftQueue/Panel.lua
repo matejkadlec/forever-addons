@@ -498,14 +498,15 @@ function ns.ApplyPanelSettings()
     ns.UpdatePanel()
 end
 
--- The profession window shows and hides the docked panel with it (HookScript leaves Blizzard's scripts alone)
+-- The profession window opens the panel with it only while "Open queue window automatically" is on, docks a panel
+-- that is open already, and hides a docked panel with it (HookScript leaves Blizzard's scripts alone)
 function ns.HookProfessionsFrame()
     if not ProfessionsFrame or ns.professionsFrameHooked then
         return
     end
     ns.professionsFrameHooked = true
     ProfessionsFrame:HookScript("OnShow", function()
-        if ns.IsEnabled() and ns.GetDB().dock then
+        if ns.IsEnabled() and (ns.GetDB().autoOpen or (frame and frame:IsShown())) then
             ns.ShowPanel()
         end
     end)

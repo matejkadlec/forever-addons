@@ -2,11 +2,12 @@ local _, ns = ...
 
 local L = ns.L
 
--- "Add to queue" on the profession window's crafting page (Blizzard_Professions, loaded on demand), left of Create
--- All: it queues the selected recipe with the count of the count box. The page is only read and hooked with
--- hooksecurefunc / HookScript; nothing is written onto Blizzard's frames. Camelot's page puts Create All 362 px from
--- the page's right edge and the recipe list 304 px wide on its left (Camelot/Blizzard_ProfessionsCrafting.lua), so a
--- 96 px button fits between them.
+-- "Add to queue" and "Open queue" on the profession window's crafting page (Blizzard_Professions, loaded on demand),
+-- in a row above Create All: Add to queue queues the selected recipe with the count of the count box, Open queue
+-- shows the queue panel. Both use Create All's own template (the page's GetButtonTemplate: Camelot's red button with
+-- the golden border and font); Add to queue is exactly as wide and high as Create All, Open queue as high and as wide
+-- as its text (a Create All wide one would reach the Track Recipe checkbox at the schematic form's bottom right). The
+-- page is only read and hooked with hooksecurefunc / HookScript; nothing is written onto Blizzard's frames.
 
 local ipairs = ipairs
 local pcall = pcall
@@ -14,10 +15,15 @@ local type = type
 local math_floor = math.floor
 local CreateFrame = CreateFrame
 
-local BUTTON_WIDTH = 96
+-- Room between the two buttons and between them and Create All
 local BUTTON_GAP = 4
+-- The red button's height when Create All has none to read (SharedButtonSmallTemplate)
+local BUTTON_HEIGHT = 28
+-- What Blizzard's fit-to-text red buttons add to their text's width (fitTextWidthPadding)
+local TEXT_PADDING = 30
 
-local button
+local addButton
+local openButton
 local hooked = false
 
 -- The profession window's crafting page, or nil before Blizzard_Professions loaded
@@ -88,7 +94,7 @@ local function SelectedCount()
     return 1
 end
 
--- The Add button's click
+-- Add to queue's click
 local function OnAddClick()
     local info = ns.ReadSelectedRecipe()
     if not info then
@@ -98,18 +104,55 @@ local function OnAddClick()
     ns.AddRecipe(info, SelectedCount())
 end
 
--- Show the button while the page shows a recipe you can craft (Blizzard shows its Create button then) and the
--- AddOn is on
+-- Open queue's click: the panel, docked next to the profession window while that option is on
+local function OnOpenClick()
+    if ns.ShowPanel then
+        ns.ShowPanel()
+    end
+end
+
+-- Show Add to queue while the page shows a recipe you can craft (Blizzard shows its Create button then) and Open
+-- queue whenever the AddOn is on
 function ns.UpdateAddButton()
-    if not button then
+    if not addButton then
         return
     end
     local page = Page()
     local createButton = page and page.CreateButton
-    button:SetShown(ns.IsEnabled() and createButton ~= nil and createButton:IsShown())
+    local enabled = ns.IsEnabled()
+    addButton:SetShown(enabled and createButton ~= nil and createButton:IsShown())
+    openButton:SetShown(enabled)
 end
 
--- Create the button and hook the page once Blizzard_Professions has loaded
+-- A red button of the page's own template on the page, with its tooltip (the classic red panel button when that
+-- template cannot be created)
+local function CreatePageButton(page, name, text, tooltipTitle, tooltip, onClick)
+    local template = "SharedButtonSmallTemplate"
+    if page.GetButtonTemplate then
+        local ok, pageTemplate = pcall(page.GetButtonTemplate, page)
+        if ok and type(pageTemplate) == "string" then
+            template = pageTemplate
+        end
+    end
+    local ok, created = pcall(CreateFrame, "Button", name, page, template)
+    if not ok or not created then
+        created = CreateFrame("Button", name, page, "UIPanelButtonTemplate")
+    end
+    created:SetText(text)
+    created:SetScript("OnClick", onClick)
+    created:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(tooltipTitle, 1, 1, 1)
+        GameTooltip:AddLine(tooltip, nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    created:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    return created
+end
+
+-- Create the buttons and hook the page once Blizzard_Professions has loaded
 function ns.HookProfessions()
     local page = Page()
     if hooked or not (page and page.CreateAllButton) then
@@ -117,25 +160,28 @@ function ns.HookProfessions()
     end
     hooked = true
 
-    local ok, created = pcall(CreateFrame, "Button", "ForeverCraftQueueAddButton", page, "SharedButtonSmallTemplate")
-    if not ok or not created then
-        created = CreateFrame("Button", "ForeverCraftQueueAddButton", page, "UIPanelButtonTemplate")
-        created:SetHeight(22)
+    local createAll = page.CreateAllButton
+    local height = createAll:GetHeight()
+    if type(height) ~= "number" or height < 1 then
+        height = BUTTON_HEIGHT
     end
-    button = created
-    button:SetWidth(BUTTON_WIDTH)
-    button:SetPoint("RIGHT", page.CreateAllButton, "LEFT", -BUTTON_GAP, 0)
-    button:SetText(L.ADD_TO_QUEUE)
-    button:SetScript("OnClick", OnAddClick)
-    button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText(L.ADD_TOOLTIP_TITLE, 1, 1, 1)
-        GameTooltip:AddLine(L.ADD_TOOLTIP, nil, nil, nil, true)
-        GameTooltip:Show()
-    end)
-    button:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
+    -- the schematic form's art shares the page's frame level and would cover textures at that level
+    local form = page.SchematicForm
+    local level = (form and form:GetFrameLevel() or page:GetFrameLevel()) + 2
+
+    addButton = CreatePageButton(page, "ForeverCraftQueueAddButton", L.ADD_TO_QUEUE, L.ADD_TOOLTIP_TITLE,
+        L.ADD_TOOLTIP, OnAddClick)
+    -- anchored to both top corners of Create All, so it follows Create All's width (which grows with its count)
+    addButton:SetPoint("BOTTOMLEFT", createAll, "TOPLEFT", 0, BUTTON_GAP)
+    addButton:SetPoint("BOTTOMRIGHT", createAll, "TOPRIGHT", 0, BUTTON_GAP)
+    addButton:SetHeight(height)
+    addButton:SetFrameLevel(level)
+
+    openButton = CreatePageButton(page, "ForeverCraftQueueOpenButton", L.OPEN_QUEUE, L.OPEN_TOOLTIP_TITLE,
+        L.OPEN_TOOLTIP, OnOpenClick)
+    openButton:SetPoint("LEFT", addButton, "RIGHT", BUTTON_GAP, 0)
+    openButton:SetSize(math_floor(openButton:GetTextWidth() + TEXT_PADDING + 0.5), height)
+    openButton:SetFrameLevel(level)
 
     -- Blizzard decides there whether Create shows (a learned recipe, your own window)
     if page.ValidateControls then

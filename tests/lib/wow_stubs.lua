@@ -80,6 +80,7 @@ function Stubs.NewEnvironment()
         function frame:GetText() return self.text end
         function frame:GetUnboundedStringWidth() return 0 end
         function frame:GetStringWidth() return 0 end
+        function frame:GetTextWidth() return 0 end
         function frame:GetStringHeight() return 0 end
         frames[#frames + 1] = frame
         return frame

@@ -176,28 +176,32 @@ local function RegisterSettingsPanel()
         dock = CreateCheckbox("ForeverCraftQueueSettingsDock", 32, -106, L.SETTINGS_DOCK, true, function(value)
             ns.SetOption("dock", value)
         end),
-        confirmClear = CreateCheckbox("ForeverCraftQueueSettingsConfirm", 32, -130, L.SETTINGS_CONFIRM, true,
+        autoOpen = CreateCheckbox("ForeverCraftQueueSettingsAutoOpen", 32, -130, L.SETTINGS_AUTO_OPEN, true,
+            function(value)
+                ns.SetOption("autoOpen", value)
+            end),
+        confirmClear = CreateCheckbox("ForeverCraftQueueSettingsConfirm", 32, -154, L.SETTINGS_CONFIRM, true,
             function(value)
                 ns.SetOption("confirmClear", value)
             end),
-        doneSound = CreateCheckbox("ForeverCraftQueueSettingsSound", 32, -154, L.SETTINGS_SOUND, true, function(value)
+        doneSound = CreateCheckbox("ForeverCraftQueueSettingsSound", 32, -178, L.SETTINGS_SOUND, true, function(value)
             ns.SetOption("doneSound", value)
         end)
     }
 
-    controls.show = CreateButton("ForeverCraftQueueSettingsShow", 36, -190, 130, L.SETTINGS_SHOW, function()
+    controls.show = CreateButton("ForeverCraftQueueSettingsShow", 36, -214, 130, L.SETTINGS_SHOW, function()
         if ns.TogglePanel then
             ns.TogglePanel()
         end
     end)
-    controls.resetPosition = CreateButton("ForeverCraftQueueSettingsResetPosition", 176, -190, 130,
+    controls.resetPosition = CreateButton("ForeverCraftQueueSettingsResetPosition", 176, -214, 130,
         L.SETTINGS_RESET_POSITION, function()
             ns.SetPanelPosition(nil)
             ns.ApplySettings()
         end)
 
     local note = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -232)
+    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -256)
     note:SetWidth(560)
     note:SetJustifyH("LEFT")
     note:SetText(L.SETTINGS_NOTE)

@@ -13,7 +13,7 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 | `Locale.lua` | Every shown text (`ns.L`) |
 | `Core.lua` | Pure queue logic, no game calls (tested in `tests/forevercraftqueue/core_test.lua`): rows and their cleanup, adding and merging, moving, counts, what the bags allow, `ns.NextStep`, `ns.OnCrafted`, the summaries |
 | `ForeverCraftQueue.lua` | Messages, saved data, the profession window's state (`ns.OpenSkillLine`, `ns.IsCrafting`), the steps of Process queue (`ns.Process`), counting crafts, events, key binding globals, slash commands |
-| `ProfessionButton.lua` | "Add to queue" on `ProfessionsFrame.CraftingPage`, created when `Blizzard_Professions` loads |
+| `ProfessionButton.lua` | "Add to queue" and "Open queue" on `ProfessionsFrame.CraftingPage`, created when `Blizzard_Professions` loads |
 | `Panel.lua` | The queue panel (scroll list, Process queue, Clear queue with its in-panel confirmation), docking to `ProfessionsFrame` |
 | `SettingsPanel.lua` | `Esc -> Options -> AddOns -> Jim's Forever AddOns -> Craft Queue` |
 | `Bindings.xml` | "Forever Craft Queue: process queue" and "show or hide the queue" |
@@ -24,7 +24,11 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 
 - Forever's profession window is Mainline's `ProfessionsFrame` (`Blizzard_Professions`, load on demand) with Camelot overrides, not the classic `TradeSkillFrame`; its crafting page has `CreateAllButton`, `CreateMultipleInputBox` (the count box) and `CreateButton` at the bottom right, the recipe list (304 px) on the left, and side tabs past the window's right edge
 - The AddOn only reads that page (`SchematicForm:GetRecipeInfo()`, the count box's `GetValue()`, `CreateButton:IsShown()`) and hooks it with `hooksecurefunc(page, "ValidateControls", ...)` and `HookScript`; it writes no field onto Blizzard's frames
-- "Add to queue" is a child button of the page, anchored left of Create All; it shows while Blizzard shows Create (a learned recipe in your own window)
+- "Add to queue" and "Open queue" are child buttons of the page in a row above Create All, made from the page's own button template (`page:GetButtonTemplate()`, Camelot's `SharedButtonSmallTemplate`: the red three-slice button with the golden border that Create All uses)
+  - Add to queue is anchored to both top corners of Create All, so it is as wide as Create All (which only grows, with its count's digits) and as high; Open queue sits right of it, as wide as its text plus the template's padding: a Create All wide one would reach the Track Recipe checkbox at the schematic form's bottom right
+  - Their frame level is the schematic form's + 2: the first build sat at the page's level left of Create All, over the recipe list, and the game showed only its text, not its red textures (most likely the list's art at the same level drawn over them)
+  - Add to queue shows while Blizzard shows Create (a learned recipe in your own window); Open queue whenever the AddOn is on
+- The panel opens only when asked for (Open queue, `/fcq`, the binding, Clear queue's confirmation), or with the option `autoOpen` ("Open queue window automatically", off by default) also with the profession window and on Add to queue; an open panel docks when the profession window opens and a docked one closes with it
 - The count box reads 0 while the materials are short (Blizzard disables it): Add to queue then adds 1, the row's count is changed in the panel
 
 ## Process queue
@@ -43,7 +47,7 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 
 ## Saved data
 
-- `ForeverCraftQueueSettings` (account): `enabled`, `dock`, `confirmClear`, `doneSound` (booleans), `panelPos` (`{ point, relPoint, x, y }` of the free panel, nil = centered)
+- `ForeverCraftQueueSettings` (account): `enabled`, `dock`, `autoOpen` (false by default), `confirmClear`, `doneSound` (booleans), `panelPos` (`{ point, relPoint, x, y }` of the free panel, nil = centered)
 - `ForeverCraftQueueDB` (per character): `queue`, a list of rows `{ recipeID, name, icon, count, skillLine, profession, reagents = { { itemID, need, name } } }`; cleaned at load (`ns.CleanQueue`: broken rows dropped, a recipe twice merged, counts 1 to 9999)
 - A change of the row format needs a migration in `InitializeSavedData` and tests; the queue is the player's plan, not data that cannot be recreated
 
