@@ -4,8 +4,10 @@ Copyright (c) Zarnivoop and the Skada contributors (Skada, https://github.com/za
 Copyright (c) 2026 Matěj Kadlec (the WoW: Forever port's changes, https://github.com/matejkadlec/forever-addons)
 
 Skada declares this license in its .toc file (## X-License: MIT/X); its repository ships no
-license file, so this file states the license for the port. The bundled fonts keep their own
-licenses (media/fonts/README-fonts.md), the libraries in lib/ the licenses of their authors.
+license file, so this file states the license for the port. It does not cover the bundled fonts:
+Cinzel and Marcellus are under the SIL Open Font License 1.1 (media/fonts/README-fonts.md), the
+other five come with upstream Skada, which names no license for them. The libraries in lib/ keep
+the licenses of their authors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

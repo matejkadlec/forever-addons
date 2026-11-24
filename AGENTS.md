@@ -108,7 +108,7 @@ These apply to all Lua in `addons/` and `backports/`.
 | AddOn | Slash command | Notes |
 | ----- | ------------- | ----- |
 | Quartz | `/quartz`, `/q3` | Quartz 3.7.9 cast bars ported to Forever; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
-| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based), version `v2.6.2-forever4`; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
+| Skada | `/skada` | Skada 2.6.2 (MIT, `C_DamageMeter` based), version `v2.6.2-forever5`; port details in [`backports/AGENTS.md`](backports/AGENTS.md) |
 
 ---
 

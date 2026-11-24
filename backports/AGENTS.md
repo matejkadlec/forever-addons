@@ -46,6 +46,6 @@
   - `/skada debug` before the first fight of a session prints both self-test results
   - Totals still get condensed when only small rates fail the format check
   - `GetSetTotal` returns the secret session total in combat instead of the first source's amount (`ModuleBase.lua`)
-- `LICENSE` (FRV-141): the MIT text for the license Skada declares in its `.toc` (`## X-License: MIT/X`); upstream ships no license file, so it names Zarnivoop and the Skada contributors for Skada and the maintainer for the port's changes; the bundled fonts keep their own (`media/fonts/README-fonts.md`)
-- Version `v2.6.2-forever4`, bump it in all three tocs (the hook only checks `Skada.toc`)
+- `LICENSE` (FRV-141): the MIT text for the license Skada declares in its `.toc` (`## X-License: MIT/X`); upstream ships no license file, so it names Zarnivoop and the Skada contributors for Skada and the maintainer for the port's changes; it does not cover the bundled fonts (Cinzel and Marcellus: SIL OFL 1.1, `media/fonts/README-fonts.md`; ABF, Accidental Presidency, Adventure, Avqest and VeraSe come with upstream Skada, which names no license for them)
+- Version `v2.6.2-forever5`, bump it in all three tocs (the hook only checks `Skada.toc`)
 - `X-Curse-Project-ID`/`X-Wago-ID` were removed so AddOn managers do not replace the port

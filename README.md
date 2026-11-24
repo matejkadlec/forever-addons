@@ -299,7 +299,7 @@ This repository is developed with AI agents (Claude Code): the maintainer plans 
   - ForeverRangeIndicator embeds LibRangeCheck-3.0 (MIT, [its `LICENSE`](addons/ForeverRangeIndicator/Libs/LibRangeCheck-3.0/LICENSE)) and LibStub (public domain)
 - **Backported AddOns** keep the license of the original:
   - Quartz: GPL v2, [`backports/Quartz/GPLv2.txt`](backports/Quartz/GPLv2.txt)
-  - Skada: MIT, [`backports/Skada/LICENSE`](backports/Skada/LICENSE) (Skada declares MIT/X in its `.toc`); its bundled fonts Cinzel and Marcellus are under the SIL Open Font License 1.1 ([`backports/Skada/media/fonts/`](backports/Skada/media/fonts/README-fonts.md))
+  - Skada: MIT, [`backports/Skada/LICENSE`](backports/Skada/LICENSE) (Skada declares MIT/X in its `.toc`); its bundled fonts are not under it: Cinzel and Marcellus are under the SIL Open Font License 1.1 ([`backports/Skada/media/fonts/README-fonts.md`](backports/Skada/media/fonts/README-fonts.md)), the other five (ABF, Accidental Presidency, Adventure, Avqest, VeraSe) come with upstream Skada, which names no license for them
   - The libraries bundled with them (Ace3, LibSharedMedia, LibWindow, ...) keep the licenses of their authors
 
 ---
