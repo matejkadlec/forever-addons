@@ -1279,6 +1279,9 @@ local function RowHints(tab, row)
     else
         GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B)
     end
+    -- a row whose recipe you know: Ctrl+click opens its profession window on it (FRV-132)
+    local craftHint = FM.CraftHint and FM.CraftHint(RowSource(row.stepsOf or row, tab))
+    if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B) end
     GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
     GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B)
 end
@@ -1436,6 +1439,21 @@ local function OnRowClick(button, mouseButton)
         if FM.StickyOpen then
             GameTooltip:Hide()
             FM.StickyOpen(RowId(tab, row), tab.id, tab.label, RowLines(tab, row))
+        end
+        return
+    end
+    -- Ctrl+click: the row's recipe in its profession window, a pick's crafts in the count box (FRV-132, ui/OpenRecipe.lua);
+    -- a row without a craft you know says why
+    if mouseButton ~= "RightButton" and IsControlKeyDown and IsControlKeyDown() then
+        if FM.CraftTarget then
+            local target, why = FM.CraftTarget(RowSource(row.stepsOf or row))
+            if target then
+                FM.OpenRecipe(target)
+            else
+                local key = (row.stepsOf or row).key
+                local name = not CurrentTab().farm and type(key) == "string" and Name(key) or nil
+                FM.PrintError("Failed to open a recipe" .. (name and (" for " .. name) or "") .. ": " .. tostring(why) .. ".")
+            end
         end
         return
     end

@@ -1529,7 +1529,7 @@ local function EvaluateCraft(c)
         listAt = waiting and waiting.T or row.sell,
         invest = c.kind == "level" and c.learnCost or (plan.capital + learnCost + toolCost), unitProfit = m, prof = row.craft.prof,
         learned = row.learned, trial = plan.trial, cand = c, tools = row.craft.tools, held = held, listUnits = items,
-        batch = items }
+        batch = items, runs = plan.runs } -- runs: the crafts of "make N", for Ctrl+click's count box (FRV-132)
     -- one 8h listing of the crafts and what you hold, at your confidence; a recipe to learn pays its price over 3 days
     pick.expected = expected * conf - (c.kind == "learn" and learnCost / LEARN_DAYS or 0)
     -- what to do, in order (Evaluate adds the listing): learn > use > buy > make > wait
