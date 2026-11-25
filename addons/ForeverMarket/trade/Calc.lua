@@ -938,6 +938,7 @@ FM.trade = nil
 local running = false
 local queued = false
 local planRequested = false
+local planKeep = false -- the plan asked for keeps the craft picks' progress (FRV-104: the lock switched off)
 
 -- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked. Every field
 -- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
@@ -953,9 +954,11 @@ function FM.PicksLocked()
 end
 
 -- A new Picks plan, asked for by you: the refresh button, a change of a Picks input, the first view of Picks in a
--- session. The other tabs are computed again in the same pass
-function FM.PlanPicks()
+-- session. The other tabs are computed again in the same pass. keep: the craft picks that stay in it keep their target
+-- and what you crafted of them (FRV-104; switching the lock off), else what you crafted is units you hold
+function FM.PlanPicks(keep)
     planRequested = true
+    planKeep = planKeep or (keep and true or false)
     FM.ComputeTrade(false)
 end
 
@@ -979,7 +982,10 @@ function FM.ComputeTrade(record, onDone)
     local hasPlan = held and held.picks and true or false
     local plan = planRequested or not FM.PicksLocked()
         or (not hasPlan and FM.PicksShown ~= nil and FM.PicksShown())
-    planRequested = false
+    -- an automatic plan (the lock off) carries the craft picks' targets and progress over (FRV-104); one you asked for
+    -- starts them anew
+    local carry = plan and hasPlan and (not planRequested or planKeep) and FM.PickCarry and FM.PickCarry(held.picks) or nil
+    planRequested, planKeep = false, false
     local now = FM.Now()
     local nowMinutes = Minutes(now)
     local latestMinutes = Minutes(r.last.t)
@@ -1203,10 +1209,13 @@ function FM.ComputeTrade(record, onDone)
                 end
                 return done()
             end
-            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, function()
+            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes, carry = carry }, function()
                 -- when, and with which snapshot, listings and stock, this plan was made (the summary line, Refresh's
                 -- tooltip); the snapshot of the pass's start, not one a deep scan saved while it ran
-                out.pickAt, out.pickT, out.pickListings, out.pickStock = now, out.t, out.listingsVersion, out.stockVersion
+                -- pickAt also tells plans apart (the sniper's trace, FRV-143, review round 6): always later than the plan
+                -- before, also for two plans of the same second
+                local at = math_max(now, ((held and held.pickAt) or 0) + 1)
+                out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
                 done()
             end)
         end
@@ -1216,6 +1225,11 @@ function FM.ComputeTrade(record, onDone)
         out.err = err
         out.at = FM.Now()
         FM.trade = out
+        -- a new plan: the sniped items traced for its picks follow it (FRV-143, scan/Sniper.lua)
+        if plan and not err and out.pickAt and FM.SnipeFollowPlan then
+            local ok, e = pcall(FM.SnipeFollowPlan, out.picks, out.pickAt)
+            if not ok and geterrorhandler then geterrorhandler()(e) end
+        end
         if FM.RefreshTable then FM.RefreshTable() end
         if onDone then onDone() end
         if queued then

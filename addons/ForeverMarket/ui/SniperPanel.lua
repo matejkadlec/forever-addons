@@ -561,6 +561,21 @@ local function RowTooltip(self)
         GameTooltip:AddDoubleLine("Bought today", FM.FormatCount(state.units) .. " for " .. FM.FormatMoney(state.spent),
             1, 0.82, 0, 1, 1, 1)
     end
+    -- the picks of the market table it is sniped for and what each still has to buy (FRV-143), your own part after them
+    local trace = FM.SnipeTrace and FM.SnipeTrace(key)
+    if trace then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Sniped for", 1, 0.82, 0)
+        local at = FM.trade and FM.trade.pickAt
+        local sum = 0
+        for _, t in ipairs(trace) do
+            sum = sum + t.left
+            GameTooltip:AddDoubleLine("  " .. (FM.GetName and FM.GetName(t.pick) or t.pick),
+                (t.left > 0 and FM.FormatCount(t.left) or "all bought") .. (t.at ~= at and "  (older plan)" or ""), 1, 1, 1, 1, 1, 1)
+        end
+        local own = state.left and math_max(0, state.left - sum) or 0
+        if own > 0 then GameTooltip:AddDoubleLine("  Set by you", FM.FormatCount(own), 0.7, 0.7, 0.7, 0.7, 0.7, 0.7) end
+    end
     GameTooltip:Show()
 end
 

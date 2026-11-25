@@ -282,6 +282,26 @@ function FM.UnitsBasis(key, n, craftsOnly)
     return u
 end
 
+-- Units of an item the logged-in character crafted in batches started at or after `since` (time()): what a Picks plan
+-- made at that time has crafted of its target since (FRV-104). The open batch's line is written again on every bag
+-- update, so a craft counts as soon as its units are in your bags
+function FM.CraftedSince(key, since)
+    if type(key) ~= "string" or type(since) ~= "number" then return 0 end
+    local r = FM.R()
+    local crafts = r and type(r.crafts) == "table" and r.crafts or nil
+    if not crafts then return 0 end
+    local char = FM.PlayerName()
+    local n = 0
+    -- newest last: a batch's line is added at its first craft, so the walk ends at the first batch before `since`
+    for i = #crafts, 1, -1 do
+        local t, k, units, who = crafts[i]:match("^(%d+),([^,]+),(%d+),%d+,([^,]*),")
+        t = tonumber(t)
+        if t and t < since then break end
+        if t and k == key and who == char then n = n + (tonumber(units) or 0) end
+    end
+    return n
+end
+
 -- The recipe of an item this character makes: the learned one of the ForeverArtisan data (as the market table
 -- uses it), else the one your newest craft of it used (materials per craft and units per craft as they came out).
 -- { key, reagents = { { key, n } }, makes, learned = true } or nil
