@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.48.3
+## Version: 1.48.4
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## X-Curse-Required-Dependencies: foreverartisan
 ## SavedVariables: ForeverMarketDB

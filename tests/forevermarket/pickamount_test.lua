@@ -791,3 +791,24 @@ H.test("amount: picks of one material after purchases by hand each send their ow
     H.eq(SniperLeft(FM), 22, "the sniper adds pick #2's 11 to pick #1's (which a new plan follows down)")
     H.same({ Targets(FM, first) }, { {}, "bought" }, "pick #1 itself has nothing left: its click adds nothing")
 end)
+
+-- Review round 3: a pick that got units back by an earlier click holds more than it needs; the next pick must not get
+-- the same units back again
+H.test("amount: three picks of one material: the second click gets back nothing the first already got back", function()
+    local FM, _, out, _, state = SnipedPicks()
+    local first, second = out.picks[1], out.picks[2]
+    local third = { key = "102", buys = { { key = "900", ah = 22, top = 1000 } }, purchases = { { key = "900", ah = 22 } },
+        planAt = first.planAt, rank = 3 }
+    out.picks[3] = third
+    FM.TableRowClick({ row = third }, "LeftButton") -- pick #3 sends its 22
+    FM.SnipeSaved("900").got = 11 -- the sniper buys 11 for it
+    state.bought = 22 -- and 11 more are bought by hand: the plan gives the 22 to picks #1 and #2, pick #3 needs 22
+    H.same({ FM.PickBuysLeft(first)[1].ah, FM.PickBuysLeft(second)[1].ah, FM.PickBuysLeft(third)[1].ah }, { 0, 0, 22 },
+        "the steps lines: #1 and #2 bought, #3 buy 22")
+    H.same({ Targets(FM, first) }, { { { "900", 11 } } }, "pick #1 gets back the 11 the sniper bought for #3")
+    FM.TableRowClick({ row = first }, "LeftButton")
+    H.eq(SniperLeft(FM), 22, "22 to buy: what pick #3 needs")
+    H.same({ Targets(FM, second) }, { {}, "bought" }, "pick #2: nothing, the sniper's 11 were given back to pick #1 already")
+    FM.TableRowClick({ row = second }, "LeftButton")
+    H.eq(SniperLeft(FM), 22, "still 22: nothing bought for no pick")
+end)

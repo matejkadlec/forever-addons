@@ -1490,7 +1490,8 @@ per purchase.
   its count holds the sniper's purchases for that pick, while what is still to buy hands every purchase since the plan
   to the picks in plan order, so the pick gets back what the plan gave it of those (`TracedBought`: the least of what
   the plan took off it, what the sniper bought for the traced picks under this plan, and what the plan still gives
-  those picks beyond what the sniper holds for them). Pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
+  those picks beyond what the sniper holds for them, in sum: a traced pick that holds more than it needs lowers it,
+  review round 3). Pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
   line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11. Never more
   than its plan's units; nothing back for purchases by hand, and none for a traced pick kept under its plan's units by
   units still in your mail (the sniper bought nothing for it under this plan). A traced pick whose material you bought

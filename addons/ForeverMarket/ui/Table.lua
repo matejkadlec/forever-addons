@@ -1204,12 +1204,14 @@ end
 -- their order, not to the pick the sniper bought it for. So a pick added to such an item gets back what the plan gave
 -- it of the sniper's purchases for the traced picks: the least of what the plan gave it (bought: its plan's units
 -- less FM.PickBuysLeft), what the sniper bought for the traced picks of this plan (FM.SnipeTrace's sent less left)
--- and what the plan still gives those picks beyond what the sniper holds for them (LeftOf less left). Picks 1 and 2 of
--- 11 each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8 (3 left), pick 2 its 11; pick 1
--- adds 3 + min(8, 8, 11 - 3) = 11, 14 left to buy for the two, as their steps lines say. Review round 2: never a
--- negative part (a traced pick that holds more than it needs keeps it, until a new plan follows), and a trace kept
--- under its plan's units by purchases still in the mail (Capped) gives nothing, since the sniper bought nothing for it
--- under this plan. 0 for an item without a traced pick of this plan of this character, and when this pick is traced
+-- and what the plan still gives those picks beyond what the sniper holds for them, in sum (LeftOf less left of each,
+-- review round 3: a traced pick that holds more than it needs, one that got units back by an earlier click or whose
+-- material was bought by hand, lowers the sum, else a third pick got the same units back again). Picks 1 and 2 of 11
+-- each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8 (3 left), pick 2 its 11; pick 1
+-- adds 3 + min(8, 8, 11 - 3) = 11, 14 left to buy for the two, as their steps lines say. Review round 2: never below
+-- the pick's own units (a traced pick that holds more than it needs keeps it, until a new plan follows: FRV-189), and
+-- a trace kept under its plan's units by purchases still in the mail (Capped) gives nothing, since the sniper bought
+-- nothing for it under this plan. 0 for an item without a traced pick of this plan of this character, and when this pick is traced
 -- already (the sniper's own rules then: nothing added, or its units replaced)
 local function TracedBought(pick, key, at, bought)
     if bought <= 0 or not (at and FM.SnipeTrace and FM.IsSniped and FM.IsSniped(key)) then return 0 end
@@ -1228,7 +1230,7 @@ local function TracedBought(pick, key, at, bought)
         if q then
             local left = tonumber(e.left) or 0
             sniper = sniper + math_max(0, (tonumber(e.sent) or left) - left)
-            beyond = beyond + math_max(0, LeftOf(q, key) - left)
+            beyond = beyond + LeftOf(q, key) - left
         end
     end
     return math_max(0, math_min(bought, sniper, beyond))
