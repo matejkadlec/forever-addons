@@ -4,6 +4,21 @@ Auction House market logger for WoW: Forever. It records the market over time an
 sells, how fast, at which price and what to craft, buy or flip: the market table and its picks, the item
 tooltips and the sniper, all in the game.
 
+## Install
+
+**Requires [ForeverArtisan: All Tradeskills](https://www.curseforge.com/wow/addons/foreverartisan)** (1.48, FRV-175,
+the maintainer's decision on FRV-164): Craft, Learn, Vendor and the crafting picks read its data (trade/Sources.lua),
+so the `.toc` declares its core folder as a required dependency (`## Dependencies: ForeverArtisan_Core`). Without it,
+or with it disabled, the game does not load ForeverMarket at all, the sniper and the deep scans included: the AddOn
+list shows ForeverMarket greyed out or in red with the reason (a dependency disabled or missing) and names its
+dependencies in its tooltip. ForeverArtisan's other folders are `## OptionalDeps:` (Trade Contacts, the professions
+ForeverMarket reads: Leatherworking, Cooking, First Aid, Tailoring, Blacksmithing, Alchemy, Engineering, and
+Skinning for Farm): they load before it when they are installed, and one left out or disabled only empties its part,
+as before. Copy the `ForeverMarket` folder into `Interface/AddOns` next to ForeverArtisan's folders (the root
+`README.md`, Installation). On CurseForge its file declares ForeverArtisan as a Required Dependency
+(`## X-Curse-Required-Dependencies: foreverartisan`, sent with every upload, [`docs/releasing.md`](../../docs/releasing.md)),
+so the CurseForge app installs it with ForeverMarket.
+
 ## What it records
 
 | Source | When | What |
@@ -272,25 +287,35 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   the default tab, its saved sort is dropped at load.
 * At most 10 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 10 since 1.47 (FRV-154: Amount; 9 since
   1.35, FRV-67), the other tabs up to 8.
-* **Tooltips only while Shift is held** (1.47, FRV-155): every tooltip of the market table and of its Filters dialogs
-  (rows, column headers, the Ignored tab, the search box, the Filters buttons, the checkboxes and dropdowns, the
-  budget row's boxes, Refresh, the summary line, "Lock plan after refresh", the Amount inputs) shows only while Shift
-  is held with the mouse over the element. Hovering shows nothing, so a tooltip no longer covers the box you type in;
-  Shift pressed over an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and
-  moving onto an element with Shift already held shows it too. While an input of the table or of its dialog has the
-  keyboard focus nothing shows (Shift types capitals there); an input of another window (the chat, the sniper's item
-  box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
+* **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
+  maintainer wanted it only on the boxes): the tooltips of the market table and of its Filters dialogs are of two
+  kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
+  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH, the Profit tab's This character / All
+  characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
+  (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
+  rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
+  filters", "Lock plan after refresh", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
+  over such an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and moving onto
+  it with Shift already held shows it too, while Shift over a row or a header changes nothing. A row's Amount input is
+  an input inside the row: over it neither the row's tooltip nor its own shows without Shift, the rest of the row
+  shows the row's on hover. While an input of the table or of its dialog has the keyboard focus nothing shows at all,
+  hover or Shift (Shift types capitals there), so a row tooltip never opens over the box you are typing in; an input of
+  another window (the chat, the sniper's item box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
   links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
   tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
-  "All characters" buttons above it follow the rule), the item tooltips in your bags,
-  the sniper window and the settings panel. The footer of every tab with a table ends with the hint (the Profit tab's
-  keeps "hover a dot"): Picks "... · hold Shift over
-  rows, inputs, dropdowns and checkboxes to show tooltips" ("hover for why" before), the other tabs "· hold Shift
-  for tooltips"; a line too long for the window takes a shorter form of its own note, so the hint is never cut
-  (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table: tooltips only while Shift
-  is held" (`tableShiftTips`, on by default) switches back to tooltips on plain hover. One helper holds the rule,
-  `FM.TableTip(frame, show)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
-  `ui/Filters.lua`: apart from the graph's dots no tooltip of the window has an `OnEnter` script of its own. Not yet verified in game
+  "All characters" buttons above it show on hover), the item tooltips in your bags,
+  the sniper window and the settings panel. The footer of every tab with a table ends with the hint of what of that
+  tab waits for Shift (the Profit tab's keeps "hover a dot"): Picks "... · hover for why · hold Shift over inputs,
+  dropdowns and checkboxes for their tips", Craft and Learn "· hold Shift over inputs and checkboxes for their tips",
+  Vendor "· hold Shift over inputs and dropdowns for their tips", the others "· hold Shift over the search box for its
+  tip"; a line too long for the window takes a shorter form of its own note (Picks drops its note on the columns), so
+  the hint is never cut (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table:
+  tooltips of inputs, dropdowns and checkboxes only while Shift is held" (`tableShiftTips`, on by default) switches
+  them to plain hover too (everything on hover, as until 1.46; Picks' footer "hover for why"). One helper holds the
+  rule, `FM.TableTip(frame, show, kind)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
+  `ui/Filters.lua`, the kind `"hover"` or `"shift"` named by every call (none is an error, so a new element has to
+  choose): apart from the graph's dots no tooltip of the window has an `OnEnter` script of its own. Not yet verified
+  in game
 * Search box (1.36, FRV-26): Blizzard's `SearchBoxTemplate` (a magnifier, "Search" until you type, a clear button),
   140 px; until 1.35 a plain box with "Filter by name" above it (the filter row and everything under it moved up by
   that label's 14 px: `FILTER_Y` -74, `TOP` -134). Each tab keeps its own search text for the session (`view.search`
@@ -568,11 +593,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     new plan with them), and the picks before it keep their AH units set aside in the latest scan's ladder also when
     you bought them before that scan, so the pick's cost can read a little high then. The amount may be over
     the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
-    vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow, the input
-    shows that number and the steps line says what is short in orange ("make 30 (of the 100 you set: the AH has no
-    more materials at a usable price)"); when nothing can be made for it the pick stays and a chat line says why. A
-    number you set is light blue and its tooltip says "Set by you. Empty it and press Enter for the plan's number
-    (11)"; emptying it brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
+    vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow (Invest,
+    Expected, the steps, Ctrl+click's count and the sniper go by that), the input shows **your** number in **red**
+    (1.48, FRV-187, `FM.AmountShown`: the maintainer's rule, it cannot be done, an error and not a warning; light
+    blue until 1.47 showed the number reached, which read as a bug) and the steps line ends the step it is about with
+    a short red note (`pick.amountNote`): "(no more available for flipping)" for a flip, "(the vendor has no more)"
+    for a vendor's limited stock, "(no more materials on the AH at a usable price)" and "(more would earn under your
+    min. profit)" for a craft ("make 30 (no more materials ...)"; until 1.47 an orange "(of the 100 you set: ...)").
+    The input's tooltip has the full reason (`pick.amountWhy`): "Set by you: 2. Only 1 can be bought now: more would
+    leave cheaper listings under the list price or earn no margin." and "Empty it and press Enter for the plan's
+    number (1)." Leaving your red number in the input changes nothing; typing the number reached sets that one.
+    When nothing can be made for it the pick stays and a chat line says why. A number you set and met is light blue
+    and its tooltip says "Set by you. Empty it and press Enter for the plan's number (11)"; emptying it brings the
+    plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
     deep scans, a new plan (Refresh, or any plan with the lock off, which carries the plan's own target of a craft in
     progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
     its columns past the new one. Stock picks show the
@@ -585,7 +618,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and no number of your own needs, has nothing to stay in the sniper's list for, so it leaves the list as after a
     new plan (the chat says "no pick needs ... any more, removed"); its number put back does not bring it back then,
     a Shift+click on the pick sends it again. A pick raised keeps the limit it was sent with (Shift+right-click sends
-    its whole units again, counted from 0). A flip's or a vendor resell's number counts from the edit: such a pick has
+    what it still has to buy again, counted from 0). A flip's or a vendor resell's number counts from the edit: such a pick has
     no progress, so what was bought of it before does not come off, and the sniper may buy up to the new number more
     (never past what the pick was sent with). The plan log keeps the plan's own line and gets one more for the
     edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
@@ -941,8 +974,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     tool it buys there); Flip, vendor resells and items without a craft the item itself. With nothing to buy on the
     AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level materials
 
-  Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan, added to what
-  each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see Sniper).
+  Shift+click: link to chat (at the AH: snipe what it buys there, a pick what is still to buy of every AH purchase of
+  its plan, added to what each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see
+  Sniper).
   Right-click: the menu above, with Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the
   row's tooltip as a sticky window (below). Ctrl+click: the row's recipe in its profession window (below).
 * Ctrl+click on a craft row (1.44, FRV-132, `ui/OpenRecipe.lua`): a craft pick ("Craft and sell", "Craft and wait"), a
@@ -970,9 +1004,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   work without a blocked popup); not seen in game: a recipe the list never shows, the chat line behind the overview
   page, a box greyed out by a cooldown, the 10 s timeout, "you don't know this recipe yet", and a reopen from the micro
   button straight after Ctrl+click (inferred from the side tab result)
-* The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip itself shows while Shift is held since
-  1.47, FRV-155), one per line in light blue: "Click: search at the
-  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
+* The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip shows on hover, only 1.47 put it behind
+  Shift, FRV-155, FRV-186), one per line in light blue: "Click: search at the
+  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)", naming the units it sends, for a pick that bought some since the plan "snipe what is still to buy, ...", for one that bought all "nothing left to buy at the AH for this pick, adds nothing" (FRV-185), and
   "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
   FRV-132: the profession's name, only on rows where Ctrl+click works, `FM.CraftHint`),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
@@ -1438,11 +1472,20 @@ per purchase.
 * Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
   buys at the AH at the table's prices. Picks: every AH purchase of the plan (`pick.buys`), each at its "up to"
-  price with its units as its number, one chat line for all of them ("Sniping 3 items for <pick>: 144 Heavy
-  Leather up to 2s 75c, ..."), items sold per auction skipped and named there, vendor purchases left out, the
-  window opens on the main one; Craft and Learn: the main material at the max material price (the item keeps its
-  number); Flip: its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip
-  names what it snipes ("Shift-click: snipe its 3 AH purchases").
+  price with what is still to buy of it as its number (1.48, FRV-185, `FM.PickBuysLeft`: the plan's units less what
+  was bought for the pick since the plan, by hand or by the sniper, from the purchase log, shared with the other
+  picks of the plan in their order as the buy step counts it, so a pick whose steps line reads "buy 31 more Heavy
+  Leather" snipes 31; until 1.47 always the plan's whole units, so units bought by hand before the first click were
+  bought again), one chat line for all of them ("Sniping 3 items for <pick>: 31 Heavy Leather up to 2s 75c, ..."),
+  a purchase bought in full left out (sent without units the sniper would buy it without a limit), items sold per
+  auction skipped and named there, vendor purchases left out, the window opens on the main one. A pick whose AH
+  purchases are all bought adds nothing and says so ("Nothing left to buy at the AH for <pick>: its plan's AH
+  purchases were bought since the plan, nothing added."; Shift+right-click too, and the row menu shows a greyed out
+  "Snipe: nothing left to buy"). A flip or a vendor resell has no progress (no plan time), so it sends its whole
+  units as before. Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
+  its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip names what it snipes
+  with the units ("Shift+click: snipe its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt", "snipe
+  what is still to buy, ..." once some were bought; the menu's entry keeps the short "Snipe its 3 AH purchases").
   * Shift-click and the menu's Snipe add (1.43, FRV-128, the maintainer's rule after review round 2): the units go
     on top of the limit an item already has and what was bought stays counted, so two picks that need the same
     material add up (Heavy Leather 60 and 40: 20/100 when 20 were bought; the chat line says "40 added"); an item
@@ -1494,9 +1537,11 @@ per purchase.
     (Elfiehu)" in the sniper row's "Sniped for", "sent by Elfiehu" in the pick's "Sniped for this pick". A pick
     traced by 1.45 has no character: it is followed as before and belongs to the character whose plan or click first
     changes it. What was bought comes off all picks of the item in proportion, whoever was logged in.
-  * Shift+right-click (at the AH) starts again: each item's limit becomes the pick's units and Bought now starts
-    at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100 of 144
-    bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. A material listed twice in one plan sums
+  * Shift+right-click (at the AH) starts again: each item's limit becomes what the pick still has to buy and Bought
+    now starts at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100
+    of 144 bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. It sends what is still to buy like
+    Shift+click (1.48, FRV-185, the choice its ticket left open): the plan's whole units counted from 0 would buy
+    again what was bought for the pick since the plan; 69 of a pick's 100 bought by hand, it gives 0/31. A material listed twice in one plan sums
     up in both. Until 1.42 a number other than the item's started the count again, the same one kept it.
 * Only commodities: unstackable items (sold per auction) are refused.
 * While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
@@ -1529,8 +1574,9 @@ whose prices mix variants of different value, so flips skip them). The replicate
 only has base names, so a deep scan reads one auction link per weapon/armor item never checked: a suffix ID
 or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that was never checked. The feed's list of
 items seen with two bonus lists marks its items at every load of the feed (since 1.45, FRV-138; before only when it
-brought new snapshots). Since 1.45 (FRV-138) an empty name (an item whose data the client has not loaded yet: the
-replicate list gives "") is no name, in the snapshot's two-names check, in the deep scan's link check (an auction
+brought new snapshots). Since 1.45 (FRV-138) an empty name (taken to be an item whose data the client has not loaded
+yet, the replicate list giving ""; inferred from this code and the maintainer's saved variables, not yet seen in
+game: [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#auction-house), Full scans) is no name, in the snapshot's two-names check, in the deep scan's link check (an auction
 with an empty replicate name or an empty link name decides nothing) and in item searches; and an item that stacks
 (`FM.ItemStacks`: a commodity) never has a suffix: it is never marked and a saved mark of it does not count
 (`FM.HasVariants`). Until then "" in front of the real name counted as a second name: on the maintainer's data of

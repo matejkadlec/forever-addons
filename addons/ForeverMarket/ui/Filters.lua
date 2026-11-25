@@ -52,7 +52,7 @@ local OPTIONS = {
     { key = "noStock", label = "Exclude stock for crafting",
         tip = "Checked: the plan buys every material, as if your bags and bank were empty (tools you own still count). Unchecked (default): the materials you hold are used first and only the rest is bought; the steps say what comes from your bags. Units of the pick's own item that you hold count either way: the pick makes that many fewer." },
     { key = "allGold", label = "Gold of all characters",
-        tip = "Checked: your gold for the budget is that of all your characters of this realm and faction, this one's now and the others' as last recorded (/fm chars); the % of the Picks row applies to that sum, the cap of 90% too. Their gold has to be mailed to this character before you can spend it: hold Shift over the plan's summary for each character's gold. Unchecked (default): this character's gold only. The sniper always spends this character's gold." },
+        tip = "Checked: your gold for the budget is that of all your characters of this realm and faction, this one's now and the others' as last recorded (/fm chars); the % of the Picks row applies to that sum, the cap of 90% too. Their gold has to be mailed to this character before you can spend it: hover the plan's summary for each character's gold. Unchecked (default): this character's gold only. The sniper always spends this character's gold." },
 }
 
 local dialog
@@ -79,18 +79,24 @@ local function SameTabs(a, b)
     return true
 end
 
----------------------------------------------------------------- tooltips only while Shift is held (FRV-155)
--- One rule for every tooltip of the market table and its dialogs (rows, headers, tabs, the search box, the buttons,
--- checkboxes and dropdowns of the filter and budget rows, Refresh, the summary, the Amount inputs in ui/Table.lua;
--- the options of the dialog here): it shows only while Shift is held with the mouse over the element, so a tooltip never covers the
--- input you type in. Shift pressed over an element shows it at once, Shift released hides it, the mouse leaving
--- hides it as before; while an input of the table or of this dialog has the keyboard focus Shift types capitals there
--- and shows nothing (an input of another window, the chat or the sniper's item box, does not hold them back). Every tooltip of
--- the window is set with FM.TableTip (or FM.TableTipHook where a template has its own OnEnter), never with its own
--- OnEnter script, so none can forget the rule. With the setting off (tableShiftTips, the settings panel) they show
--- on plain hover as until 1.46. Not under the rule: the Profit graph's readout (the graph itself), a sticky tooltip
--- (it stays until closed), the item tooltips elsewhere, the sniper window and the settings panel.
-local tipOwner, tipShow -- the element under the mouse that has a tooltip, and what shows it
+---------------------------------------------------------------- tooltips on hover or while Shift is held (FRV-155, FRV-186)
+-- One rule for every tooltip of the market table and its dialogs, in two kinds that every element chooses:
+--   * "hover": the rows (their item tooltip too), the column headers, the tabs, the buttons (Filters, Global filters,
+--     Refresh, Search all at the AH, the Profit tab's scope buttons) and the summary line show their tooltip on hover,
+--     as until 1.46
+--   * "shift": the inputs (the search box, the budget row's boxes, the Amount inputs of the rows, the dialog's boxes),
+--     the dropdowns and the checkboxes show theirs only while Shift is held with the mouse over them, so a tooltip never
+--     covers the box you type in (FRV-155). Shift pressed over such an element shows it at once, Shift released hides
+--     it, the mouse leaving hides it as before
+-- While an input of the table or of this dialog has the keyboard focus nothing shows, hover or Shift (Shift types
+-- capitals there): a row tooltip never opens over the box you are typing in; an input of another window (the chat, the
+-- sniper's item box) does not hold them back. Every tooltip of the window is set with FM.TableTip (or FM.TableTipHook
+-- where a template has its own OnEnter) and its kind, never with its own OnEnter script, so none can forget the rule.
+-- With the setting off (tableShiftTips, the settings panel) all of them show on plain hover as until 1.46. Not under
+-- the rule: the Profit graph's readout (the graph itself), a sticky tooltip (it stays until closed), the item tooltips
+-- elsewhere, the sniper window and the settings panel.
+local tipOwner, tipShow, tipKind -- the element under the mouse that has a tooltip, what shows it, and its kind
+local TIP_KINDS = { hover = true, shift = true }
 
 -- Tooltips on plain hover: the setting is off
 local function TipsOnHover()
@@ -117,46 +123,56 @@ local function TypingHere()
     return false
 end
 
--- Whether a tooltip may show now
-local function TipWanted()
+-- Whether a tooltip of this kind may show now
+local function TipWanted(kind)
     if TipsOnHover() then return true end
-    if not (IsShiftKeyDown and IsShiftKeyDown()) then return false end
-    return not TypingHere()
+    if TypingHere() then return false end
+    if kind == "hover" then return true end
+    return IsShiftKeyDown and IsShiftKeyDown() and true or false
 end
 
-local function TipEnter(self, show)
-    tipOwner, tipShow = self, show
-    if TipWanted() then show(self) end
+local function TipEnter(self, show, kind)
+    tipOwner, tipShow, tipKind = self, show, kind
+    if TipWanted(kind) then show(self) end
 end
 
 local function TipLeave(self)
-    if tipOwner == self then tipOwner, tipShow = nil, nil end
+    if tipOwner == self then tipOwner, tipShow, tipKind = nil, nil, nil end
     GameTooltip:Hide()
 end
 
--- frame's tooltip: show(frame) builds it (SetOwner, its lines, Show)
-function FM.TableTip(frame, show)
-    frame:SetScript("OnEnter", function(self) TipEnter(self, show) end)
+-- The kind is part of every call, so a new element has to choose (FRV-186)
+local function CheckKind(kind)
+    if not TIP_KINDS[kind] then error("FM.TableTip: the kind must be \"hover\" or \"shift\", not " .. tostring(kind), 3) end
+end
+
+-- frame's tooltip: show(frame) builds it (SetOwner, its lines, Show); kind "hover" (shows on hover) or "shift" (only
+-- while Shift is held)
+function FM.TableTip(frame, show, kind)
+    CheckKind(kind)
+    frame:SetScript("OnEnter", function(self) TipEnter(self, show, kind) end)
     frame:SetScript("OnLeave", TipLeave)
 end
 
 -- The same on a frame whose template has scripts of its own (the search box, a dropdown, the refresh button)
-function FM.TableTipHook(frame, show)
-    frame:HookScript("OnEnter", function(self) TipEnter(self, show) end)
+function FM.TableTipHook(frame, show, kind)
+    CheckKind(kind)
+    frame:HookScript("OnEnter", function(self) TipEnter(self, show, kind) end)
     frame:HookScript("OnLeave", TipLeave)
 end
 
--- Shift pressed or released while the mouse rests on an element: its tooltip shows or hides at once
+-- Shift pressed or released while the mouse rests on an element of the "shift" kind: its tooltip shows or hides at
+-- once. A "hover" element keeps its tooltip (Shift+click on a row or a header must not hide it)
 FM.On("MODIFIER_STATE_CHANGED", function(key)
     if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
     local owner, show = tipOwner, tipShow
-    if not owner or TipsOnHover() then return end
+    if not owner or tipKind ~= "shift" or TipsOnHover() then return end
     -- the element went away under the mouse (its window closed): nothing to show
     if (owner.IsVisible and not owner:IsVisible()) or (owner.IsMouseOver and not owner:IsMouseOver()) then
-        tipOwner, tipShow = nil, nil
+        tipOwner, tipShow, tipKind = nil, nil, nil
         return
     end
-    if TipWanted() then
+    if TipWanted("shift") then
         show(owner)
     elseif GameTooltip:IsOwned(owner) then
         GameTooltip:Hide()
@@ -170,7 +186,7 @@ local function Tip(frame, opt)
         GameTooltip:AddLine(opt.tip, 1, 1, 1, true)
         if opt.box or opt.money then GameTooltip:AddLine("Enter or click elsewhere to apply.", 0.6, 0.6, 0.6, true) end
         GameTooltip:Show()
-    end)
+    end, "shift") -- the dialog holds only inputs and checkboxes
 end
 
 -- A change of one value: into the set the dialog shows, then the table (and the plan) follow

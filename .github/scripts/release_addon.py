@@ -11,8 +11,9 @@ Subcommands, run by the workflow in this order from the repository root:
   cf-upload    uploads the zip with that metadata to the AddOn's CurseForge project
 
 Nothing is uploaded before cf-upload, and each step stops the run with a clear "::error::" line.
-Everything per AddOn comes from its tag and its .toc (## X-Curse-Project-ID for CurseForge), so the
-workflow names no AddOn. The API token comes from CURSEFORGE_API_TOKEN and is never printed.
+Everything per AddOn comes from its tag and its .toc (## X-Curse-Project-ID for CurseForge, and the
+CurseForge relations of its file: ## X-Curse-Required-Dependencies / ## X-Curse-Optional-Dependencies,
+the slugs of other CurseForge projects), so the workflow names no AddOn. The API token comes from CURSEFORGE_API_TOKEN and is never printed.
 Standard library only; tested by tests/github/test_release_addon.py (tests/run.sh).
 """
 
@@ -44,6 +45,14 @@ TITLE_CODES_RE = re.compile(r"\|c[0-9A-Fa-f]{8}|\|r|\|T[^|]*\|t|\|A[^|]*\|a")
 # Interface numbers of WoW: Forever (16001 = client 1.60.1), as the packager tells them apart
 FOREVER_INTERFACE_RE = re.compile(r"^16[0-9]{3}$")
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+# The CurseForge relations a .toc declares (FRV-175): its field, the relation type of the upload API; the values are
+# comma separated project slugs (the end of the project's URL, curseforge.com/wow/addons/<slug>), as the BigWigs
+# packager's required-dependencies / optional-dependencies of .pkgmeta
+RELATION_FIELDS = (
+    ("X-Curse-Required-Dependencies", "requiredDependency"),
+    ("X-Curse-Optional-Dependencies", "optionalDependency"),
+)
+SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # Agent guide files at an AddOn's top level are not AddOn files (AGENTS.md): never shipped
 AGENT_FILES = ("AGENTS.md", "CLAUDE.md")
 # A folder entry's attributes: Unix drwxr-xr-x and the MS-DOS directory flag, so unzip on Linux and
@@ -104,6 +113,25 @@ def forever_game_versions(interface_field):
     return [interface_to_version(number) for number in numbers if FOREVER_INTERFACE_RE.match(number)]
 
 
+def toc_relations(toc, where):
+    """The CurseForge relations a .toc declares: [{"slug": ..., "type": ...}], in field order, each slug once."""
+    relations, seen = [], set()
+    for field, kind in RELATION_FIELDS:
+        for slug in (part.strip() for part in toc.get(field, "").split(",")):
+            if not slug:
+                continue
+            if not SLUG_RE.match(slug):
+                raise ReleaseError(
+                    "## %s: %r in %s is not a CurseForge project slug: use the end of the project's URL "
+                    "(curseforge.com/wow/addons/<slug>), lower case" % (field, slug, where)
+                )
+            if slug in seen:
+                raise ReleaseError("%s names the CurseForge project %r twice in its relations" % (where, slug))
+            seen.add(slug)
+            relations.append({"slug": slug, "type": kind})
+    return relations
+
+
 def prepare(root, tag):
     """Check a tag against its AddOn's .toc and return what the release needs."""
     addon, version, base, release_type = parse_tag(tag)
@@ -137,6 +165,7 @@ def prepare(root, tag):
             "## X-Curse-Project-ID: %r in addons/%s/%s.toc is not a number: use the Project ID of the "
             "CurseForge project's page" % (project_id, addon, addon)
         )
+    relations = toc_relations(toc, "addons/%s/%s.toc" % (addon, addon))
     return {
         "tag": tag,
         "addon": addon,
@@ -148,6 +177,7 @@ def prepare(root, tag):
         "zip": "%s/%s-%s.zip" % (DIST, addon, version),
         "game_versions": game_versions,
         "project_id": project_id,
+        "relations": relations,
     }
 
 
@@ -355,7 +385,8 @@ def resolve_game_versions(versions, names):
 
 
 def curseforge_metadata(info, changelog, token, opener=urllib.request.urlopen):
-    """The upload's metadata with the game version IDs looked up; gameVersions stays empty without a token."""
+    """The upload's metadata with the game version IDs looked up; gameVersions stays empty without a token.
+    The .toc's relations go with it (the CurseForge app installs a required dependency with the AddOn)."""
     metadata = {
         "changelog": changelog,
         "changelogType": "markdown",
@@ -363,6 +394,8 @@ def curseforge_metadata(info, changelog, token, opener=urllib.request.urlopen):
         "gameVersions": [],
         "releaseType": info["release_type"],
     }
+    if info.get("relations"):
+        metadata["relations"] = {"projects": [{"slug": r["slug"], "type": r["type"]} for r in info["relations"]]}
     if not token:
         return metadata
     status, body = api_request(CF_API + "/game/wow/versions", token, opener=opener)

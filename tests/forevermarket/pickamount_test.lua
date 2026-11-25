@@ -7,8 +7,12 @@
 --     (Ctrl+click's count) and its AH purchases (what Shift+click snipes) follow, and the summary's totals with them
 --   * the amount may be over the room on the AH and over the pick's share of the gold: your choice
 --   * with too few materials on the AH (or when more would earn less than your minimum profit, a vendor's limited
---     stock, the flip rule) the pick makes or buys what they allow, its amount is that number and a note for the steps
---     line says what is short; when nothing can be made for it the plan's pick stays and the reason comes back
+--     stock, the flip rule) the pick makes or buys what they allow, its amount is that number and a short note for the
+--     steps line says what is short, in red (FRV-187), with the full reason for the input's tooltip; when nothing can be
+--     made for it the plan's pick stays and the reason comes back
+--   * the input shows the plan's number in white, a number you set and met in light blue, and a number you set that
+--     the pick cannot meet in red: your number, while the pick's amount (Invest, Expected, the steps) is what it really
+--     makes or buys (FM.AmountShown, FRV-187)
 --   * the picks before it keep what they took of the AH and of your gold, the picks after it stay the same objects
 --   * the plan's own pick comes back when the amount is taken away; a pick out of scope stays out of scope
 --   * the plan log gets a line of its own for the edited pick, marked "e", next to the plan's lines
@@ -167,17 +171,25 @@ H.test("amount: with too few materials on the AH it makes what they allow and sa
     local pick = FM.RemakePick(out, ctx, "100", 100)
     H.same({ pick.amount, pick.invest }, { 30, 30000 }, "30 materials listed: make 30")
     H.eq(HasStep(pick, "make 30"), true, "its steps line says make 30")
-    H.eq(pick.amountNote, "of the 100 you set: the AH has no more materials at a usable price", "and what is short")
+    H.eq(pick.amountNote, "no more materials on the AH at a usable price", "and what is short, in a few words")
+    H.eq(pick.amountWhy, "Only 30 can be made now: the AH has no more materials at a usable price", "the full reason")
     H.eq(pick.amountStep, pick.makeStep, "the note goes behind the make step")
+    H.same({ FM.AmountShown(pick) }, { 100, "unmet" }, "the input: your 100, in red")
+    H.eq(Has(FM.PickStepsText(pick), "make 30|cFFFF5555 (no more materials on the AH at a usable price)|r"), true,
+        "the steps line: the note in red behind make 30")
     -- materials that get too dear: the crafts that still earn your minimum profit
     FM, env = Setup({ ["100"] = 27 })
     out = { crafts = { Craft("100", 43) } }
     ctx = Plan(FM, env, out, { ["900"] = { ladder = { { 1000, 20 }, { 9600, 1000 } }, qty = 1020, own = 0 } })
     pick = FM.RemakePick(out, ctx, "100", 100)
     H.eq(pick.amount, 20, "20 materials at 10s, the next at 96s lose money: make 20")
-    H.eq(pick.amountNote, "of the 100 you set: more would earn less than your minimum profit", "and why")
+    H.eq(pick.amountNote, "more would earn under your min. profit", "and why")
+    H.eq(pick.amountWhy, "Only 20 can be made now: more would earn less than your minimum profit", "in full")
     -- a number the plan's rules reach has no note
-    H.eq(FM.RemakePick(out, ctx, "100", 15).amountNote, nil, "15 can all be made: no note")
+    local met = FM.RemakePick(out, ctx, "100", 15)
+    H.same({ met.amountNote, met.amountWhy }, { nil, nil }, "15 can all be made: no note")
+    H.same({ FM.AmountShown(met) }, { 15, "set" }, "the input: 15 in light blue")
+    H.eq(Has(FM.PickStepsText(met), "|cFFFF5555"), false, "nothing red in its steps line")
 end)
 
 H.test("amount: 0, a negative number, no number and a pick not in the plan are refused, the plan's pick stays", function()
@@ -248,8 +260,10 @@ H.test("amount: a vendor resell buys the number you set, a vendor's limited stoc
     ctx = Plan(FM, env, out, ladders)
     pick = FM.RemakePick(out, ctx, "104", 12)
     H.eq(pick.amount, 8, "8 at a time: it buys 8")
-    H.eq(pick.amountNote, "of the 12 you set: the vendor sells 8 at a time", "and says so")
+    H.eq(pick.amountNote, "the vendor has no more", "and says so")
+    H.eq(pick.amountWhy, "Only 8 can be bought now: the vendor sells 8 at a time", "in full")
     H.eq(pick.amountStep, 1, "behind its buy step")
+    H.same({ FM.AmountShown(pick) }, { 12, "unmet" }, "the input: your 12, in red")
 end)
 
 H.test("amount: a flip buys whole price levels up to the number you set and lists under what stays", function()
@@ -266,7 +280,11 @@ H.test("amount: a flip buys whole price levels up to the number you set and list
     H.eq(pick.amountNote, nil, "no note: 2 are bought")
     pick = FM.RemakePick(out, ctx, "105", 4)
     H.eq(pick.amount, 2, "4 would split the level at 60s: it buys the 2 at 40s")
-    H.eq(Has(pick.amountNote, "of the 4 you set: more would leave cheaper listings under the list price"), true, pick.amountNote)
+    H.eq(pick.amountNote, "no more available for flipping", "the short note")
+    H.eq(pick.amountWhy, "Only 2 can be bought now: more would leave cheaper listings under the list price or earn no margin",
+        "the full reason")
+    H.same({ FM.AmountShown(pick), pick.invest }, { 4, 8000 }, "the input: your 4, Invest that of the 2 bought")
+    H.eq(Has(FM.PickStepsText(pick), "|cFFFF5555 (no more available for flipping)|r"), true, "in red in the steps line")
     pick = FM.RemakePick(out, ctx, "105", 30)
     H.eq(pick.amount, 5, "30: the flip rule allows the 5 cheap units")
     -- one level of 5: a number under it cannot list under the rest of that level
@@ -362,6 +380,14 @@ H.test("amount: the input sets a whole number from 1, empties back to the plan's
     H.same({ FM.AmountAsked(set, "100") }, { "set", 100 }, "typing the plan's number sets it like any other")
     H.same({ FM.AmountAsked({ key = "100", amount = 11 }, "5") }, {}, "a Stock pick's amount is no input")
     H.same({ FM.AmountAsked(nil, "5") }, {}, "no pick, nothing")
+    -- a number you set that cannot be met (FRV-187): the input shows yours, so leaving it as it is changes nothing
+    local unmet = { key = "105", amount = 1, amountEdit = true, amountSet = true, amountPlan = 1, amountWant = 2,
+        amountNote = "no more available for flipping" }
+    H.same({ FM.AmountShown(unmet) }, { 2, "unmet" }, "your 2 in red")
+    H.same({ FM.AmountAsked(unmet, "2") }, {}, "2 left in the input: the pick stays")
+    H.same({ FM.AmountAsked(unmet, "1") }, { "set", 1 }, "1, what it buys: set like any other number")
+    H.same({ FM.AmountAsked(unmet, "") }, { "plan" }, "emptied: the plan's number back")
+    H.same({ FM.AmountShown(plan) }, { 100, "plan" }, "the plan's number in white")
 end)
 
 -- Review round 1 of pull request 69
@@ -612,4 +638,65 @@ H.test("amount: a flip in the plan takes nothing from a craft's purchases of the
     local need = craft.purchases[1].ah
     FM.BoughtSince = function(key) return key == "900" and need or 0 end -- the craft's materials are bought
     H.same({ FM.PickBuyStep(craft) }, { "bought the materials", true }, "they count for the craft in full, whatever the flip's place")
+end)
+
+-- FRV-185: Shift+click on a pick (and the row menu's Snipe, Shift+right-click) sends what is still to buy
+local function Targets(FM, pick)
+    local list, _, _, status = FM.TableSnipeTargets(pick)
+    local units = {}
+    for i, t in ipairs(list or {}) do units[i] = { t.key, t.units } end
+    return units, status
+end
+
+H.test("amount: Shift+click on a pick snipes what is still to buy, shared with the other picks in plan order", function()
+    local FM, env, out, ctx, state = TwoPicks(0)
+    local first, second = out.picks[1], out.picks[2]
+    H.same({ Targets(FM, first) }, { { { "900", 11 } } }, "nothing bought since the plan: its whole 11, as before")
+    state.bought = 8 -- bought by hand since the plan: they count for pick #1 first, as its buy step does
+    H.same({ Targets(FM, first) }, { { { "900", 3 } }, "left" }, "pick #1: 3 of its 11 still to buy")
+    H.same({ Targets(FM, second) }, { { { "900", 11 } } }, "pick #2: its 11, none of the 8 are its own")
+    state.bought = 15
+    H.same({ Targets(FM, first) }, { {}, "bought" }, "pick #1 has all it needs: nothing to send")
+    H.same({ Targets(FM, second) }, { { { "900", 7 } }, "left" }, "pick #2: 4 of the 15 are its own, 7 left")
+    state.bought = 30
+    H.same({ Targets(FM, second) }, { {}, "bought" }, "more than both need: nothing for either")
+    -- a pick made again for another number sends what that number still needs (FM.PickBuysLeft, as the follow does)
+    state.bought = 8
+    local pick = FM.RemakePick(out, ctx, first.key, 20)
+    H.same({ Targets(FM, pick) }, { { { "900", 12 } }, "left" }, "20 set, 8 bought: 12")
+end)
+
+H.test("amount: the hint and the menu name the units a pick sends", function()
+    local FM = TwoPicks(0)
+    local one = { { key = "900", price = 1000, units = 3 } }
+    local label = FM.TableSnipeLabel(one)
+    H.eq(label:find("^3 .+ up to ") ~= nil, true, "one purchase: its units, name and price: " .. label)
+    local three = { { key = "900", price = 1000, units = 31 }, { key = "901", price = 500, units = 12 }, { key = "902", price = 100, units = 5 } }
+    H.eq(FM.TableSnipeLabel(three), "its 3 AH purchases", "the menu's short form")
+    label = FM.TableSnipeLabel(three, true)
+    H.eq(label:find("^its 3 AH purchases: 31 [^,]+, 12 [^,]+ and 5 ") ~= nil, true, "the hint names each one's units: " .. label)
+end)
+
+H.test("amount: Shift+click on a pick with everything bought adds nothing and says so in the chat", function()
+    local FM, env, out, _, state = TwoPicks(0)
+    local first = out.picks[1]
+    out.pickAt = env.clock
+    local sent = {}
+    FM.SnipeFromPlan = function(name, targets, mainKey, mode, trace) sent[#sent + 1] = { targets[1].units, mode, trace.pick } end
+    FM.SnipeFromTable = function(key, price, units, mode) sent[#sent + 1] = { units, mode } end
+    FM.ahOpen = true
+    env.IsShiftKeyDown = function() return true end
+    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
+    state.bought = 8
+    FM.TableRowClick({ row = first }, "LeftButton")
+    H.same(sent, { { 3, "add", first.key } }, "Shift+click: the 3 still to buy, added")
+    FM.TableRowClick({ row = first }, "RightButton")
+    H.same(sent[2], { 3, "restart", first.key }, "Shift+right-click: the same 3, counted from 0")
+    state.bought = 11
+    local printed = #env.printed
+    FM.TableRowClick({ row = first }, "LeftButton")
+    FM.TableRowClick({ row = first }, "RightButton")
+    H.eq(#sent, 2, "nothing sent to the sniper")
+    H.eq(#env.printed, printed + 2, "a chat line for each click")
+    H.eq(Has(env.printed[#env.printed], "Nothing left to buy at the AH for"), true, env.printed[#env.printed])
 end)
