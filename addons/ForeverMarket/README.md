@@ -357,7 +357,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   below). Until 1.28 the options sat in the row as checkboxes: "Above current skill" +
   "Max. above current skill" (Craft, Learn), "Not learned" (Craft, Picks; until 1.13 "To learn"), "Ignore vendor" and
   "Ignore stock" (Picks). From 1.20 to 1.29 an "Ignored (n)" button in the tab row right of Favorites switched every tab to its ignored rows ("Show all" back); since 1.30 (FRV-83) **Ignored (n)** is a tab of its own there, see Favorites and Ignored below. Since 1.13 "Profitable" is gone, and "No outliers" and "Min profit" moved to the settings panel
-  (Options -> AddOns -> Jim's Forever AddOns -> Market).
+  (Options -> AddOns -> Jim's Forever AddOns -> Marketplace).
 * Sorting: click a header = sort by that column alone (again = flip it), Shift-click = add it as the next sort level
   (again = flip that level); with 2+ levels each sorted header shows its number. Saved per tab in
   `settings.tableSort[tab] = { list = { { col, desc }, ... }, sig = column titles }` (1.10's `{ col, desc }` is

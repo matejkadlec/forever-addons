@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Market
+-- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Marketplace
 -- Shares the "Jim's Forever AddOns" parent category with the other Forever AddOns.
 
 local CreateFrame = CreateFrame
