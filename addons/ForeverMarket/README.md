@@ -561,6 +561,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     more", "4 / 8"), shared out with the other picks in the plan's order, exactly as for a pick you did not touch. So
     an amount set half way through a plan never hands one pick's materials to another: with both picks' 11 Heavy
     Leather bought, the first pick set to 15 and the second to 12, the two together ask for the 5 that are missing.
+    A craft's number is what it makes from its plan on (crafts before the plan that an automatic plan carried do not
+    count against it), and a material the plan never looked at is read as of the plan too (your units now less what
+    was bought of it since).
     Two limits of that: units that reached your bags outside the plan since it was made are not seen (Refresh makes a
     new plan with them), and the picks before it keep their AH units set aside in the latest scan's ladder also when
     you bought them before that scan, so the pick's cost can read a little high then. The amount may be over
@@ -574,8 +577,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
     its columns past the new one. Stock picks show the
     units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
-    (`FM.SnipeFollowPlan(picks, at, changed)`): its items get the edited pick's units, never more than the pick was
-    sent with (Shift+right-click starts higher). The plan log keeps the plan's own line and gets one more for the
+    (`FM.SnipeFollowPlan(picks, at, changed)`): its items get what the edited pick still has to buy (its units less
+    what was bought for it since the plan, `FM.PickBuysLeft`), never more than the pick was sent with. So a pick
+    lowered under what was already bought for it stops the sniper for it; a pick raised keeps the limit it was sent
+    with (Shift+right-click sends its whole units again, counted from 0). The plan log keeps the plan's own line and gets one more for the
     edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
     and wait / Learn / Vendor / Flip / Stock / Stock, wait; 104 px since 1.47, 110 since 1.40, "Craft" until 1.39),

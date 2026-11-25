@@ -2019,15 +2019,18 @@ local function AmountText(box)
 end
 
 -- A line's input for the pick it shows now (nil: none on this line). An input you are typing in keeps its text while
--- its pick stays; when another pick moves under it (scrolling, a new plan) what was typed is dropped
+-- its pick stays; when another pick moves under it (scrolling, a new plan) what was typed is dropped. box.editing is
+-- its own mark of being typed in, set and cleared by its focus scripts: the client's HasFocus() is not asked, since the
+-- table is drawn again from inside those scripts (an applied number, a click from one input into the next), where
+-- what it answers depends on the client's order of events
 local function AmountShow(box, pick)
-    if box:HasFocus() and not (pick and box.key == pick.key) then
+    if box.editing and not (pick and box.key == pick.key) then
         box.restore = true
         box:ClearFocus()
     end
     box.pick = pick
     box:SetShown(pick ~= nil)
-    if pick and not box:HasFocus() then AmountText(box) end
+    if pick and not box.editing then AmountText(box) end
 end
 
 -- Enter or a click elsewhere: the pick is made again for the number typed (FM.SetPickAmount draws the table again),
@@ -2902,10 +2905,12 @@ local function CreateTable()
         amount:SetPoint("RIGHT", b, "LEFT", 0, 0)
         amount:Hide()
         amount:HookScript("OnEditFocusGained", function(self)
+            self.editing = true
             self.key = self.pick and self.pick.key
             self:HighlightText()
         end)
         amount:HookScript("OnEditFocusLost", function(self)
+            self.editing = nil
             self:HighlightText(0, 0)
             AmountApply(self)
         end)

@@ -594,6 +594,17 @@ local function OwnedOf(key)
     if not o then
         local all, sellable, bagSellable, bagAll = FM.Owned(key)
         o = { all or 0, sellable or 0, bagSellable, bagAll }
+        -- a pick made again (FM.RemakePick, P.asOf = its plan's time) reads an item its plan never asked about: as of
+        -- the plan too, so without what was bought of it since (those purchases count as the picks' progress, review
+        -- round 4); the read stays with the plan (P.owned is the plan's pickOwned then), the same at every later edit
+        if P.asOf then
+            local bought = FM.BoughtSince and FM.BoughtSince(key, P.asOf) or 0
+            if bought > 0 then
+                for i = 1, 4 do
+                    if o[i] then o[i] = math_max(0, o[i] - bought) end
+                end
+            end
+        end
         P.owned[key] = o
     end
     return o
@@ -2784,8 +2795,10 @@ function FM.RemakePick(out, ctx, key, amount)
     amount = math_floor(amount)
     StartPass(ctx)
     local ok, pick, reason = pcall(function()
-        -- your bags and bank as the plan saw them: an item the plan never asked about is read now
-        if type(out.pickOwned) == "table" then P.owned = setmetatable({}, { __index = out.pickOwned }) end
+        -- your bags and bank as the plan read them; an item the plan never asked about is read now, less what was
+        -- bought of it since the plan, and kept with the plan's reads (OwnedOf)
+        if type(out.pickOwned) == "table" then P.owned = out.pickOwned end
+        P.asOf = old.planAt
         -- the plan's picks before it take what they took (a pick out of scope is judged on its own, as the plan
         -- judged it)
         if not old.extra then
@@ -2818,8 +2831,10 @@ function FM.RemakePick(out, ctx, key, amount)
     Finish(pick)
     pick.rank, pick.extra, pick.rate, pick.listPos = old.rank, old.extra, old.rate, old.listPos
     -- it stays a pick of its plan: its purchases and crafts count from the plan's time, as the other picks' do
+    -- (a craft's new number is what it makes from its plan on: a pick carried by an automatic plan counted from the plan
+    -- before, review round 4)
     pick.planAt = old.planAt or pick.planAt
-    if pick.target then pick.since, pick.base = old.since or pick.since, old.base or pick.base end
+    if pick.target then pick.since, pick.base = old.planAt or old.since or pick.since, 0 end
     -- the plan's own pick and its number: what emptying the input brings back
     pick.original = old.original or old
     pick.amountSet, pick.amountPlan = true, pick.original.amount
@@ -2835,6 +2850,19 @@ function FM.RemakePick(out, ctx, key, amount)
     local logged, err = pcall(LogAmount, pick, ctx.now)
     if not logged and geterrorhandler then geterrorhandler()(err) end
     return pick
+end
+
+-- A pick's AH purchases with what is still to buy of each: its plan's units less what was bought for it since the plan
+-- (BoughtFor, as FM.PickBuyStep counts it). The sniper follows a pick made again with these (review round 4: a pick
+-- made again is planned as of the plan, so its own units no longer shrink by what was bought; given those, the sniper
+-- went on buying for a pick lowered under what it had)
+function FM.PickBuysLeft(pick)
+    local list = {}
+    for _, b in ipairs(type(pick) == "table" and pick.buys or EMPTY) do
+        local bought = type(pick.planAt) == "number" and BoughtFor(pick, b.key, pick.planAt) or 0
+        list[#list + 1] = { key = b.key, ah = math_max(0, (b.ah or 0) - bought), top = b.top }
+    end
+    return list
 end
 
 -- The plan's own pick back in place of one made again for your amount; nil when the pick has the plan's number

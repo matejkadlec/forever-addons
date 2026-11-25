@@ -510,3 +510,22 @@ H.test("snipe trace: a pick whose amount you set follows within its plan, the ot
     Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 90 } })
     H.same(State(FM, LEATHER), { 0, 100, 100 }, "a click of the same plan adds nothing")
 end)
+
+-- Review round 4 of pull request 69: an amount lowered under what was already bought. FM.SetPickAmount gives the follow
+-- what the pick still has to buy (FM.PickBuysLeft), here none
+H.test("snipe trace: a pick lowered under what was bought for it needs nothing more (FRV-154)", function()
+    local FM, env, ah = Load()
+    local leather = tostring(LEATHER)
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 100 } })
+    Bought(FM, env, ah, LEATHER, 250, 60)
+    H.same(State(FM, LEATHER), { 60, 100, 40 }, "60 of 100 bought")
+    -- the cloak's amount is lowered: it needs 40 as of its plan, 60 are bought, 0 left to buy
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 0, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "the limit is what was bought: done, nothing more is bought")
+    H.eq(FM.SnipeItemState(leather).done, true, "the item is done")
+    -- lowered to 80 units: 20 left of the 40 it still had
+    Send(FM, BELT, 1000, { { key = tostring(THICK), price = 500, units = 100 } })
+    Bought(FM, env, ah, THICK, 450, 60)
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = tostring(THICK), ah = 20, top = 500 } } } }, 1000, BELT)
+    H.same(State(FM, THICK), { 60, 80, 20 }, "80 needed, 60 bought: 20 more")
+end)

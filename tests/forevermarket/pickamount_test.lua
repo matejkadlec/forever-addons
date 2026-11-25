@@ -26,6 +26,10 @@
 --     bought for one pick never show up as free stock or as bought for another, whichever pick is made again, also
 --     after two edits; units a pick has crafted of its own item are not material for another pick; crafts since the
 --     plan count toward the new number
+--   * review round 4: after an edit the sniper is given what the pick still has to buy (FM.PickBuysLeft: its units less
+--     what was bought for it since the plan), so a pick lowered under what was bought needs nothing more; a craft's
+--     number counts from its plan also when an automatic plan had carried the pick; a material the plan never read is
+--     read as of the plan (your units now less what was bought of it since) and the read is kept for later edits
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")
@@ -311,8 +315,8 @@ end)
 H.test("amount: FM.SetPickAmount counts the edit, lets the sniper follow the pick within its plan and refreshes the table", function()
     local FM, env, r = Setup({ ["100"] = 27 })
     r.last = { t = env.clock, fp = {} }
-    local made = { key = "100", amount = 5 }
-    local plan = { key = "100", amount = 11 }
+    local made = { key = "100", amount = 5, buys = { { key = "900", ah = 5, top = 1000 } } }
+    local plan = { key = "100", amount = 11, buys = { { key = "900", ah = 11, top = 1000 } } }
     local asked, followed, refreshed = {}, {}, 0
     FM.trade = { picks = { plan }, pickAt = 5000 }
     FM.sources = { profs = {} }
@@ -322,17 +326,20 @@ H.test("amount: FM.SetPickAmount counts the edit, lets the sniper follow the pic
         return made
     end
     FM.RestorePick = function(_, key) return key == "100" and plan or nil end
-    FM.SnipeFollowPlan = function(picks, at, changed) followed[#followed + 1] = { picks[1], #picks, at, changed } end
+    -- the sniper is given the pick's key and what it still has to buy (FM.PickBuysLeft, review round 4)
+    FM.SnipeFollowPlan = function(picks, at, changed)
+        followed[#followed + 1] = { picks[1].key, picks[1].buys[1].key, picks[1].buys[1].ah, #picks, at, changed }
+    end
     FM.RefreshTable = function() refreshed = refreshed + 1 end
     H.same({ FM.SetPickAmount("100", 5) }, { true, made }, "set")
     H.same(asked[1], { true, "table", env.clock, NOW_MINUTES, "100", 5 }, "made again on the pass shown, with the latest scan")
     H.eq(FM.trade.pickEdit, 1, "the edit is counted (sticky tooltips follow it)")
-    H.same(followed[1], { made, 1, 5000, "100" }, "the sniper follows this pick alone, within its plan")
+    H.same(followed[1], { "100", "900", 5, 1, 5000, "100" }, "the sniper follows this pick alone, within its plan")
     H.eq(refreshed, 1, "the table is drawn again")
     H.same({ FM.SetPickAmount("100", 99) }, { false, "no" }, "a refused amount")
     H.same({ FM.trade.pickEdit, #followed, refreshed }, { 1, 1, 1 }, "changes nothing")
     H.same({ FM.SetPickAmount("100", nil) }, { true, plan }, "no amount: the plan's pick back")
-    H.same(followed[2], { plan, 1, 5000, "100" }, "which the sniper follows too")
+    H.same(followed[2], { "100", "900", 11, 1, 5000, "100" }, "which the sniper follows too")
     H.same({ FM.trade.pickEdit, refreshed }, { 2, 2 }, "counted and drawn")
     H.same({ FM.SetPickAmount("555", nil) }, { false, "it has the plan's number" }, "nothing to bring back")
     FM.trade = { empty = true }
@@ -512,4 +519,62 @@ H.test("amount: crafts since the plan count toward the number you set", function
     H.eq(pick.since, plan.since, "its crafts count from the plan's time")
     H.same({ FM.PickProgress(pick) }, { 4, 8, 4 }, "8 set: 4 of 8 made, 4 left")
     H.eq(FM.PickRunsLeft(pick), 4, "Ctrl+click's count: the 4 crafts left")
+end)
+
+-- Review round 4 of pull request 69
+H.test("amount: the sniper is given what a pick made again still has to buy, not its whole units", function()
+    local FM, env, out, ctx, state = TwoPicks(0)
+    local first, second = out.picks[1], out.picks[2]
+    H.same({ FM.PickBuysLeft(first)[1].ah, FM.PickBuysLeft(second)[1].ah }, { 11, 11 }, "nothing bought yet: all of it")
+    -- 8 of the material are bought (by the sniper, they count for the first pick), then the first pick is lowered to 5
+    state.bought = 8
+    local pick = FM.RemakePick(out, ctx, first.key, 5)
+    H.same({ pick.buys[1].ah, FM.PickBuysLeft(pick)[1].ah }, { 5, 0 }, "it needs 5 as of the plan, 8 are bought: nothing left")
+    H.eq(FM.PickBuysLeft(second)[1].ah, 8, "the 3 it no longer needs count for the second pick: 8 of its 11 left")
+    -- raised to 15: 7 left
+    pick = FM.RemakePick(out, ctx, first.key, 15)
+    H.eq(FM.PickBuysLeft(pick)[1].ah, 7, "15 needed, 8 bought: 7 left")
+    H.eq(FM.PickBuysLeft(pick)[1].key, "900", "of that material")
+    H.same(FM.PickBuysLeft(nil), {}, "no pick, no purchases")
+end)
+
+H.test("amount: a craft's number counts from its plan, also when an automatic plan had carried the pick", function()
+    -- plan A made 51 of it; 20 are crafted; the automatic plan B carries the pick: 31 more
+    local FM, env = Setup({ ["100"] = 27 })
+    local planA = env.clock - 3600
+    FM.CraftedSince = function(key, since) return (key == "100" and since <= planA) and 20 or 0 end
+    local out = { crafts = { Craft("100", 43) } }
+    local ctx = { view = View(), sources = { profs = {} }, now = env.clock, nowMinutes = NOW_MINUTES,
+        carry = { ["100"] = { target = 51, since = planA, held = 0 } } }
+    local done = false
+    FM.ComputePicks(out, ctx, function() done = true end)
+    env.FlushTimers()
+    H.eq(done, true, "the pass finished")
+    local carried = out.picks[1]
+    H.same({ carried.target, carried.since, carried.amount }, { 51, planA, 31 }, "the carried pick: 20 of 51 made, make 31")
+    local pick = FM.RemakePick(out, { view = ctx.view, sources = ctx.sources, now = env.clock + 60, nowMinutes = NOW_MINUTES + 1 },
+        "100", 40)
+    H.same({ pick.amount, pick.target, pick.since }, { 40, 40, carried.planAt }, "40 set: 40 to make from this plan on")
+    H.same({ FM.PickProgress(pick) }, { 0, 40, 40 }, "the 20 crafted before this plan do not count against the 40")
+    H.eq(FM.PickRunsLeft(pick), 40, "Ctrl+click's count: 40")
+end)
+
+H.test("amount: a material the plan never read is read as of the plan, and that read stays", function()
+    local FM, env, out, ctx, state = TwoPicks(0)
+    local second = out.picks[2]
+    -- as if the plan's pass had never asked about the material (a route reached only by a larger number)
+    out.pickOwned["900"] = nil
+    -- 4 of it are in your bags now, all 4 bought since the plan
+    state.bags, state.bought = 4, 4
+    local pick = FM.RemakePick(out, ctx, second.key, 5)
+    H.eq(pick.purchases[1].ah, 5, "the 4 bought since the plan are progress, not stock: it plans to buy 5")
+    H.eq(pick.useStep, nil, "and uses none from your bags")
+    H.eq(out.pickOwned["900"][1], 0, "the read is kept with the plan: 0 as of the plan")
+    -- more of it in your bags later changes nothing for the next edit
+    state.bags = 9
+    H.eq(FM.RemakePick(out, ctx, second.key, 5).purchases[1].ah, 5, "the next edit reads the same")
+    -- units that were there before the plan and are read for the first time count as stock
+    out.pickOwned["900"] = nil
+    state.bags, state.bought = 6, 4
+    H.eq(FM.RemakePick(out, ctx, second.key, 5).purchases[1].ah, 3, "6 in your bags, 4 of them bought since: 2 were yours, 3 to buy")
 end)

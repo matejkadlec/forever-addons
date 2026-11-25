@@ -1287,7 +1287,8 @@ FM.TradeBusy = function() return running end
 -- (FM.RemakePick in trade/Picks.lua, with the latest scan's prices and as of the plan's own moment: your stock as the
 -- plan read it, pickOwned), the other picks stay; amount nil puts the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
 -- picks are held), pickEdit counts its edits so a sticky tooltip of the row follows, and the items the sniper buys
--- for this pick follow its new units as they follow a new plan (FRV-143). Returns true and the pick, or false and why
+-- for this pick follow what it still has to buy (FM.PickBuysLeft) as they follow a new plan (FRV-143). Returns true
+-- and the pick, or false and why
 function FM.SetPickAmount(key, amount)
     local trade = FM.trade
     if running then return false, "the table is computing, try again in a moment" end
@@ -1306,7 +1307,8 @@ function FM.SetPickAmount(key, amount)
     end
     trade.pickEdit = (trade.pickEdit or 0) + 1
     if trade.pickAt and FM.SnipeFollowPlan then
-        local ok, e = pcall(FM.SnipeFollowPlan, { pick }, trade.pickAt, key)
+        -- with what is still to buy for it: its units less what was bought since the plan (review round 4)
+        local ok, e = pcall(FM.SnipeFollowPlan, { { key = pick.key, buys = FM.PickBuysLeft(pick) } }, trade.pickAt, key)
         if not ok and geterrorhandler then geterrorhandler()(e) end
     end
     if FM.RefreshTable then FM.RefreshTable() end

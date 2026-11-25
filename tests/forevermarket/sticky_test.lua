@@ -46,6 +46,25 @@ H.test("sticky: with the plan locked, automatic passes leave the window, a new p
     H.eq(w.at, 1120, "as of the refresh")
 end)
 
+-- FRV-154: an amount set for a pick changes its row within the plan shown (the plan's time stays)
+H.test("sticky: an amount you set for a pick of the plan updates the window, locked or not", function()
+    for _, locked in ipairs({ true, false }) do
+        local FM, env, state = Setup(locked)
+        local w = FM.StickyOpen("100", "picks", "Picks", Lines("v1"))
+        FM.StickyRefresh()
+        H.eq(w.lines[1].text, "v1", "the table drawn again without a change: unchanged")
+        FM.trade.pickEdit = 1 -- FM.SetPickAmount counts the edit; the pass and the plan's time are the same
+        FM.StickyRefresh()
+        H.eq(w.lines[1].text, "v2", "after the edit: the pick's new content")
+        state.content = Lines("v3")
+        FM.StickyRefresh()
+        H.eq(w.lines[1].text, "v2", "the same edit count again: unchanged")
+        FM.trade.pickEdit = 2
+        FM.StickyRefresh()
+        H.eq(w.lines[1].text, "v3", "the next edit updates it again")
+    end
+end)
+
 H.test("sticky: with the plan not locked, every new pass updates the window, a running one does not", function()
     local FM, env, state = Setup(false)
     local w = FM.StickyOpen("100", "latest", "Craft", Lines("v1"))
