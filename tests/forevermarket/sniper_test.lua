@@ -7,7 +7,7 @@
 --     more; at N it is done (no hit, not searched); units count at the confirm, come back when the server says the
 --     purchase failed, stay counted when no answer comes
 --   * FRV-128: a new number or price keeps the count (190 of 200 bought, 300 set: 190 of 300), so does removing the
---     number; only a reset (the window's x by "max units") or adding the item to the list (again) starts it at 0;
+--     number; only a reset (the window's Refresh, FRV-153) or adding the item to the list (again) starts it at 0;
 --     the count runs without a number too; the day's units are never touched by either; an item without a number
 --     buys what the budget allows, as before
 --   * FRV-128, the market table (the maintainer's rule after review round 2): Shift+click adds a pick's units to the
@@ -24,6 +24,12 @@
 --   * FRV-101: a paused item is not searched, has no hit and is not bought (a purchase waiting for its quote is
 --     cancelled); its price and number stay, the pause is saved, a new price keeps it, an item added again starts
 --     unpaused; "Watching N items" leaves it out; a done item stays done
+--   * FRV-153: Refresh (a reset with the number the add row shows) starts the count at 0 and keeps the limit: 180
+--     of 12 becomes 0 of 12, the item is active again and buys up to 12 more; Update (no reset) keeps 180 of 12, done,
+--     and nothing is bought; neither touches the day's units; the banner for done items names Refresh
+--   * FRV-171: the window's Clear (FM.SnipeClear) takes every item out of the list, paused ones too, as the row's x
+--     does: their buyouts and numbers stay saved, the day's gold and units stay, a purchase waiting for its quote is
+--     cancelled; an item added again brings its buyout and number back and starts its count at 0
 -- The server's answers are faked here; whether the live client sends them like this is the in-game test's job.
 
 local H = require("harness")
@@ -149,6 +155,88 @@ H.test("sniper: a new number or price keeps the count, a reset starts it again, 
     H.same({ state.got, state.n }, { 0, nil }, "a reset: no limit and the count at 0")
     H.eq(state.paid, 0, "what it paid starts again too")
     H.eq(state.units, 190, "Bought today is not touched")
+end)
+
+H.test("sniper: Refresh starts a done item's count again with its limit kept, Update keeps it done (FRV-153)", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    -- Turtle Scale at 180/12: done, with 180 bought today
+    FM.SnipeSet(key, 100, 200)
+    Offer(env, ah, LEATHER, 90, 180)
+    H.eq(Buy(FM, env, ah, 90), 180, "180 bought")
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    FM.SnipeSet(key, 100, 12)
+    local state = FM.SnipeItemState(key)
+    H.same({ state.got, state.n, state.done }, { 180, 12, true }, "180 of 12, done")
+    env.clock = env.clock + 4 -- the banner no longer names the purchase
+    H.eq((FM.SnipeStatus()):find("Refresh a done item to buy its number again", 1, true) ~= nil, true, "the banner names Refresh")
+    -- Update: the same price and number, no reset
+    FM.SnipeSet(key, 100, 12)
+    Offer(env, ah, LEATHER, 90, 500)
+    state = FM.SnipeItemState(key)
+    H.same({ state.got, state.n, state.done }, { 180, 12, true }, "Update: still 180 of 12, done")
+    H.eq(Hit(FM, LEATHER), 0, "and no offer is taken")
+    H.eq(state.units, 180, "Bought today unchanged by Update")
+    -- Refresh: the same save with the count started again
+    FM.SnipeSet(key, 100, 12, true)
+    state = FM.SnipeItemState(key)
+    H.same({ state.got, state.n, state.done, state.paid }, { 0, 12, false, 0 }, "Refresh: 0 of 12, no longer done")
+    H.eq(state.units, 180, "Bought today unchanged by Refresh")
+    H.eq(Hit(FM, LEATHER), 12, "the offers the client holds are evaluated at once: 12 to buy")
+    H.eq(Buy(FM, env, ah, 90), 12, "it buys up to 12 more")
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    state = FM.SnipeItemState(key)
+    H.same({ state.got, state.n, state.done }, { 12, 12, true }, "12 of 12, done again")
+    H.eq(state.units, 192, "the day's units count the 12 on top of the 180")
+    -- Refresh with another number, and with none
+    FM.SnipeSet(key, 100, 20, true)
+    H.same({ FM.SnipeItemState(key).got, FM.SnipeItemState(key).n }, { 0, 20 }, "max units 20: 0 of 20")
+    FM.SnipeSaved(key).got = 5
+    FM.SnipeSet(key, 100, false, true)
+    H.same({ FM.SnipeItemState(key).got, FM.SnipeItemState(key).n }, { 0, nil }, "no number: no limit, Bought now 0")
+end)
+
+H.test("sniper: Clear stops sniping every item, their buyouts, numbers and the day's units stay (FRV-171)", function()
+    local FM, env, ah = Load()
+    local leather, thick = tostring(LEATHER), tostring(THICK)
+    FM.SnipeSet(leather, 100, 50)
+    FM.SnipeSet(thick, 400)
+    FM.SnipeSetPaused(thick, true)
+    Offer(env, ah, LEATHER, 90, 20)
+    Buy(FM, env, ah, 90)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    local spent = FM.SnipeBudgetInfo().day
+    H.eq(FM.SnipeClear(), 2, "two items stopped, the paused one too")
+    H.same(FM.SnipeList(), {}, "the list is empty")
+    H.eq(FM.IsSniped(leather), false, "no longer sniped")
+    H.same({ FM.SnipeSaved(leather).p, FM.SnipeSaved(leather).n, FM.SnipeSaved(thick).p }, { 100, 50, 400 },
+        "their buyouts and numbers are remembered")
+    local budget = FM.SnipeBudgetInfo()
+    H.same({ budget.units[leather], budget.day }, { 20, spent }, "Bought today and the day's gold unchanged")
+    Offer(env, ah, LEATHER, 90, 20)
+    H.eq(Hit(FM, LEATHER), 0, "an offer of a cleared item is no hit")
+    H.eq(FM.SnipeClear(), 0, "an empty list: nothing to stop")
+    -- added again with its remembered buyout and number: the count starts at 0, the pause is gone
+    FM.SnipeSet(leather, FM.SnipeSaved(leather).p, FM.SnipeSaved(leather).n)
+    local state = FM.SnipeItemState(leather)
+    H.same({ state.got, state.n }, { 0, 50 }, "0 of 50")
+    FM.SnipeSet(thick, FM.SnipeSaved(thick).p)
+    H.eq(FM.SnipePaused(thick), false, "an item added again starts unpaused")
+end)
+
+H.test("sniper: Clear cancels a purchase that waits for its quote (FRV-171)", function()
+    local FM, env, ah = Load()
+    local key = tostring(LEATHER)
+    local cancelled = 0
+    ah.CancelCommoditiesPurchase = function() cancelled = cancelled + 1 end
+    FM.SnipeSet(key, 100, 50)
+    Offer(env, ah, LEATHER, 90, 20)
+    FM.SnipeBuyClick() -- started, no quote yet
+    H.eq(FM.SnipeItemState(key).buying, true, "a purchase waits for its quote")
+    FM.SnipeClear()
+    H.eq(cancelled, 1, "cancelled")
+    H.eq(FM.SnipeItemState(key).buying, false, "nothing is being bought")
+    H.eq(#ah.confirmed, 0, "and nothing was confirmed")
 end)
 
 H.test("sniper: the count runs without a number, and an item added to the list again starts at 0 (FRV-128)", function()

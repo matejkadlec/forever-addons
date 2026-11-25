@@ -722,6 +722,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
     the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average).
+    A flip pick follows the Flip tab's rule within its own batch and gold (1.46, FRV-172, `EvaluateFlip`): when
+    they buy fewer units than the flip row, it takes fewer whole price levels and lists under the level above those
+    (its "List at", Expected profit, "Sells", Gold needed and steps line follow that buy), and when no such buy earns
+    the margin it is no pick: "3 cheaper listings would stay under 1g 04s 99c: this pick can buy 1 of the 4". Until
+    1.45 it bought what it could and kept the row's list price (Green Dragonscale Leggings: gold for one of the two
+    at 5g 88s, listed at 8g 02s over the other one and the two at 5g 98s). Units of a flip's item you hold, when
+    nothing is bought, are a Stock pick listed under the cheapest listing of others, not at the flip's price.
 * Lowest price of an auction: single (non-stacking) items need at least 1s, Forever's server silently drops
   cheaper posts and the AH hangs ("Creating 0/15", throttled system never ready). Every sell price respects it;
   rows at that floor say so (no undercut possible, you queue behind the others).
@@ -783,12 +790,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   List at, Units, On AH, C/8h, C/24h. Once the latest snapshot is an hour old or more (`FLIP_STALE`), a line above
   the header says "Prices are 2h 19m old: cheap listings are probably gone" (the header and the list move one row
   down, as on Picks): Flip is the only tab where minutes matter.
-* **Flip** (until 1.10 "AH resell"): buy the cheapest units and relist them 1c under the next real price level (the wall:
-  where max(3, 10% of all listed) units of others wait), never above 110% of the usual price (median daily low,
-  last week, 3+ days of history). A flip needs 15% profit after the 5% cut on every unit bought (buy <= list x
-  0.95 / 1.15), at least 1s in total, the cheap units at most 25% of all listed (else they are the market), the
-  wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
-  of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
+* **Flip** (until 1.10 "AH resell"): buy the cheapest price levels of others in full and relist the units 1c under the
+  cheapest listing that stays (the level above them), never above 110% of the usual price (median daily low, last
+  week, 3+ days of history). **A flip never lists above a listing of others that stays on the AH after its buy**
+  (1.46, FRV-172, `FM.FlipPlan` in `trade/Calc.lua`, one rule for this tab and for Flip picks). A flip needs 15%
+  profit after the 5% cut on every unit bought (buy <= list x 0.95 / 1.15), at least 1s in total, the bought units at
+  most 25% of all listed (else they are the market), a real market above (the wall, the price where max(3, 10% of
+  all listed) units of others wait, at least 85% of the usual price), no more units than others list from the
+  cheapest listing that stays up to the wall (min 5), and no new price level (last 2 days within 80-125% of usual).
+  Every split of the ladder is tried, the most profitable wins: a thin level between the cheap listings and the wall
+  is bought with them when all of that still holds, else the list price is just under it, else there is no flip.
+  The tooltip's "List at" line names what waits above: "8g 02s 01c  next: 16 at 9g 29s", or with a thin level
+  "79s 99c  next: 1 at 80s, 18 more up to 1g 05s" (`FM.FlipNextText`; "N wait at W" before, which counted the thin
+  levels as waiting at the wall).
+  Until 1.45 the list price was 1c under the wall, so thin levels stayed under it: Recipe: Cleric's Elixir (2026-11-25:
+  1g 03s 99c, 1g 04s, 1g 05s 09c, 1g 10s 98c, 1g 30s 99c, ...) read "buy 2 up to 1g 04s, list at 1g 30s" over the
+  listings at 1g 05s 09c and 1g 10s 98c; with 9 listed only two units are within the 25%, and two units earn no
+  margin under 1g 05s 09c, so it is no flip now.
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
 * **Min. price** (Craft, Vendor, Flip; 1.13, until 1.14 "Min item sell") includes one lost deposit per unit for listing a stack: the 8h deposit
   when 100+ units circulate in 24h (the C/24h column; 1.17, before: 200+), else (or unknown) the 24h one, since a slow item may not sell in 8h;
@@ -1204,16 +1222,22 @@ per purchase.
     your mouse wheel steps reach the sniper"
   * The add row (FRV-41): the item box (Blizzard's `SearchBoxTemplate` with "Add an item" and its own clear button),
     the buyout per unit (Blizzard's `MoneyInputFrameTemplate`: gold, silver and copper boxes, two digits for silver
-    and copper), "max units" (buy at most, empty = no limit; right-aligned since 1.43), its x (1.43, FRV-128:
-    "Reset limit and count": empties the box, and the next Update starts the item's count at 0; loading another
-    item forgets it) and Add (**Update** for an item already sniped, "Save" until 1.42; Update keeps what was bought,
-    with a new number or buyout too: 190 of 200, 300 typed = 190/300). Typing shows
+    and copper), "max units" (buy at most, empty = no limit; right-aligned since 1.43) and Add (**Update** for an
+    item already sniped, "Save" until 1.42; Update keeps what was bought, with a new number or buyout too: 190 of
+    200, 300 typed = 190/300). **Refresh** (1.46, FRV-153) shows left of Update while an item of the list is loaded:
+    it saves the row like Update and starts the item's Bought now again at 0 with the limit kept (Turtle Scale
+    180/12 -> 0/12, 20 typed -> 0/20, an empty box -> no limit and 0), so a done item is active again at once;
+    Bought today stays. Its tooltip: "Save this item and start its Bought now count again at 0. Max units stay."
+    The window is at least as wide as the add row with both buttons (`ADD_ROW_W`). From 1.43 to 1.45 an x right of
+    "max units" cleared the limit and made the next Update start the count at 0 (two steps, and the limit had to be
+    typed again). A Refresh forgets the picks the item was sniped for, as every reset of the count does (below):
+    its limit is yours from then on. Typing shows
     8 suggestions with icon, name and the cheapest price now (items known to be sold per auction left out, sniped
     ones marked "sniped"); the empty box with the focus shows the earlier snipes (`saved` without `list`) with their
     saved price. Up / Down mark a suggestion, Enter picks it (the first without a mark) and the focus goes to the
     price; Tab runs item, gold, silver, copper, max units and back (Shift+Tab the other way); Enter in a price box
     or in max units adds or updates. After adding, the row empties and the focus is back in the item box for the next
-    one; after an update it empties too ("Updated: ... 190 bought now", or "count started again" after the x).
+    one; after an update it empties too ("Updated: ... 190 bought now", or "count started again" after Refresh).
     Shift+click an item (bags, a chat link, a row of the AH) while the
     item box has the focus, or drag one onto the window: it lands in the row, also an item never scanned (its item
     ID is the key; the bag item stays where it is). With the AH open Blizzard also writes the name into the AH's
@@ -1251,6 +1275,13 @@ per purchase.
     greyed out, while on the % box is; the boxes apply on Enter or a lost focus, Esc shows the saved amount again).
     Hovering the budget row shows three lines: "50% of your gold at 13:06" (or "Set manually: 5g"), "Spent by the
     sniper today" and "Left" (the budget minus what the sniper spent since its last refresh)
+  * **Clear** (1.46, FRV-171), at the right end of the "Automatically refresh budget" row, its right edge on the
+    refresh icon's: stops sniping every item of the list at once, paused ones too, as each row's x does
+    (`FM.SnipeClear`: their buyouts and numbers stay remembered and are suggested again by the empty item box, Bought
+    today stays, a purchase not confirmed yet is cancelled, a confirmed one is left to the server's answer). One
+    confirmation step like a row's Buy -> Confirm: the first click turns it into "Confirm" for 3 seconds, the second
+    click clears and the line under the add row says "Stopped sniping 8 items."; after 3 seconds, or when the window
+    closes, it is "Clear" again. Disabled while the list is empty. An add row that was editing a listed item empties
   * The `?`: five lines of help
 * Where it opens: a dragged position (`snipePos`, also one saved by an older version: the window is clamped to the
   screen), else at the AH's right edge while the AH is open, else the screen's center. It follows the AH: when the AH
@@ -1326,9 +1357,9 @@ per purchase.
   remove it, raise its number or reset it. Units are counted with the gold: at the confirm, given back on
   `COMMODITY_PURCHASE_FAILED` (not when the count started again since), kept when no answer comes. Since 1.43
   (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
-  number under what was bought leaves the item done); only the add row's x by "max units" followed by Update
-  (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after removing it, or for the first
-  time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
+  number under what was bought leaves the item done); only the add row's Refresh (1.46, FRV-153; the x by "max units"
+  followed by Update before) (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after
+  removing it, or for the first time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
   Shift+right-click sets the limit and starts the count again (below, Market table). Until 1.42 a new number, typed
   into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
@@ -1338,7 +1369,8 @@ per purchase.
   stay; resuming looks at the results the client holds at once. The pause is saved, so it outlasts closing the window,
   a `/reload` and a relog; a new price keeps it, an item removed and added again starts unpaused. "Watching N items"
   counts only what is searched (not paused, not done); with nothing left to search the banner says "Every item is
-  paused, done ... Resume one or add another."; on Blizzard's Buy page of a paused item "... is paused. Resume it, or
+  paused, done ... Resume one or add another." (with only done items: "Every item is done (its number bought) or
+  cannot be sniped. Refresh a done item to buy its number again, or add another.", 1.46, FRV-153); on Blizzard's Buy page of a paused item "... is paused. Resume it, or
   go back to the item list for the others."; the market table's chat line ends "(paused)" for a paused item.
 * Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
@@ -1383,10 +1415,22 @@ per purchase.
     ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any more, with nothing
     bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
     to their units; your own part is the rest of the limit (a number typed in the window, or what an item had before a
-    pick came). A number set in the window, a reset (Shift+right-click, the window's x) or the item added to the list
-    again forgets the picks. The sniper's row tooltip lists "Sniped for" with each pick and what it still has to buy
+    pick came). A number set in the window, a reset (Shift+right-click, the window's Refresh) or the item added to the
+    list again forgets the picks; so does the window's Clear and a row's x, whose items start without picks when they
+    are added again. The sniper's row tooltip lists "Sniped for" with each pick and what it still has to buy
     ("(older plan)" for a pick traced from another plan than the one shown) and "Set by you"; the pick's tooltip in the
     table has "Sniped for this pick" with its materials.
+  * A pick belongs to the character that sent it (1.46, FRV-169). The sniper's list is the realm's, a plan is one
+    character's (its bags, bank, gold and recipes), so `FM.SnipeFollowPlan` follows only the picks the logged-in
+    character sent: a plan on an alt that has the same pick but buys none or less of its material (it holds it, or
+    has less gold) changes nothing, and the item stays in the list. Until 1.45 that plan dropped the pick and with it
+    the item ("no pick needs Heavy Leather any more, removed"). The same pick Shift+clicked on another character is
+    a pick of its own: its units add to the limit like two different picks needing one material, and each
+    character's plans and clicks change only its own (`saved.picks[id] = { n, at, char, pick }`, id = the pick's key
+    and the character). The tooltips name the character of a pick that is not the logged-in one's: "Hillman's Cloak
+    (Elfiehu)" in the sniper row's "Sniped for", "sent by Elfiehu" in the pick's "Sniped for this pick". A pick
+    traced by 1.45 has no character: it is followed as before and belongs to the character whose plan or click first
+    changes it. What was bought comes off all picks of the item in proportion, whoever was logged in.
   * Shift+right-click (at the AH) starts again: each item's limit becomes the pick's units and Bought now starts
     at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100 of 144
     bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. A material listed twice in one plan sums

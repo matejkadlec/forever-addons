@@ -1078,7 +1078,8 @@ local function FlipTooltip(row)
     Line("Buy", string_format("%s up to %s", FM.FormatCount(row.units), Money(row.top)))
     Line("Total cost", Money(row.cost))
     Header("Sell")
-    Line("List at", Money(row.sell) .. GREY .. string_format("  %s wait at %s", FM.FormatCount(row.support), Money(row.wall)) .. "|r")
+    -- the cheapest listing of others that stays after the buy (FRV-172: the list price is just under it)
+    Line("List at", Money(row.sell) .. GREY .. "  " .. FM.FlipNextText(row) .. "|r")
     Line("Expected profit", P1g(row.profit))
     Line("PPG", P1g(row.p1g) .. GREY .. "  profit per 1g of the buy|r")
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
@@ -1209,7 +1210,8 @@ local function SnipedForPlan(targets, trace)
         if not t.units then return false end
         local found = false
         for _, e in ipairs(FM.SnipeTrace(t.key) or {}) do
-            if e.pick == trace.pick and e.at == trace.at then found = true end
+            -- only this character's entry of the pick (FRV-169): another character's is a pick of its own
+            if e.mine and e.pick == trace.pick and e.at == trace.at then found = true end
         end
         if not found or not FM.IsSniped(t.key) then return false end
         local saved = FM.SnipeSaved(t.key)
@@ -1218,7 +1220,8 @@ local function SnipedForPlan(targets, trace)
     return true, repriced
 end
 
--- A pick's tooltip, the sniper part (FRV-143): what of its AH purchases the sniper buys for it, still to buy
+-- A pick's tooltip, the sniper part (FRV-143): what of its AH purchases the sniper buys for it, still to buy; the same
+-- pick sent by another character is its own line with that character's name (FRV-169)
 local function PickSnipeLines(pick)
     if not (FM.SnipeTrace and pick.buys) then return end
     local at = FM.trade and FM.trade.pickAt
@@ -1226,7 +1229,7 @@ local function PickSnipeLines(pick)
     for _, b in ipairs(pick.buys) do
         for _, e in ipairs(FM.IsSniped(b.key) and FM.SnipeTrace(b.key) or {}) do
             if e.pick == pick.key then
-                lines[#lines + 1] = { b.key, e.left, e.at ~= at }
+                lines[#lines + 1] = { b.key, e.left, e.mine and e.at ~= at, not e.mine and e.char or nil }
             end
         end
     end
@@ -1234,7 +1237,7 @@ local function PickSnipeLines(pick)
     Header("Sniped for this pick")
     for _, l in ipairs(lines) do
         Line(Name(l[1]), (l[2] > 0 and (FM.FormatCount(l[2]) .. " still to buy") or "all bought")
-            .. (l[3] and (GREY .. "  for an older plan|r") or ""))
+            .. (l[3] and (GREY .. "  for an older plan|r") or "") .. (l[4] and (GREY .. "  sent by " .. l[4] .. "|r") or ""))
     end
 end
 
