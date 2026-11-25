@@ -581,22 +581,35 @@ H.test("amount: a material the plan never read is read as of the plan, and that 
     H.eq(FM.RemakePick(out, ctx, second.key, 5).purchases[1].ah, 3, "6 in your bags, 4 of them bought since: 2 were yours, 3 to buy")
 end)
 
--- Review round 5 of pull request 69
-H.test("amount: a flip lowered under what was already bought of it has nothing left to buy", function()
+-- Review rounds 5 and 6 of pull request 69: a flip has no progress in its steps line, so it takes no part in the
+-- sharing of purchases and its number counts from the edit
+H.test("amount: a flip's units stay whole for the sniper, its number counts from the edit", function()
     local FM, env = Setup({ ["105"] = 27 })
     local flip = { key = "105", sell = 9999, usual = 10000, top = 6000, units = 5, support = 55, wall = 10000, qty = 60, sold12 = 10 }
     local out = { flips = { flip } }
     local ctx = Plan(FM, env, out, { ["105"] = { ladder = { { 4000, 2 }, { 6000, 3 }, { 10000, 55 } }, qty = 60, own = 0 } })
     local plan = out.picks[1]
-    H.same({ plan.amount, plan.planAt }, { 5, env.clock }, "the plan: buy 5, counted from the plan's time")
+    H.same({ plan.amount, plan.planAt, plan.purchases }, { 5, nil, nil }, "the plan: buy 5; a flip counts no purchases")
     FM.trade = out
-    local bought = 0
-    FM.BoughtSince = function(key, since) return (key == "105" and since <= env.clock) and bought or 0 end
-    H.eq(FM.PickBuysLeft(plan)[1].ah, 5, "nothing bought: 5 to buy")
-    bought = 3
-    H.eq(FM.PickBuysLeft(plan)[1].ah, 2, "3 bought: 2 left")
+    FM.BoughtSince = function(key) return key == "105" and 3 or 0 end -- 3 of it bought since the plan
+    H.eq(FM.PickBuysLeft(plan)[1].ah, 5, "its units as planned")
     local pick = FM.RemakePick(out, ctx, "105", 2)
-    H.same({ pick.amount, pick.planAt }, { 2, plan.planAt }, "lowered to 2, still counted from the plan's time")
-    H.same({ FM.PickBuysLeft(pick)[1].key, FM.PickBuysLeft(pick)[1].ah }, { "105", 0 },
-        "2 needed, 3 bought: nothing left, and the item stays in the list for the sniper's trace")
+    H.same({ pick.amount, FM.PickBuysLeft(pick)[1].key, FM.PickBuysLeft(pick)[1].ah }, { 2, "105", 2 },
+        "lowered to 2: the sniper is given 2, counted from the edit")
+end)
+
+H.test("amount: a flip in the plan takes nothing from a craft's purchases of the same item", function()
+    -- the plan: a flip of item 900 first, then a craft that buys 11 of it as its material
+    local FM, env = Setup({ ["900"] = 27, ["100"] = 27 }, nil, 100000) -- 10g: a small flip is worth a pick
+    local flip = { key = "900", sell = 1999, usual = 2000, top = 1000, units = 3, support = 60, wall = 2000, qty = 63, sold12 = 10 }
+    local ladders = { ["900"] = { ladder = { { 1000, 3 }, { 2000, 60 } }, qty = 63, own = 0 } }
+    local out = { flips = { flip }, crafts = { Craft("100", 43) } }
+    Plan(FM, env, out, ladders)
+    local craft = PickOf(out, "100")
+    H.eq(PickOf(out, "900") ~= nil and craft ~= nil, true, "both are picks: " .. tostring(out.pickWhy["900"]) .. " / "
+        .. tostring(out.pickWhy["100"]))
+    FM.trade = out
+    local need = craft.purchases[1].ah
+    FM.BoughtSince = function(key) return key == "900" and need or 0 end -- the craft's materials are bought
+    H.same({ FM.PickBuyStep(craft) }, { "bought the materials", true }, "they count for the craft in full, whatever the flip's place")
 end)

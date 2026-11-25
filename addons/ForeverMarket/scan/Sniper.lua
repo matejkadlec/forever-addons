@@ -417,9 +417,10 @@ end
 -- no longer asks for (0) leaves the trace and takes what it still had off the item's ceiling. Your part of the limit
 -- and the picks not in wanted stay. A pick in wanted is the logged-in character's from now on (FRV-169: the plan is
 -- that character's; only one saved without a character changes hands so). keep[id] = true: a pick whose amount you
--- set in the table still lists the item with nothing left to buy (FRV-154, review round 5): it stays traced at 0 like
--- a pick that bought all it may, so a click of the same plan adds nothing and its number put back gives the rest
--- back. Returns the new limit, or 0 when nothing is left to buy and nothing was bought
+-- set in the table stays traced, at 0 when it has nothing to buy of the item now (FRV-154, review rounds 5 and 6): an
+-- amount can be taken back within the same plan, so its entry must be there for a click of the same plan to add
+-- nothing and for its number put back to give the rest back. Returns the new limit, or 0 when nothing is left to buy
+-- and nothing was bought
 local function Retrace(saved, wanted, at, keep)
     local list, traced, ceil = TracedNow(saved)
     local shares = Capped(list, wanted, ceil)
@@ -953,20 +954,18 @@ end
 -- follow (FRV-169: the plan counts its bags, bank, gold and recipes; a pick another character sent keeps its units and
 -- keeps its item in the list); a pick saved before 1.46 without a character follows as before. changed = the key of a
 -- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too,
--- and its buys carry what is still to buy (FM.PickBuysLeft): an item it lists with 0 left is bought in full, not
--- dropped from its plan, so the pick stays traced for it at 0 (review round 5)
+-- with what is still to buy (FM.PickBuysLeft), and it stays traced for every item it was sniped for, at 0 where it has
+-- nothing to buy now: bought in full, or covered by your stock at the lower number (review rounds 5 and 6; a new plan
+-- drops a pick that no longer buys an item, but an amount can be taken back within the same plan)
 function FM.SnipeFollowPlan(picks, at, changed)
     local s = Data()
     if not s or type(at) ~= "number" then return end
-    local plan, listed = {}, {}
+    local plan = {}
     for _, p in ipairs(type(picks) == "table" and picks or {}) do
         if type(p) == "table" and type(p.key) == "string" then
             local units = {}
             for _, b in ipairs(type(p.buys) == "table" and p.buys or {}) do
-                if type(b.key) == "string" and IsNumber(b.ah) then
-                    if b.ah > 0 then units[b.key] = (units[b.key] or 0) + b.ah end
-                    if p.key == changed then listed[b.key] = true end
-                end
+                if type(b.key) == "string" and IsNumber(b.ah) and b.ah > 0 then units[b.key] = (units[b.key] or 0) + b.ah end
             end
             plan[p.key] = units
         end
@@ -984,7 +983,7 @@ function FM.SnipeFollowPlan(picks, at, changed)
             if (t.char == nil or t.char == me) and (t.at ~= at or t.pick == changed) and plan[t.pick] then
                 follow = true
                 shares[t.id] = plan[t.pick][key] or 0
-                if t.pick == changed and listed[key] then keep[t.id] = true end
+                if t.pick == changed then keep[t.id] = true end
             end
         end
         if follow then

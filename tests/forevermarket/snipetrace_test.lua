@@ -534,10 +534,20 @@ H.test("snipe trace: a pick lowered under what was bought for it needs nothing m
     FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 40, top = 275 } } } }, 1000, CLOAK)
     H.same(State(FM, LEATHER), { 60, 100, 40 }, "its number put back gives the 40 back")
     H.eq(Trace(FM, LEATHER), CLOAK .. "=40@1000", "traced with them")
-    -- an edit after which the pick no longer buys the item at all (it crafts the material instead) drops it
+    -- review round 6: lowered to a number your own stock covers, the pick buys none of the item and no longer lists
+    -- it. It stays traced all the same: the amount can be taken back within the same plan
     FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 1000, CLOAK)
-    H.eq(FM.SnipeTrace(leather), nil, "an item the edited pick no longer lists leaves its trace")
-    H.same(State(FM, LEATHER), { 60, 60, 0 }, "what was bought stays the limit")
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "nothing to buy of it now: what was bought is the limit")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=0@1000", "still traced for the cloak, with nothing left")
+    env.printed = {}
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 70 } })
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "a click of the same plan adds nothing: not the plan's 70 again")
+    H.eq(Has(env.printed[1], "Already sniping"), true, tostring(env.printed[1]))
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 20, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 80, 20 }, "its number put back: the 20 it still has to buy")
+    -- a new plan, not an edit, still drops a pick that no longer buys the item
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 2000)
+    H.eq(FM.SnipeTrace(leather), nil, "a new plan in which the cloak buys none of it: the pick leaves the trace")
     -- lowered to 80 units: 20 left of the 40 it still had
     Send(FM, BELT, 1000, { { key = tostring(THICK), price = 500, units = 100 } })
     Bought(FM, env, ah, THICK, 450, 60)
