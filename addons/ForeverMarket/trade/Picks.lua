@@ -1687,9 +1687,11 @@ local function EvaluateCraft(c)
     pick.toolCost = toolCost
     if c.kind ~= "level" then Track(pick, made) end
     -- fewer than the amount you set: the steps line says what is short in a few words, the input's tooltip in full
-    -- (FRV-154, FRV-187)
+    -- (FRV-154, FRV-187). Your minimum profit is no limit of the market (the maintainer's decision on FRV-187): a warning
+    -- (amountWarn, orange, the input light blue), not "cannot be done" (red); FRV-188 lets an amount pass it
     if want and made < want then
         local margin = plan.stop == "margin"
+        pick.amountWarn = margin or nil
         pick.amountNote = margin and "more would earn under your min. profit" or "no more materials on the AH at a usable price"
         pick.amountWhy = string_format("Only %s can be made now: %s", Count(made), margin
             and "more would earn less than your minimum profit" or "the AH has no more materials at a usable price")
@@ -2773,7 +2775,8 @@ end
 -- stock or as bought for another, whichever way the claims were shared out. The amount may be over the room on the AH and the pick's share of the gold (your
 -- choice); the materials, a vendor's limited stock, your minimum profit and the flip rule still stop it, and then the
 -- pick makes or buys what they allow: its steps line says so in red and in a few words (amountNote), the input shows
--- your number in red (amountWant) and its tooltip the full reason (amountWhy, FRV-187). The pick it replaces stays as
+-- your number in red (amountWant) and its tooltip the full reason (amountWhy, FRV-187); your minimum profit is a
+-- warning instead (amountWarn: the note orange, the input the number reached in light blue). The pick it replaces stays as
 -- pick.original: emptying the input brings the plan's own pick back (FM.RestorePick). A new plan starts from its own
 -- numbers. The plan log keeps the plan's lines and gets one more for the pick with "e" in its last field.
 

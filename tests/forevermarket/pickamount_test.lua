@@ -11,8 +11,9 @@
 --     steps line says what is short, in red (FRV-187), with the full reason for the input's tooltip; when nothing can be
 --     made for it the plan's pick stays and the reason comes back
 --   * the input shows the plan's number in white, a number you set and met in light blue, and a number you set that
---     the pick cannot meet in red: your number, while the pick's amount (Invest, Expected, the steps) is what it really
---     makes or buys (FM.AmountShown, FRV-187)
+--     the market cannot give in red: your number, while the pick's amount (Invest, Expected, the steps) is what it really
+--     makes or buys (FM.AmountShown, FRV-187); a number cut by your minimum profit is a warning (the maintainer's
+--     decision): the number reached in light blue and the note in orange
 --   * the picks before it keep what they took of the AH and of your gold, the picks after it stay the same objects
 --   * the plan's own pick comes back when the amount is taken away; a pick out of scope stays out of scope
 --   * the plan log gets a line of its own for the edited pick, marked "e", next to the plan's lines
@@ -185,6 +186,12 @@ H.test("amount: with too few materials on the AH it makes what they allow and sa
     H.eq(pick.amount, 20, "20 materials at 10s, the next at 96s lose money: make 20")
     H.eq(pick.amountNote, "more would earn under your min. profit", "and why")
     H.eq(pick.amountWhy, "Only 20 can be made now: more would earn less than your minimum profit", "in full")
+    -- your minimum profit is no limit of the market (the maintainer's decision on FRV-187): a warning, not red
+    H.eq(pick.amountWarn, true, "a warning")
+    H.same({ FM.AmountShown(pick) }, { 20, "set" }, "the input: the 20 reached, light blue as before")
+    H.eq(Has(FM.PickStepsText(pick), "make 20|cFFFF9933 (more would earn under your min. profit)|r"), true,
+        "the steps line: the note in orange")
+    H.eq(Has(FM.PickStepsText(pick), "|cFFFF5555"), false, "nothing red")
     -- a number the plan's rules reach has no note
     local met = FM.RemakePick(out, ctx, "100", 15)
     H.same({ met.amountNote, met.amountWhy }, { nil, nil }, "15 can all be made: no note")

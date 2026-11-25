@@ -598,8 +598,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (1.48, FRV-187, `FM.AmountShown`: the maintainer's rule, it cannot be done, an error and not a warning; light
     blue until 1.47 showed the number reached, which read as a bug) and the steps line ends the step it is about with
     a short red note (`pick.amountNote`): "(no more available for flipping)" for a flip, "(the vendor has no more)"
-    for a vendor's limited stock, "(no more materials on the AH at a usable price)" and "(more would earn under your
-    min. profit)" for a craft ("make 30 (no more materials ...)"; until 1.47 an orange "(of the 100 you set: ...)").
+    for a vendor's limited stock, "(no more materials on the AH at a usable price)" for a craft ("make 30 (no more
+    materials ...)"; until 1.47 an orange "(of the 100 you set: ...)"). Your minimum profit is no limit of the market
+    (the maintainer's decision on FRV-187, `pick.amountWarn`): a craft it cuts keeps the number reached in light blue
+    and an orange "(more would earn under your min. profit)", its tooltip the reason in orange ("Set by you: 100.
+    Only 20 can be made now: more would earn less than your minimum profit."); FRV-188 is to let an amount pass it
+    with a warning icon.
     The input's tooltip has the full reason (`pick.amountWhy`): "Set by you: 2. Only 1 can be bought now: more would
     leave cheaper listings under the list price or earn no margin." and "Empty it and press Enter for the plan's
     number (1)." Leaving your red number in the input changes nothing; typing the number reached sets that one.

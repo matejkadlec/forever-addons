@@ -2032,9 +2032,11 @@ local function StepsText(p)
     for i, step in ipairs(steps) do
         if i == p.makeStep and makeText then step = makeText end
         if i == p.buyStep and buyText then step = buyText end
-        -- fewer than the amount you set (FRV-154): what is short, in red behind the step it is about (FRV-187: it
-        -- cannot be done, an error, not a warning)
-        if i == p.amountStep and p.amountNote then step = step .. RED .. " (" .. p.amountNote .. ")|r" end
+        -- fewer than the amount you set (FRV-154): what is short, in red behind the step it is about (FRV-187: the
+        -- market cannot give it, an error); your minimum profit in orange (amountWarn: a warning, the maintainer's rule)
+        if i == p.amountStep and p.amountNote then
+            step = step .. (p.amountWarn and ORANGE or RED) .. " (" .. p.amountNote .. ")|r"
+        end
         step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
         local done = (made and i <= p.makeStep) or (bought and i == p.buyStep)
         parts[i] = done and (GREY .. step .. "|r") or step
@@ -2048,11 +2050,14 @@ local SECTION_TEXT = { plan = "Plan, fitting parameters", extra = "Also good, bu
 ---------------------------------------------------------------- the Amount input of a pick (FRV-154)
 
 -- What a pick's Amount input shows (FRV-187) and how: the plan's number ("plan", white), a number you set that the
--- pick makes or buys ("set", light blue), or a number you set that it cannot meet ("unmet", red: your number, while
--- Invest, Expected, the steps, Ctrl+click and the sniper go by what it really makes or buys, pick.amount)
+-- pick makes or buys ("set", light blue), or a number you set that the market cannot give ("unmet", red: your number,
+-- while Invest, Expected, the steps, Ctrl+click and the sniper go by what it really makes or buys, pick.amount). A
+-- number cut by your minimum profit is no "unmet" (amountWarn): the number reached in light blue, as before
 function FM.AmountShown(pick)
     if type(pick) ~= "table" or type(pick.amount) ~= "number" then return nil end
-    if pick.amountSet and pick.amountNote and type(pick.amountWant) == "number" then return pick.amountWant, "unmet" end
+    if pick.amountSet and pick.amountNote and not pick.amountWarn and type(pick.amountWant) == "number" then
+        return pick.amountWant, "unmet"
+    end
     return pick.amount, pick.amountSet and "set" or "plan"
 end
 
@@ -2988,10 +2993,13 @@ local function CreateTable()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("Amount")
             local shown, how = FM.AmountShown(pick)
-            if how == "unmet" then
-                -- your number cannot be met (FRV-187): the full reason, in red like the number
-                GameTooltip:AddLine(string_format("Set by you: %s. %s.", Count(shown), pick.amountWhy
-                    or ("Only " .. Count(pick.amount) .. " now: " .. tostring(pick.amountNote))), 1, 0.33, 0.33, true)
+            if pick.amountSet and pick.amountNote then
+                -- fewer than your number (FRV-187): the full reason, in red like the number when the market cannot
+                -- give it, in orange when your minimum profit cut it (amountWarn: the input shows the number reached)
+                local warn = pick.amountWarn
+                GameTooltip:AddLine(string_format("Set by you: %s. %s.", Count(pick.amountWant or shown), pick.amountWhy
+                    or ("Only " .. Count(pick.amount) .. " now: " .. tostring(pick.amountNote))), 1, warn and 0.6 or 0.33,
+                    warn and 0.2 or 0.33, true)
                 GameTooltip:AddLine(string_format("Empty it and press Enter for the plan's number (%s).",
                     Count(pick.amountPlan or 0)), 0.4, 0.75, 1, true)
             elseif how == "set" then
