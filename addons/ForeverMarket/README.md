@@ -211,7 +211,8 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
 * `/fm` or the key `U` opens the marketplace (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of; `/fm scanlog [n]` the last deep scan attempts, below), settings under Options → AddOns → Jim's Forever AddOns → Marketplace ("Market" until 1.49)
 * No loading line of its own since 1.50 (FRV-176): the shared `[JFA] Jim's Forever AddOns: ...` line of all of Jim's
   Forever AddOns names it, and right under it, at every login and `/reload`, its key line from your current key
-  bindings: "Forever Marketplace: press U to open the marketplace, Y to open the sniper window" (a binding without a
+  bindings, in its own chat style: "[FM] Forever Marketplace: press U to open the marketplace, Y to open the sniper
+  window" (a binding without a
   key: "type /fm ...", "/fm snipe"; while the client has not loaded the bindings yet at the login, the same line
   comes a moment later, still after the `[JFA]` line)
 * Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): "Forever Marketplace: toggle

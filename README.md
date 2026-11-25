@@ -57,7 +57,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - Drag it around the minimap's edge, its place is saved; with MinimapButtonButton installed it sits in its panel with the other buttons
   - `Show minimap button` on the overview page hides or shows it (on by default, one setting for all the AddOns)
   - Settings cannot be opened in combat: a chat message says so instead
-- **One login line** in place of a "loaded" line per AddOn: `[JFA] Jim's Forever AddOns: 5 loaded [versions]`, or with a single AddOn its name and version (`[JFA] Jim's Forever AddOns: ForeverTweaks v1.8.0 loaded`); click `[versions]` to list every AddOn with its version. ForeverCampFeatures is in the list, and still prints its own line too until it gets the shared code. ForeverMarket adds one line of its own right under it: `Forever Marketplace: press U to open the marketplace, Y to open the sniper window`, with the keys you bound
+- **One login line** in place of a "loaded" line per AddOn: `[JFA] Jim's Forever AddOns: 5 loaded [versions]`, or with a single AddOn its name and version (`[JFA] Jim's Forever AddOns: ForeverTweaks v1.8.0 loaded`); click `[versions]` to list every AddOn with its version. ForeverCampFeatures is in the list, and still prints its own line too until it gets the shared code. ForeverMarket adds one line of its own right under it: `[FM] Forever Marketplace: press U to open the marketplace, Y to open the sniper window`, with the keys you bound
 - **`/jfa`** lists the loaded Jim's Forever AddOns with their versions (handy for a bug report), `/jfa help` shows the commands
 
 ### ForeverTweaks

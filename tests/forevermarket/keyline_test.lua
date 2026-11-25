@@ -2,9 +2,10 @@
 --   * no loading line of its own: the shared file's one [JFA] line names ForeverMarket with its version, and right
 --     under it, at every load, ForeverMarket's key line: "Forever Marketplace: press U to open the marketplace, Y to
 --     open the sniper window", the keys the bindings hold now (GetBindingKey / GetBindingText), a binding without a key
---     named by its slash command ("type /fm to open the marketplace")
+--     named by its slash command ("type /fm to open the marketplace"); in ForeverMarket's own chat style ("[FM] ",
+--     FM.Print): the shared file calls the registered function at that place, which prints it and returns nil
 --   * the bindings not loaded yet at the login (no BINDINGS_LOADED / UPDATE_BINDINGS before it and neither binding has
---     a key): the line is owed and printed once, in the [JFA] line's style, when they load
+--     a key): the line is owed and printed once when they load
 --   * the default keys, once per binding set: U for the marketplace, Y for the sniper window only while Y is free (Z
 --     until 1.49); a set that has its flag keeps what it has
 
@@ -50,12 +51,12 @@ local LOADED = ORANGE .. "[JFA] " .. YELLOW .. "Jim's Forever AddOns: " .. ORANG
     .. "loaded|r"
 
 local function Line(text)
-    return ORANGE .. "[JFA] " .. YELLOW .. "Forever Marketplace: " .. text .. "|r"
+    return ORANGE .. "[FM] " .. YELLOW .. "Forever Marketplace: " .. text .. "|r"
 end
 
 local function Key(k) return ORANGE .. k .. YELLOW end
 
-H.test("key line: one [JFA] line, then the marketplace's current keys right under it, no [FM] loaded line", function()
+H.test("key line: one [JFA] line, then the marketplace's current keys in an [FM] line right under it, no loaded line", function()
     local _, env = Client({ FOREVERMARKET_TABLE = "U", FOREVERMARKET_SNIPE = "Y" }, {})
     env.FireEvent("PLAYER_LOGIN")
     H.same(env.printed, { LOADED, Line("press " .. Key("U") .. " to open the marketplace, " .. Key("Y")

@@ -133,22 +133,24 @@ end
 -- Blizzard_RPE_TurnStrafe.lua); before that GetBindingKey knows no key
 local bindingsLoaded, lineOwed = false, false
 
--- The shared file asks for the line at PLAYER_LOGIN: with the bindings not loaded yet (no event yet and neither
--- binding has a key) it prints nothing and the line is owed until they load
+-- The shared file calls this at PLAYER_LOGIN right where the line belongs, under the [JFA] line: it prints the line
+-- itself in ForeverMarket's own chat style ("[FM] ", FM.Print, FRV-1) and returns nil, so the shared file adds
+-- nothing (a text it returned would get the "[JFA] " prefix). With the bindings not loaded yet (no event yet and
+-- neither binding has a key) the line is owed until they load
 local function LoginLine()
     if bindingsLoaded or GetBindingKey("FOREVERMARKET_TABLE") or GetBindingKey("FOREVERMARKET_SNIPE") then
-        return FM.KeyLine()
+        FM.Print(FM.KeyLine())
+    else
+        lineOwed = true
     end
-    lineOwed = true
     return nil
 end
 
--- An owed line, printed as the shared file prints the registered lines ("[JFA] " in its colors), still after its
--- [JFA] line
+-- An owed line, still after the [JFA] line
 function FM.PayKeyLine()
     if not lineOwed then return end
     lineOwed = false
-    print(string.format("%s[JFA] %s%s|r", ORANGE, YELLOW, FM.KeyLine()))
+    FM.Print(FM.KeyLine())
 end
 
 local function BindingsLoaded()
