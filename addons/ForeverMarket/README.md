@@ -283,7 +283,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
   tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
   "All characters" buttons above it follow the rule), the item tooltips in your bags,
-  the sniper window and the settings panel. The footer of every tab ends with the hint: Picks "... · hold Shift over
+  the sniper window and the settings panel. The footer of every tab with a table ends with the hint (the Profit tab's
+  keeps "hover a dot"): Picks "... · hold Shift over
   rows, inputs, dropdowns and checkboxes to show tooltips" ("hover for why" before), the other tabs "· hold Shift
   for tooltips"; a line too long for the window takes a shorter form of its own note, so the hint is never cut
   (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table: tooltips only while Shift
@@ -553,8 +554,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     pick is made again for your number by the plan's own rules (`FM.RemakePick` in `trade/Picks.lua`: the materials up
     the AH ladder, buy or craft, what you hold, the price to list at), so its steps line, Invest, Expected, Conf., its
     tooltip, Ctrl+click's count and what Shift+click snipes follow, and the summary's "needs" and "expected" with them.
-    The other picks stay as they are: the plan picks before it keep what they took of the AH and of your units (`took`,
-    recorded by `Commit` and taken again by `Replay`), the picks after it are not planned again. The amount may be over
+    The other picks stay as they are and keep their claims as things are now: a plan pick before it keeps what it
+    still needs for the crafts it has left, your units first (also the materials you bought for it since the plan)
+    and only the rest off the AH (`took`, recorded by `Commit`, `ReplayBefore`); a pick after it keeps what you bought
+    for it (`ReplayAfter`) and is not planned again. So an amount set half way through a plan does not hand the
+    materials of another pick to this one. The amount may be over
     the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
     vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow, the input
     shows that number and the steps line says what is short in orange ("make 30 (of the 100 you set: the AH has no

@@ -21,6 +21,9 @@
 --     number you set (FM.PickCarry), so it shows and logs the plan's number again; the buy steps of two picks of one
 --     material never count the same purchases twice when one of them was made again later (its purchases count from
 --     that moment); a saved sort of the Picks tab follows its columns past the new Amount column
+--   * review round 2: the other picks keep their claims as things are now. Materials you bought for a pick before it
+--     are that pick's, not free stock for the pick made again; what a pick before it crafted away is not taken from
+--     your stock a second time; what you bought for a pick after it stays that pick's
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")
@@ -428,4 +431,64 @@ H.test("amount: a saved sort of the Picks tab follows its columns past the new A
     FM.GetSettings().tableSort = { picks = { sig = "#|Pick|Gone", list = { { col = 3, desc = true } } } }
     state = FM.TableSortOf("picks")
     H.same({ #state.list, state.list[1].col }, { 1, 1 }, "the default sort")
+end)
+
+-- Review round 2 of pull request 69: an amount set half way through a plan
+H.test("amount: materials you bought for another pick since the plan are not free stock for the pick made again", function()
+    -- two crafts of one material, both buy 11 at the AH; nothing in your bags when the plan is made
+    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
+    local bags = 0
+    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
+    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
+    local ctx = Plan(FM, env, out)
+    local first, second = out.picks[1], out.picks[2]
+    H.same({ first.purchases[1].ah, second.purchases[1].ah }, { 11, 11 }, "the plan: each buys 11")
+    -- you buy the first pick's 11: they are in your bags now
+    bags = 11
+    local pick = FM.RemakePick(out, ctx, second.key, 5)
+    H.same({ pick.amount, pick.purchases and pick.purchases[1].ah, pick.invest }, { 5, 5, 5000 },
+        "the second pick made again for 5 still buys its 5: the 11 in your bags are the first pick's")
+    H.eq(pick.useStep, nil, "it uses nothing from your bags")
+    -- with 14 in your bags, 3 are free: it uses those and buys 2
+    bags = 14
+    pick = FM.RemakePick(out, ctx, second.key, 5)
+    H.same({ pick.purchases[1].ah, pick.invest }, { 2, 2000 }, "3 units beyond the first pick's 11 are free: it buys 2")
+end)
+
+H.test("amount: what a pick before it has crafted away is not taken from your stock a second time", function()
+    -- 22 of the material in your bags at the plan: each pick uses 11 of them
+    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
+    local bags = 22
+    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
+    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
+    local ctx = Plan(FM, env, out)
+    local first, second = out.picks[1], out.picks[2]
+    H.same({ first.invest, second.invest }, { 0, 0 }, "the plan: both from your bags, nothing to buy")
+    -- the first pick's 11 are crafted: its materials are gone, 11 are left for the second
+    bags = 11
+    FM.CraftedSince = function(key) return key == first.key and 11 or 0 end
+    local pick = FM.RemakePick(out, ctx, second.key, 15)
+    H.same({ pick.amount, pick.purchases[1].ah, pick.invest }, { 15, 4, 4000 },
+        "15: the 11 in your bags and 4 from the AH (the first pick, done, takes none of them again)")
+    -- half crafted: the first pick still needs 5 or 6 of what is in your bags
+    bags = 17
+    FM.CraftedSince = function(key) return key == first.key and 5 or 0 end
+    pick = FM.RemakePick(out, ctx, second.key, 15)
+    H.eq(pick.purchases[1].ah, 4, "17 in your bags, the first pick's 6 crafts left keep 6: 11 for this one, 4 to buy")
+end)
+
+H.test("amount: what you bought for a pick after it stays that pick's", function()
+    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
+    local bags = 0
+    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
+    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
+    local ctx = Plan(FM, env, out)
+    local first = out.picks[1]
+    FM.trade = out
+    -- both picks' 11 are bought and in your bags
+    bags = 22
+    FM.BoughtSince = function(key) return key == "900" and 22 or 0 end
+    local pick = FM.RemakePick(out, ctx, first.key, 15)
+    H.same({ pick.amount, pick.purchases[1].ah, pick.invest }, { 15, 4, 4000 },
+        "the first pick made again for 15 uses its own 11 and buys 4: the second pick's 11 are not its")
 end)

@@ -2210,22 +2210,29 @@ local function Commit(pick, rank)
         if before[key] == nil then before[key] = left end
         return left
     end
-    -- took: what this pick takes from the pass (AH units, your units, gold, tools), so a pick after it can be made
-    -- again in the same place without planning them all again (FRV-154, Replay)
-    local took = { used = {}, stock = {}, invest = pick.invest or 0 }
+    -- took: what this pick takes from the pass (AH units, your units as material, spare units it makes, the units of
+    -- its item you hold, gold, tools), so another pick of the plan can be made again later without planning them all
+    -- again (FRV-154, ReplayBefore / ReplayAfter)
+    local took = { used = {}, stock = {}, made = {}, held = 0, invest = pick.invest or 0 }
     for key, n in pairs(trial.used) do
         P.used[key] = (P.used[key] or 0) + n
         took.used[key] = n
     end
-    for key, n in pairs(trial.stock) do P.stockLeft[key] = Left(key) - n end
-    for key, n in pairs(trial.made) do P.stockLeft[key] = Left(key) + n end
+    for key, n in pairs(trial.stock) do
+        P.stockLeft[key] = Left(key) - n
+        took.stock[key] = n
+    end
+    for key, n in pairs(trial.made) do
+        P.stockLeft[key] = Left(key) + n
+        took.made[key] = n
+    end
     -- what you hold of its item goes to the AH with it: no later pick uses it as material
     if (pick.held or 0) > 0 and not P.noStock then
         P.stockLeft[pick.key] = math_max(0, Left(pick.key) - pick.held)
+        took.held = pick.held
     end
     for key, was in pairs(before) do
         local n = was - (P.stockLeft[key] or was)
-        if n ~= 0 then took.stock[key] = -n end
         if n > 0 then
             P.taken[key] = P.taken[key] or {}
             P.taken[key][#P.taken[key] + 1] = { rank = rank, n = n }
@@ -2237,21 +2244,6 @@ local function Commit(pick, rank)
         for _, name in ipairs(pick.tools or EMPTY) do P.toolsBought[name] = true end
     end
     pick.took = took
-end
-
--- What a plan pick took (Commit's took) taken again from a new pass, without evaluating the pick (FRV-154)
-local function Replay(took, rank)
-    for key, n in pairs(took.used) do P.used[key] = (P.used[key] or 0) + n end
-    for key, delta in pairs(took.stock) do
-        local left = P.stockLeft[key] or StockOf(key)
-        P.stockLeft[key] = math_max(0, left + delta)
-        if delta < 0 then
-            P.taken[key] = P.taken[key] or {}
-            P.taken[key][#P.taken[key] + 1] = { rank = rank, n = -delta }
-        end
-    end
-    P.budgetLeft = P.budgetLeft - took.invest
-    for _, name in ipairs(took.tools or EMPTY) do P.toolsBought[name] = true end
 end
 
 -- A pick as the table keeps it: the market numbers of the row it was made from (FRV-67: On AH with yours, C/8h, C/24h:
@@ -2785,12 +2777,77 @@ end
 ---------------------------------------------------------------- an amount you set (FRV-154)
 -- The Picks tab's Amount column is an input: a craft's "make N", the units a vendor resell or a flip buys. A number you
 -- type makes that one pick again for it, by the plan's own rules (the AH ladder, buy or craft, your stock, the price to
--- list at), in the place it has in the plan: the plan picks before it take what they took (Replay of their took), the
--- picks after it stay as they are. The amount may be over the room on the AH and the pick's share of the gold (your
+-- list at), in the place it has in the plan: the plan picks before it keep what they still need of your units and of
+-- the AH (ReplayBefore of their took), the picks after it stay as they are and keep what you bought for them
+-- (ReplayAfter). The amount may be over the room on the AH and the pick's share of the gold (your
 -- choice); the materials, a vendor's limited stock, your minimum profit and the flip rule still stop it, and then the
 -- pick makes or buys what they allow and its steps line says so (amountNote). The pick it replaces stays as
 -- pick.original: emptying the input brings the plan's own pick back (FM.RestorePick). A new plan starts from its own
 -- numbers. The plan log keeps the plan's lines and gets one more for the pick with "e" in its last field.
+
+-- The other picks of the plan keep their claims while one pick is made again, as things are now (review round 2: taken
+-- as they were when the plan was made, the materials you had bought for another pick since counted as free stock for
+-- the pick made again, and what a pick had crafted away was taken from your stock a second time).
+
+-- The share of a plan pick still to do: of its crafts (FM.PickProgress), 1 for a pick without crafts
+local function LeftShare(q)
+    local _, target, left = FM.PickProgress(q)
+    if not target or target <= 0 then return 1 end
+    return math_min(1, left / target)
+end
+
+-- n of your units of an item set aside for the plan pick of that rank (what is there of them); returns the units
+local function Reserve(key, n, rank)
+    local left = P.stockLeft[key] or StockOf(key)
+    n = math_min(n, left)
+    if n <= 0 then return 0 end
+    P.stockLeft[key] = left - n
+    P.taken[key] = P.taken[key] or {}
+    P.taken[key][#P.taken[key] + 1] = { rank = rank, n = n }
+    return n
+end
+
+-- A plan pick ranked before the pick made again: of each item it planned to take (bought at the AH, used from your
+-- stock, the units of its own item it lists) it still needs the share of its crafts left. What you hold of that is
+-- its own first, whether you held it at the plan or bought it since; only the rest still comes off the AH ladder,
+-- never more than it planned to buy there. Its gold and the tools it buys count as before
+local function ReplayBefore(q)
+    local took, share = q.took, LeftShare(q)
+    local keys = {}
+    for key in pairs(took.used) do keys[key] = true end
+    for key in pairs(took.stock) do keys[key] = true end
+    for key in pairs(took.made or EMPTY) do keys[key] = true end
+    if (took.held or 0) > 0 then keys[q.key] = true end
+    for key in pairs(keys) do
+        local buy = math_ceil(share * (took.used[key] or 0))
+        -- your units it uses as material, less the spare ones its own crafts make (more made than used: they are there
+        -- for the picks after it)
+        local net = (took.stock[key] or 0) - (took.made and took.made[key] or 0)
+        if net < 0 then
+            P.stockLeft[key] = (P.stockLeft[key] or StockOf(key)) + math_floor(share * -net)
+            net = 0
+        end
+        local want = buy + math_ceil(share * net) + (key == q.key and (took.held or 0) or 0)
+        local mine = Reserve(key, want, q.rank)
+        local fromAH = math_min(buy, want - mine)
+        if fromAH > 0 then P.used[key] = (P.used[key] or 0) + fromAH end
+    end
+    P.budgetLeft = P.budgetLeft - (took.invest or 0)
+    for _, name in ipairs(took.tools or EMPTY) do P.toolsBought[name] = true end
+end
+
+-- A plan pick ranked after it keeps what you already bought for it and it has not crafted away yet: those units are in
+-- your bags, and they are not the pick's that is made again (what it planned to take beyond that came after this
+-- pick's share anyway)
+local function ReplayAfter(q)
+    if type(q.planAt) ~= "number" then return end
+    local share = LeftShare(q)
+    for _, e in ipairs(q.purchases or EMPTY) do
+        if (e.ah or 0) > 0 then
+            Reserve(e.key, math_ceil(share * math_min(e.ah, BoughtFor(q, e.key, q.planAt))), q.rank)
+        end
+    end
+end
 
 local function LogAmount(pick, now)
     local r = FM.R()
@@ -2816,11 +2873,18 @@ function FM.RemakePick(out, ctx, key, amount)
     amount = math_floor(amount)
     StartPass(ctx)
     local ok, pick, reason = pcall(function()
-        -- the plan's picks before it took their AH units, your units and their gold (a pick out of scope is judged
-        -- on its own, as the plan judged it)
+        -- the plan's other picks keep their claims: the ones before it what they still need of your units and of the
+        -- AH, the ones after it what you bought for them (a pick out of scope is judged on its own, as the plan
+        -- judged it)
         if not old.extra then
             for _, p in ipairs(out.picks) do
-                if p ~= old and not p.extra and p.took and (p.rank or 0) < (old.rank or 0) then Replay(p.took, p.rank) end
+                if p ~= old and not p.extra then
+                    if (p.rank or 0) < (old.rank or 0) then
+                        if p.took then ReplayBefore(p) end
+                    else
+                        ReplayAfter(p)
+                    end
+                end
             end
         end
         P.amount = { key = key, n = amount }
