@@ -812,3 +812,62 @@ H.test("amount: three picks of one material: the second click gets back nothing 
     FM.TableRowClick({ row = second }, "LeftButton")
     H.eq(SniperLeft(FM), 22, "still 22: nothing bought for no pick")
 end)
+
+-- FRV-194: the row menu's Reset amount
+local function MenuOf(FM, env, row)
+    local entries = {}
+    env.MenuUtil = { CreateContextMenu = function(owner, generate)
+        local root = { CreateTitle = function() end }
+        function root:CreateButton(label, fn)
+            local e = { label = label, fn = fn, enabled = true }
+            function e:SetEnabled(on) self.enabled = on end
+            function e:SetTooltip(fn2) self.tooltip = fn2 end
+            entries[#entries + 1] = e
+            return e
+        end
+        generate(owner, root)
+    end }
+    env.IsShiftKeyDown = function() return false end
+    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
+    FM.ShowPriceGraph = FM.ShowPriceGraph or function() end
+    -- the menu's other entries ask about the item (ui/Filters.lua, trade/Places.lua and others not loaded here)
+    FM.IsFavorite = FM.IsFavorite or function() return false end
+    FM.IsExcluded = FM.IsExcluded or function() return false end
+    FM.TrackTarget = FM.TrackTarget or function() return nil end
+    FM.TableRowClick({ row = row }, "RightButton")
+    local labels, byLabel = {}, {}
+    for i, e in ipairs(entries) do labels[i], byLabel[e.label] = e.label, e end
+    return labels, byLabel
+end
+
+H.test("amount: the row menu has Reset amount above Show history, greyed out with the plan's number (FRV-194)", function()
+    local FM, env, out, ctx = TwoPicks(0)
+    local calls = {}
+    FM.SetPickAmount = function(key, n) calls[#calls + 1] = { key, n } return true end
+    local plan = out.picks[1]
+    local labels, entry = MenuOf(FM, env, plan)
+    H.eq(labels[#labels - 1], "Reset amount", "right above the last entry")
+    H.eq(labels[#labels], "Show history", "Show history stays last")
+    H.eq(entry["Reset amount"].enabled, false, "the plan's number: greyed out")
+    H.eq(type(entry["Reset amount"].tooltip), "function", "with a tooltip that says why")
+    local set = FM.RemakePick(out, ctx, plan.key, 5)
+    labels, entry = MenuOf(FM, env, set)
+    H.eq(entry["Reset amount"].enabled, true, "a number you set: enabled")
+    entry["Reset amount"].fn()
+    H.same(calls, { { plan.key } }, "it asks for the plan's number back, as an emptied input does")
+    -- the pick's steps line has the same entry
+    labels, entry = MenuOf(FM, env, { stepsOf = set, key = set.key })
+    H.eq(entry["Reset amount"] ~= nil and entry["Reset amount"].enabled, true, "also from the steps line")
+    -- a refusal is said in the chat
+    FM.SetPickAmount = function() return false, "a pass is running" end
+    local printed = #env.printed
+    entry["Reset amount"].fn()
+    H.eq(env.printed[printed + 1] ~= nil and Has(env.printed[printed + 1], "a pass is running"), true, tostring(env.printed[printed + 1]))
+end)
+
+H.test("amount: a pick without an Amount input has no Reset amount (FRV-194)", function()
+    local FM, env, out = TwoPicks(0)
+    local stock = { key = "777", amount = 4, listUnits = 4 } -- a Stock pick: its amount is no input
+    local _, entry = MenuOf(FM, env, stock)
+    H.eq(entry["Reset amount"], nil, "no entry")
+end)

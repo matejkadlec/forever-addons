@@ -858,8 +858,30 @@ local function BuildRows(tab, lookup)
 end
 
 ---------------------------------------------------------------- tooltips
--- Sections with a gold heading and a blank line before, "label: value" lines that never wrap
--- (wrapped double lines overlap on this client), grey notes that wrap.
+-- Sections with a gold heading and a blank line before, "label: value" lines and material lines that wrap (one string
+-- each: double lines are not used, wrapped ones overlap on this client), grey notes that wrap. A row tooltip is about
+-- FM.ROW_TIP_WIDTH wide in every tab (FRV-195, the maintainer's "max-width" after a tooltip as wide as half the
+-- screen): its lines wrap at that width (FM.RowTipWidth), a sticky window uses the same width.
+
+FM.ROW_TIP_WIDTH = 340 -- about a third of the 1.48 tooltip of the maintainer's screenshot (no local: Lua 5.1's 200)
+
+-- The hover tooltip's width (FRV-195): the client has no maximum width, so its minimum is set to FM.ROW_TIP_WIDTH and
+-- every line of a row tooltip wraps at it; set back to 0 when the tooltip hides, so tooltips that share GameTooltip
+-- (the bags, Blizzard's own) keep their width. A hook on OnHide, no field on the tooltip (docs/forever-api-notes.md)
+function FM.RowTipWidth(tip)
+    if not (tip and tip.SetMinimumWidth) then return end
+    if not FM.rowTipHooked and tip.HookScript then
+        FM.rowTipHooked = true
+        tip:HookScript("OnHide", function(self)
+            if FM.rowTipWide then
+                FM.rowTipWide = nil
+                self:SetMinimumWidth(0)
+            end
+        end)
+    end
+    FM.rowTipWide = true
+    tip:SetMinimumWidth(FM.ROW_TIP_WIDTH)
+end
 
 local LABEL = "|cFFB0B0B0"
 local HEAD = "|cFFFFD100"
@@ -874,7 +896,7 @@ local function Header(text)
 end
 
 local function Line(label, value)
-    TT:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, false)
+    TT:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, true)
 end
 
 local function Note(text, color)
@@ -883,7 +905,7 @@ end
 
 local function Item(indent, key, n, value, note)
     TT:AddLine(string_format("%s%s%s%dx %s|r  %s%s", indent, IconText(key), WHITE, n, Name(key), value or "",
-        note and (" " .. GREY .. note .. "|r") or ""), 1, 1, 1, false)
+        note and (" " .. GREY .. note .. "|r") or ""), 1, 1, 1, true)
 end
 
 local SRC_LABEL = { vendor = "vendor", ah = "AH", last = "last seen" }
@@ -1146,7 +1168,7 @@ local function FarmTooltip(r)
         for i, p in ipairs(r.parts) do
             if i > 10 then break end
             TT:AddLine(string_format("  %s%s|r  %s%.1f%%|r  %s  %s", IconText(p.key), WHITE .. Name(p.key), GREY, p.rate * 100,
-                Money(p.value), GREY .. "= " .. Money(p.per) .. " per kill|r"), 1, 1, 1, false)
+                Money(p.value), GREY .. "= " .. Money(p.per) .. " per kill|r"), 1, 1, 1, true)
         end
     end
     if (r.kills or 0) > 0 then
@@ -1417,12 +1439,12 @@ end
 local function RowHints(tab, row)
     GameTooltip:AddLine(" ")
     if tab.farm then
-        GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B)
-        GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B)
-        GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
         return
     end
-    GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B)
+    GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
     local targets, _, trace, status
     if FM.ahOpen then targets, _, trace, status = SnipeTargets(row) end
@@ -1440,13 +1462,13 @@ local function RowHints(tab, row)
             .. " (adds to what it already snipes)", HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
     else
-        GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B, true)
     end
     -- a row whose recipe you know: Ctrl+click opens its profession window on it (FRV-132)
     local craftHint = FM.CraftHint and FM.CraftHint(RowSource(row.stepsOf or row, tab))
-    if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B) end
-    GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
-    GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B)
+    if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B, true) end
+    GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
+    GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B, true)
 end
 
 local function ShowRowTooltip(button)
@@ -1454,6 +1476,7 @@ local function ShowRowTooltip(button)
     if not row then return end
     local tab = CurrentTab()
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    FM.RowTipWidth(GameTooltip) -- about a third of what it was (FRV-195)
     RowTooltipLines(GameTooltip, tab, row)
     RowHints(tab, row)
     GameTooltip:Show()
@@ -1538,7 +1561,8 @@ end
 
 -- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
 -- in the sniper); Track only where there is an NPC to go to (a vendor that sells it, a trainer or vendor that
--- teaches it), disabled without TomTom; last, Show history (its own window: FRV-76's price graph, FRV-52's history)
+-- teaches it), disabled without TomTom; on a pick with an Amount input Reset amount (FRV-194, disabled while it has
+-- the plan's number); last, Show history (its own window: FRV-76's price graph, FRV-52's history)
 local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
@@ -1590,6 +1614,23 @@ local function ShowRowMenu(button, row)
         elseif FM.RecipeOnAH and FM.RecipeOnAH(key) then
             -- a pattern on the AH has no NPC to walk to: say where the recipe comes from instead
             root:CreateTitle("Recipe on AH", INFO_COLOR)
+        end
+        -- a pick whose amount can be set, also from its steps line (FRV-194): the plan's number back, as emptying the
+        -- Amount input and pressing Enter does (ui/Table.lua is at Lua 5.1's 200 locals: no top-level helper)
+        local pick = CurrentTab().picks and (row.stepsOf or row) or nil
+        if pick and pick.amountEdit and FM.SetPickAmount then
+            local reset = root:CreateButton("Reset amount", function()
+                local ok, why = FM.SetPickAmount(pick.key, nil)
+                if not ok then FM.PrintError("Failed to reset the amount of " .. Name(pick.key) .. ": " .. tostring(why) .. ".") end
+            end)
+            if not pick.amountSet then
+                if reset.SetEnabled then reset:SetEnabled(false) end
+                if reset.SetTooltip then
+                    reset:SetTooltip(function(tooltip)
+                        GameTooltip_SetTitle(tooltip, "It has the plan's number already")
+                    end)
+                end
+            end
         end
         if FM.ShowPriceGraph then
             root:CreateButton("Show history", function() FM.ShowPriceGraph(key) end)
