@@ -7,7 +7,6 @@ ns.L = L
 
 -- Chat
 L.FAILED_TO = "Failed to"
-L.LOADED = "%s v%s loaded"
 L.ENABLED = "%s enabled"
 L.DISABLED = "%s disabled"
 L.ALREADY_ENABLED = "%s is already enabled"

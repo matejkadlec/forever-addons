@@ -4,8 +4,9 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Ability_Tracking
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 2.0.0
+## Version: 2.1.0
 ## X-Repository: https://github.com/matejkadlec/forever-addons
-## SavedVariables: ForeverTrackingAidSettings
+## SavedVariables: ForeverTrackingAidSettings, JimsForeverAddOnsDB
 
+JimsForeverAddOns.lua
 ForeverTrackingAid.lua

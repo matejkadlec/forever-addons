@@ -27,6 +27,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 
 - [Get the AddOns](#-get-the-addons)
 - [Available AddOns](#-available-addons)
+  - [Shared by all: minimap button and /jfa](#shared-by-all-minimap-button-and-jfa)
   - [ForeverTweaks](#forevertweaks)
   - [ForeverTrackingAid](#forevertrackingaid)
   - [ForeverRangeIndicator](#foreverrangeindicator)
@@ -44,6 +45,19 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 - [Licenses](#-licenses)
 
 ## 📦 Available AddOns
+
+### Shared by all: minimap button and /jfa
+
+🧭 Every first-party AddOn carries the same small piece of shared code (ForeverMarket and ForeverCampFeatures get it soon), so any one of those AddOns alone gives you these, once, however many you install:
+
+- **One minimap button "Jim's Forever AddOns"**
+  - Click: opens the `Jim's Forever AddOns` overview page of the settings
+  - Right-click: a menu of the installed AddOns (Camp Features, Craft Queue, Hawk Timer, Market, ...); pick one to open its settings
+  - Drag it around the minimap's edge, its place is saved; with MinimapButtonButton installed it sits in its panel with the other buttons
+  - `Show minimap button` on the overview page hides or shows it (on by default, one setting for all the AddOns)
+  - Settings cannot be opened in combat: a chat message says so instead
+- **One login line** in place of a "loaded" line per AddOn: `[JFA] Jim's Forever AddOns: 5 loaded [versions]`, or with a single AddOn its name and version (`[JFA] Jim's Forever AddOns: ForeverTweaks v1.8.0 loaded`); click `[versions]` to list every AddOn with its version. ForeverMarket and ForeverCampFeatures are in the list, and still print their own line too until they get the shared code
+- **`/jfa`** lists the loaded Jim's Forever AddOns with their versions (handy for a bug report), `/jfa help` shows the commands
 
 ### ForeverTweaks
 
