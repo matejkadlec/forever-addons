@@ -77,6 +77,9 @@ local function AddOverviewEntry(parentPanel, category)
     parentPanel.foreverEntries[index] = { name = CHILD_CATEGORY_NAME, button = button }
 end
 
+-- The checkboxes' rows are 27 px apart (30 until 1.46, FRV-155 review round 1): with the tenth one the rows under them
+-- ran past the settings canvas (about 600 px, Blizzard_SettingsPanel.xml); ten at 27 px are as tall as nine at 30
+local CHECK_PITCH = 27
 local OPTIONS = {
     { key = "autoDeepScan", label = "Deep scan automatically when the Auction House opens (every 15 min at most)" },
     { key = "rescanWhileOpen", label = "Deep scan again every 15 min while the Auction House stays open" },
@@ -281,7 +284,7 @@ function FM.RegisterSettingsPanel()
     for index, option in ipairs(OPTIONS) do
         local checkbox = CreateFrame("CheckButton", "ForeverMarketOption" .. index, panel, "UICheckButtonTemplate")
         checkbox:SetSize(26, 26)
-        checkbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -64 - (index - 1) * 30)
+        checkbox:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -64 - (index - 1) * CHECK_PITCH)
         checkbox.Text:SetFontObject("GameFontHighlight")
         checkbox.Text:SetText(option.label)
         checkbox.settingKey = option.key
@@ -301,7 +304,7 @@ function FM.RegisterSettingsPanel()
         checkboxes[#checkboxes + 1] = checkbox
     end
 
-    local y = -64 - #OPTIONS * 30 - 6
+    local y = -64 - #OPTIONS * CHECK_PITCH - 6
     -- a label at y and its input after it (suffix: the text after the input); the next row 34 lower
     local function InputRow(text, Make, settingKey, suffix)
         local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
