@@ -1637,10 +1637,13 @@ Picks skip).
   `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
   with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
   reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
-  true while the item is paused, 1.39, FRV-101, optional; `picks[pickKey] = { n, at }` = the picks of the market
+  true while the item is paused, 1.39, FRV-101, optional; `picks[id] = { n, at, char, pick }` = the picks of the market
   table the item is sniped for (1.45, FRV-143, optional): `n` units still to buy for it as of `tracedGot` (the item's
   `got` then; what was bought since comes off the picks in proportion; 0 = all it may bought, its plan still asks),
-  `at` the time of its plan (`FM.trade.pickAt`); `tracedMax` the most the item's picks may still buy together as of
+  `at` the time of its plan (`FM.trade.pickAt`), `char` the character that sent it and `pick` its item key (1.46,
+  FRV-169: `id` = the pick's key .. "@" .. the character, `FM.PlayerName()`; an entry saved by 1.45 is
+  `picks[pickKey] = { n, at }`, the pick's key as its id without `char` and `pick`, and is read as before: it gets
+  its `char` when a plan or a click of a character changes it, its id stays; no conversion); `tracedMax` the most the item's picks may still buy together as of
   `tracedGot` (what they were sent with less what was bought for them); `traceId` which trace a purchase was counted
   in (a failed one goes back to that trace only); a
   `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
