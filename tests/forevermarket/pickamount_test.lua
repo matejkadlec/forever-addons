@@ -30,6 +30,8 @@
 --     what was bought for it since the plan), so a pick lowered under what was bought needs nothing more; a craft's
 --     number counts from its plan also when an automatic plan had carried the pick; a material the plan never read is
 --     read as of the plan (your units now less what was bought of it since) and the read is kept for later edits
+--   * review round 5: a flip counts what was bought of its item since its plan the same way (every pick has its plan's
+--     time), so a flip lowered under what was bought has nothing left to buy either
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")
@@ -577,4 +579,24 @@ H.test("amount: a material the plan never read is read as of the plan, and that 
     out.pickOwned["900"] = nil
     state.bags, state.bought = 6, 4
     H.eq(FM.RemakePick(out, ctx, second.key, 5).purchases[1].ah, 3, "6 in your bags, 4 of them bought since: 2 were yours, 3 to buy")
+end)
+
+-- Review round 5 of pull request 69
+H.test("amount: a flip lowered under what was already bought of it has nothing left to buy", function()
+    local FM, env = Setup({ ["105"] = 27 })
+    local flip = { key = "105", sell = 9999, usual = 10000, top = 6000, units = 5, support = 55, wall = 10000, qty = 60, sold12 = 10 }
+    local out = { flips = { flip } }
+    local ctx = Plan(FM, env, out, { ["105"] = { ladder = { { 4000, 2 }, { 6000, 3 }, { 10000, 55 } }, qty = 60, own = 0 } })
+    local plan = out.picks[1]
+    H.same({ plan.amount, plan.planAt }, { 5, env.clock }, "the plan: buy 5, counted from the plan's time")
+    FM.trade = out
+    local bought = 0
+    FM.BoughtSince = function(key, since) return (key == "105" and since <= env.clock) and bought or 0 end
+    H.eq(FM.PickBuysLeft(plan)[1].ah, 5, "nothing bought: 5 to buy")
+    bought = 3
+    H.eq(FM.PickBuysLeft(plan)[1].ah, 2, "3 bought: 2 left")
+    local pick = FM.RemakePick(out, ctx, "105", 2)
+    H.same({ pick.amount, pick.planAt }, { 2, plan.planAt }, "lowered to 2, still counted from the plan's time")
+    H.same({ FM.PickBuysLeft(pick)[1].key, FM.PickBuysLeft(pick)[1].ah }, { "105", 0 },
+        "2 needed, 3 bought: nothing left, and the item stays in the list for the sniper's trace")
 end)

@@ -2131,8 +2131,11 @@ local function Evaluate(c)
         pick, reason = EvaluateCraft(c)
     end
     if not pick then return pick, reason end
-    -- what the buy step's purchases are, for FM.PickBuyStep (review round 1)
-    if pick.buyStep and pick.trial then pick.purchases = Purchases(pick.trial) end
+    -- what the pick buys, for FM.PickBuyStep (review round 1) and FM.PickBuysLeft; a flip's own units too (FRV-154,
+    -- review round 5: what was bought of a flip's item since its plan comes off it as off a craft's materials)
+    if pick.trial and (pick.buyStep or pick.kind == "flip") then pick.purchases = Purchases(pick.trial) end
+    -- every pick has its plan's time (a craft's is set by Track): its purchases count from there
+    pick.planAt = pick.planAt or P.now
     -- the Amount column (FRV-154): what a craft makes ("make N") and what a vendor resell or a flip buys, both yours to
     -- set (amountEdit; FM.RemakePick makes the pick again for your number); a Stock pick's units are what you hold; a
     -- recipe to learn or to level for has none. amountStep: the step a note on a short amount goes behind
@@ -2853,7 +2856,8 @@ function FM.RemakePick(out, ctx, key, amount)
 end
 
 -- A pick's AH purchases with what is still to buy of each: its plan's units less what was bought for it since the plan
--- (BoughtFor, as FM.PickBuyStep counts it). The sniper follows a pick made again with these (review round 4: a pick
+-- (BoughtFor, as FM.PickBuyStep counts it; a flip's own units the same way). An item bought in full stays in the list
+-- with 0: the pick still lists it, which FM.SnipeFollowPlan tells from an item it no longer buys. The sniper follows a pick made again with these (review round 4: a pick
 -- made again is planned as of the plan, so its own units no longer shrink by what was bought; given those, the sniper
 -- went on buying for a pick lowered under what it had)
 function FM.PickBuysLeft(pick)
