@@ -54,6 +54,8 @@ local function Load(opts)
         local items = {
             [8385] = { class = 9, subClass = 1, name = "Pattern: Turtle Scale Gloves", vendors = { 7852, 7854 } },
             [8389] = { class = 9, subClass = 1, name = "Pattern: Wolfshead Helm", vendors = { 7852, 7854 } },
+            -- the same pattern under an ID of another game version (QuestieDB has both)
+            [217271] = { class = 9, subClass = 1, name = "Pattern: Turtle Scale Gloves", vendors = { 7852, 7854 } },
             [9999] = { class = 4, subClass = 1, name = "Some Gloves" },
         }
         local npcs = {
@@ -61,7 +63,7 @@ local function Load(opts)
             [7854] = { name = "Jangdor Swiftstrider", friendlyToFaction = "H", spawns = { [357] = { { 74.43, 42.91 } } } },
         }
         local function Entity(rows)
-            return setmetatable({ GetAllIds = function() return { 8385, 8389, 9999 } end }, { __index = function(_, field)
+            return setmetatable({ GetAllIds = function() return { 8385, 8389, 9999, 217271 } end }, { __index = function(_, field)
                 return function(id) return rows[id] and rows[id][field] end
             end })
         end
@@ -171,4 +173,18 @@ H.test("vendor recipes: once you learned it, the pattern's tooltip says so and n
     H.eq(Craft(Sources(FM, env), "8187") ~= nil, true, "before: a recipe to learn")
     tooltips[8385] = known
     H.eq(Craft(FM.BuildSources(), "8187"), nil, "after: the live tooltip says Already known, the kept lines do not count")
+end)
+
+-- Review round 2 of pull request 80: "Already known" on any of the recipe's pattern items counts, not only on the one
+-- whose lines were read
+H.test("vendor recipes: learned from one pattern item, another item of the same recipe does not bring it back", function()
+    local known = {}
+    for i, text in ipairs(GLOVES_LINES) do known[i] = text end
+    known[#known + 1] = "Already known"
+    -- 8385 says Already known; 217271 (another game version's item, teaching another spell) does not
+    local FM, env = Load({ qdb = true, tooltips = { [8385] = known, [217271] = GLOVES_LINES } })
+    H.eq(Craft(Sources(FM, env), "8187"), nil, "no recipe from 217271's lines")
+    -- neither says it: the recipe to learn, built from the first item with lines
+    FM, env = Load({ qdb = true, tooltips = { [217271] = GLOVES_LINES } })
+    H.eq(Craft(Sources(FM, env), "8187") ~= nil, true, "built from 217271 when 8385 has no lines")
 end)

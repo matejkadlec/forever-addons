@@ -757,9 +757,7 @@ function FM.BuildSources()
                 for _, route in ipairs(list) do
                     if not extra[recipeName] and route.kind == "vendor" and route.prof == prof.name and route.lines then
                         index = index or NameIndex(charRecipes)
-                        local r = PatternRecipe(route.lines, index)
-                        -- learned since the vendor's lines were saved: none to learn
-                        if r and not KnownNow(route.pattern) then extra[recipeName] = r end
+                        extra[recipeName] = PatternRecipe(route.lines, index)
                     end
                 end
             end
@@ -770,14 +768,25 @@ function FM.BuildSources()
                     local lines = not extra[recipeName] and TooltipLines(id)
                     if lines then
                         index = index or NameIndex(charRecipes)
-                        local r = PatternRecipe(lines, index)
-                        -- the kept lines may be from before you learned it: the tooltip now says
-                        if r and not KnownNow(id) then extra[recipeName] = r end
+                        extra[recipeName] = PatternRecipe(lines, index)
                     end
                 end
             end
         end
-        for recipeName, r in pairs(extra) do Consider(prof, data, recipeName, r) end
+        for recipeName, r in pairs(extra) do
+            -- learned since its lines were read: the live tooltip of any of its pattern items says so, the one a vendor
+            -- you opened sells and every one QuestieDB names (review rounds 1 and 2 of PR 80: an item of another game
+            -- version can teach another spell, its tooltip then never says it)
+            local known = false
+            for _, route in ipairs(routes[recipeName] or {}) do
+                if route.pattern and KnownNow(route.pattern) then known = true end
+            end
+            local e = sold[prof.name] and sold[prof.name][recipeName]
+            for _, id in ipairs(not known and e and e.ids or {}) do
+                if KnownNow(id) then known = true end
+            end
+            if not known then Consider(prof, data, recipeName, r) end
+        end
     end
     -- a product you can already make (or learn now) needs no recipe for later
     local later = {}
