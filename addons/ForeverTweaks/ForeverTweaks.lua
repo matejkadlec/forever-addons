@@ -18,7 +18,6 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         FTW.InitializeSavedData()
         FTW.RegisterSlashCommands()
         FTW.RegisterSettingsPanel()
-        FTW.Print(string.format("%s v%s loaded", FTW.ADDON_FULL_NAME, FTW.GetVersion()))
     elseif event == "PLAYER_ENTERING_WORLD" then
         -- Blizzard frames (minimap, chat, map pins) exist now, apply everything
         FTW.ApplyAll()

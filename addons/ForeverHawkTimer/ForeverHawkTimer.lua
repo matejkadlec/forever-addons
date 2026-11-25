@@ -768,7 +768,6 @@ FHT:SetScript("OnEvent", function(self, event, ...)
             Deactivate()
             return
         end
-        print(FormatMessage(ADDON_PREFIX, string_format("%s v%s loaded", ADDON_FULL_NAME, GetVersion())))
         RefreshActivation()
         return
     end
