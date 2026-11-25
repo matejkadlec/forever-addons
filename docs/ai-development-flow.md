@@ -25,13 +25,14 @@ They are entry points into this document, not a second source of truth: every ru
 - Project `FRV` on `envelopment.atlassian.net`; statuses To Do -> In Progress -> In Review -> Done ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)). There are no other statuses: do not look for or create any
 - The tools attach a few minutes after a session starts: wait and retry each minute, as that section says
 - Move a ticket by the transition whose target is the wanted status, and read the returned status: it must be the target
+- Priority: the Jira field Priority (Highest, High, Medium, Low, Lowest) is set on every ticket. It comes first in the order of the To Do candidates, the board order only within one priority (_Intake and batch selection_, step 3)
 - Labels ([AGENTS.md, Issue Tracking](../AGENTS.md#issue-tracking-jira)): the AddOn's label (the table in [AGENTS.md, AddOn Labels](../AGENTS.md#addon-labels), `tooling` for the repository itself, `all-addons` for every first-party AddOn at once), `fable-5.2` (only that model may do it), `in-game-qa` (its pull request waits for the maintainer's test), `decision` (waits for his decision)
 
 ### Status model
 
 | Status | Means | Who moves it there |
 | --- | --- | --- |
-| To Do | Not started. The board's order is the priority | The maintainer, `flow2` |
+| To Do | Not started. Taken by Priority first, then by the board order within one priority | The maintainer, `flow2` |
 | In Progress | Claimed: a session is working on it on a branch | The claim |
 | In Review | Its pull request is open: under independent review, or (label `in-game-qa`) waiting for the maintainer's test | Publication |
 | Done | Its pull request is merged (an analysis without file changes: its result is recorded) | `finalize-pr`, after the merge |
@@ -52,9 +53,10 @@ A ticket is **in flight** while it is In Progress or In Review. It belongs to th
   - **Type:** Task for a change or an analysis (analyses start with `Analysis:`), Bug only for confirmed broken behavior, Epic only when the maintainer asks, Subtask for a part of a ticket
   - **Title:** sentence case, the AddOn or area first where it helps (`Item tooltip and table: ...`)
   - **Labels:** the AddOn's label; `fable-5.2` when he says so; `decision` for his decision
+  - **Priority:** the one the maintainer names. When he names none, his order "a fix of broken behavior >>> a change of how it works >>> a change of the look" decides: High for a fix of broken behavior, Medium for a change of how something works, Low for a change of the look only. This holds for every new ticket: `flow2`, follow-ups, the tickets an analysis proposes
   - **Description:** English Markdown: a bug has `## Problem`, `## Reproduction`, `## Proposed fix`, `## Acceptance criteria`; any other ticket `## Scope` (or `## Context` and `## Task`), `## Acceptance criteria`
   - **Dependencies:** every "after FRV-n" is also a `Blocks` link
-- New tickets go to To Do; where they sit on the board is the maintainer's planning
+- New tickets go to To Do; where they sit on the board (the order within one priority) is the maintainer's planning
 - **Follow-ups:** work worth doing that a pull request leaves undone (a valid review finding that is out of its scope included) becomes an FRV ticket, linked to the ticket it came from; never a GitHub issue or a TODO in the code. A wrong or dropped finding needs only its recorded reason. When Jira cannot be reached even after waiting, the follow-up goes into the response under "Follow-ups not ticketed"
 
 ### Tickets waiting on the maintainer
@@ -63,7 +65,7 @@ Agents never implement a ticket that cannot be started or finished without somet
 
 ### Dependencies
 
-A ticket depends on another when a `Blocks` link or its description says so. A dependency is met when its ticket is Done. For each unmet one: waiting on the maintainer -> the ticket is deferred; in flight elsewhere -> deferred (or, when necessary and safe, built on that branch, see [AGENTS.md](../AGENTS.md#pull-requests-and-code-review)); still in To Do -> pulled into the batch and implemented first.
+A ticket depends on another when a `Blocks` link or its description says so. A dependency is met when its ticket is Done. For each unmet one: waiting on the maintainer -> the ticket is deferred; in flight elsewhere -> deferred (or, when necessary and safe, built on that branch, see [AGENTS.md](../AGENTS.md#pull-requests-and-code-review)); still in To Do -> pulled into the batch and implemented first. A ticket that blocks a higher one is taken with the priority of the ticket it blocks (pulled in, or done first), so a Low blocker does not hold a Highest ticket back.
 
 ---
 
@@ -96,12 +98,12 @@ A batch has one kind: the strictest of its tickets. Prefer not to mix a gated ti
 
 1. **Reconcile first:** a ticket in In Review whose pull request is already merged goes to Done (with a `🤖 Claude QA` line naming the merge commit) and loses the label `in-game-qa`. One that cannot be matched to a pull request is left alone and named in the response
 2. **Look at what is in flight:** tickets In Progress and In Review, open pull requests, `git branch -a`, `git worktree list`. Their AddOns and files are taken. A ticket In Progress with no branch or open pull request behind it (a session that ended after its claim) is not taken over: name it in the batch announcement for the maintainer
-3. **Read the candidates** in To Do in board order (`project = FRV AND status = "To Do" ORDER BY Rank ASC`), with comments
+3. **Read the candidates** in To Do by Priority first (Highest, High, Medium, Low, Lowest), then in board order within one priority (`project = FRV AND status = "To Do" ORDER BY priority DESC, Rank ASC`), with comments. Ticket keys given with the shortcut (`flow1 local FRV-172`) are the batch: the keys decide, not this order; steps 1, 2, 4 and 5 still apply to them
 4. **Set aside** Epics (never claimed: their child tickets are the work; an Epic goes to Done when the maintainer closes it), tickets waiting on the maintainer, tickets with an unmet dependency that cannot be pulled in, `fable-5.2` tickets when this session runs another model, and tickets the run location cannot do
 5. **One AddOn, one open piece of work:** the game holds one copy of each AddOn, and a sync from another branch would replace what the maintainer is testing. A ticket for an AddOn that has an open pull request is deferred, or built on that pull request's branch when the maintainer asked for it or the work belongs together ([AGENTS.md](../AGENTS.md#pull-requests-and-code-review))
 6. **Select one coherent batch** from the top of what is left: work that one session can implement and verify precisely and one reviewer can read
    - Group by AddOn, then by QA kind. Rough scale, not a limit: one larger ticket, or up to five small ones for the same AddOn, or a handful of documentation and tooling tickets
-   - Priority is the board order; skipping a ticket needs one of the reasons above
+   - The order is that of step 3: Priority, then the board order. A ticket of lower priority joins the batch only where these rules already allow (the same AddOn, a dependency that is pulled in); skipping a ticket needs one of the reasons above
    - A ticket too big for one pull request is split into Subtasks or part Tasks first, each with its own acceptance criteria
    - An `Analysis:` ticket is delivered as its result: a comment on the ticket (or a document in `docs/` through a pull request when the finding is durable) plus a follow-up ticket for each change it proposes. An analysis that changes no file needs no branch and no pull request: after the claim and the result comment it goes straight to Done
 7. **Announce** the batch: the tickets, the QA kind, the run location, what was set aside and why
