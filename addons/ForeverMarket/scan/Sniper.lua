@@ -1649,7 +1649,7 @@ local function OnBlocked(forbidden, blockedAddon, functionName)
         buy.reserved = nil
         FM.GetSettings().snipeConfirmClick = true
         -- the settings panel's option shows it, and switches it off again (FRV-45)
-        FM.Print("The game wants a click to confirm purchases: the next wheel step confirms. Options -> AddOns -> Market:",
+        FM.Print("The game wants a click to confirm purchases: the next wheel step confirms. Options -> AddOns -> Marketplace:",
             "Sniper: confirm every purchase with a second wheel step")
         EnterClick(buy)
         return

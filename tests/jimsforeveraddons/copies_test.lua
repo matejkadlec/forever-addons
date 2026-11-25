@@ -2,11 +2,11 @@ local H = require("harness")
 
 -- The shared file JimsForeverAddOns.lua (FRV-120, FRV-180): every first-party AddOn carries an identical copy as
 -- the first file of its .toc, lists JimsForeverAddOnsDB in its ## SavedVariables and prints no "loaded" line of
--- its own (the shared file prints the one [JFA] line). ForeverMarket and ForeverCampFeatures get the file with
--- their tickets; until then they are the only AddOns without it.
+-- its own (the shared file prints the one [JFA] line). ForeverCampFeatures gets the file with its ticket; until then
+-- it is the only AddOn without it.
 
 local FILE = "JimsForeverAddOns.lua"
-local PENDING = { ForeverMarket = "FRV-176", ForeverCampFeatures = "FRV-177" }
+local PENDING = { ForeverCampFeatures = "FRV-177" }
 
 local function Read(path)
     local handle = io.open(path, "rb")

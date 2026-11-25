@@ -1,5 +1,5 @@
 <Bindings>
-	<!-- Options -> Keybindings -> Jim's Forever AddOns; the market table gets the key U once, the sniper window Z (ForeverMarket.lua) -->
+	<!-- Options -> Keybindings -> Jim's Forever AddOns; the marketplace gets the key U once, the sniper window Y while Y is free (ForeverMarket.lua) -->
 	<Binding name="FOREVERMARKET_TABLE" category="Jim's Forever AddOns">
 		ForeverMarket_ToggleTable();
 	</Binding>

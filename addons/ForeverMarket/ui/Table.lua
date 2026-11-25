@@ -910,6 +910,12 @@ end
 
 local SRC_LABEL = { vendor = "vendor", ah = "AH", last = "last seen" }
 
+-- A material priced at its reference (FRV-196): " (8h average of the cheapest; now 78c)", else ""
+function FM.RefNote(m)
+    if not (m and m.now and m.refHours) then return "" end
+    return string_format(" (%dh average of the cheapest; now %s%s)", math.ceil(m.refHours - 0.01), Money(m.now), GREY)
+end
+
 local function SellText(row)
     if not row.sell then return RED .. "no price yet|r" .. GREY .. " (nobody lists it)|r" end
     if row.sellSrc == "own" then return Money(row.sell) .. GREY .. "  only yours are listed|r" end
@@ -1030,6 +1036,7 @@ local function CraftTooltip(row, past)
     for _, m in ipairs(row.parts or {}) do
         local note = SRC_LABEL[m.src] or m.src
         if m.src == "ah" and m.approx then note = note .. " *" end
+        note = note .. FM.RefNote(m)
         if m.src == "craft" then
             -- why it is crafted (FRV-69): how much dearer buying is, or too few on the AH for the batch
             local why = m.buy and (m.buy.short and "too few on the AH" or FM.BuyPremiumText(m.unit, m.buy.unit))
@@ -1045,7 +1052,7 @@ local function CraftTooltip(row, past)
         if m.src == "ah" and m.short then Note("    too few listed for a batch", RED) end
         if m.src == "craft" then
             for _, sub in ipairs(m.parts or {}) do
-                Item("        ", sub.key, sub.n, Money(sub.unit), SRC_LABEL[sub.src] or sub.src)
+                Item("        ", sub.key, sub.n, Money(sub.unit), (SRC_LABEL[sub.src] or sub.src) .. FM.RefNote(sub))
             end
         end
     end
@@ -1578,7 +1585,7 @@ local function ShowRowMenu(button, row)
         local ignored = FM.IsExcluded(key)
         root:CreateButton(ignored and "Stop ignoring this item" or "Ignore this item", function()
             FM.SetExcluded(key, not ignored)
-            FM.Print(ignored and (Name(key) .. " is back in the market table.")
+            FM.Print(ignored and (Name(key) .. " is back in the marketplace.")
                 or (Name(key) .. " ignored: hidden from the other tabs and the picks. The Ignored tab lists it."))
             FM.PlanPicks() -- picks plan the gold again without it
             FM.RefreshTable()
@@ -2615,7 +2622,7 @@ local function CreateTable()
     tinsert(UISpecialFrames, FRAME_NAME)
 
     local title = Text(f, "GameFontNormal", "TOP", 0, -6)
-    title:SetText("|cFFFF8000Forever|r Market")
+    title:SetText("|cFFFF8000Forever|r Marketplace")
     if type(f.TitleText) == "table" and f.TitleText.SetText then f.TitleText:SetText("") end
     local version = Text(f, "GameFontDisableSmall", "TOPLEFT", 12, -9)
     version:SetText("v" .. FM.GetVersion())
@@ -3162,7 +3169,7 @@ function FM.OpenTable(tab)
     if not frame then
         local ok, err = pcall(CreateTable)
         if not ok then
-            FM.PrintError("Market table could not be created: " .. tostring(err))
+            FM.PrintError("Failed to create the marketplace window: " .. tostring(err))
             return
         end
     end

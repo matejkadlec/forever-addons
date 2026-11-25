@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Market
+-- Settings panel: Esc -> Options -> AddOns -> Jim's Forever AddOns -> Marketplace
 -- Shares the "Jim's Forever AddOns" parent category with the other Forever AddOns.
 
 local CreateFrame = CreateFrame
@@ -12,8 +12,8 @@ local ipairs = ipairs
 
 local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
 local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
-local CHILD_CATEGORY_NAME = "Market"
-local CHILD_DESCRIPTION = "Auction House logger, market table and sniper"
+local CHILD_CATEGORY_NAME = "Marketplace"
+local CHILD_DESCRIPTION = "Auction House logger, marketplace and sniper"
 
 local panel
 local checkboxes = {}
@@ -86,10 +86,10 @@ local OPTIONS = {
     { key = "feedAuctionator", label = "Keep Auctionator's prices fed from our data (no Auctionator full scan needed)" },
     { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
-    { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" },
+    { key = "tableNoOutliers", label = "Marketplace: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" },
     -- FRV-155, FRV-186: on = the tooltips of the table's inputs, dropdowns and checkboxes only while Shift is held (rows,
     -- headers, tabs and buttons show theirs on hover either way); off = all of them on plain hover, as until 1.46
-    { key = "tableShiftTips", label = "Market table: tooltips of inputs, dropdowns and checkboxes only while Shift is held" },
+    { key = "tableShiftTips", label = "Marketplace: tooltips of inputs, dropdowns and checkboxes only while Shift is held" },
     -- Picks (FRV-95): the budget row's % up to 999 and any amount set by hand, the plan sized as if you had that gold;
     -- off, the % stays 1 to 90 and an amount over 90% of your gold is capped there
     { key = "tablePicksOverGold", label = "Allow picks budget over current gold (% up to 999, any amount set)", replan = true },
@@ -110,6 +110,8 @@ local INPUT_TIPS = {
     tableCircPct = "The most of an item's C/24h one pick may add to the AH, your listings on all characters included. Whole numbers 1 to 100 (default 25).",
     -- Picks: a commodity without sales of yours plans a first batch of at most this share of its C/24h (FRV-71)
     tableFirstPct = "A commodity you have no sales of plans a first batch of at most this share of its C/24h. Whole numbers 1 to 10 (default 2).",
+    -- Craft materials: one bought on the AH costs at least its average cheapest price of these hours (FRV-196)
+    tableMatRefHours = "A material bought on the AH costs at least the average of its cheapest price over these hours of scans and feed snapshots, each counted for the time until the next one, so the cheap listings of one scan no longer make a craft look good: they are often bought within minutes. A price that rose counts at what the AH asks now. With fewer than 3 prices in that time it looks further back, up to 24 hours; still fewer: the latest scan alone. Craft, Learn, Picks and the item tooltips follow it; Picks' buy steps still name what the AH asks now, and the sniper keeps its prices. 0: the latest scan alone. Whole numbers 0 to 24 (default 8).",
     -- Craft materials: buying a material you can craft saves its crafting time, so it may cost a little more (FRV-69)
     tableTimePct = "A material you can craft yourself is bought instead when buying it costs at most this many percent more than crafting it, per second of crafting one unit that buying saves (its cast time plus 0.5 s between crafts): at 2, a 3 s craft allows 6%. Craft, Picks and the item tooltips follow it. 0: always the cheaper route. A material whose cast time is not known yet (its recipe not read in the profession window) takes the cheaper route. Whole numbers 0 to 20 (default 2).",
 }
@@ -276,11 +278,11 @@ function FM.RegisterSettingsPanel()
 
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -16)
-    title:SetText("|cFFFF8000Forever|r Market")
+    title:SetText("|cFFFF8000Forever|r Marketplace |cFF0070DD[Core]|r")
 
     local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -40)
-    subtitle:SetText("Logs the Auction House over time to price, plan and snipe. Market table: " .. FM.SLASH_COMMAND .. ", commands: " .. FM.SLASH_COMMAND .. " help")
+    subtitle:SetText("Logs the Auction House over time to price, plan and snipe. Marketplace: " .. FM.SLASH_COMMAND .. ", commands: " .. FM.SLASH_COMMAND .. " help")
 
     for index, option in ipairs(OPTIONS) do
         local checkbox = CreateFrame("CheckButton", "ForeverMarketOption" .. index, panel, "UICheckButtonTemplate")
@@ -306,19 +308,21 @@ function FM.RegisterSettingsPanel()
     end
 
     local y = -64 - #OPTIONS * CHECK_PITCH - 6
-    -- a label at y and its input after it (suffix: the text after the input); the next row 34 lower
+    -- a label at y and its input after it (suffix: the text after the input); the next row 32 lower (34 until 1.49: with
+    -- the seventh row, FRV-196, the buttons under them ran past the settings canvas, about 601 px tall)
     local function InputRow(text, Make, settingKey, suffix)
         local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
         label:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, y - 6)
         label:SetText(text)
         Make(label, text .. (suffix and (" [N]" .. suffix) or ""), settingKey, suffix)
-        y = y - 34
+        y = y - 32
     end
     InputRow("Craft, Vendor and Flip tabs: minimum profit per item", MoneyInput, "tableMinProfit")
     InputRow("Picks: share of an item's C/24h one pick may plan", PercentInput, "tableCircPct")
     InputRow("Picks: first batch of a commodity without your sales, share of C/24h", PercentInput, "tableFirstPct")
     InputRow("Buy a craftable material when it costs at most", PercentInput, "tableTimePct",
         "% more per second of crafting it saves")
+    InputRow("Material prices: average cheapest price of the last", PercentInput, "tableMatRefHours", " hours")
     -- the Picks row's pairs with both boxes checked (FRV-126)
     InputRow("% + manual invest logic", LogicDropdown, "tableInvestLogic")
     InputRow("% + manual profit logic", LogicDropdown, "tableProfitLogic")
@@ -327,7 +331,7 @@ function FM.RegisterSettingsPanel()
     local tableButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     tableButton:SetSize(180, 24)
     tableButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, y)
-    tableButton:SetText("Open market table")
+    tableButton:SetText("Open marketplace")
     tableButton:SetScript("OnClick", function() FM.OpenTable() end)
 
     local snipeButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")

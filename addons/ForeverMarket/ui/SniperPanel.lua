@@ -1,6 +1,6 @@
 local _, FM = ...
 
--- The snipe window (/fm snipe, the key Z, "FM: snipe" at the AH). Sniping itself lives in scan/Sniper.lua and runs
+-- The snipe window (/fm snipe, the key Y, "FM: snipe" at the AH). Sniping itself lives in scan/Sniper.lua and runs
 -- while this window is open at the Auction House. One frame (FRV-39), top to bottom:
 --   banner    what sniping does now, colored by its state (FRV-40): an offer to buy large and green with a pulse,
 --             buying blue, paused orange, stopped red (with "Try again" when sniping stopped itself), a purchase
@@ -119,7 +119,7 @@ local HELP = {
     "Scroll the mouse wheel anywhere to buy the newest offer at or under your price, or click Buy in its row.",
     "Never pays more than your price, the offers you saw or the budget.",
     "Only stackable items; your own auctions are never bought.",
-    "Market table: Shift+click a row, or Snipe in its right-click menu.",
+    "Marketplace: Shift+click a row, or Snipe in its right-click menu.",
 }
 
 local frame
@@ -531,7 +531,7 @@ end
 
 local function ShowHelp(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine("|cFFFF8000Forever|r Market Sniper")
+    GameTooltip:AddLine("|cFFFF8000Forever|r Marketplace Sniper")
     for i, line in ipairs(HELP) do
         GameTooltip:AddLine(i .. ". " .. line, 1, 1, 1, true)
     end
@@ -1186,7 +1186,7 @@ local function CreateList(f)
 
     f.empty = Text(f, "GameFontDisable", "CENTER", 0, 0, box, "CENTER")
     f.empty:SetWidth(LIST_W - 40)
-    f.empty:SetText("No items yet. Add one above, or Shift-click a row of the market table at the AH.")
+    f.empty:SetText("No items yet. Add one above, or Shift-click a row of the marketplace at the AH.")
 end
 
 -- The budget at the bottom (FRV-94): "Automatically refresh budget", the budget row, "Set budget manually"
@@ -1324,7 +1324,7 @@ local function CreateWindow()
     tinsert(UISpecialFrames, FRAME_NAME)
 
     local title = Text(f, "GameFontNormal", "TOP", 0, -6)
-    title:SetText("|cFFFF8000Forever|r Market Sniper")
+    title:SetText("|cFFFF8000Forever|r Marketplace Sniper")
     if type(f.TitleText) == "table" and f.TitleText.SetText then f.TitleText:SetText("") end
 
     -- the ? shows the help
