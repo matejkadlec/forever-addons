@@ -358,6 +358,16 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-48, not yet verified i
 - One SavedVariables name in several AddOns (FRV-120's `JimsForeverAddOnsDB`; the usual client behavior, not yet verified in game): each AddOn that lists it keeps its own copy in its own file; the client runs an AddOn's file when it loads that AddOn, just before its `ADDON_LOADED`, so the global holds that AddOn's copy at that moment and the last AddOn loaded wins, and at logout the global as it is then is written into every one of those files. The shared file therefore picks the copy with the newest `updated` stamp at each carrier's `ADDON_LOADED` and sets the global back to it
 - SavedVariables files are named after the AddOn folder (`WTF/Account/<account>/SavedVariables/<AddOnName>.lua`, seen on the maintainer's client), so a renamed AddOn starts with a new file and the old one stays unused; the variable name inside must match the `## SavedVariables:` name too
 
+## Keyboard and mouse state
+
+Verified against wow-ui-source `forever` (1.60.1) for FRV-155, not yet verified in game. ForeverMarket 1.47 shows the market table's tooltips only while Shift is held (`ui/Filters.lua`).
+
+- `MODIFIER_STATE_CHANGED(key, down)` (`KeyBindingsDocumentation.lua`, a synchronous event, no secret flag): `key` is a string such as `LSHIFT`, `RSHIFT`, `LCTRL`, `LALT`, `down` a number (1 pressed, 0 released)
+- `IsShiftKeyDown()`, `IsControlKeyDown()`, `IsAltKeyDown()` and `IsModifierKeyDown()` are documented in `InputDocumentation.lua`
+- `GetMouseFoci()` (`InputDocumentation.lua`) returns a table of the regions under the mouse; `GetMouseFocus()` (the older single-frame form) is not in `Blizzard_APIDocumentationGenerated/` and is called only in a WoWLabs file (`Blizzard_ActionBar/WoWLabs/ActionButtonOverrides.lua`), which Camelot does not load: treat it as gone and use `GetMouseFoci()`. ForeverMarket does not need either: its tooltip helper remembers the element from its own `OnEnter` / `OnLeave` and checks `IsVisible()` and `IsMouseOver()` when Shift changes
+- `GetCurrentKeyBoardFocus()` is not in `Blizzard_APIDocumentationGenerated/`, but Blizzard's Lua calls it (`Blizzard_Game/Mainline/EventImplementation.lua`), so it exists: the frame with the keyboard focus, or nil. It can be a frame an AddOn may not touch: check `IsForbidden()` (`SimpleFrameScriptObjectAPIDocumentation.lua`) before calling anything else on it. On a frame that is not your own, `IsForbidden()`, `GetName()` and `GetParent()` are flagged `SecretReturnsForAspect` (ObjectSecurity, ObjectName, Hierarchy; `SimpleFrameScriptObjectAPIDocumentation.lua`, `SimpleObjectAPIDocumentation.lua`): test each result with `issecretvalue` before comparing it or using it as a table key (ForeverMarket's `TypingHere` walks the parents of the focused frame that way)
+- An `EditBox` that is a child of a `Button` takes its own mouse clicks, so the button's `OnClick` does not run for them; `EnableMouseWheel(true)` with an `OnMouseWheel` script lets the wheel over it scroll the list behind (ForeverMarket's Amount inputs in the Picks rows, FRV-154; `HighlightText`, `SetTextColor` and `SetTextInsets` are in `SimpleEditBoxAPIDocumentation.lua`)
+
 ## Misc
 
 - AddOn metadata: `C_AddOns.GetAddOnMetadata(addonName, "Version")`

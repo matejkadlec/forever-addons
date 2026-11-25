@@ -144,13 +144,13 @@ local function CreatePanel(parent, geo)
         b:SetScript("OnClick", function() SetScope(scope.id) end)
         -- the scope shown is the disabled button: its tooltip shows too
         b:SetMotionScriptsWhileDisabled(true)
-        b:SetScript("OnEnter", function(self)
+        -- a tooltip of the market table window: only while Shift is held (FRV-155, FM.TableTip in ui/Filters.lua)
+        FM.TableTip(b, function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(scope.label, 1, 1, 1)
             GameTooltip:AddLine(scope.tip, 1, 0.82, 0, true)
             GameTooltip:Show()
         end)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         p.scopes[scope.id] = b
     end
 

@@ -967,7 +967,7 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock" }
+    "pickStock", "pickEdit", "pickOwned" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
@@ -1282,3 +1282,35 @@ function FM.EnsureTrade()
 end
 
 FM.TradeBusy = function() return running end
+
+-- An amount you set in the Picks tab's Amount column (FRV-154): that pick of the plan shown is made again for it
+-- (FM.RemakePick in trade/Picks.lua, with the latest scan's prices and as of the plan's own moment: your stock as the
+-- plan read it, pickOwned), the other picks stay; amount nil puts the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
+-- picks are held), pickEdit counts its edits so a sticky tooltip of the row follows, and the items the sniper buys
+-- for this pick follow what it still has to buy (FM.PickBuysLeft) as they follow a new plan (FRV-143). Returns true
+-- and the pick, or false and why
+function FM.SetPickAmount(key, amount)
+    local trade = FM.trade
+    if running then return false, "the table is computing, try again in a moment" end
+    if not (trade and trade.picks and FM.RemakePick) then return false, "there is no plan" end
+    local r = FM.R()
+    if not (r.last and r.last.t and type(r.last.fp) == "table") then return false, "there is no scan" end
+    local pick, why
+    if amount == nil then
+        pick = FM.RestorePick(trade, key)
+        if not pick then return false, "it has the plan's number" end
+    else
+        local now = FM.Now()
+        pick, why = FM.RemakePick(trade, { view = FpView(r.last), sources = FM.sources or FM.BuildSources(), now = now,
+            nowMinutes = Minutes(now) }, key, amount)
+        if not pick then return false, why end
+    end
+    trade.pickEdit = (trade.pickEdit or 0) + 1
+    if trade.pickAt and FM.SnipeFollowPlan then
+        -- with what is still to buy for it: its units less what was bought since the plan (review round 4)
+        local ok, e = pcall(FM.SnipeFollowPlan, { { key = pick.key, buys = FM.PickBuysLeft(pick) } }, trade.pickAt, key)
+        if not ok and geterrorhandler then geterrorhandler()(e) end
+    end
+    if FM.RefreshTable then FM.RefreshTable() end
+    return true, pick
+end

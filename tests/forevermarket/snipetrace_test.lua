@@ -27,6 +27,12 @@
 --     another character is a pick of its own: its units add up, each character's plan and clicks change only its own.
 --     A trace saved before 1.46 has no character: it is followed as before and belongs to the character whose plan or
 --     click first changes it. FM.SnipeTrace names the character and says whether the pick is the logged-in one's
+--   * FRV-154: a pick whose amount you set in the table follows within the plan it was sent for (the plan's time is the
+--     same): its units become the edited pick's, capped as after a new plan; the item's other picks stay. It stays
+--     traced at 0 for an item it has nothing to buy of now, so a click of the same plan adds nothing and its number
+--     put back gives the rest back, while the item stays in the list (something was bought of it, or another pick or
+--     your own number needs it). An item nothing was bought of and nothing else needs leaves the list; its number put
+--     back does not bring it back, a click on the pick sends it again (review rounds 5 to 7)
 -- The server's answers are faked as in sniper_test.lua.
 
 local H = require("harness")
@@ -483,4 +489,105 @@ H.test("snipe trace: a trace saved without a character keeps working and becomes
     Send(FM, BELT, 4000, { { key = thick, price = 500, units = 6 } })
     H.same(State(FM, THICK), { 0, 6, 6 }, "replaced, not added")
     H.eq(Who(FM, THICK), BELT .. "=6@4000:Banker", "and it is the clicking character's")
+end)
+
+-- FRV-154: an amount set in the table is a change of the plan for that pick
+H.test("snipe trace: a pick whose amount you set follows within its plan, the other picks of the item stay (FRV-154)", function()
+    local FM, env = Load()
+    local leather = tostring(LEATHER)
+    Send(FM, BELT, 1000, { { key = leather, price = 275, units = 60 } })
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 40 } })
+    -- the same plan again changes nothing
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 10, top = 275 } } } }, 1000)
+    H.same(State(FM, LEATHER), { 0, 100, 100 }, "a follow of the same plan: nothing")
+    -- the cloak's amount was set: it buys 10 Heavy Leather now
+    env.printed = {}
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 10, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 0, 70, 70 }, "the cloak's 10 and the belt's 60")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=10@1000 " .. BELT .. "=60@1000", "only the cloak changed, the plan's time stays")
+    H.eq(Has(env.printed[1], "Heavy Leather") or Has(env.printed[1], "70 left"), true, tostring(env.printed[1]))
+    -- an amount set above what the pick was sent with never raises what the sniper buys for it
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 90, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 0, 100, 100 }, "back to the 40 it was sent with, not 90")
+    -- the same pick Shift+clicked after that: already sniped for this plan
+    env.printed = {}
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 90 } })
+    H.same(State(FM, LEATHER), { 0, 100, 100 }, "a click of the same plan adds nothing")
+end)
+
+-- Review round 4 of pull request 69: an amount lowered under what was already bought. FM.SetPickAmount gives the follow
+-- what the pick still has to buy (FM.PickBuysLeft), here none
+H.test("snipe trace: a pick lowered under what was bought for it needs nothing more (FRV-154)", function()
+    local FM, env, ah = Load()
+    local leather = tostring(LEATHER)
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 100 } })
+    Bought(FM, env, ah, LEATHER, 250, 60)
+    H.same(State(FM, LEATHER), { 60, 100, 40 }, "60 of 100 bought")
+    -- the cloak's amount is lowered: it needs 40 as of its plan, 60 are bought, 0 left to buy
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 0, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "the limit is what was bought: done, nothing more is bought")
+    H.eq(FM.SnipeItemState(leather).done, true, "the item is done")
+    -- review round 5: the pick still lists the item, so it stays traced with nothing left (as a pick that bought all)
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=0@1000", "still sniped for the cloak, 0 left")
+    -- a Shift+click on the row sends the pick's 40 as of its plan: the same plan adds nothing
+    env.printed = {}
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 40 } })
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "a click of the same plan adds nothing: not 40 more")
+    H.eq(Has(env.printed[1], "Already sniping"), true, tostring(env.printed[1]))
+    -- the plan's number put back: 100 needed, 60 bought, 40 left
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 40, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 100, 40 }, "its number put back gives the 40 back")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=40@1000", "traced with them")
+    -- review round 6: lowered to a number your own stock covers, the pick buys none of the item and no longer lists
+    -- it. It stays traced all the same: the amount can be taken back within the same plan
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "nothing to buy of it now: what was bought is the limit")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=0@1000", "still traced for the cloak, with nothing left")
+    env.printed = {}
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 70 } })
+    H.same(State(FM, LEATHER), { 60, 60, 0 }, "a click of the same plan adds nothing: not the plan's 70 again")
+    H.eq(Has(env.printed[1], "Already sniping"), true, tostring(env.printed[1]))
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 20, top = 275 } } } }, 1000, CLOAK)
+    H.same(State(FM, LEATHER), { 60, 80, 20 }, "its number put back: the 20 it still has to buy")
+    -- a new plan, not an edit, still drops a pick that no longer buys the item
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 2000)
+    H.eq(FM.SnipeTrace(leather), nil, "a new plan in which the cloak buys none of it: the pick leaves the trace")
+    -- lowered to 80 units: 20 left of the 40 it still had
+    Send(FM, BELT, 1000, { { key = tostring(THICK), price = 500, units = 100 } })
+    Bought(FM, env, ah, THICK, 450, 60)
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = tostring(THICK), ah = 20, top = 500 } } } }, 1000, BELT)
+    H.same(State(FM, THICK), { 60, 80, 20 }, "80 needed, 60 bought: 20 more")
+end)
+
+-- Review round 7 of pull request 69: the same lowering before anything was bought. An item's limit cannot be 0 (no
+-- number means no limit), so an item nothing else needs leaves the list as after a new plan, and an item out of the
+-- list is not followed: the number put back does not bring it back, a click on the pick sends it again
+H.test("snipe trace: a pick lowered to buy none of an item nothing was bought of takes it out of the list (FRV-154)", function()
+    local FM, env = Load()
+    local leather = tostring(LEATHER)
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 20 } })
+    H.same(State(FM, LEATHER), { 0, 20, 20 }, "sniped for the cloak alone, nothing bought")
+    env.printed = {}
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 1000, CLOAK)
+    H.eq(FM.IsSniped(leather), false, "nothing bought and nothing to buy: the item leaves the list")
+    H.eq(Has(env.printed[1], "no pick needs"), true, tostring(env.printed[1]))
+    -- the number put back: only the items in the list are followed, so the sniper does not take it up by itself
+    env.printed = {}
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 20, top = 275 } } } }, 1000, CLOAK)
+    H.eq(FM.IsSniped(leather), false, "its number put back does not bring the item back")
+    H.eq(env.printed[1], nil, "and no chat line says it did")
+    -- a Shift+click on the pick sends it again as a new item: its units once
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 20 } })
+    H.same(State(FM, LEATHER), { 0, 20, 20 }, "sent again with its 20")
+    H.eq(Trace(FM, LEATHER), CLOAK .. "=20@1000", "traced for the cloak again")
+    -- with another pick needing the item it stays in the list, so the lowered pick stays traced and its number put
+    -- back gives its units back
+    local thick = tostring(THICK)
+    Send(FM, BELT, 1000, { { key = thick, price = 500, units = 60 } })
+    Send(FM, CLOAK, 1000, { { key = thick, price = 500, units = 40 } })
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 1000, CLOAK)
+    H.same(State(FM, THICK), { 0, 60, 60 }, "the belt's 60 keep the item in the list")
+    H.eq(Trace(FM, THICK), CLOAK .. "=0@1000 " .. BELT .. "=60@1000", "the cloak stays traced with nothing left")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = thick, ah = 40, top = 500 } } } }, 1000, CLOAK)
+    H.same(State(FM, THICK), { 0, 100, 100 }, "its number put back: the cloak's 40 again")
 end)

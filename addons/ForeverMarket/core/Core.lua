@@ -57,6 +57,7 @@ FM.DEFAULTS = {
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
+    tableShiftTips = true, -- market table: its tooltips show only while Shift is held (FRV-155; false = on plain hover)
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
