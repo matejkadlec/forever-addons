@@ -49,12 +49,21 @@ More ways to collect mail from the default inbox (FRV-178, after the analysis FR
 
 - `ForeverEnhancedMailboxSettings` (account): `enabled`, `hint` (booleans, default true), `keepFree` (0 to 20, default 0); cleaned at load (a broken value takes its default)
 
-## Not verified in game (the in-game test of FRV-178)
+## In game
 
-- That AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate`, also in a fight (no "AddOn has been blocked" popup)
-- Which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`) and which emptied mails the server removes
-- That Blizzard's Shift+click takes the whole mail (`AutoLootMailItem`), and that the arrow covers none of the page button's "Next" text
-- What the test proves goes into [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#mail)
+The maintainer's in-game test of 1.0.1 passed on 2026-11-25 (FRV-178). What it showed is in [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#mail):
+
+- **Calls:** out of combat, AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate` (the gold arrived, the items came into the bags).
+- **Shift+click:** Blizzard's Shift+click takes the whole mail.
+- **Hint:** the line added through `hooksecurefunc("InboxFrameItem_OnEnter", ...)` shows at the end of the row's tooltip, with the key `GetModifiedClick("MAILAUTOLOOTTOGGLE")` names (Shift in his client).
+- **ForeverMarket:** after a Collect gold run, "no longer listed" on `/fm status` did not rise. That its hooks see every take comes from the code and the tests, not from the game.
+- **Layout:** the arrow covers none of the page button's "Next" text.
+
+Not seen in game yet:
+
+- Whether the takes are allowed in a fight. The test saw no "AddOn has been blocked" popup, but a call refused in combat shows none: `ADDON_ACTION_BLOCKED` only adds a chat line, and the run then stops with its "blocked" line.
+- Which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`).
+- Which emptied mails the server removes, and how many mails a list holds.
 
 ## Not in this version (FRV-179)
 
