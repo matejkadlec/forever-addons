@@ -3,7 +3,7 @@ local _, ns = ...
 local L = ns.L
 
 -- Pure queue logic without game calls (tests/forevercraftqueue/ runs it outside the client): the rows and their
--- saved form, adding and merging, moving, counts, what the bags allow, the next step of Process queue, the crafts
+-- saved form, queueing and merging, moving, counts, what the bags allow, the next step of Process queue, the crafts
 -- that leave the queue and the "done" summary. Bag counts come in as countOf(itemID), the open profession as its
 -- skill line ID.
 
@@ -120,9 +120,10 @@ function ns.CleanQueue(saved)
 end
 
 -- Queue count crafts of a recipe (info: the row's fields read from the profession window): a new row at the end, or
--- more crafts on the recipe's row, whose name, icon, profession and materials are read afresh. Returns the row, its
--- index and true when the recipe was queued already; nil when the data or the count is not valid.
-function ns.AddToQueue(queue, info, count)
+-- the recipe's row set to count (not added on top), with its name, icon, profession and materials read afresh.
+-- Returns the row, its index and the row's count before (nil for a new row); nil when the data or the count is not
+-- valid.
+function ns.QueueRecipe(queue, info, count)
     local fresh = type(info) == "table" and ns.CleanRow({
         recipeID = info.recipeID,
         name = info.name,
@@ -138,16 +139,17 @@ function ns.AddToQueue(queue, info, count)
     local index = ns.FindRow(queue, fresh.recipeID)
     if index then
         local row = queue[index]
-        row.count = math_min(ns.MAX_COUNT, row.count + fresh.count)
+        local before = row.count
+        row.count = fresh.count
         row.name, row.icon, row.skillLine, row.profession = fresh.name, fresh.icon, fresh.skillLine, fresh.profession
         -- a window that read no materials (data still loading) keeps the known ones
         if #fresh.reagents > 0 then
             row.reagents = fresh.reagents
         end
-        return row, index, true
+        return row, index, before
     end
     queue[#queue + 1] = fresh
-    return fresh, #queue, false
+    return fresh, #queue, nil
 end
 
 -- Swap a row with its neighbour (delta -1 up, 1 down); true when it moved
