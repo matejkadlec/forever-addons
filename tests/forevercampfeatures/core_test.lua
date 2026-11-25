@@ -404,3 +404,33 @@ H.test("every text the AddOn shows is in Locale.lua", function()
     end
     H.eq(table.concat(missing, ", "), "", "missing texts")
 end)
+
+H.test("the feature search finds a part of a name in any case; an empty search matches everything (FRV-158)", function()
+    local ns = Load()
+    H.eq(ns.MatchesSearch("", "Iron Oven"), true, "empty")
+    H.eq(ns.MatchesSearch("   ", "Iron Oven"), true, "only spaces")
+    H.eq(ns.MatchesSearch(nil, "Iron Oven"), true, "none")
+    H.eq(ns.MatchesSearch("oven", "Iron Oven"), true, "a part, lower case")
+    H.eq(ns.MatchesSearch("IRON OV", "Iron Oven"), true, "capitals, with the space between the words")
+    H.eq(ns.MatchesSearch(" forge ", "Master Forge"), true, "spaces around it")
+    H.eq(ns.MatchesSearch("forge", "Anvil"), false, "no part of it")
+    H.eq(ns.MatchesSearch("black", "Anvil", "Blacksmithing"), true, "its profession's name")
+    H.eq(ns.MatchesSearch("doctor's", "Plague Doctor's Laboratory"), true, "an apostrophe")
+    H.eq(ns.MatchesSearch("%a", "Iron Oven"), false, "a pattern is plain text")
+    H.eq(ns.MatchesSearch(".", "Iron Oven"), false, "a dot is a dot")
+    H.eq(ns.MatchesSearch("oven", nil, "Cooking"), false, "a name that is missing")
+end)
+
+H.test("the settings page's texts have no brackets and call the list Features (FRV-158)", function()
+    local ns = Load()
+    local checked = 0
+    for key, text in pairs(ns.L) do
+        -- PANEL_DESCRIPTION is the line on the shared overview page, written like the other AddOns' lines there
+        if (key:match("^PANEL_") or key:match("^OPTION_")) and key ~= "PANEL_DESCRIPTION" then
+            checked = checked + 1
+            H.eq(text:find("[()]"), nil, key)
+        end
+    end
+    H.eq(checked > 20, true, "the page's texts were found")
+    H.eq(ns.L.PANEL_OBJECTS, "Features", "the list's header")
+end)

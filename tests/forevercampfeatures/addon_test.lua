@@ -737,3 +737,113 @@ H.test("saved data: broken and expired entries are dropped at load, live ones ke
     H.eq(ns.IsObjectEnabled("loom"), false, "loom off")
     H.eq(ns.IsObjectEnabled("ironoven"), true, "oven on")
 end)
+
+local COOKING = { "basiccampfire", "journeymancampfire", "expertcampfire", "cookiesfeast", "ironoven" }
+
+H.test("settings: a profession's features switch together, on unless all of them are on already (FRV-158)", function()
+    local ns, env = Load()
+    H.eq(ns.ToggleProfession("COOKING"), false, "all on: the click switches them off")
+    for _, key in ipairs(COOKING) do
+        H.eq(ns.IsObjectEnabled(key), false, key .. " off")
+    end
+    H.eq(ns.IsObjectEnabled("loom"), true, "another profession's stays")
+    ns.SetObjectEnabled("ironoven", true)
+    H.eq(ns.ToggleProfession("COOKING"), true, "only one on: the click switches all on")
+    for _, key in ipairs(COOKING) do
+        H.eq(ns.IsObjectEnabled(key), true, key .. " on")
+    end
+    H.same(env.ForeverCampFeaturesSettings.objects, {}, "on is saved as no entry, like a single click")
+    H.eq(ns.ToggleProfession("JEWELCRAFTING"), nil, "a profession without features")
+end)
+
+-- Build the settings page (the tests load it without Blizzard's Settings, so it is not built) on widgets that take
+-- every call and keep their scripts, text, alpha, checked and enabled state; returns the named widgets
+local function BuildPanel(ns, env)
+    local named = {}
+    local function Widget()
+        local widget = { scripts = {}, hooks = {} }
+        function widget:SetScript(name, fn) self.scripts[name] = fn end
+        function widget:HookScript(name, fn) self.hooks[name] = fn end
+        function widget:SetText(text) self.text = text end
+        function widget:GetText() return self.text end
+        function widget:SetAlpha(alpha) self.alpha = alpha end
+        function widget:SetEnabled(on) self.enabled = on end
+        function widget:SetChecked(on) self.checked = on end
+        function widget:GetChecked() return self.checked end
+        -- anything else is another widget: a child (checkbox.Text) or, when called, a method that returns one
+        return setmetatable(widget, {
+            __index = function(self, key)
+                local child = Widget()
+                rawset(self, key, child)
+                return child
+            end,
+            __call = function() return Widget() end
+        })
+    end
+    env.CreateFrame = function(_, name)
+        local widget = Widget()
+        if name then named[name] = widget end
+        return widget
+    end
+    env.Settings = {
+        RegisterCanvasLayoutCategory = function() return {} end,
+        RegisterCanvasLayoutSubcategory = function() return {} end,
+        RegisterAddOnCategory = function() end
+    }
+    local chunk = assert(loadfile("addons/ForeverCampFeatures/SettingsPanel.lua"))
+    setfenv(chunk, env)
+    chunk("ForeverCampFeatures", ns)
+    ns.RefreshSettingsPanel()
+    return named
+end
+
+H.test("settings: the search fades the features it does not match, changes no setting and is empty again after leaving the page (FRV-158)", function()
+    local ns, env = Load()
+    local named = BuildPanel(ns, env)
+    local search = named.ForeverCampFeaturesSettingsSearch
+    local function Box(key) return named["ForeverCampFeaturesSettingsObject_" .. key] end
+    local function Profession(name) return named["ForeverCampFeaturesSettingsProfession_" .. name] end
+    local function Type(text)
+        search.text = text
+        search.hooks.OnTextChanged(search)
+    end
+    H.eq(Box("anvil").alpha, 1, "no search: every feature shows")
+    H.eq(Profession("COOKING").text, "Cooking", "the profession's name")
+    H.eq(Profession("COOKING").enabled, true, "its button works while the AddOn is enabled")
+    -- a part of a name: both forges, nothing else
+    Type("forge")
+    H.eq(Box("masterforge").alpha, 1, "Master Forge")
+    H.eq(Box("arcaneforge").alpha, 1, "Arcane Forge")
+    H.eq(Box("anvil").alpha < 1, true, "the Anvil fades")
+    H.eq(Profession("BLACKSMITHING").alpha, 1, "a profession with a match")
+    H.eq(Profession("COOKING").alpha < 1, true, "a profession without one fades")
+    -- a profession's name: its whole group
+    Type("COOK")
+    for _, key in ipairs(COOKING) do
+        H.eq(Box(key).alpha, 1, key)
+    end
+    H.eq(Box("loom").alpha < 1, true, "the Loom fades")
+    H.same(env.ForeverCampFeaturesSettings.objects, {}, "the search switched nothing")
+    -- a faded checkbox still works, and the refresh after its click keeps the search
+    Box("loom").checked = false
+    Box("loom").scripts.OnClick(Box("loom"))
+    H.eq(ns.IsObjectEnabled("loom"), false, "the Loom switched off")
+    H.eq(Box("loom").alpha < 1, true, "still faded")
+    H.eq(Box("ironoven").alpha, 1, "the oven still shows")
+    -- a click on a profession's name switches its group
+    Profession("TAILORING").scripts.OnClick(Profession("TAILORING"))
+    H.eq(ns.IsObjectEnabled("loom"), true, "Tailoring on again")
+    H.eq(Box("loom").checked, true, "its checkbox follows")
+    -- nothing matches: everything fades
+    Type("zzz")
+    H.eq(Box("ironoven").alpha < 1, true, "no match at all")
+    -- leaving the page empties the search
+    named.ForeverCampFeaturesSettingsPanel.hooks.OnHide()
+    H.eq(search.text, "", "the box is empty")
+    H.eq(Box("anvil").alpha, 1, "every feature shows again")
+    H.eq(Profession("COOKING").alpha, 1, "and every profession")
+    -- the AddOn disabled: the professions' buttons are off with the checkboxes
+    ns.SetAddonEnabled(false)
+    H.eq(Profession("COOKING").enabled, false, "greyed while the AddOn is disabled")
+    H.eq(Box("anvil").enabled, false, "like the checkboxes")
+end)

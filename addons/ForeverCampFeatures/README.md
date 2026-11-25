@@ -29,11 +29,11 @@ Placing an object does not alert you at once; finding it in range or by hovering
 
 ## Privacy
 
-With "Share the objects I place or find" on (the default), the AddOn sends a short AddOn message whenever you place a camp object or find one in range (and every 5 minutes while you stay in range of it): **which object, the map, its coordinates and when it was placed or seen**. Nothing else is in the message. Other players' AddOns see your character as the sender, as with every AddOn message.
+With "Share the camp features I place or find" on (the default), the AddOn sends a short AddOn message whenever you place a camp object or find one in range (and every 5 minutes while you stay in range of it): **which object, the map, its coordinates and when it was placed or seen**. Nothing else is in the message. Other players' AddOns see your character as the sender, as with every AddOn message.
 
-The messages go through a hidden chat channel the AddOn joins by itself (`ForeverCampFeatures`; it appears in no chat window). When the channel cannot be joined, they go to your guild and your party or raid instead. Turn sharing off in the settings to send nothing; turn "Show objects others found" off to ignore what others send.
+The messages go through a hidden chat channel the AddOn joins by itself (`ForeverCampFeatures`; it appears in no chat window). When the channel cannot be joined, they go to your guild and your party or raid instead. Turn sharing off in the settings to send nothing; turn "Show camp features others found" off to ignore what others send.
 
-Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the objects I place or find" or "Show objects others found" is on; with both off, or with `/fcf off`, it leaves the channel at once (in a fight, once the fight is over).
+Like any chat channel, `ForeverCampFeatures` has a member list: anyone who joins it (`/join ForeverCampFeatures`) can see your character there, so they can tell that you run the AddOn and are online. The AddOn stays in the channel while either "Share the camp features I place or find" or "Show camp features others found" is on; with both off, or with `/fcf off`, it leaves the channel at once (in a fight, once the fight is over).
 
 Disabling or deleting the AddOn does not leave the channel by itself: the game keeps the channels you joined and joins them again at every login. Type `/fcf off` before you disable it, or `/leave ForeverCampFeatures` once afterwards.
 
@@ -54,12 +54,14 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 `Esc -> Options -> AddOns -> Jim's Forever AddOns -> Camp Features`:
 
 - Enable the AddOn
-- Alerts: the text in the middle of the screen, the sound, the TomTom waypoint (each on by default)
+- Alerts: the text in the middle of the screen, the sound, and a TomTom waypoint instead of the coordinates in the chat (each on by default)
   - Sound: a list of every sound of the game, A-Z, that scrolls; picking one plays it, resting the mouse on one plays it after a moment, and the ▶ button next to it plays the chosen one. Default: Raid Warning. Greyed out while "Sound" is off
   - Under the text: Font (the game's fonts, plus LibSharedMedia's when another AddOn loaded it), Size (10-40, default 20), Text color, Background (color and opacity; opacity 0 shows no background; default grey at 50%). Move shows the alerts as a preview you drag anywhere; Done (or a right-click on the preview) keeps the place, Reset position puts it back a quarter of the screen above the center. Test shows a sample alert. All greyed out while the text is off
   - The page scrolls; Defaults (top right) also resets the sound, the look and the place
-- Sharing: "Share the objects I place or find" and "Show objects others found" (both on by default)
-- Objects: every camp object of every profession, each on or off (all on by default)
+- Sharing: "Share the camp features I place or find" and "Show camp features others found" (both on by default), with a note on what is sent and who can see that you run the AddOn
+- Features: every camp feature of every profession, each on or off (all on by default), one group per profession with a line between the groups
+  - All on and All off switch every feature; a click on a profession's name switches that profession's features on, or off when all of them are on
+  - Search: type a part of a name and every feature that does not match is greyed out, so the ones you look for stand out; a profession's name matches its whole group. The search only helps you find a feature: it changes no setting, and it is empty again when you leave the page
 
 ## Good to know
 
