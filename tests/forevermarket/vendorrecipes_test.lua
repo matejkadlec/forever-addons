@@ -155,3 +155,20 @@ H.test("vendor recipes: without QuestieDB nothing changes; a pattern the game do
     for _ = 1, 5 do Sources(FM, env) end
     H.eq(asked[8385], 3, "the client's tooltip of an item it does not know: three tries, then no more")
 end)
+
+-- Review round 1 of pull request 80: a recipe built from its pattern is never learned in ForeverArtisan's sense, so the
+-- pattern's own tooltip tells once you learned it ("Already known"), read live, not from the lines it was built from
+H.test("vendor recipes: once you learned it, the pattern's tooltip says so and no recipe is built (both ways)", function()
+    local known = {}
+    for i, text in ipairs(GLOVES_LINES) do known[i] = text end
+    known[#known + 1] = "Already known"
+    -- a vendor you opened before you learned it: its saved lines lack "Already known", the tooltip now has it
+    local FM, env = Load({ contacts = { Pattern() }, tooltips = { [8385] = known } })
+    H.eq(Craft(Sources(FM, env), "8187"), nil, "Contacts' lines: learned since, no recipe")
+    -- a vendor not opened: built from the tooltip before you learned it, gone once it says "Already known"
+    local tooltips = { [8385] = GLOVES_LINES }
+    FM, env = Load({ qdb = true, tooltips = tooltips })
+    H.eq(Craft(Sources(FM, env), "8187") ~= nil, true, "before: a recipe to learn")
+    tooltips[8385] = known
+    H.eq(Craft(FM.BuildSources(), "8187"), nil, "after: the live tooltip says Already known, the kept lines do not count")
+end)

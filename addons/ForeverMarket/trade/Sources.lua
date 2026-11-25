@@ -591,6 +591,24 @@ local function TooltipLines(id)
     return nil
 end
 
+-- Whether the client's tooltip of a pattern item says you know its recipe now ("Already known", the client's
+-- ITEM_SPELL_KNOWN), read live every time (review round 1 of PR 80): a recipe built from its pattern is never learned in
+-- ForeverArtisan's sense, and the lines it was built from (Contacts', or the tooltip kept by TooltipLines) may be from
+-- before you learned it, so until ForeverArtisan lists it the pattern's own tooltip tells
+local KNOWN = type(ITEM_SPELL_KNOWN) == "string" and ITEM_SPELL_KNOWN or "Already known"
+local function KnownNow(id)
+    local api = C_TooltipInfo and C_TooltipInfo.GetItemByID
+    id = tonumber(id)
+    if not (api and id) then return false end
+    local ok, data = pcall(api, id)
+    if not (ok and type(data) == "table" and type(data.lines) == "table") then return false end
+    for _, line in ipairs(data.lines) do
+        local text = type(line) == "table" and line.leftText
+        if type(text) == "string" and not FM.IsSecret(text) and string_find(text, KNOWN, 1, true) then return true end
+    end
+    return false
+end
+
 -- The vendors QuestieDB names for a recipe's pattern (e = { ids, vendors }) as ways to learn it: the skill and level of
 -- the first pattern item the client knows (else 25 under where the recipe turns grey, as for a pattern on the AH: no
 -- pick takes an estimate), the vendors friendly to your faction, without a price
@@ -739,7 +757,9 @@ function FM.BuildSources()
                 for _, route in ipairs(list) do
                     if not extra[recipeName] and route.kind == "vendor" and route.prof == prof.name and route.lines then
                         index = index or NameIndex(charRecipes)
-                        extra[recipeName] = PatternRecipe(route.lines, index)
+                        local r = PatternRecipe(route.lines, index)
+                        -- learned since the vendor's lines were saved: none to learn
+                        if r and not KnownNow(route.pattern) then extra[recipeName] = r end
                     end
                 end
             end
@@ -750,7 +770,9 @@ function FM.BuildSources()
                     local lines = not extra[recipeName] and TooltipLines(id)
                     if lines then
                         index = index or NameIndex(charRecipes)
-                        extra[recipeName] = PatternRecipe(lines, index)
+                        local r = PatternRecipe(lines, index)
+                        -- the kept lines may be from before you learned it: the tooltip now says
+                        if r and not KnownNow(id) then extra[recipeName] = r end
                     end
                 end
             end

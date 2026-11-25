@@ -402,7 +402,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     else the game's tooltip of the pattern item QuestieDB names. The line "Use: Teaches you how to craft X." names the
     made item, the line after it the materials ("Thick Leather (6), Turtle Scale (8), Heavy Silken Thread"), each
     found by its name among the items the market saw and ForeverArtisan's materials; an unknown name = no recipe. One
-    made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn
+    made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn; once you
+    learned it, the pattern's own tooltip says "Already known" and it is gone (ForeverArtisan lists it at its next
+    look at the profession window)
   * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
     for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
     "?" and the tooltip "price not known yet ... not visited yet (QuestieDB)" (QuestieDB has no prices), the skill and
