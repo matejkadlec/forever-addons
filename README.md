@@ -48,7 +48,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 
 ### Shared by all: minimap button and /jfa
 
-🧭 Every first-party AddOn carries the same small piece of shared code, so any one of them alone gives you these, once, however many you install:
+🧭 Every first-party AddOn carries the same small piece of shared code (ForeverMarket and ForeverCampFeatures get it soon), so any one of those AddOns alone gives you these, once, however many you install:
 
 - **One minimap button "Jim's Forever AddOns"**
   - Click: opens the `Jim's Forever AddOns` overview page of the settings
