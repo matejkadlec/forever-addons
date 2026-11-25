@@ -1200,16 +1200,19 @@ local function LeftOf(pick, key)
 end
 
 -- An item the sniper already buys for other picks of the plan shown (review round 1 of PR 73): its count holds the
--- sniper's purchases since the plan, and FM.PickBuysLeft hands every purchase since the plan out over the plan's
--- picks in their order, not to the pick the sniper bought it for. Per pick the two disagree, in sum they do not. So a
--- pick added to such an item adds what the plan's picks still need together (LeftOf of each traced pick and of this
--- one) less what the sniper still holds for the traced ones (FM.SnipeTrace's left): the pick's own units plus this
--- difference. Picks 1 and 2 of 11 each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8
--- (3 left) and pick 2 its 11, the sniper holds 3 for pick 2; pick 1 adds 3 + (11 - 3) = 11, 22 in all, 14 to buy.
--- 0 for an item without a traced pick of this plan of this character, and when this pick is traced already (the
--- sniper's own rules then: nothing added, or its units replaced)
-local function TracedOverlap(pick, key, at)
-    if not (at and FM.SnipeTrace and FM.IsSniped and FM.IsSniped(key)) then return 0 end
+-- sniper's purchases for them, and FM.PickBuysLeft hands every purchase since the plan out over the plan's picks in
+-- their order, not to the pick the sniper bought it for. So a pick added to such an item gets back what the plan gave
+-- it of the sniper's purchases for the traced picks: the least of what the plan gave it (bought: its plan's units
+-- less FM.PickBuysLeft), what the sniper bought for the traced picks of this plan (FM.SnipeTrace's sent less left)
+-- and what the plan still gives those picks beyond what the sniper holds for them (LeftOf less left). Picks 1 and 2 of
+-- 11 each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8 (3 left), pick 2 its 11; pick 1
+-- adds 3 + min(8, 8, 11 - 3) = 11, 14 left to buy for the two, as their steps lines say. Review round 2: never a
+-- negative part (a traced pick that holds more than it needs keeps it, until a new plan follows), and a trace kept
+-- under its plan's units by purchases still in the mail (Capped) gives nothing, since the sniper bought nothing for it
+-- under this plan. 0 for an item without a traced pick of this plan of this character, and when this pick is traced
+-- already (the sniper's own rules then: nothing added, or its units replaced)
+local function TracedBought(pick, key, at, bought)
+    if bought <= 0 or not (at and FM.SnipeTrace and FM.IsSniped and FM.IsSniped(key)) then return 0 end
     local trace = FM.SnipeTrace(key)
     if not trace then return 0 end
     for _, e in ipairs(trace) do
@@ -1219,12 +1222,16 @@ local function TracedOverlap(pick, key, at)
     for _, p in ipairs(FM.trade and FM.trade.picks or {}) do
         if type(p) == "table" and p.key and not byKey[p.key] then byKey[p.key] = p end
     end
-    local extra = 0
+    local sniper, beyond = 0, 0
     for _, e in ipairs(trace) do
         local q = e.mine and e.at == at and byKey[e.pick]
-        if q then extra = extra + LeftOf(q, key) - (tonumber(e.left) or 0) end
+        if q then
+            local left = tonumber(e.left) or 0
+            sniper = sniper + math_max(0, (tonumber(e.sent) or left) - left)
+            beyond = beyond + math_max(0, LeftOf(q, key) - left)
+        end
     end
-    return extra
+    return math_max(0, math_min(bought, sniper, beyond))
 end
 
 -- What Shift-click and the menu's Snipe entry send to the sniper (FRV-44): a pick every AH purchase of its plan,
@@ -1234,9 +1241,9 @@ end
 -- material at its max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the
 -- biggest spend first), the row it is for, for a pick its trace { pick, at } (FRV-143: the sniper remembers the pick
 -- and its plan), and "left" when a pick sends less than its plan's units; nil where there is nothing to snipe, with
--- the row and "bought" for a pick whose AH purchases were all bought since the plan, or "covered" when the sniper
--- already holds what it still needs (TracedOverlap). mode: "add" (the default) or "restart" (Shift+right-click: the
--- item's count starts again with this pick alone, so only its own units count)
+-- the row and "bought" for a pick whose AH purchases were all bought since the plan. mode: "add" (the default; an item
+-- already sniped for other picks of the plan: TracedBought) or "restart" (Shift+right-click: the item's count starts
+-- again with this pick alone, so only its own units count)
 local function SnipeTargets(row, mode)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
@@ -1250,21 +1257,27 @@ local function SnipeTargets(row, mode)
     if tab.picks then
         if row.buys then
             local at = FM.trade and FM.trade.pickAt
-            local anyLeft, adjusted = false, {}
+            local buysLeft = FM.PickBuysLeft and FM.PickBuysLeft(row) or row.buys
+            -- what the plan gave this pick of the purchases since the plan, per item (a material listed twice summed)
+            local boughtOf = {}
+            for i, b in ipairs(buysLeft) do
+                local planned = row.buys[i] and row.buys[i].ah or b.ah or 0
+                boughtOf[b.key] = (boughtOf[b.key] or 0) + math_max(0, planned - (b.ah or 0))
+            end
+            local adjusted = {}
             -- never a purchase with nothing left: without units the sniper would buy it without a limit; never more
-            -- than the plan's units of it
-            for i, b in ipairs(FM.PickBuysLeft and FM.PickBuysLeft(row) or row.buys) do
+            -- than the plan's units of an item (TracedBought gives back at most what the plan took off it)
+            for i, b in ipairs(buysLeft) do
                 local planned = row.buys[i] and row.buys[i].ah or b.ah or 0
                 local units = b.ah or 0
-                if units >= 1 then anyLeft = true end
                 if mode ~= "restart" and not adjusted[b.key] then
                     adjusted[b.key] = true
-                    units = math_max(0, math_min(planned, units + TracedOverlap(row, b.key, at)))
+                    units = units + TracedBought(row, b.key, at, boughtOf[b.key] or 0)
                 end
                 if units < planned then status = "left" end
                 if units >= 1 then add(b.key, b.top, units) end
             end
-            if row.buys[1] and not list[1] then return nil, row, nil, anyLeft and "covered" or "bought" end
+            if row.buys[1] and not list[1] then return nil, row, nil, "bought" end
         else
             add(row.mainKey, row.mainTop)
         end
@@ -1332,14 +1345,9 @@ local function SnipeLabel(targets, long)
     return (t.units and (FM.FormatCount(t.units) .. " ") or "") .. Name(t.key) .. " up to " .. FM.FormatMoney(t.price)
 end
 
--- A pick whose AH purchases were all bought since the plan (FRV-185), or one whose units the sniper holds already for
--- the plan's other picks (review round 1): the click adds nothing and says so
-local function NothingLeft(row, status)
-    if status == "covered" then
-        FM.Print("Nothing to add for " .. Name(row.key) .. ": the sniper already holds what the plan's picks still need of its AH purchases.")
-    else
-        FM.Print("Nothing left to buy at the AH for " .. Name(row.key) .. ": its plan's AH purchases were bought since the plan, nothing added.")
-    end
+-- A pick whose AH purchases were all bought since the plan (FRV-185): the click adds nothing and says so
+local function NothingLeft(row)
+    FM.Print("Nothing left to buy at the AH for " .. Name(row.key) .. ": its plan's AH purchases were bought since the plan, nothing added.")
 end
 FM.TableSnipeTargets, FM.TableSnipeLabel = SnipeTargets, SnipeLabel -- for the tests
 
@@ -1420,8 +1428,6 @@ local function RowHints(tab, row)
     if targets then sniped, repriced = SnipedForPlan(targets, trace) end
     if status == "bought" then
         GameTooltip:AddLine("Shift+click: nothing left to buy at the AH for this pick, adds nothing", HINT_R, HINT_G, HINT_B, true)
-    elseif status == "covered" then
-        GameTooltip:AddLine("Shift+click: the sniper already holds what this pick still needs, adds nothing", HINT_R, HINT_G, HINT_B, true)
     elseif sniped then
         GameTooltip:AddLine(repriced and "Shift+click: sniped for this plan, sets this plan's prices (adds no units)"
             or "Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
@@ -1553,9 +1559,9 @@ local function ShowRowMenu(button, row)
         end)
         if targets and FM.SnipeFromTable then
             root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add", trace) end)
-        elseif (status == "bought" or status == "covered") and FM.SnipeFromTable then
-            -- a pick with everything bought (FRV-185) or held by the sniper already: nothing to send
-            local entry = root:CreateButton(status == "covered" and "Snipe: the sniper holds it already" or "Snipe: nothing left to buy", function() end)
+        elseif status == "bought" and FM.SnipeFromTable then
+            -- a pick with everything bought (FRV-185): nothing to send
+            local entry = root:CreateButton("Snipe: nothing left to buy", function() end)
             if entry.SetEnabled then entry:SetEnabled(false) end
         end
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
@@ -1632,10 +1638,9 @@ local function OnRowClick(button, mouseButton)
     if shift and FM.ahOpen and FM.SnipeFromTable then
         targets, of, trace, status = SnipeTargets(row, mouseButton == "RightButton" and "restart" or "add")
     end
-    -- a pick with everything bought since the plan (FRV-185), or held by the sniper already: the click adds nothing and
-    -- says so
-    if status == "bought" or status == "covered" then
-        NothingLeft(of, status)
+    -- a pick with everything bought since the plan (FRV-185): both clicks add nothing and say so
+    if status == "bought" then
+        NothingLeft(of)
         return
     end
     if mouseButton == "RightButton" then

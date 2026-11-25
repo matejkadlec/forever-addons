@@ -714,61 +714,80 @@ H.test("amount: Shift+click on a pick with everything bought adds nothing and sa
     H.eq(Has(env.printed[#env.printed], "Nothing left to buy at the AH for"), true, env.printed[#env.printed])
 end)
 
+-- Two picks of the same material with the real sniper loaded (review rounds 1 and 2 of pull request 73)
+local function SnipedPicks()
+    local FM, env, out, ctx, state = TwoPicks(0, { "scan/Sniper.lua" })
+    env.C_Timer.NewTicker = function() return { Cancel = function() end } end
+    env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
+    env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end
+    env.GetMoney = function() return 1000000 end
+    env.IsShiftKeyDown = function() return true end
+    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
+    FM.ahOpen = true
+    out.pickAt = env.clock
+    return FM, env, out, ctx, state
+end
+
+local function SniperLeft(FM)
+    local saved = FM.SnipeSaved("900")
+    return saved.n - (saved.got or 0)
+end
+
 -- Review round 1 of pull request 73: the sniper's own purchases since the plan sit in its count of the item, while
 -- FM.PickBuysLeft hands every purchase since the plan to the picks in plan order; a pick added to an item already
 -- sniped for another pick of the plan must not take them off a second time
 H.test("amount: a pick added to an item the sniper buys for another pick of the plan: the two need what the plan says", function()
-    local FM, env, out, _, state = TwoPicks(0, { "scan/Sniper.lua" })
-    env.C_Timer.NewTicker = function() return { Cancel = function() end } end
-    env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
-    env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end
-    env.GetMoney = function() return 1000000 end
-    env.IsShiftKeyDown = function() return true end
-    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
-    FM.ahOpen = true
-    out.pickAt = env.clock
+    local FM, env, out, _, state = SnipedPicks()
     local first, second = out.picks[1], out.picks[2]
-    local function Left()
-        local saved = FM.SnipeSaved("900")
-        return saved.n - (saved.got or 0)
-    end
     FM.TableRowClick({ row = second }, "LeftButton") -- pick #2 sent first: 11
-    H.same({ FM.SnipeSaved("900").n, Left() }, { 11, 11 }, "pick #2: 11 to buy")
+    H.same({ FM.SnipeSaved("900").n, SniperLeft(FM) }, { 11, 11 }, "pick #2: 11 to buy")
     FM.SnipeSaved("900").got, state.bought = 8, 8 -- the sniper buys 8 for it
     H.same({ FM.PickBuysLeft(first)[1].ah, FM.PickBuysLeft(second)[1].ah }, { 3, 11 }, "the plan gives the 8 to pick #1")
-    H.same({ Targets(FM, first) }, { { { "900", 11 } } }, "pick #1 adds 11: its 3 and the 8 the sniper counted for pick #2")
+    H.same({ Targets(FM, first) }, { { { "900", 11 } } }, "pick #1 adds 11: its 3 and the 8 the sniper bought for pick #2")
     FM.TableRowClick({ row = first }, "LeftButton")
-    H.same({ FM.SnipeSaved("900").n, Left() }, { 22, 14 }, "22 in all, 14 still to buy: what the two picks need (3 + 11)")
+    H.same({ FM.SnipeSaved("900").n, SniperLeft(FM) }, { 22, 14 }, "22 in all, 14 still to buy: what the two picks need (3 + 11)")
     -- Shift+right-click starts the count again with this pick alone: only its own 3
     H.same({ Targets(FM, first, "restart") }, { { { "900", 3 } }, "left" }, "restart: pick #1's own 3")
 end)
 
-H.test("amount: the other order needs no correction, and a pick the sniper covers adds nothing with a chat line", function()
-    local FM, env, out, _, state = TwoPicks(0, { "scan/Sniper.lua" })
-    env.C_Timer.NewTicker = function() return { Cancel = function() end } end
-    env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
-    env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end
-    env.GetMoney = function() return 1000000 end
-    env.IsShiftKeyDown = function() return true end
-    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
-    FM.ahOpen = true
-    out.pickAt = env.clock
+H.test("amount: the other order needs no correction: the plan and the sniper give the purchases to the same pick", function()
+    local FM, _, out, _, state = SnipedPicks()
     local first, second = out.picks[1], out.picks[2]
-    FM.TableRowClick({ row = first }, "LeftButton") -- pick #1 first: 11
+    FM.TableRowClick({ row = first }, "LeftButton")
     FM.SnipeSaved("900").got, state.bought = 8, 8
-    H.same({ Targets(FM, second) }, { { { "900", 11 } } }, "pick #2: its 11, the plan's 8 went to pick #1 as the sniper's did")
+    H.same({ Targets(FM, second) }, { { { "900", 11 } } }, "pick #2: its 11")
     FM.TableRowClick({ row = second }, "LeftButton")
-    local saved = FM.SnipeSaved("900")
-    H.same({ saved.n, saved.n - saved.got }, { 22, 14 }, "14 still to buy")
-    -- 11 more bought by hand: the plan's picks need 3 (22 - 19), the sniper still holds 14 for them; a third pick of
-    -- the same material would be covered by that excess up to its own units
-    local third = { key = "102", buys = { { key = "900", ah = 2, top = 1000 } }, purchases = { { key = "900", ah = 2 } },
-        planAt = first.planAt }
-    out.picks[3] = third
-    state.bought = 19
-    H.same({ Targets(FM, third) }, { {}, "covered" }, "the sniper's 14 cover the 3 the picks need and its 2")
-    local printed = #env.printed
-    FM.TableRowClick({ row = third }, "LeftButton")
-    H.eq(FM.SnipeSaved("900").n, 22, "nothing added")
-    H.eq(env.printed[printed + 1] ~= nil and Has(env.printed[printed + 1], "the sniper already holds"), true, tostring(env.printed[printed + 1]))
+    H.same({ FM.SnipeSaved("900").n, SniperLeft(FM) }, { 22, 14 }, "14 still to buy")
+end)
+
+-- Review round 2: units the sniper bought under an older plan, still in the mail, keep a traced pick under its new
+-- plan's units (Capped); purchases by hand that the plan gives to an earlier pick are not the sniper's
+H.test("amount: a trace kept down by units in the mail gives nothing back: the pick sends what its steps line says", function()
+    local FM, env, out, _, state = SnipedPicks()
+    local first, second = out.picks[1], out.picks[2]
+    local planA, planB = env.clock, env.clock + 60
+    FM.TableRowClick({ row = second }, "LeftButton") -- plan A: pick #2 sends its 11
+    FM.SnipeSaved("900").got = 8 -- the sniper buys 8; they stay in the mail, so plan B asks 11 again
+    -- plan B (Refresh): the same picks, made again
+    out.pickAt, first.planAt, second.planAt = planB, planB, planB
+    FM.BoughtSince = function(key, since) return (key == "900" and since <= planB) and state.bought or 0 end
+    FM.SnipeFollowPlan({ second }, planB)
+    local trace = FM.SnipeTrace("900")
+    H.same({ trace[1].left, trace[1].at, trace[1].sent }, { 3, planB, 3 }, "pick #2 follows plan B at 3: 8 of its 11 wait in the mail")
+    state.bought = 6 -- bought by hand since plan B: the plan gives them to pick #1
+    H.same({ FM.PickBuysLeft(first)[1].ah, FM.PickBuysLeft(second)[1].ah }, { 5, 11 }, "pick #1: buy 5 more")
+    H.same({ Targets(FM, first) }, { { { "900", 5 } }, "left" }, "pick #1 sends its 5: the sniper bought nothing for pick #2 under plan B")
+    FM.TableRowClick({ row = first }, "LeftButton")
+    H.eq(SniperLeft(FM), 8, "8 still to buy: pick #2's 3 and pick #1's 5")
+end)
+
+H.test("amount: picks of one material after purchases by hand each send their own units, nothing is held for them twice", function()
+    local FM, _, out, _, state = SnipedPicks()
+    local first, second = out.picks[1], out.picks[2]
+    FM.TableRowClick({ row = first }, "LeftButton") -- pick #1 sends 11
+    state.bought = 11 -- all 11 bought by hand: the plan gives them to pick #1, the sniper still holds 11 for it
+    H.same({ Targets(FM, second) }, { { { "900", 11 } } }, "pick #2 sends its own 11, no part of pick #1's 11")
+    FM.TableRowClick({ row = second }, "LeftButton")
+    H.eq(SniperLeft(FM), 22, "the sniper adds pick #2's 11 to pick #1's (which a new plan follows down)")
+    H.same({ Targets(FM, first) }, { {}, "bought" }, "pick #1 itself has nothing left: its click adds nothing")
 end)

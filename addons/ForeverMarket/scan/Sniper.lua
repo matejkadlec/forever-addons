@@ -62,9 +62,12 @@ local addonName, FM = ...
 -- A pick belongs to the character that sent it (FRV-169): the list is the realm's, a plan is one character's (its
 -- bags, bank, gold and recipes), so FM.SnipeFollowPlan follows only the picks of the logged-in character, and the
 -- same pick sent by another character is a pick of its own (its own entry, its units add up like two picks needing
--- one material). saved[key].picks[id] = { n, at, char, pick }: id = the pick's key .. "@" .. the character; an
+-- one material). saved[key].picks[id] = { n, at, char, pick, sent }: id = the pick's key .. "@" .. the character; an
 -- entry saved before 1.46 has the pick's key as its id and no character: it is followed as before and becomes the
--- character's whose plan or click first changes it.
+-- character's whose plan or click first changes it. sent (1.48, review round 2 of PR 73) = the units the pick was
+-- given when its at was set (a click, a follow), kept while the trace is written again within that plan, so sent less
+-- what it still has is what the sniper bought for it under that plan (the market table's FM.PickBuysLeft hands those
+-- purchases out in plan order, ui/Table.lua TracedBought); an entry without it (saved before 1.48) counts as nothing.
 --
 -- R.snipe = {
 --   list   = { key, ... }                              sniped items, in the order they were added
@@ -254,9 +257,9 @@ local function TraceId(pick, char)
 end
 
 -- A traced pick as it is stored: n = units still to buy for it, at = its plan, char = the character it belongs to,
--- pick = its item key where the id is not the key itself
-local function TraceEntry(id, pick, n, at, char)
-    return { n = n, at = at, char = char, pick = id ~= pick and pick or nil }
+-- pick = its item key where the id is not the key itself, sent = its units when at was set (review round 2 of PR 73)
+local function TraceEntry(id, pick, n, at, char, sent)
+    return { n = n, at = at, char = char, pick = id ~= pick and pick or nil, sent = sent }
 end
 
 -- The traced picks of an item in a fixed order (by pick, then character), each { id, pick, char, n, at } as stored
@@ -268,7 +271,8 @@ local function TraceList(saved)
         if type(id) == "string" and type(t) == "table" and tonumber(t.n) then
             list[#list + 1] = { id = id, pick = type(t.pick) == "string" and t.pick or id,
                 char = type(t.char) == "string" and t.char or nil,
-                n = math_max(0, math_floor(tonumber(t.n))), at = tonumber(t.at) }
+                n = math_max(0, math_floor(tonumber(t.n))), at = tonumber(t.at),
+                sent = tonumber(t.sent) and math_max(0, math_floor(tonumber(t.sent))) or nil }
         end
     end
     table_sort(list, function(a, b)
@@ -370,7 +374,7 @@ function FM.SnipeTrace(key)
     local me = FM.PlayerName()
     local out = {}
     for i, t in ipairs(list) do
-        out[i] = { pick = t.pick, left = t.left, at = t.at, char = t.char, mine = t.char == nil or t.char == me }
+        out[i] = { pick = t.pick, left = t.left, at = t.at, char = t.char, mine = t.char == nil or t.char == me, sent = t.sent }
     end
     return out
 end
@@ -432,11 +436,11 @@ local function Retrace(saved, wanted, at, keep)
     for _, t in ipairs(list) do
         local asked = wanted[t.id]
         if asked == nil then
-            picks[t.id] = TraceEntry(t.id, t.pick, t.left, t.at, t.char)
+            picks[t.id] = TraceEntry(t.id, t.pick, t.left, t.at, t.char, t.sent)
         else
             local units = math_max(0, math_floor(tonumber(shares[t.id]) or 0))
             if units >= 1 or math_floor(tonumber(asked) or 0) >= 1 or (keep and keep[t.id]) then
-                picks[t.id] = TraceEntry(t.id, t.pick, units, at, me or t.char)
+                picks[t.id] = TraceEntry(t.id, t.pick, units, at, me or t.char, units)
             else
                 ceil = ceil - t.left
             end
@@ -800,15 +804,15 @@ local function AddFromTable(key, price, units, mode, restarted, trace)
             -- one more pick: its units are still to buy from now, the picks traced before keep what is left of theirs
             local list, _, ceil = TracedNow(saved)
             local picks = {}
-            for _, t in ipairs(list) do picks[t.id] = TraceEntry(t.id, t.pick, t.left, t.at, t.char) end
-            picks[id] = TraceEntry(id, trace.pick, math_floor(units), trace.at, me)
+            for _, t in ipairs(list) do picks[t.id] = TraceEntry(t.id, t.pick, t.left, t.at, t.char, t.sent) end
+            picks[id] = TraceEntry(id, trace.pick, math_floor(units), trace.at, me, math_floor(units))
             saved.picks, saved.tracedGot = picks, math_max(0, math_floor(tonumber(saved.got) or 0))
             saved.tracedMax = (list[1] and ceil or 0) + math_floor(units) -- the ceiling grows by what this pick is sent with
             if not list[1] then saved.traceId = NewTraceId() end
         else
             -- a new item, or its count started again: this pick alone (FM.SnipeFromPlan sends a traced pick's
             -- material once, a material listed twice summed up)
-            saved.picks = { [id] = TraceEntry(id, trace.pick, math_floor(units), trace.at, me) }
+            saved.picks = { [id] = TraceEntry(id, trace.pick, math_floor(units), trace.at, me, math_floor(units)) }
             saved.tracedGot, saved.tracedMax = math_max(0, math_floor(tonumber(saved.got) or 0)), math_floor(units)
             saved.traceId = NewTraceId()
         end

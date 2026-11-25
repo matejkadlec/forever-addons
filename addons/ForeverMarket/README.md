@@ -1486,13 +1486,15 @@ per purchase.
   purchases are all bought adds nothing and says so ("Nothing left to buy at the AH for <pick>: its plan's AH
   purchases were bought since the plan, nothing added."; Shift+right-click too, and the row menu shows a greyed out
   "Snipe: nothing left to buy"). A flip or a vendor resell has no progress (no plan time), so it sends its whole
-  units as before. An item the sniper already buys for another pick of the same plan (review round 1 of PR 73): its
-  count holds the sniper's purchases since the plan, while what is still to buy hands every purchase since the plan to
-  the picks in plan order, so per pick the two disagree; the pick then adds what the plan's picks still need together
-  less what the sniper still holds for the ones it traces (pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
-  line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11), never more
-  than its plan's units; when the sniper holds all that already, the click adds nothing ("Nothing to add for <pick>:
-  the sniper already holds what the plan's picks still need of its AH purchases."). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
+  units as before. An item the sniper already buys for another pick of the same plan (review rounds 1 and 2 of PR 73):
+  its count holds the sniper's purchases for that pick, while what is still to buy hands every purchase since the plan
+  to the picks in plan order, so the pick gets back what the plan gave it of those (`TracedBought`: the least of what
+  the plan took off it, what the sniper bought for the traced picks under this plan, and what the plan still gives
+  those picks beyond what the sniper holds for them). Pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
+  line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11. Never more
+  than its plan's units; nothing back for purchases by hand, and none for a traced pick kept under its plan's units by
+  units still in your mail (the sniper bought nothing for it under this plan). A traced pick whose material you bought
+  by hand keeps its units in the sniper until a new plan follows it (Refresh). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
   its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip names what it snipes
   with the units ("Shift+click: snipe its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt", "snipe
   what is still to buy, ..." once some were bought; the menu's entry keeps the short "Snipe its 3 AH purchases").
@@ -1758,13 +1760,16 @@ Picks skip).
   `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
   with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
   reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
-  true while the item is paused, 1.39, FRV-101, optional; `picks[id] = { n, at, char, pick }` = the picks of the market
+  true while the item is paused, 1.39, FRV-101, optional; `picks[id] = { n, at, char, pick, sent }` = the picks of the market
   table the item is sniped for (1.45, FRV-143, optional): `n` units still to buy for it as of `tracedGot` (the item's
   `got` then; what was bought since comes off the picks in proportion; 0 = all it may bought, its plan still asks),
   `at` the time of its plan (`FM.trade.pickAt`), `char` the character that sent it and `pick` its item key (1.46,
   FRV-169: `id` = the pick's key .. "@" .. the character, `FM.PlayerName()`; an entry saved by 1.45 is
   `picks[pickKey] = { n, at }`, the pick's key as its id without `char` and `pick`, and is read as before: it gets
-  its `char` when a plan or a click of a character changes it, its id stays; no conversion); `tracedMax` the most the item's picks may still buy together as of
+  its `char` when a plan or a click of a character changes it, its id stays; no conversion; `sent`, 1.48, review round
+  2 of PR 73: its units when `at` was set, kept while the trace is written again within that plan, so `sent` less
+  what it still has is what the sniper bought for it under that plan; an entry without it counts as nothing bought,
+  no conversion); `tracedMax` the most the item's picks may still buy together as of
   `tracedGot` (what they were sent with less what was bought for them); `traceId` which trace a purchase was counted
   in (a failed one goes back to that trace only); a
   `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
