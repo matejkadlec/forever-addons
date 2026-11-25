@@ -48,13 +48,15 @@ end
 local FLIP = { key = "105", sell = 9999, usual = 10000, top = 6000, units = 5, support = 55, wall = 10000, qty = 60, sold12 = 10 }
 local LADDER = { { 4000, 2 }, { 6000, 3 }, { 10000, 55 } }
 
--- A plan of the flip on this ladder: its pick of item 105 (or nil) and the plan
-local function PlanOn(FM, env, ladder)
-    local out = { flips = { FLIP } }
+-- A plan of the flip on this ladder: its pick of item 105 (or nil) and the plan; crafts: further rows of the pass (their
+-- material 900 at 10s)
+local function PlanOn(FM, env, ladder, crafts)
+    local out = { flips = { FLIP }, crafts = crafts }
     local qty = 0
     for _, level in ipairs(ladder) do qty = qty + level[2] end
     local view = { Get = function(key)
         if key == "105" then return { ladder = ladder, qty = qty, own = 0 } end
+        if key == "900" then return { ladder = { { 1000, 100000 } }, qty = 100000, own = 0 } end
         return { ladder = { { 10000, 50 } }, qty = 50, own = 0 }
     end }
     local ctx = { view = view, sources = { profs = {} }, now = env.clock, nowMinutes = math.floor((env.clock - FM.EPOCH) / 60) }
@@ -191,5 +193,25 @@ H.test("hide pick: the footer counts the hidden flips the plan holds back, not o
     FM.trade = out
     H.eq(again ~= nil and out.pickHidden["105"] == nil, true, "a pick again, not held back")
     H.eq(FM.R().hiddenPicks["105"] ~= nil, true, "the entry is still saved (it counts again if the old listings come back)")
+    H.eq(#FM.TableHiddenFlips(), 0, "the footer shows nothing")
+end)
+
+-- Review round 2 of pull request 79: the pass evaluates every candidate again after each plan pick, with that pick's
+-- gold gone and the next pick's share larger; a flip held back in one step and a pick in a later one is not counted
+H.test("hide pick: a flip held back with one pick's share and a plan pick with a larger one later is not counted", function()
+    local FM, env = Setup()
+    FM.R().items["100"] = { d = Records(27) }
+    env.GetMoney = function() return 44445 end -- a budget of 4g, 2 picks: 2g for the first, the rest for the second
+    FM.GetSettings().tableInvestPicks = 2
+    -- hidden: the flip that buys the 40s level alone (what 2g buys of this ladder)
+    FM.R().hiddenPicks = { ["105"] = { t = env.clock, top = 4000, levels = { 4000 } } }
+    local craft = { key = "100", craft = { makes = 1, prof = "lw", recipe = "Recipe 100", profName = "Leatherworking" },
+        learned = true, sell = 10000, usual = 10000, cost = 1000, profit = 10000 * 0.95 - 1000, qty = 50, own = 0,
+        sold12 = 43 / 2, parts = { { key = "900", n = 1, unit = 1000, src = "ah" } } }
+    local pick, out = PlanOn(FM, env, LADDER, { craft })
+    H.eq(pick ~= nil and pick.kind == "flip" and not pick.extra, true, "a plan pick after the craft: " .. tostring(out.pickWhy["105"]))
+    H.eq(pick.flipLevels[2], 6000, "with the larger share it buys at 60s too")
+    H.eq(out.pickHidden["105"], nil, "not counted as held back")
+    FM.trade = out
     H.eq(#FM.TableHiddenFlips(), 0, "the footer shows nothing")
 end)

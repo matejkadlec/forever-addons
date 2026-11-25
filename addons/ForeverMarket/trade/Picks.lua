@@ -2851,7 +2851,13 @@ function FM.ComputePicks(out, ctx, done)
         out.pickBudget = P.budget
         out.pickSlots = P.slots
         out.pickWhy = why
-        out.pickHidden = P.heldBack -- the flips you hid that this plan held back (FRV-193)
+        -- the flips you hid that this plan held back (FRV-193): each step judges every candidate again, with the gold and
+        -- the units earlier picks take gone, so a flip held back in one step can be a pick in another (review round 2 of
+        -- PR 79): one the plan shows is none
+        for _, p in ipairs(picks) do
+            if p.kind == "flip" then P.heldBack[p.key] = nil end
+        end
+        out.pickHidden = P.heldBack
         out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
             out.pickRank[p.key] = p.rank
