@@ -53,12 +53,16 @@ More ways to collect mail from the default inbox (FRV-178, after the analysis FR
 
 The maintainer's in-game test of 1.0.1 passed on 2026-11-25 (FRV-178). What it showed is in [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#mail):
 
-- **Calls:** AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate`. No "AddOn has been blocked" popup came, also in a fight; whether the takes go through in combat is not recorded.
+- **Calls:** out of combat, AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate` (the gold arrived, the items came into the bags).
 - **Shift+click:** Blizzard's Shift+click takes the whole mail.
-- **ForeverMarket:** its hooks see every take.
+- **ForeverMarket:** after a Collect gold run, "no longer listed" on `/fm status` did not rise. That its hooks see every take comes from the code and the tests, not from the game.
 - **Layout:** the arrow covers none of the page button's "Next" text.
 
-Not seen in game yet: which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`), which emptied mails the server removes, and how many mails a list holds.
+Not seen in game yet:
+
+- Whether the takes are allowed in a fight. The test saw no "AddOn has been blocked" popup, but a call refused in combat shows none: `ADDON_ACTION_BLOCKED` only adds a chat line, and the run then stops with its "blocked" line.
+- Which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`).
+- Which emptied mails the server removes, and how many mails a list holds.
 
 ## Not in this version (FRV-179)
 
