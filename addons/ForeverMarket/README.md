@@ -270,7 +270,25 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
-* At most 9 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 9 since 1.35 (FRV-67), the other tabs up to 8.
+* At most 10 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 10 since 1.47 (FRV-154: Amount; 9 since
+  1.35, FRV-67), the other tabs up to 8.
+* **Tooltips only while Shift is held** (1.47, FRV-155): every tooltip of the market table and of its Filters dialogs
+  (rows, column headers, the Ignored tab, the search box, the Filters buttons, the checkboxes and dropdowns, the
+  budget row's boxes, Refresh, the summary line, "Lock plan after refresh", the Amount inputs) shows only while Shift
+  is held with the mouse over the element. Hovering shows nothing, so a tooltip no longer covers the box you type in;
+  Shift pressed over an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and
+  moving onto an element with Shift already held shows it too. While an input of the table or of its dialog has the
+  keyboard focus nothing shows (Shift types capitals there); an input of another window (the chat, the sniper's item
+  box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
+  links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
+  tooltip stays until it is closed. Not under the rule: the Profit graph's readout, the item tooltips in your bags,
+  the sniper window and the settings panel. The footer of every tab ends with the hint: Picks "... · hold Shift over
+  rows, inputs, dropdowns and checkboxes to show tooltips" ("hover for why" before), the other tabs "· hold Shift
+  for tooltips"; a line too long for the window takes a shorter form of its own note, so the hint is never cut
+  (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table: tooltips only while Shift
+  is held" (`tableShiftTips`, on by default) switches back to tooltips on plain hover. One helper holds the rule,
+  `FM.TableTip(frame, show)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
+  `ui/Filters.lua`: no tooltip of the window has an `OnEnter` script of its own. Not yet verified in game
 * Search box (1.36, FRV-26): Blizzard's `SearchBoxTemplate` (a magnifier, "Search" until you type, a clear button),
   140 px; until 1.35 a plain box with "Filter by name" above it (the filter row and everything under it moved up by
   that label's 14 px: `FILTER_Y` -74, `TOP` -134). Each tab keeps its own search text for the session (`view.search`
@@ -528,8 +546,28 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     3 days of stock listed x 0.5.
   * The plan log (1.40, FRV-103): every plan's picks go to `plans` (Data format), so the order and the plan can be
     measured later against what sold (FRV-125, the `listings` report of tools/fm_analyze.py).
+  * **Amount** (1.47, FRV-154), a column between Type and Invest and an input: what a craft makes (the "make N" of
+    its steps line) and what a vendor resell or a flip buys. Click the number, type yours and press Enter (a click
+    elsewhere applies too, Escape puts the old number back; whole numbers from 1, anything else changes nothing): that
+    pick is made again for your number by the plan's own rules (`FM.RemakePick` in `trade/Picks.lua`: the materials up
+    the AH ladder, buy or craft, what you hold, the price to list at), so its steps line, Invest, Expected, Conf., its
+    tooltip, Ctrl+click's count and what Shift+click snipes follow, and the summary's "needs" and "expected" with them.
+    The other picks stay as they are: the plan picks before it keep what they took of the AH and of your units (`took`,
+    recorded by `Commit` and taken again by `Replay`), the picks after it are not planned again. The amount may be over
+    the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
+    vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow, the input
+    shows that number and the steps line says what is short in orange ("make 30 (of the 100 you set: the AH has no
+    more materials at a usable price)"); when nothing can be made for it the pick stays and a chat line says why. A
+    number you set is light blue and its tooltip says "Set by you. Empty it and press Enter for the plan's number
+    (11)"; emptying it brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
+    deep scans, a new plan (Refresh, or any plan with the lock off) starts from its own numbers. Stock picks show the
+    units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
+    (`FM.SnipeFollowPlan(picks, at, changed)`): its items get the edited pick's units, never more than the pick was
+    sent with (Shift+right-click starts higher). The plan log keeps the plan's own line and gets one more for the
+    edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
-    and wait / Learn / Vendor / Flip / Stock / Stock, wait; 110 px since 1.40, "Craft" until 1.39), **Invest** (the
+    and wait / Learn / Vendor / Flip / Stock / Stock, wait; 104 px since 1.47, 110 since 1.40, "Craft" until 1.39),
+    **Amount** (1.47, above), **Invest** (the
     gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
     brackets), **C/8h** and **C/24h**, and last **Conf.** (`pick.conf`, the confidence the tooltip explains; last since
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
@@ -908,7 +946,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   work without a blocked popup); not seen in game: a recipe the list never shows, the chat line behind the overview
   page, a box greyed out by a cooldown, the 10 s timeout, "you don't know this recipe yet", and a reopen from the micro
   button straight after Ctrl+click (inferred from the side tab result)
-* The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
+* The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip itself shows while Shift is held since
+  1.47, FRV-155), one per line in light blue: "Click: search at the
   AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
   "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
   FRV-132: the profession's name, only on rows where Ctrl+click works, `FM.CraftHint`),
@@ -1512,7 +1551,9 @@ Picks skip).
   `craft` (Craft and sell) / `wait` (Craft and wait) / `stock` / `swait` (Stock, wait) / `learn` / `vendor` / `flip`,
   batch = the units of its listing, invest and expected in copper (expected at its confidence), conf in %, rank its
   place, x = `x` for a pick of "Also good, but out of scope"; the same plan as the one logged last is logged again only
-  after an hour, lines older than 14 days go (at most 6,000)
+  after an hour, lines older than 14 days go (at most 6,000). Since 1.47 (FRV-154) a pick whose amount you set in the
+  table gets a line of its own at that moment with x = `e` (`xe` for one out of scope): its batch, invest and expected
+  are those of your number, the plan's own line stays as it was
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was

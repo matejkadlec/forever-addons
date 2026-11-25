@@ -949,8 +949,9 @@ end
 -- One chat line names the items whose limit changed; an item nothing is left to buy for and nothing was bought of
 -- leaves the list (its saved price and number stay, as after the window's X). Only the picks of the logged-in character
 -- follow (FRV-169: the plan counts its bags, bank, gold and recipes; a pick another character sent keeps its units and
--- keeps its item in the list); a pick saved before 1.46 without a character follows as before
-function FM.SnipeFollowPlan(picks, at)
+-- keeps its item in the list); a pick saved before 1.46 without a character follows as before. changed = the key of a
+-- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too
+function FM.SnipeFollowPlan(picks, at, changed)
     local s = Data()
     if not s or type(at) ~= "number" then return end
     local plan = {}
@@ -973,7 +974,7 @@ function FM.SnipeFollowPlan(picks, at)
         for _, t in ipairs(TraceList(saved)) do
             -- only a pick this plan has (review round 1: a filter or profession you only look at keeps the others),
             -- and only one this character sent (FRV-169)
-            if (t.char == nil or t.char == me) and t.at ~= at and plan[t.pick] then
+            if (t.char == nil or t.char == me) and (t.at ~= at or t.pick == changed) and plan[t.pick] then
                 follow = true
                 shares[t.id] = plan[t.pick][key] or 0
             end

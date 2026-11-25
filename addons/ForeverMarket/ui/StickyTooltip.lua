@@ -41,14 +41,16 @@ local function Mark(w)
     local trade = FM.trade
     w.trade = trade
     w.pickAt = trade and trade.pickAt
+    w.pickEdit = trade and trade.pickEdit -- an amount set for a pick of the plan (FRV-154) changes its row too
     w.farmRows = FM.farm and FM.farm.rows
 end
 
 -- Due for new content: with the plan locked only after a new plan, else after every new pass (a Farm window also
--- after a new farm pass)
+-- after a new farm pass); either way after an amount you set for a pick of the plan (FRV-154)
 local function Due(w)
     local trade = FM.trade
     if not trade or trade.busy or trade.empty or trade.err then return false end
+    if (trade.pickEdit or 0) ~= (w.pickEdit or 0) then return true end
     if FM.PicksLocked() then return trade.pickAt ~= w.pickAt end
     if w.farm and (FM.farm and FM.farm.rows) ~= w.farmRows then return true end
     return trade ~= w.trade

@@ -84,6 +84,8 @@ local OPTIONS = {
     { key = "tooltip", label = "AH price, cost and sell prices on item tooltips" },
     { key = "chatSummary", label = "One chat line after each saved scan" },
     { key = "tableNoOutliers", label = "Market table: hide outliers (PPG far off the rest of a tab, vendor items listed at 10x+)" },
+    -- FRV-155: off = the table's tooltips on plain hover, as until 1.46 (they cover the input you type in then)
+    { key = "tableShiftTips", label = "Market table: tooltips only while Shift is held" },
     -- Picks (FRV-95): the budget row's % up to 999 and any amount set by hand, the plan sized as if you had that gold;
     -- off, the % stays 1 to 90 and an amount over 90% of your gold is capped there
     { key = "tablePicksOverGold", label = "Allow picks budget over current gold (% up to 999, any amount set)", replan = true },
