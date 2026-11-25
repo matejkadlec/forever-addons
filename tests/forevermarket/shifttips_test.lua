@@ -129,6 +129,39 @@ H.test("shift tooltips: while an input of the table has the keyboard focus nothi
     H.same({ row.shown, tip.owner }, { 2, row }, "an input of another window does not")
 end)
 
+-- Review round 2: the focused frame can be another window's, whose answers may be secret values
+H.test("shift tooltips: a focused frame of another window that answers with secret values is not one of ours", function()
+    local FM, env, tip = Load()
+    local SECRET = {}
+    FM.IsSecret = function(value) return value == SECRET end -- the client's issecretvalue, which the stubs lack
+    local row = Element(FM, env)
+    row.Enter()
+    local named = env.CreateFrame("Frame")
+    function named:GetName() return SECRET end
+    function named:GetParent() error("the parent of a frame with a secret name is not asked for") end
+    env.focus = named
+    Shift(env, true)
+    H.same({ row.shown, tip.owner }, { 1, row }, "a secret name: not an input of the table, the tooltip shows")
+    Shift(env, false)
+    local guarded = env.CreateFrame("Frame")
+    function guarded:IsForbidden() return SECRET end
+    function guarded:GetName() error("a frame with a secret answer to IsForbidden is left alone") end
+    env.focus = guarded
+    Shift(env, true)
+    H.same({ row.shown, tip.owner }, { 2, row }, "a secret answer to IsForbidden: the same")
+    Shift(env, false)
+    local child = env.CreateFrame("Frame")
+    function child:GetName() return nil end
+    function child:GetParent() return SECRET end
+    env.focus = child
+    Shift(env, true)
+    H.same({ row.shown, tip.owner }, { 3, row }, "a secret parent: the same")
+    Shift(env, false)
+    env.focus = SECRET
+    Shift(env, true)
+    H.eq(row.shown, 4, "a secret focus itself: the same")
+end)
+
 H.test("shift tooltips: another modifier changes nothing, an element gone under the mouse shows nothing", function()
     local FM, env, tip = Load()
     local row = Element(FM, env)

@@ -104,8 +104,13 @@ local TIP_WINDOWS = { ForeverMarketTable = true, [NAME] = true }
 local function TypingHere()
     local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
     for _ = 1, 12 do
-        if type(focus) ~= "table" or (focus.IsForbidden and focus:IsForbidden()) then return false end
+        -- the focused frame and its parents may be another window's: what they answer can be secret (review round 2:
+        -- IsForbidden, GetName and GetParent are flagged SecretReturnsForAspect), and then it is not ours
+        if FM.IsSecret(focus) or type(focus) ~= "table" then return false end
+        local forbidden = focus.IsForbidden and focus:IsForbidden()
+        if FM.IsSecret(forbidden) or forbidden then return false end
         local name = focus.GetName and focus:GetName()
+        if FM.IsSecret(name) then return false end
         if name and TIP_WINDOWS[name] then return true end
         focus = focus.GetParent and focus:GetParent()
     end
