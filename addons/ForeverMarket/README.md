@@ -554,11 +554,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     pick is made again for your number by the plan's own rules (`FM.RemakePick` in `trade/Picks.lua`: the materials up
     the AH ladder, buy or craft, what you hold, the price to list at), so its steps line, Invest, Expected, Conf., its
     tooltip, Ctrl+click's count and what Shift+click snipes follow, and the summary's "needs" and "expected" with them.
-    The other picks stay as they are and keep their claims as things are now: a plan pick before it keeps what it
-    still needs for the crafts it has left, your units first (also the materials you bought for it since the plan)
-    and only the rest off the AH (`took`, recorded by `Commit`, `ReplayBefore`); a pick after it keeps what you bought
-    for it (`ReplayAfter`) and is not planned again. So an amount set half way through a plan does not hand the
-    materials of another pick to this one. The amount may be over
+    The other picks stay as they are. The pick is planned **as of the plan's own moment**: with the latest scan's
+    prices, but with your bags and bank as the plan read them (`pickOwned`) and the plan picks before it taking what
+    they took then (`took`, recorded by `Commit`, applied again by `Apply`); the picks after it are not planned again.
+    It keeps the plan's time, so what you bought and crafted since the plan counts toward it as progress ("buy 4
+    more", "4 / 8"), shared out with the other picks in the plan's order, exactly as for a pick you did not touch. So
+    an amount set half way through a plan never hands one pick's materials to another: with both picks' 11 Heavy
+    Leather bought, the first pick set to 15 and the second to 12, the two together ask for the 5 that are missing.
+    Two limits of that: units that reached your bags outside the plan since it was made are not seen (Refresh makes a
+    new plan with them), and the picks before it keep their AH units set aside in the latest scan's ladder also when
+    you bought them before that scan, so the pick's cost can read a little high then. The amount may be over
     the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
     vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow, the input
     shows that number and the steps line says what is short in orange ("make 30 (of the 100 you set: the AH has no

@@ -967,7 +967,7 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickEdit" }
+    "pickStock", "pickEdit", "pickOwned" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
@@ -1284,8 +1284,8 @@ end
 FM.TradeBusy = function() return running end
 
 -- An amount you set in the Picks tab's Amount column (FRV-154): that pick of the plan shown is made again for it
--- (FM.RemakePick in trade/Picks.lua, with the latest scan and your stock now), the other picks stay; amount nil puts
--- the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
+-- (FM.RemakePick in trade/Picks.lua, with the latest scan's prices and as of the plan's own moment: your stock as the
+-- plan read it, pickOwned), the other picks stay; amount nil puts the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
 -- picks are held), pickEdit counts its edits so a sticky tooltip of the row follows, and the items the sniper buys
 -- for this pick follow its new units as they follow a new plan (FRV-143). Returns true and the pick, or false and why
 function FM.SetPickAmount(key, amount)

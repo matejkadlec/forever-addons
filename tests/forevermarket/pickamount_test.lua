@@ -17,13 +17,15 @@
 --   * the input (FM.AmountAsked): a whole number from 1 other than the pick's sets it; an emptied input brings the plan's
 --     number back on a pick you set and changes nothing else; 0, a negative number, a fraction, a letter or the number
 --     it already has leave the pick alone (the old number shows again)
---   * review round 1: with the lock off the next automatic plan carries the plan's own target of a craft pick, not the
---     number you set (FM.PickCarry), so it shows and logs the plan's number again; the buy steps of two picks of one
---     material never count the same purchases twice when one of them was made again later (its purchases count from
---     that moment); a saved sort of the Picks tab follows its columns past the new Amount column
---   * review round 2: the other picks keep their claims as things are now. Materials you bought for a pick before it
---     are that pick's, not free stock for the pick made again; what a pick before it crafted away is not taken from
---     your stock a second time; what you bought for a pick after it stays that pick's
+--   * with the lock off the next automatic plan carries the plan's own target of a craft pick, not the number you set
+--     (FM.PickCarry, review round 1), so it shows and logs the plan's number again; a saved sort of the Picks tab
+--     follows its columns past the new Amount column
+--   * a pick made again is planned as of the plan's own moment (review round 3): with your bags and bank as the plan
+--     read them and the picks before it as planned, and it keeps the plan's time. So what you bought and crafted since
+--     the plan is progress, shared out over the picks in the plan's order as for picks you did not touch: materials
+--     bought for one pick never show up as free stock or as bought for another, whichever pick is made again, also
+--     after two edits; units a pick has crafted of its own item are not material for another pick; crafts since the
+--     plan count toward the new number
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")
@@ -380,44 +382,6 @@ H.test("amount: with the lock off the next automatic plan starts from the plan's
     end
 end)
 
-H.test("amount: the buy steps of two picks of one material never count the same purchases twice after an edit", function()
-    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
-    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
-    local ctx = Plan(FM, env, out)
-    local first = out.picks[1]
-    local planned = env.clock
-    -- the second pick made again ten minutes later: it buys 5 of the material, counted from then
-    local edited = planned + 600
-    local second = FM.RemakePick(out, { view = ctx.view, sources = ctx.sources, now = edited, nowMinutes = NOW_MINUTES + 10 },
-        out.picks[2].key, 5)
-    H.same({ first.planAt, second.planAt, first.purchases[1].ah, second.purchases[1].ah }, { planned, edited, 11, 5 },
-        "the first buys 11 since the plan, the second 5 since the edit")
-    FM.trade = out
-    local bought = {} -- { t, units } of the material
-    FM.BoughtSince = function(key, since)
-        local n = 0
-        for _, b in ipairs(bought) do
-            if key == "900" and b[1] >= since then n = n + b[2] end
-        end
-        return n
-    end
-    -- 11 bought after the edit: they are the first pick's, the second still has its 5 to buy
-    bought = { { edited + 60, 11 } }
-    H.same({ FM.PickBuyStep(first) }, { "bought the materials", true }, "the first pick has its 11")
-    H.same({ FM.PickBuyStep(second) }, {}, "the second still buys its 5: the same purchase is not counted again")
-    -- 5 more: now the second has its own
-    bought = { { edited + 60, 11 }, { edited + 120, 5 } }
-    H.same({ FM.PickBuyStep(second) }, { "bought the materials", true }, "16 bought: 11 for the first, 5 for the second")
-    -- 11 bought before the edit were the first pick's already: 5 after it go to the second
-    bought = { { planned + 60, 11 }, { edited + 60, 5 } }
-    H.same({ FM.PickBuyStep(first) }, { "bought the materials", true }, "the first pick: the 11 from before the edit")
-    H.same({ FM.PickBuyStep(second) }, { "bought the materials", true }, "the second: the 5 since its edit")
-    -- 3 bought after the edit with nothing before: the first pick comes first
-    bought = { { edited + 60, 3 } }
-    H.eq((FM.PickBuyStep(first)):find("buy 8 more", 1, true) ~= nil, true, "the first pick: 8 of its 11 still to buy")
-    H.same({ FM.PickBuyStep(second) }, {}, "the second: its 5 as planned")
-end)
-
 H.test("amount: a saved sort of the Picks tab follows its columns past the new Amount column", function()
     local FM = Setup({})
     -- saved by 1.46: nine columns, sorted by Expected (the fifth), then by Conf. (the ninth)
@@ -433,62 +397,119 @@ H.test("amount: a saved sort of the Picks tab follows its columns past the new A
     H.same({ #state.list, state.list[1].col }, { 1, 1 }, "the default sort")
 end)
 
--- Review round 2 of pull request 69: an amount set half way through a plan
-H.test("amount: materials you bought for another pick since the plan are not free stock for the pick made again", function()
-    -- two crafts of one material, both buy 11 at the AH; nothing in your bags when the plan is made
+-- Review rounds 2 and 3 of pull request 69: an amount set half way through a plan. The pick is planned as of the plan's
+-- own moment and keeps the plan's time, so what happened since is progress, shared in the plan's order
+
+-- Two crafts of one material (item 900), each buying 11 at the AH; bags = your units of the material, bought = the
+-- AH purchases of it since the plan
+local function TwoPicks(startBags)
     local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
-    local bags = 0
-    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
+    local state = { bags = startBags or 0, bought = 0, crafted = {} }
+    FM.Owned = function(key) if key == "900" then return state.bags, state.bags, state.bags, state.bags end return 0, 0, 0, 0 end
     local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
     local ctx = Plan(FM, env, out)
+    FM.trade = out
+    FM.BoughtSince = function(key, since) return (key == "900" and since <= env.clock) and state.bought or 0 end
+    FM.CraftedSince = function(key) return state.crafted[key] or 0 end
+    return FM, env, out, ctx, state
+end
+
+-- A pick's buy step as the table shows it now: FM.PickBuyStep's text, or the plan's own step when nothing was bought
+local function BuyStep(FM, pick)
+    local text = FM.PickBuyStep(pick)
+    return text or pick.steps[pick.buyStep]
+end
+
+H.test("amount: a pick made again keeps the plan's time and reads your bags as the plan did", function()
+    local FM, env, out, ctx, state = TwoPicks(0)
     local first, second = out.picks[1], out.picks[2]
     H.same({ first.purchases[1].ah, second.purchases[1].ah }, { 11, 11 }, "the plan: each buys 11")
-    -- you buy the first pick's 11: they are in your bags now
-    bags = 11
-    local pick = FM.RemakePick(out, ctx, second.key, 5)
-    H.same({ pick.amount, pick.purchases and pick.purchases[1].ah, pick.invest }, { 5, 5, 5000 },
-        "the second pick made again for 5 still buys its 5: the 11 in your bags are the first pick's")
+    -- you buy the first pick's 11: they are in your bags now. Ten minutes later the second pick is made again for 5
+    state.bags, state.bought = 11, 11
+    local later = { view = ctx.view, sources = ctx.sources, now = env.clock + 600, nowMinutes = NOW_MINUTES + 10 }
+    local pick = FM.RemakePick(out, later, second.key, 5)
+    H.same({ pick.amount, pick.purchases[1].ah, pick.invest }, { 5, 5, 5000 },
+        "it still buys its 5: the 11 in your bags are the first pick's, not free stock")
     H.eq(pick.useStep, nil, "it uses nothing from your bags")
-    -- with 14 in your bags, 3 are free: it uses those and buys 2
-    bags = 14
-    pick = FM.RemakePick(out, ctx, second.key, 5)
-    H.same({ pick.purchases[1].ah, pick.invest }, { 2, 2000 }, "3 units beyond the first pick's 11 are free: it buys 2")
+    H.same({ pick.planAt, pick.since }, { first.planAt, second.since }, "it counts from the plan's time, as the first pick does")
+    H.eq(BuyStep(FM, first), "bought the materials", "the first pick has its 11")
+    H.eq(BuyStep(FM, pick):find("^buy 5 ") ~= nil, true, "the second still has its 5 to buy: " .. BuyStep(FM, pick))
+    -- units that reached your bags some other way since the plan are a new plan's business (Refresh), not this edit's
+    state.bags = 14
+    H.eq(FM.RemakePick(out, later, second.key, 5).purchases[1].ah, 5, "still 5: the plan read 0 in your bags")
 end)
 
-H.test("amount: what a pick before it has crafted away is not taken from your stock a second time", function()
-    -- 22 of the material in your bags at the plan: each pick uses 11 of them
-    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
-    local bags = 22
-    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
-    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
-    local ctx = Plan(FM, env, out)
+H.test("amount: purchases made for a pick before the edit stay that pick's, whichever pick is made again", function()
+    -- the first pick's 11 are bought, then the FIRST pick is made again for 15
+    local FM, env, out, ctx, state = TwoPicks(0)
+    local second = out.picks[2]
+    state.bags, state.bought = 11, 11
+    local first = FM.RemakePick(out, ctx, out.picks[1].key, 15)
+    H.same({ first.amount, first.purchases[1].ah }, { 15, 15 }, "15 crafts need 15 of the material")
+    H.eq(BuyStep(FM, first):find("^buy 4 more ") ~= nil, true, "11 of them are bought: 4 more, " .. BuyStep(FM, first))
+    H.eq(BuyStep(FM, second):find("^buy 11 ") ~= nil, true, "the second pick still buys its 11: " .. BuyStep(FM, second))
+    -- made again for fewer: 5 of the 11 bought are its, the other 6 count for the second pick
+    first = FM.RemakePick(out, ctx, first.key, 5)
+    H.eq(BuyStep(FM, first), "bought the materials", "5 of the 11 bought cover it")
+    H.eq(BuyStep(FM, second):find("^buy 5 more ") ~= nil, true, "6 are left for the second pick: 5 more, " .. BuyStep(FM, second))
+end)
+
+H.test("amount: after two edits the picks together ask for what is really missing", function()
+    -- both picks' 11 are bought and in your bags
+    local FM, env, out, ctx, state = TwoPicks(0)
+    state.bags, state.bought = 22, 22
+    local first = FM.RemakePick(out, ctx, out.picks[1].key, 15)
+    H.eq(BuyStep(FM, first), "bought the materials", "the first pick, 15: the purchases cover it first")
+    H.eq(BuyStep(FM, out.picks[2]):find("^buy 4 more ") ~= nil, true, "7 are left for the second pick's 11: 4 more")
+    local second = FM.RemakePick(out, ctx, out.picks[2].key, 12)
+    H.eq(BuyStep(FM, first), "bought the materials", "the first pick is unchanged")
+    H.eq(BuyStep(FM, second):find("^buy 5 more ") ~= nil, true, "the second, 12: 7 bought, 5 more (27 needed, 22 bought)")
+    H.eq(second.useStep, nil, "neither uses the other's units from your bags")
+end)
+
+H.test("amount: what a pick before it took of your bags at the plan is not taken twice, crafted away or not", function()
+    -- 22 of the material in your bags at the plan: each pick uses 11 of them, nothing to buy
+    local FM, env, out, ctx, state = TwoPicks(22)
     local first, second = out.picks[1], out.picks[2]
-    H.same({ first.invest, second.invest }, { 0, 0 }, "the plan: both from your bags, nothing to buy")
-    -- the first pick's 11 are crafted: its materials are gone, 11 are left for the second
-    bags = 11
-    FM.CraftedSince = function(key) return key == first.key and 11 or 0 end
+    H.same({ first.invest, second.invest }, { 0, 0 }, "the plan: both from your bags")
+    -- the first pick's 11 are crafted: its materials are gone from your bags
+    state.bags, state.crafted[first.key] = 11, 11
     local pick = FM.RemakePick(out, ctx, second.key, 15)
     H.same({ pick.amount, pick.purchases[1].ah, pick.invest }, { 15, 4, 4000 },
-        "15: the 11 in your bags and 4 from the AH (the first pick, done, takes none of them again)")
-    -- half crafted: the first pick still needs 5 or 6 of what is in your bags
-    bags = 17
-    FM.CraftedSince = function(key) return key == first.key and 5 or 0 end
-    pick = FM.RemakePick(out, ctx, second.key, 15)
-    H.eq(pick.purchases[1].ah, 4, "17 in your bags, the first pick's 6 crafts left keep 6: 11 for this one, 4 to buy")
+        "15: the 11 of your bags that were its at the plan, and 4 from the AH")
+    -- half crafted: the same, the first pick's share of your bags is its own either way
+    state.bags, state.crafted[first.key] = 17, 5
+    H.eq(FM.RemakePick(out, ctx, second.key, 15).purchases[1].ah, 4, "the same with the first pick half done")
 end)
 
-H.test("amount: what you bought for a pick after it stays that pick's", function()
+H.test("amount: units a pick has crafted of its own item are not material for the pick made again", function()
+    -- the second craft uses the first craft's item as its material; both are picks
     local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
     local bags = 0
-    FM.Owned = function(key) if key == "900" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
-    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
-    local ctx = Plan(FM, env, out)
-    local first = out.picks[1]
-    FM.trade = out
-    -- both picks' 11 are bought and in your bags
-    bags = 22
-    FM.BoughtSince = function(key) return key == "900" and 22 or 0 end
-    local pick = FM.RemakePick(out, ctx, first.key, 15)
-    H.same({ pick.amount, pick.purchases[1].ah, pick.invest }, { 15, 4, 4000 },
-        "the first pick made again for 15 uses its own 11 and buys 4: the second pick's 11 are not its")
+    FM.Owned = function(key) if key == "100" then return bags, bags, bags, bags end return 0, 0, 0, 0 end
+    local product = Craft("101", 43)
+    product.sell, product.usual, product.cost, product.profit = 50000, 50000, 10000, 50000 * 0.95 - 10000
+    product.parts = { { key = "100", n = 1, unit = 10000, src = "ah" } }
+    local out = { crafts = { Craft("100", 43), product } }
+    local ctx = Plan(FM, env, out, { ["100"] = { ladder = { { 10000, 50 } }, qty = 50, own = 0 } })
+    local made = PickOf(out, "101")
+    H.eq(made.purchases[1].key, "100", "the plan: it buys the first craft's item at the AH")
+    local buys = made.purchases[1].ah
+    -- you craft the first pick's 11: they sit in your bags, not listed yet
+    bags = 11
+    local pick = FM.RemakePick(out, ctx, "101", made.amount)
+    H.eq(pick.purchases[1].ah, buys, "made again for the same number it buys the same: those 11 are the first pick's to list")
+    H.eq(pick.useStep, nil, "it uses none of them")
+end)
+
+H.test("amount: crafts since the plan count toward the number you set", function()
+    local FM, env, out, ctx, state = TwoPicks(0)
+    local plan = out.picks[1]
+    state.crafted[plan.key] = 4 -- 4 of its 11 are made
+    H.same({ FM.PickProgress(plan) }, { 4, 11, 7 }, "the plan: 4 of 11, 7 left")
+    local later = { view = ctx.view, sources = ctx.sources, now = env.clock + 600, nowMinutes = NOW_MINUTES + 10 }
+    local pick = FM.RemakePick(out, later, plan.key, 8)
+    H.eq(pick.since, plan.since, "its crafts count from the plan's time")
+    H.same({ FM.PickProgress(pick) }, { 4, 8, 4 }, "8 set: 4 of 8 made, 4 left")
+    H.eq(FM.PickRunsLeft(pick), 4, "Ctrl+click's count: the 4 crafts left")
 end)
