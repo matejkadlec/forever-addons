@@ -2471,7 +2471,10 @@ end
 -- What an automatic plan carries over from the plan shown: { [key] = { target, since, held } } of its craft picks
 function FM.PickCarry(picks)
     local carry
-    for _, p in ipairs(type(picks) == "table" and picks or EMPTY) do
+    for _, shown in ipairs(type(picks) == "table" and picks or EMPTY) do
+        -- a pick made again for an amount you set carries the plan's own target (FRV-154, review round 1: a new plan
+        -- starts from its own numbers; carried, your number came back as the plan's, unmarked)
+        local p = type(shown) == "table" and shown.original or shown
         if type(p) == "table" and type(p.key) == "string" and type(p.target) == "number" and type(p.since) == "number" then
             carry = carry or {}
             carry[p.key] = { target = p.target, since = p.since, held = p.heldOwn or 0 }
@@ -2518,14 +2521,41 @@ local function BoughtFor(pick, key, planAt)
     local total = FM.BoughtSince and FM.BoughtSince(key, planAt) or 0
     local picks = FM.trade and FM.trade.picks
     if total <= 0 or type(picks) ~= "table" then return total end
-    local left = total
+    -- the times the shown plan's picks count their purchases from: the plan's, and for a pick made again for an amount
+    -- you set the moment of that (FRV-154, review round 1: counted per time alone, two picks of one material both took
+    -- the same purchases)
+    local times, index, shown = {}, {}, false
     for _, p in ipairs(picks) do
-        if type(p) == "table" and p.planAt == planAt and type(p.purchases) == "table" then
+        if type(p) == "table" and type(p.planAt) == "number" and type(p.purchases) == "table" then
+            if p == pick then shown = true end
+            if not index[p.planAt] then
+                times[#times + 1] = p.planAt
+                index[p.planAt] = true
+            end
+        end
+    end
+    if not shown then return total end -- a pick of an older plan: its own count
+    table_sort(times)
+    -- pool[i]: the units bought from times[i] up to the next of them (the last: since it)
+    local pool = {}
+    for i, t in ipairs(times) do
+        index[t] = i
+        pool[i] = t == planAt and total or FM.BoughtSince(key, t)
+    end
+    for i = 1, #times - 1 do pool[i] = math_max(0, pool[i] - pool[i + 1]) end
+    -- in the plan's order each pick takes what it needs of the purchases since its own time, the oldest first
+    for _, p in ipairs(picks) do
+        if type(p) == "table" and type(p.purchases) == "table" and index[p.planAt] then
             for _, e in ipairs(p.purchases) do
                 if e.key == key and (e.ah or 0) > 0 then
-                    local take = math_min(left, e.ah)
-                    if p == pick then return take end
-                    left = left - take
+                    local got = 0
+                    for i = index[p.planAt], #times do
+                        local take = math_min(pool[i], e.ah - got)
+                        pool[i] = pool[i] - take
+                        got = got + take
+                        if got >= e.ah then break end
+                    end
+                    if p == pick then return got end
                 end
             end
         end

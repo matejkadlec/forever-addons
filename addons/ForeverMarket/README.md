@@ -281,14 +281,15 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   keyboard focus nothing shows (Shift types capitals there); an input of another window (the chat, the sniper's item
   box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
   links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
-  tooltip stays until it is closed. Not under the rule: the Profit graph's readout, the item tooltips in your bags,
+  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
+  "All characters" buttons above it follow the rule), the item tooltips in your bags,
   the sniper window and the settings panel. The footer of every tab ends with the hint: Picks "... · hold Shift over
   rows, inputs, dropdowns and checkboxes to show tooltips" ("hover for why" before), the other tabs "· hold Shift
   for tooltips"; a line too long for the window takes a shorter form of its own note, so the hint is never cut
   (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table: tooltips only while Shift
   is held" (`tableShiftTips`, on by default) switches back to tooltips on plain hover. One helper holds the rule,
   `FM.TableTip(frame, show)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
-  `ui/Filters.lua`: no tooltip of the window has an `OnEnter` script of its own. Not yet verified in game
+  `ui/Filters.lua`: apart from the graph's dots no tooltip of the window has an `OnEnter` script of its own. Not yet verified in game
 * Search box (1.36, FRV-26): Blizzard's `SearchBoxTemplate` (a magnifier, "Search" until you type, a clear button),
   140 px; until 1.35 a plain box with "Filter by name" above it (the filter row and everything under it moved up by
   that label's 14 px: `FILTER_Y` -74, `TOP` -134). Each tab keeps its own search text for the session (`view.search`
@@ -560,7 +561,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     more materials at a usable price)"); when nothing can be made for it the pick stays and a chat line says why. A
     number you set is light blue and its tooltip says "Set by you. Empty it and press Enter for the plan's number
     (11)"; emptying it brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
-    deep scans, a new plan (Refresh, or any plan with the lock off) starts from its own numbers. Stock picks show the
+    deep scans, a new plan (Refresh, or any plan with the lock off, which carries the plan's own target of a craft in
+    progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
+    its columns past the new one. Stock picks show the
     units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
     (`FM.SnipeFollowPlan(picks, at, changed)`): its items get the edited pick's units, never more than the pick was
     sent with (Shift+right-click starts higher). The plan log keeps the plan's own line and gets one more for the

@@ -17,6 +17,10 @@
 --   * the input (FM.AmountAsked): a whole number from 1 other than the pick's sets it; an emptied input brings the plan's
 --     number back on a pick you set and changes nothing else; 0, a negative number, a fraction, a letter or the number
 --     it already has leave the pick alone (the old number shows again)
+--   * review round 1: with the lock off the next automatic plan carries the plan's own target of a craft pick, not the
+--     number you set (FM.PickCarry), so it shows and logs the plan's number again; the buy steps of two picks of one
+--     material never count the same purchases twice when one of them was made again later (its purchases count from
+--     that moment); a saved sort of the Picks tab follows its columns past the new Amount column
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")
@@ -344,4 +348,84 @@ H.test("amount: the input sets a whole number from 1, empties back to the plan's
     H.same({ FM.AmountAsked(set, "100") }, { "set", 100 }, "typing the plan's number sets it like any other")
     H.same({ FM.AmountAsked({ key = "100", amount = 11 }, "5") }, {}, "a Stock pick's amount is no input")
     H.same({ FM.AmountAsked(nil, "5") }, {}, "no pick, nothing")
+end)
+
+-- Review round 1 of pull request 69
+H.test("amount: with the lock off the next automatic plan starts from the plan's own number, not from yours", function()
+    local FM, env, r = Setup({ ["100"] = 27 })
+    local out = { crafts = { Craft("100", 43) } }
+    local ctx = Plan(FM, env, out)
+    local plan = out.picks[1]
+    H.same({ plan.target, plan.amount }, { 11, 11 }, "the plan: make 11, its target")
+    local pick = FM.RemakePick(out, ctx, "100", 50)
+    H.same({ pick.amount, pick.target }, { 50, 50 }, "your 50")
+    local carry = FM.PickCarry(out.picks)
+    H.same({ carry["100"].target, carry["100"].since }, { plan.target, plan.since }, "the carry is the plan's own pick's")
+    -- the automatic plan that follows (a change of your bags, a deep scan)
+    local nextOut = { crafts = { Craft("100", 43) } }
+    local done = false
+    FM.ComputePicks(nextOut, { view = View(), sources = { profs = {} }, now = env.clock + 60, nowMinutes = NOW_MINUTES,
+        carry = carry }, function() done = true end)
+    env.FlushTimers()
+    H.eq(done, true, "the pass finished")
+    local again = nextOut.picks[1]
+    H.same({ again.amount, again.amountSet, again.original }, { 11, nil, nil }, "make 11 again, a plan's number")
+    for _, line in ipairs(r.plans) do
+        if line:find(",100,craft,50,", 1, true) then
+            H.eq(line:match(",([^,]*)$"), "e", "the only line with 50 is the one marked as set by you: " .. line)
+        end
+    end
+end)
+
+H.test("amount: the buy steps of two picks of one material never count the same purchases twice after an edit", function()
+    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
+    local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
+    local ctx = Plan(FM, env, out)
+    local first = out.picks[1]
+    local planned = env.clock
+    -- the second pick made again ten minutes later: it buys 5 of the material, counted from then
+    local edited = planned + 600
+    local second = FM.RemakePick(out, { view = ctx.view, sources = ctx.sources, now = edited, nowMinutes = NOW_MINUTES + 10 },
+        out.picks[2].key, 5)
+    H.same({ first.planAt, second.planAt, first.purchases[1].ah, second.purchases[1].ah }, { planned, edited, 11, 5 },
+        "the first buys 11 since the plan, the second 5 since the edit")
+    FM.trade = out
+    local bought = {} -- { t, units } of the material
+    FM.BoughtSince = function(key, since)
+        local n = 0
+        for _, b in ipairs(bought) do
+            if key == "900" and b[1] >= since then n = n + b[2] end
+        end
+        return n
+    end
+    -- 11 bought after the edit: they are the first pick's, the second still has its 5 to buy
+    bought = { { edited + 60, 11 } }
+    H.same({ FM.PickBuyStep(first) }, { "bought the materials", true }, "the first pick has its 11")
+    H.same({ FM.PickBuyStep(second) }, {}, "the second still buys its 5: the same purchase is not counted again")
+    -- 5 more: now the second has its own
+    bought = { { edited + 60, 11 }, { edited + 120, 5 } }
+    H.same({ FM.PickBuyStep(second) }, { "bought the materials", true }, "16 bought: 11 for the first, 5 for the second")
+    -- 11 bought before the edit were the first pick's already: 5 after it go to the second
+    bought = { { planned + 60, 11 }, { edited + 60, 5 } }
+    H.same({ FM.PickBuyStep(first) }, { "bought the materials", true }, "the first pick: the 11 from before the edit")
+    H.same({ FM.PickBuyStep(second) }, { "bought the materials", true }, "the second: the 5 since its edit")
+    -- 3 bought after the edit with nothing before: the first pick comes first
+    bought = { { edited + 60, 3 } }
+    H.eq((FM.PickBuyStep(first)):find("buy 8 more", 1, true) ~= nil, true, "the first pick: 8 of its 11 still to buy")
+    H.same({ FM.PickBuyStep(second) }, {}, "the second: its 5 as planned")
+end)
+
+H.test("amount: a saved sort of the Picks tab follows its columns past the new Amount column", function()
+    local FM = Setup({})
+    -- saved by 1.46: nine columns, sorted by Expected (the fifth), then by Conf. (the ninth)
+    FM.GetSettings().tableSort = { picks = { sig = "#|Pick|Type|Invest|Expected|On AH|C/8h|C/24h|Conf.",
+        list = { { col = 5, desc = true }, { col = 9, desc = false } } } }
+    local state = FM.TableSortOf("picks")
+    H.same({ state.list[1].col, state.list[1].desc, state.list[2].col, state.list[2].desc }, { 6, true, 10, false },
+        "Expected is the sixth column now, Conf. the tenth: the sort is kept")
+    H.eq(state.sig, "#|Pick|Type|Amount|Invest|Expected|On AH|C/8h|C/24h|Conf.", "saved with the ten columns")
+    -- a sort saved with a column that is gone falls back to the default (the rank)
+    FM.GetSettings().tableSort = { picks = { sig = "#|Pick|Gone", list = { { col = 3, desc = true } } } }
+    state = FM.TableSortOf("picks")
+    H.same({ #state.list, state.list[1].col }, { 1, 1 }, "the default sort")
 end)

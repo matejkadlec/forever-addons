@@ -587,12 +587,12 @@ local function SortState(tab)
         state = { list = { { col = state.col, desc = state.desc } } } -- saved before 1.11
     end
     local sig = ColumnSig(tab)
-    -- the same columns in another order (Picks' Conf. moved last, FRV-100): the saved sort follows its columns
+    -- the same columns in another order (Picks' Conf. moved last, FRV-100) or with new ones between them (Picks' Amount,
+    -- FRV-154): the saved sort follows its columns, as long as every column it was saved with is still there
     if type(state) == "table" and type(state.list) == "table" and type(state.sig) == "string" and state.sig ~= sig then
         local old, at, same = {}, {}, true
         for title in string.gmatch(state.sig, "[^|]+") do old[#old + 1] = title end
         for i, col in ipairs(tab.columns) do at[col.title] = i end
-        if #old ~= #tab.columns then same = false end
         for _, title in ipairs(old) do
             if not at[title] then same = false end
         end
@@ -626,6 +626,12 @@ local function SortState(tab)
 end
 
 -- Header click: one level, or with Shift a further level
+-- The sort of a tab by its id, for the tests (the columns a saved sort follows)
+function FM.TableSortOf(tabId)
+    local tab = TAB_BY_ID[tabId]
+    return tab and SortState(tab) or nil
+end
+
 local function SortBy(tab, i, addLevel)
     local state = SortState(tab)
     local list = state.list
