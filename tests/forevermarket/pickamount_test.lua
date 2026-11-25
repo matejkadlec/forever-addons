@@ -30,8 +30,8 @@
 --     what was bought for it since the plan), so a pick lowered under what was bought needs nothing more; a craft's
 --     number counts from its plan also when an automatic plan had carried the pick; a material the plan never read is
 --     read as of the plan (your units now less what was bought of it since) and the read is kept for later edits
---   * review round 5: a flip counts what was bought of its item since its plan the same way (every pick has its plan's
---     time), so a flip lowered under what was bought has nothing left to buy either
+--   * review rounds 5 and 6: a flip or a vendor resell has no plan time and takes no part in the sharing of purchases
+--     (its steps line shows no progress), so its units stay whole for the sniper and its number counts from the edit
 -- What the input looks like in the client is the in-game test's job.
 
 local H = require("harness")

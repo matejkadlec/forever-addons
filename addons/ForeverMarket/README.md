@@ -581,7 +581,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     what was bought for it since the plan, `FM.PickBuysLeft`), never more than the pick was sent with. So a craft pick
     lowered under what was already bought for it, or to a number your own stock covers, stops the sniper for it, and
     it stays traced with nothing left ("all bought" in the tooltips): a Shift+click of the same plan adds nothing, and
-    its number put back gives the rest back. A pick raised keeps the limit it was sent with (Shift+right-click sends
+    its number put back gives the rest back. One exception: an item nothing was bought of yet, which no other pick
+    and no number of your own needs, has nothing to stay in the sniper's list for, so it leaves the list as after a
+    new plan (the chat says "no pick needs ... any more, removed"); its number put back does not bring it back then,
+    a Shift+click on the pick sends it again. A pick raised keeps the limit it was sent with (Shift+right-click sends
     its whole units again, counted from 0). A flip's or a vendor resell's number counts from the edit: such a pick has
     no progress, so what was bought of it before does not come off, and the sniper may buy up to the new number more
     (never past what the pick was sent with). The plan log keeps the plan's own line and gets one more for the

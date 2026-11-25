@@ -420,7 +420,7 @@ end
 -- set in the table stays traced, at 0 when it has nothing to buy of the item now (FRV-154, review rounds 5 and 6): an
 -- amount can be taken back within the same plan, so its entry must be there for a click of the same plan to add
 -- nothing and for its number put back to give the rest back. Returns the new limit, or 0 when nothing is left to buy
--- and nothing was bought
+-- and nothing was bought (the item then leaves the list, with a kept entry too: review round 7)
 local function Retrace(saved, wanted, at, keep)
     local list, traced, ceil = TracedNow(saved)
     local shares = Capped(list, wanted, ceil)
@@ -956,7 +956,11 @@ end
 -- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too,
 -- with what is still to buy (FM.PickBuysLeft), and it stays traced for every item it was sniped for, at 0 where it has
 -- nothing to buy now: bought in full, or covered by your stock at the lower number (review rounds 5 and 6; a new plan
--- drops a pick that no longer buys an item, but an amount can be taken back within the same plan)
+-- drops a pick that no longer buys an item, but an amount can be taken back within the same plan). That holds while
+-- the item stays in the list. An item nothing was bought of, which no other pick and no number of yours needs, has
+-- no limit left (0 is no limit, Left), so it leaves the list here too and the chat names it; only the items in the
+-- list are followed, so its number put back does not bring it back: a Shift+click on the pick sends it again (review
+-- round 7)
 function FM.SnipeFollowPlan(picks, at, changed)
     local s = Data()
     if not s or type(at) ~= "number" then return end
