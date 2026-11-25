@@ -485,7 +485,8 @@ local function WhereCell(r)
     local route = r.route
     if not route then return GREY .. "-|r" end
     if route.kind == "ah" then return GREY .. "Pattern on the AH|r" end
-    return GREY .. NoCoords(route.where) .. "|r"
+    -- a vendor QuestieDB names that you have not opened yet (FRV-199): its price comes with your visit
+    return GREY .. NoCoords(route.where) .. (route.unvisited and ", not visited yet" or "") .. "|r"
 end
 
 -- Crafts until the recipe has paid for itself at the profit per craft now (row.payback; from the last seen price of a
@@ -950,8 +951,12 @@ local function LearnLines(craft)
                 .. RouteLevel(route))
         else
             local high = (route.req or 0) > (craft.skillNow or 0)
-            local text = Money(route.price) .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
-                .. (high and RED or GREY) .. string_format("skill %d", route.req or 0) .. "|r" .. RouteLevel(route) .. GREY
+            -- a vendor not visited yet (FRV-199): no price until you open it, its skill maybe estimated
+            local text = (route.price and Money(route.price) or (GREY .. "price not known yet|r"))
+                .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
+                .. (high and RED or GREY) .. string_format("skill %d%s", route.req or 0, route.est and " (estimated)" or "") .. "|r"
+                .. RouteLevel(route) .. GREY
+            if route.unvisited then text = text .. ", not visited yet (QuestieDB)" end
             if route.limited then text = text .. ", limited stock" end
             if route.rep then text = text .. ", needs reputation" end
             Line(route.kind == "trainer" and "Trainer" or "Vendor", text .. "|r")

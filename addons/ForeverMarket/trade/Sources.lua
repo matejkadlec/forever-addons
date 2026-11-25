@@ -89,6 +89,7 @@ local function RecipeName(itemName)
     end
     return nil
 end
+FM.RecipeNameOf = RecipeName -- the recipe a pattern item's name teaches (trade/QuestieVendors.lua, FRV-199)
 
 local function Joined(lines)
     local out = {}
@@ -297,11 +298,14 @@ local function ReadContacts(profSkill)
                                 if req then
                                     local list = routes[recipe] or {}
                                     routes[recipe] = list
+                                    -- prof, pattern and lines: a recipe ForeverArtisan does not list is built from its
+                                    -- pattern's saved lines (FRV-199, PatternRecipe)
                                     list[#list + 1] = { kind = "vendor", req = req, price = price, where = Place(entry),
                                         limited = limited, rep = string_find(text, "with this faction", 1, true) and true or nil,
                                         npc = entry.name, mapID = entry.mapID or entry.m, x = entry.x, y = entry.y,
                                         level = tonumber(it.levelReq) or ItemLevelReq(id) or RecipeOwnLevel(List(it.tooltip)),
-                                        spec = SpecOfLines(it.requires, it.tooltip) }
+                                        spec = SpecOfLines(it.requires, it.tooltip), prof = prof, pattern = key,
+                                        lines = List(it.tooltip) }
                                 end
                             end
                         end
@@ -499,6 +503,121 @@ FM.On("MERCHANT_UPDATE", function()
 end)
 FM.On("MERCHANT_CLOSED", function() merchantOpen = false end)
 
+---------------------------------------------------------------- recipes only a pattern tells of (FRV-199)
+-- ForeverArtisan lists the recipes its profession window showed; on Forever that window leaves out some recipes still
+-- to learn (Turtle Scale Gloves, sold by Pratt McGrubben and Jangdor Swiftstrider, is in no list, learned or not), so
+-- the vendor routes ReadContacts found for them had no craft. Such a recipe is built from its pattern's tooltip lines:
+-- the ones ForeverArtisan_Contacts saved at a vendor you opened, else the client's tooltip of a pattern item QuestieDB
+-- names (trade/QuestieVendors.lua). The lines name the made item ("Use: Teaches you how to craft X.") and, on the line
+-- after it, the materials ("Thick Leather (6), Turtle Scale (8), Heavy Silken Thread"); items are found by name among
+-- the market's names and ForeverArtisan's materials, and a name not found = no recipe. One made item per craft: the
+-- lines do not say more. A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the
+-- vendors QuestieDB names for its pattern, friendly to your faction: "not visited yet", no price until you open them
+
+-- item name -> key: the market's names (a plain item ID before a key with a suffix) and ForeverArtisan's materials
+local function NameIndex(charRecipes)
+    local index = {}
+    for key, name in pairs(FM.R().names or {}) do
+        if type(name) == "string" and type(key) == "string" then
+            local old = index[name]
+            if not old or (not string_find(old, "^%d+$") and string_find(key, "^%d+$")) then index[name] = key end
+        end
+    end
+    for _, entry in ipairs(charRecipes) do
+        for _, r in pairs(entry.data.recipes) do
+            for _, g in ipairs(type(r) == "table" and List(r.reagents) or {}) do
+                local name = g.name
+                if g.id and type(name) == "string" and not name:find("^item:") and not index[name] then index[name] = tostring(g.id) end
+            end
+        end
+    end
+    return index
+end
+
+-- The made item's name and the materials ({ name, n }) of a pattern's lines; nil when they do not say
+local function PatternLines(lines)
+    for i, text in ipairs(lines) do
+        local product = type(text) == "string" and not FM.IsSecret(text) and string_match(text, "^Use: Teaches you how to %a+ (.-)%.?$")
+        if product then
+            product = product:gsub("^an? ", "")
+            local mats = lines[i + 1]
+            if type(mats) ~= "string" or FM.IsSecret(mats) or mats == "" or string_find(mats, "^Requires ") then return nil end
+            local list = {}
+            for part in string.gmatch(mats .. ",", "%s*(.-)%s*,") do
+                local name, n = string_match(part, "^(.-)%s*%((%d+)%)$")
+                if not name then name, n = part, 1 end
+                if name == "" then return nil end
+                list[#list + 1] = { name = name, n = tonumber(n) }
+            end
+            return product, list
+        end
+    end
+    return nil
+end
+
+-- A recipe from its pattern's lines, shaped like ForeverArtisan's (the same loop takes both); nil when a name is unknown
+local function PatternRecipe(lines, index)
+    local product, mats = PatternLines(lines)
+    local itemKey = product and index[product]
+    if not itemKey then return nil end
+    local reagents = {}
+    for i, m in ipairs(mats) do
+        local key = index[m.name]
+        if not key then return nil end
+        reagents[i] = { id = key, n = m.n, name = m.name }
+    end
+    return { itemId = itemKey, learned = false, reagents = reagents, makes = 1, fromPattern = true }
+end
+
+-- The client's tooltip lines of a pattern item; nil while the client has not loaded it (asked for then, the next pass
+-- reads it), and nil for good after three tries (an item QuestieDB has that this game does not: another game version's)
+local tooltipTries, tooltipLines = {}, {}
+local function TooltipLines(id)
+    if tooltipLines[id] then return tooltipLines[id] end -- a pattern's lines do not change
+    local api = C_TooltipInfo and C_TooltipInfo.GetItemByID
+    if not api or (tooltipTries[id] or 0) >= 3 then return nil end
+    local ok, data = pcall(api, id)
+    if ok and type(data) == "table" and type(data.lines) == "table" and data.lines[1] then
+        local lines = {}
+        for i, line in ipairs(data.lines) do lines[i] = type(line) == "table" and line.leftText or "" end
+        -- a tooltip of an item still loading has no Teaches line yet: try again
+        if PatternLines(lines) then
+            tooltipLines[id] = lines
+            return lines
+        end
+    end
+    tooltipTries[id] = (tooltipTries[id] or 0) + 1
+    if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+    return nil
+end
+
+-- The vendors QuestieDB names for a recipe's pattern (e = { ids, vendors }) as ways to learn it: the skill and level of
+-- the first pattern item the client knows (else 25 under where the recipe turns grey, as for a pattern on the AH: no
+-- pick takes an estimate), the vendors friendly to your faction, without a price
+local function UnvisitedRoutes(e, profName, grayAt)
+    local req, est, key
+    for _, id in ipairs(e.ids) do
+        req = PatternReq(tostring(id), profName)
+        if req then
+            key = tostring(id)
+            break
+        end
+    end
+    if not req and type(grayAt) == "number" then req, est = grayAt - 25, true end
+    if not req then return nil end
+    local level = key and PatternLevel(key) or nil
+    local spec = key and PatternSpec(key) or nil
+    local list = {}
+    for _, npcId in ipairs(e.vendors) do
+        local v = FM.QuestieVendor and FM.QuestieVendor(npcId)
+        if v then
+            list[#list + 1] = { kind = "vendor", unvisited = true, req = req, est = est or nil, where = v.where, npc = v.npc,
+                mapID = v.mapID, x = v.x, y = v.y, zone = v.zone, level = level, spec = spec or nil, pattern = key }
+        end
+    end
+    return list[1] and list or nil
+end
+
 -- Builds FM.sources = { crafts = {...}, vendors = {key -> {best, offers}}, profs = {...} }
 function FM.BuildSources()
     local profSkill = {}
@@ -515,91 +634,128 @@ function FM.BuildSources()
     local vendors, routes = ReadContacts(profSkill)
     local patterns = PatternKeys()
     local mySpec = ReadSpec()
+    -- the patterns vendors sell, from QuestieDB (FRV-199): nil while it is read, false without it
+    local qdb = FM.QuestiePatterns and FM.QuestiePatterns() or nil
+    local sold = type(qdb) == "table" and qdb or {}
+    local index -- item names to keys, made when a pattern's lines are read
 
     local crafts, byKey = {}, {}
     local laterList, laterByKey = {}, {}
-    for _, entry in ipairs(charRecipes) do
-        local prof, data = entry.prof, entry.data
-        for recipeName, r in pairs(data.recipes) do
-            local product = type(r) == "table" and r.itemId and tostring(r.itemId)
-            -- a Leatherworking recipe of another specialization than the character's is gone (FRV-110); a learned one
-            -- always stays
-            local spec = product and not r.learned and prof.name == "Leatherworking"
-                and RecipeSpecOf(r, recipeName, routes, patterns[recipeName]) or nil
-            if spec and mySpec and spec ~= mySpec then product = nil end
-            if product then
-                local learned = r.learned and true or false
-                local cap = profSkill[prof.name] or 0
-                -- every known way to learn it (learnAll), and those open up to your skill cap (learn)
-                local learn, learnAll
-                if not learned then
-                    learn, learnAll = {}, {}
-                    for _, route in ipairs(routes[recipeName] or {}) do learnAll[#learnAll + 1] = route end
-                    local patternKey = patterns[recipeName]
-                    if patternKey then
-                        -- the tooltip knows the skill; without it, estimate from where the recipe turns gray
-                        local req = PatternReq(patternKey, prof.name)
-                        local est = false
-                        if not req and type(r.grayAt) == "number" then
-                            req, est = r.grayAt - 25, true
-                        end
-                        if req then
-                            learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est,
-                                level = PatternLevel(patternKey) }
-                        end
+    -- One recipe of a profession: ForeverArtisan's, or one built from its pattern (FRV-199), shaped alike
+    local function Consider(prof, data, recipeName, r)
+        local product = type(r) == "table" and r.itemId and tostring(r.itemId)
+        -- nothing teaches it: the vendors of its pattern QuestieDB names, "not visited yet" (FRV-199)
+        local unvisited = product and not r.learned and not routes[recipeName] and not patterns[recipeName]
+            and sold[prof.name] and sold[prof.name][recipeName]
+        unvisited = unvisited and UnvisitedRoutes(unvisited, prof.name, r.grayAt) or nil
+        -- a Leatherworking recipe of another specialization than the character's is gone (FRV-110); a learned one
+        -- always stays
+        local spec = product and not r.learned and prof.name == "Leatherworking"
+            and (RecipeSpecOf(r, recipeName, routes, patterns[recipeName]) or (unvisited and unvisited[1].spec)) or nil
+        if spec and mySpec and spec ~= mySpec then product = nil end
+        if product then
+            local learned = r.learned and true or false
+            local cap = profSkill[prof.name] or 0
+            -- every known way to learn it (learnAll), and those open up to your skill cap (learn)
+            local learn, learnAll
+            if not learned then
+                learn, learnAll = {}, {}
+                for _, route in ipairs(routes[recipeName] or {}) do learnAll[#learnAll + 1] = route end
+                local patternKey = patterns[recipeName]
+                if patternKey then
+                    -- the tooltip knows the skill; without it, estimate from where the recipe turns gray
+                    local req = PatternReq(patternKey, prof.name)
+                    local est = false
+                    if not req and type(r.grayAt) == "number" then
+                        req, est = r.grayAt - 25, true
                     end
-                    for _, route in ipairs(learnAll) do
-                        if (route.req or 0) <= cap then learn[#learn + 1] = route end
+                    if req then
+                        learnAll[#learnAll + 1] = { kind = "ah", key = patternKey, req = req, est = est,
+                            level = PatternLevel(patternKey) }
                     end
                 end
-                local later = not learned and #learn == 0 and #learnAll > 0 -- only at a higher skill
-                if learned or #learn > 0 or later then
-                    local reagents = {}
-                    for _, g in ipairs(List(r.reagents)) do
-                        if g.id then
-                            local name = g.name
-                            if type(name) ~= "string" or name:find("^item:") then name = nil end
-                            reagents[#reagents + 1] = { key = tostring(g.id), n = g.n or 1, name = name }
-                        end
+                for _, route in ipairs(unvisited or {}) do learnAll[#learnAll + 1] = route end
+                for _, route in ipairs(learnAll) do
+                    if (route.req or 0) <= cap then learn[#learn + 1] = route end
+                end
+            end
+            local later = not learned and #learn == 0 and #learnAll > 0 -- only at a higher skill
+            if learned or #learn > 0 or later then
+                local reagents = {}
+                for _, g in ipairs(List(r.reagents)) do
+                    if g.id then
+                        local name = g.name
+                        if type(name) ~= "string" or name:find("^item:") then name = nil end
+                        reagents[#reagents + 1] = { key = tostring(g.id), n = g.n or 1, name = name }
                     end
-                    if #reagents > 0 then
-                        local tools = {}
-                        for _, tool in ipairs(List(r.tools)) do
-                            if type(tool) == "table" and type(tool.name) == "string" then tools[#tools + 1] = tool.name end
+                end
+                if #reagents > 0 then
+                    local tools = {}
+                    for _, tool in ipairs(List(r.tools)) do
+                        if type(tool) == "table" and type(tool.name) == "string" then tools[#tools + 1] = tool.name end
+                    end
+                    local craft = {
+                        key = product, recipe = r.name or recipeName, prof = prof.short, profName = prof.name, tools = tools,
+                        makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
+                        learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
+                        spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
+                        reagents = reagents, skillNow = data.skill, later = later or nil,
+                        made = CraftsSeen(data, recipeName), -- crafts ForeverArtisan counted (trade/Basis.lua)
+                        -- the specialization it needs, and specNeed while the character has none (FRV-110)
+                        spec = spec, specNeed = spec and not mySpec and spec or nil,
+                        fromPattern = r.fromPattern -- built from its pattern's lines (FRV-199)
+                    }
+                    if later then
+                        -- the Learn tab only: no craft row, no picks
+                        if not laterByKey[product] then
+                            laterByKey[product] = craft
+                            laterList[#laterList + 1] = craft
                         end
-                        local craft = {
-                            key = product, recipe = r.name or recipeName, prof = prof.short, profName = prof.name, tools = tools,
-                            makes = (type(r.makes) == "number" and r.makes > 0) and r.makes or 1,
-                            learned = learned, color = r.color, grayAt = r.grayAt, learn = learn, learnAll = learnAll,
-                            spell = type(r.id) == "number" and r.id or nil, -- the recipe ID is its spell ID
-                            reagents = reagents, skillNow = data.skill, later = later or nil,
-                            made = CraftsSeen(data, recipeName), -- crafts ForeverArtisan counted (trade/Basis.lua)
-                            -- the specialization it needs, and specNeed while the character has none (FRV-110)
-                            spec = spec, specNeed = spec and not mySpec and spec or nil
-                        }
-                        if later then
-                            -- the Learn tab only: no craft row, no picks
-                            if not laterByKey[product] then
-                                laterByKey[product] = craft
-                                laterList[#laterList + 1] = craft
-                            end
-                        else
-                            -- one row per product: the learned recipe wins over a second way to make it
-                            local old = byKey[product]
-                            if not old or (learned and not old.learned) then
-                                if old then
-                                    for i, c in ipairs(crafts) do
-                                        if c == old then table.remove(crafts, i) break end
-                                    end
+                    else
+                        -- one row per product: the learned recipe wins over a second way to make it
+                        local old = byKey[product]
+                        if not old or (learned and not old.learned) then
+                            if old then
+                                for i, c in ipairs(crafts) do
+                                    if c == old then table.remove(crafts, i) break end
                                 end
-                                crafts[#crafts + 1] = craft
-                                byKey[product] = craft
                             end
+                            crafts[#crafts + 1] = craft
+                            byKey[product] = craft
                         end
                     end
                 end
             end
         end
+    end
+    for _, entry in ipairs(charRecipes) do
+        local prof, data = entry.prof, entry.data
+        for recipeName, r in pairs(data.recipes) do Consider(prof, data, recipeName, r) end
+        -- the recipes ForeverArtisan does not list (FRV-199): from a vendor you opened (its saved lines), else from a
+        -- pattern QuestieDB names (the client's tooltip of it)
+        local extra = {}
+        for recipeName, list in pairs(routes) do
+            if not data.recipes[recipeName] then
+                for _, route in ipairs(list) do
+                    if not extra[recipeName] and route.kind == "vendor" and route.prof == prof.name and route.lines then
+                        index = index or NameIndex(charRecipes)
+                        extra[recipeName] = PatternRecipe(route.lines, index)
+                    end
+                end
+            end
+        end
+        for recipeName, e in pairs(sold[prof.name] or {}) do
+            if not data.recipes[recipeName] and not extra[recipeName] and not routes[recipeName] then
+                for _, id in ipairs(e.ids) do
+                    local lines = not extra[recipeName] and TooltipLines(id)
+                    if lines then
+                        index = index or NameIndex(charRecipes)
+                        extra[recipeName] = PatternRecipe(lines, index)
+                    end
+                end
+            end
+        end
+        for recipeName, r in pairs(extra) do Consider(prof, data, recipeName, r) end
     end
     -- a product you can already make (or learn now) needs no recipe for later
     local later = {}

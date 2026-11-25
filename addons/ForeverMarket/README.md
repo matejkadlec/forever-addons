@@ -395,6 +395,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   Its filters (Filters below): "Over skill level" and "Over character level" with their caps, at the top level (the tab
   holds only recipes still to learn). Hover = the craft tooltip with every route (its skill, and the character level
   it needs, red above yours) and the 7 days; right-click = the menu below (Track leads to the teacher).
+  Recipes only a vendor's pattern tells of (1.52, FRV-199, `trade/QuestieVendors.lua`, `trade/Sources.lua`):
+  * ForeverArtisan lists the recipes its profession window showed, and on Forever that window leaves some out while
+    they are unlearned (Turtle Scale Gloves: sold by Pratt McGrubben and Jangdor Swiftstrider, in no list, learned or
+    not). Such a recipe is built from its pattern: the lines ForeverArtisan_Contacts saved at a vendor you opened,
+    else the game's tooltip of the pattern item QuestieDB names. The line "Use: Teaches you how to craft X." names the
+    made item, the line after it the materials ("Thick Leather (6), Turtle Scale (8), Heavy Silken Thread"), each
+    found by its name among the items the market saw and ForeverArtisan's materials; an unknown name = no recipe. One
+    made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn
+  * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
+    for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
+    "?" and the tooltip "price not known yet ... not visited yet (QuestieDB)" (QuestieDB has no prices), the skill and
+    level from the pattern's tooltip (else 25 under where the recipe turns grey, "estimated"), and Track to the vendor
+    (QuestieDB's spot, Questie's zone table for the map). Picks never plans such a recipe: it needs a known price.
+    Once you open the vendor, ForeverArtisan_Contacts' route with its price is the one used
+  * QuestieDB (`LibQuestieDB`, the database Questie installs, contract 3) is read once per session in slices, the
+    first time the marketplace computes; its rows are let go after the read. Without QuestieDB only the patterns of
+    vendors you opened are read. Not yet verified in game
 * **Filters** (1.29, FRV-89; `ui/Filters.lua`, the values in `core/Core.lua`): Picks, Craft and Learn each have their
   own set (`settings.tableFilters.picks` / `.latest` / `.learn`), and one global set (`.global`) applies to every tab
   whose **Use global filters** is checked (`settings.tableUseGlobal[tab]`, default unchecked). While a tab uses its
