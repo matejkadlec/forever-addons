@@ -15,7 +15,7 @@ The steps below are what those skills do, for work done without them.
 
 ## Deliver a change (ticket to merge)
 
-1. **Ticket:** find or create the FRV ticket, label it, move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
+1. **Ticket:** find or create the FRV ticket, label it, give a new one its priority ([docs/ai-development-flow.md](docs/ai-development-flow.md#issues)), move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
 2. **Worktree:** a branch named after the ticket, in its own worktree from a fresh `origin/master` ([Branches and Worktrees](AGENTS.md#branches-and-worktrees))
 3. **Implement:** follow the [Development Workflow](AGENTS.md#development-workflow) and the nearest nested guide
 4. **Check:** `luac5.1 -p` on every changed Lua file, `tests/run.sh` ([tests/README.md](tests/README.md)), the version bump of every changed AddOn, the documentation
