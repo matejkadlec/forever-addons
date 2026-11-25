@@ -729,8 +729,9 @@ local function StockValue(key, buyUnit)
 end
 
 -- Buy n units of a material: the AH ladder unit by unit while it is cheaper than the vendor, the rest at the
--- vendor. A unit under the material's reference price counts at the reference (FRV-196, FM.MaterialRef): the plan
--- buys one scan's cheap units but does not count on them; top keeps what the ladder asks (the buy step's "up to").
+-- vendor. A unit under the material's reference price counts at the reference (FRV-196, FM.MaterialRef), at most at
+-- the vendor's price (the vendor is there when the cheap units are gone): the plan buys one scan's cheap units but
+-- does not count on them; top keeps what the ladder asks (the buy step's "up to").
 -- Returns what it costs, or nil when the AH runs out and no vendor sells it
 local function Buy(key, n, trial)
     local cost = 0
@@ -747,8 +748,9 @@ local function Buy(key, n, trial)
         else
             q = q - skip
             skip = 0
+            if vendorUnit and vendorUnit <= level[1] then break end
             local counted = (ref and ref > level[1]) and ref or level[1]
-            if vendorUnit and vendorUnit <= counted then break end
+            if vendorUnit and counted > vendorUnit then counted = vendorUnit end
             local take = math_min(q, n)
             cost = cost + take * counted
             trial.used[key] = (trial.used[key] or 0) + take

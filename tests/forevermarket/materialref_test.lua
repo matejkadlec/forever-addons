@@ -8,7 +8,8 @@
 --   * a material bought on the AH costs the higher of the ladder's batch price and the reference (FM.MaterialUnit):
 --     m.now keeps what the ladder asks and m.refHours the window, for the row tooltip; a price that rose counts at the
 --     ladder; the setting at 0, an older scan's (estimated) view and a view without references are the ladder alone
---   * Picks' Buy counts a unit under the reference at the reference; its "up to" (top) stays the ladder's price
+--   * Picks' Buy counts a unit under the reference at the reference, at most at a vendor's price; AH units under the
+--     vendor's price are still bought on the AH; its "up to" (top) stays the ladder's price
 --   * "Past 3 days" stays the latest scan's own numbers: the history line of a row a reference raised holds its
 --     ladder cost
 -- The market: Light Hide ("783") at 1s 10c in the scans of the last 8 hours, 78c in the latest one (10 units, then 40
@@ -263,4 +264,11 @@ H.test("material reference: Picks counts the AH units at the reference, its buy 
     FM.GetSettings().tableMatRefHours = 0
     pick = Plan()
     H.eq(Round(pick.invest / (pick.made or pick.amount)), 1000, "the setting at 0: 10s, the ladder")
+    -- a vendor sells it at 12s (review round 1 of PR 78): the 10s units are still bought on the AH, counted at 12s
+    FM.GetSettings().tableMatRefHours = 8
+    FM.VendorUnit = function(key) if key == "900" then return 1200 end return nil end
+    pick = Plan()
+    H.eq(Round(pick.invest / (pick.made or pick.amount)), 1200, "the reference, at most the vendor's 12s")
+    local steps = table.concat(pick.steps, " > ")
+    H.eq(steps:find("up to " .. FM.FormatMoney(1000), 1, true) ~= nil, true, "bought on the AH at 10s: " .. steps)
 end)

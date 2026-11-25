@@ -299,7 +299,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   take them within minutes (the maintainer's Light Hide at 78c in a scan, 1s 11c cheapest when he came to buy). A
   price that rose counts at what the AH asks now. Craft, Learn, the item tooltip's material cost, the buy or craft
   choice and the costs Picks plans with all follow it; the row tooltip's material line says it: "Light Hide 1s 10c AH
-  (8h average of the cheapest; now 78c)". Picks counts every AH unit under the reference at the reference, while its
+  (8h average of the cheapest; now 78c)". Picks counts every AH unit under the reference at the reference (at most at
+  a vendor's price, and AH units under the vendor's price are still bought from the AH), while its
   buy steps still name what the AH asks ("buy 240 Medium Leather up to 1s 25c"): cheap units still there are bought,
   the plan only does not count on them. "Craft and wait" crafts now only when its materials cost 10%+ under their
   usual cost at these prices, so a dip of one scan no longer passes it, materials cheap for hours do. "Past 3 days"
