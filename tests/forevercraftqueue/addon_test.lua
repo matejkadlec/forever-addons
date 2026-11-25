@@ -1,6 +1,6 @@
 local H = require("harness")
 
--- ForeverCraftQueue loaded whole on stubs: Add to queue on a faked profession window, Process queue across two
+-- ForeverCraftQueue loaded whole on stubs: Add all to queue on a faked profession window, Process queue across two
 -- professions (open, craft, open, craft), crafts leaving the queue on UNIT_SPELLCAST_SUCCEEDED, short materials,
 -- combat, a running craft, requirements, Clear queue with its confirmation, the saved queue at load and the slash
 -- commands. The client's answers are faked here; whether the live client gives them like this is the in-game test's
@@ -104,7 +104,8 @@ local function Load(options)
 end
 
 -- The profession window of Blizzard_Professions, loaded on demand: its crafting page with the selected recipe, the
--- count box and Create; the window keeps the scripts hooked onto it (frame.hooks.OnShow runs what its OnShow would)
+-- count box, Create and the count Create All shows (env.craftable, the page's GetCraftableCount); the window keeps
+-- the scripts hooked onto it (frame.hooks.OnShow runs what its OnShow would)
 local function LoadProfessionWindow(env)
     local frame = env.CreateFrame(nil, "ProfessionsFrame")
     frame.hooks = {}
@@ -126,6 +127,8 @@ local function LoadProfessionWindow(env)
     page.CreateButton = env.CreateFrame()
     page.CreateButton:Show()
     page.CreateAllButton = env.CreateFrame()
+    env.craftable = 1
+    page.GetCraftableCount = function() return env.craftable end
     page.ValidateControls = function() end
     env.FireEvent("ADDON_LOADED", "Blizzard_Professions")
     return page
@@ -167,45 +170,89 @@ local function Printed(env, text)
     return found
 end
 
--- Queue a recipe from the profession window (opens that profession first)
+-- Queue a recipe from the profession window with Add all to queue while Create All shows count (opens that
+-- profession first)
 local function Queue(ns, env, recipeID, count)
     OpenWindow(env, RECIPES[recipeID].skillLine)
     env.selected = recipeID
-    env.countBox = count
+    env.craftable = count
     env.ForeverCraftQueueAddButton.scripts.OnClick()
 end
 
 --------------------------------------------------------------------------------
--- Add to queue
+-- Add all to queue
 --------------------------------------------------------------------------------
 
-H.test("Add to queue takes the selected recipe with the count box's count and its normal materials", function()
+H.test("Add all to queue queues the count Create All shows (not the count box's) with the normal materials", function()
     local ns, env = Load()
     LoadProfessionWindow(env)
-    Queue(ns, env, BOOTS, 3)
-    H.eq(Rows(ns), "Dusky Boots x3", "queue")
+    H.eq(env.ForeverCraftQueueAddButton.text, "Add all to queue", "label")
+    OpenWindow(env, LEATHERWORKING)
+    env.selected = BOOTS
+    env.countBox = 3
+    env.craftable = 19
+    env.ForeverCraftQueueAddButton.scripts.OnClick()
+    H.eq(Rows(ns), "Dusky Boots x19", "queue")
     local row = ns.Queue()[1]
     H.eq(row.skillLine, LEATHERWORKING, "skill line")
     H.eq(row.profession, "Leatherworking", "profession")
     H.same(row.reagents, { { itemID = LIGHT_LEATHER, need = 8, name = "Light Leather" },
         { itemID = THREAD, need = 2, name = "Coarse Thread" } }, "materials")
-    H.eq(#Printed(env, "Added to the craft queue: |cFFFF8000Dusky Boots x3"), 1, "chat")
+    H.eq(#Printed(env, "Added to the craft queue: |cFFFF8000Dusky Boots x19"), 1, "chat")
 end)
 
-H.test("adding it again adds up; a count box at 0 (materials short) or hidden adds 1", function()
+H.test("a second click sets the queued count to Create All's: 19 stays 19, not 38; fewer materials lower it", function()
+    local ns, env = Load()
+    LoadProfessionWindow(env)
+    Queue(ns, env, BOOTS, 19)
+    Queue(ns, env, BOOTS, 19)
+    H.eq(Rows(ns), "Dusky Boots x19", "not 38")
+    H.eq(#Printed(env, "Craft queue updated: |cFFFF8000Dusky Boots x19 (was x19)"), 1, "chat says it was set")
+    Queue(ns, env, BOOTS, 7)
+    H.eq(Rows(ns), "Dusky Boots x7", "lowered")
+    H.eq(#Printed(env, "Dusky Boots x7 (was x19)"), 1, "chat")
+end)
+
+H.test("with materials for none the button is off, its tooltip says why, and a click queues nothing", function()
     local ns, env = Load()
     local page = LoadProfessionWindow(env)
-    Queue(ns, env, BOOTS, 3)
-    Queue(ns, env, BOOTS, 0)
-    H.eq(Rows(ns), "Dusky Boots x4", "box at 0")
-    page.CreateMultipleInputBox:Hide()
-    env.countBox = 5
-    env.ForeverCraftQueueAddButton.scripts.OnClick()
-    H.eq(Rows(ns), "Dusky Boots x5", "box hidden")
-    H.eq(#Printed(env, "(now x5)"), 1, "the new total in chat")
+    local button = env.ForeverCraftQueueAddButton
+    button.SetEnabled = function(self, on) self.enabled = on end
+    local lines = {}
+    env.GameTooltip.AddLine = function(_, text) lines[#lines + 1] = text end
+    OpenWindow(env, LEATHERWORKING)
+    env.selected = BOOTS
+    env.craftable = 0
+    page:ValidateControls()
+    H.eq(button:IsShown(), true, "still shown")
+    H.eq(button.enabled, false, "disabled at 0")
+    button.scripts.OnEnter(button)
+    H.eq(#lines, 2, "description and reason")
+    H.eq(lines[2], "Your bags hold the materials for none.", "the reason")
+    button.scripts.OnClick()
+    H.eq(#ns.Queue(), 0, "nothing queued")
+    H.eq(#Printed(env, "Your bags hold the materials for none"), 1, "the error")
+    -- Blizzard runs ValidateControls on bag updates; a tooltip open on the button follows
+    env.GameTooltip.IsOwned = function(_, frame) return frame == button end
+    lines = {}
+    env.craftable = 2
+    page:ValidateControls()
+    H.eq(button.enabled, true, "usable again")
+    H.eq(#lines, 1, "the open tooltip lost its reason")
 end)
 
-H.test("the panel opens only when asked for: Open queue, not Add to queue or the profession window", function()
+H.test("when the page cannot count, the game's count of the recipe list is used", function()
+    local ns, env = Load()
+    local page = LoadProfessionWindow(env)
+    page.GetCraftableCount = function() error("no transaction") end
+    env.C_TradeSkillUI.GetCraftableCount = function(recipeID) return recipeID == BOOTS and 5 or 0 end
+    OpenWindow(env, LEATHERWORKING)
+    env.selected = BOOTS
+    env.ForeverCraftQueueAddButton.scripts.OnClick()
+    H.eq(Rows(ns), "Dusky Boots x5", "the game's count")
+end)
+
+H.test("the panel opens only when asked for: Open queue, not Add all to queue or the profession window", function()
     local ns, env = Load()
     LoadProfessionWindow(env)
     H.eq(env.ForeverCraftQueueOpenButton:IsShown(), true, "Open queue shown")
@@ -233,7 +280,7 @@ H.test("a panel that is open docks when the profession window opens", function()
     H.eq(env.ForeverCraftQueueFrame.docked, true, "docked")
 end)
 
-H.test("Open queue window automatically: the profession window and Add to queue open the panel", function()
+H.test("Open queue window automatically: the profession window and Add all to queue open the panel", function()
     local ns, env = Load({ settings = { autoOpen = true } })
     LoadProfessionWindow(env)
     env.ProfessionsFrame:Show()
@@ -241,7 +288,7 @@ H.test("Open queue window automatically: the profession window and Add to queue 
     H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "with the window")
     env.ForeverCraftQueueFrame:Hide()
     Queue(ns, env, BOOTS, 1)
-    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "on Add to queue")
+    H.eq(env.ForeverCraftQueueFrame:IsShown(), true, "on Add all to queue")
 end)
 
 H.test("a window that is not your own crafting (a linked list) adds nothing", function()

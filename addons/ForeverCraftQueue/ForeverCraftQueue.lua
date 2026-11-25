@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
--- ForeverCraftQueue: a crafting queue across all your professions. "Add to queue" in the profession window
+-- ForeverCraftQueue: a crafting queue across all your professions. "Add all to queue" in the profession window
 -- (ProfessionButton.lua) queues the selected recipe, the queue panel (Panel.lua) lists it, and each press of
 -- Process queue (the panel's button or a key binding) does one step: it crafts the next row as one batch, or opens
 -- that row's profession first. Crafted units leave the queue as their casts succeed. This file holds the messages,
@@ -106,7 +106,7 @@ ns.GetVersion = GetVersion
 local DEFAULTS = {
     enabled = true,
     dock = true,
-    -- the panel opens with the profession window and on Add to queue (off: only when asked for)
+    -- the panel opens with the profession window and on Add all to queue (off: only when asked for)
     autoOpen = false,
     confirmClear = true,
     doneSound = true
@@ -381,7 +381,8 @@ end
 -- The queue
 --------------------------------------------------------------------------------
 
--- Queue count crafts of a recipe read from the profession window (ProfessionButton.lua)
+-- Queue count crafts of a recipe read from the profession window (ProfessionButton.lua); a queued recipe's row is set
+-- to count
 function ns.AddRecipe(info, count)
     if not ns.IsEnabled() then
         ns.PrintError(string_format(L.ERROR_ADD_DISABLED, ADDON_DISPLAY_NAME, SLASH_COMMAND))
@@ -391,16 +392,17 @@ function ns.AddRecipe(info, count)
         -- a new run of the queue starts
         run = ns.NewRun()
     end
-    local row, _, merged = ns.AddToQueue(queue, info, count)
+    local row, _, before = ns.QueueRecipe(queue, info, count)
     if not row then
         ns.PrintError(L.ERROR_ADD)
         return
     end
-    local added = string_format("%s x%d", row.name, ns.CleanCount(count) or 1)
-    if merged then
-        added = added .. string_format(L.ADDED_TOTAL, row.count)
+    local queued = string_format("%s x%d", row.name, row.count)
+    if before then
+        ns.Print(L.UPDATED, queued .. string_format(L.UPDATED_BEFORE, before))
+    else
+        ns.Print(L.ADDED, queued)
     end
-    ns.Print(L.ADDED, added)
     if db.autoOpen and ns.ShowPanel then
         ns.ShowPanel()
     end
