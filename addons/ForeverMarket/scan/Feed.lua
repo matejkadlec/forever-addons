@@ -40,7 +40,7 @@ local function LoadFeed()
     local data = _G.ForeverMarketFeedData
     _G.ForeverMarketFeedData = nil
     if not data and ok and not loaded and reason and reason ~= "MISSING" then
-        FM.PrintError(string.format("load the Battle.net feed ('Forever Market Feed' in the AddOn list: %s)", tostring(reason)))
+        FM.PrintError(string.format("load the Battle.net feed ('Forever Marketplace Feed' in the AddOn list: %s)", tostring(reason)))
     end
     return type(data) == "table" and data or nil
 end

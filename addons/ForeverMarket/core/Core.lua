@@ -666,6 +666,7 @@ function FM.R()
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, FRV-113, trade/Cost.lua)
     if FM.RepairCrafts then FM.RepairCrafts(r) end -- the craft log's material cost worked out again (FRV-112, trade/Crafts.lua)
     if FM.RepairVariants then FM.RepairVariants(r) end -- the random suffix marks an empty name set go (FRV-138, core/Store.lua)
+    if FM.PruneHiddenFlips then FM.PruneHiddenFlips(r) end -- flip picks hidden 24 hours ago count no more (FRV-193, trade/Picks.lua)
     return r
 end
 

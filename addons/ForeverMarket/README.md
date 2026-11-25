@@ -450,10 +450,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
     checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
-* Right-click a row (plain actions since 1.14): **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
+* Right-click a row (plain actions since 1.14): on a Flip pick first **Hide this pick** (1.51, FRV-193, see Picks),
+  then **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
   only one that offers Stop ignoring; `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
-  every row Shift-click snipes from, at the AH and away from it; see Sniper), **Track <NPC>** (TomTom arrow to the row's
+  every row Shift-click snipes from, at the AH and away from it; see Sniper; a row whose AH purchases are all sold per
+  auction shows a greyed out "Snipe: sold per auction" with the tooltip "Only stackable items (commodities) can be
+  sniped. This one is sold per auction.", 1.51, FRV-192), **Track <NPC>** (TomTom arrow to the row's
   own vendor when it has a known place: a Vendor row's or a vendor pick's, 1.36, FRV-99; with a place chosen only a
   vendor there: the row's own, else the cheapest one there with a known spot, else no Track; else the cheapest vendor
   with a known place that sells
@@ -859,6 +862,21 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     1.45 it bought what it could and kept the row's list price (Green Dragonscale Leggings: gold for one of the two
     at 5g 88s, listed at 8g 02s over the other one and the two at 5g 98s). Units of a flip's item you hold, when
     nothing is bought, are a Stock pick listed under the cheapest listing of others, not at the flip's price.
+  * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
+    of scope", also on its steps line) for a flip someone else bought first. "[FM] Slayer's Skullcap: flip pick hidden
+    until its listings change.", and the plan is made again without it as after Ignore (`FM.PlanPicks()`), so its gold
+    goes to the next pick. The item is not ignored: its rows on the other tabs, its craft picks, the Flip tab and the
+    sniper are untouched. The hidden flip keeps the prices it bought (`pick.flipLevels`, `FM.HideFlipPick`): the item
+    gets no Flip pick while its flip would buy only at those prices (the same cheap listings, also with some of them
+    gone; its reason "hidden by you (Hide this pick) until its listings change"), and is a pick again once it buys
+    at another price (a new cheaper listing, a level above) or 24 hours after it was hidden. The Picks footer ends
+    with "  ·  2 hidden" in light blue (`f.hiddenPicks`), the hidden flips the plan shown holds back (`pickHidden`; one
+    that is a pick again at another price is not counted, its entry stays until the 24 hours end): its tooltip lists
+    them (item, "up to" price, when hidden),
+    a click shows them all again and plans again (`FM.ShowHiddenFlips`). Saved per realm and faction
+    (`hiddenPicks`, Data format), so they survive a `/reload`; entries 24 hours old are dropped at load
+    (`FM.PruneHiddenFlips` from `FM.R`). The tooltip shows on plain hover like the other buttons (FRV-186: only
+    inputs, dropdowns and checkboxes wait for Shift), so Shift over it lists them too.
 * Lowest price of an auction: single (non-stacking) items need at least 1s, Forever's server silently drops
   cheaper posts and the AH hangs ("Creating 0/15", throttled system never ready). Every sell price respects it;
   rows at that floor say so (no undercut possible, you queue behind the others).
@@ -1050,7 +1068,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   verified in game
 * The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip shows on hover, only 1.47 put it behind
   Shift, FRV-155, FRV-186), one per line in light blue: "Click: search at the
-  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)", naming the units it sends, for a pick that bought some since the plan "snipe what is still to buy, ...", for one that bought all "nothing left to buy at the AH for this pick, adds nothing" (FRV-185), and
+  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)", naming the units it sends, for a pick that bought some since the plan "snipe what is still to buy, ...", for one that bought all "nothing left to buy at the AH for this pick, adds nothing" (FRV-185), for a row whose AH purchases are all sold per auction a grey "Shift+click: cannot snipe, sold per auction" (1.51, FRV-192), and
   "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
   FRV-132: the profession's name, only on rows where Ctrl+click works, `FM.CraftHint`),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
@@ -1522,7 +1540,12 @@ per purchase.
   Leather" snipes 31; until 1.47 always the plan's whole units, so units bought by hand before the first click were
   bought again), one chat line for all of them ("Sniping 3 items for <pick>: 31 Heavy Leather up to 2s 75c, ..."),
   a purchase bought in full left out (sent without units the sniper would buy it without a limit), items sold per
-  auction skipped and named there, vendor purchases left out, the window opens on the main one. A pick whose AH
+  auction left out (1.51, FRV-192: `SnipeTargets` asks `FM.SnipeKind` first, an item whose kind is still unknown
+  stays in and the sniper refuses it safely; until 1.50 they were offered, a flip of gear included, and the sniper
+  skipped them with "sold per auction, can't be sniped", which it still does for a click that gets one through), vendor
+  purchases left out, the window opens on the main one. A row with nothing else to snipe adds nothing and says so
+  ("Nothing to snipe for Slayer's Skullcap: what it buys at the AH is sold per auction, only stackable items
+  (commodities) can be sniped. Nothing added."; Shift+right-click too). A pick whose AH
   purchases are all bought adds nothing and says so ("Nothing left to buy at the AH for <pick>: its plan's AH
   purchases were bought since the plan, nothing added."; Shift+right-click too, and the row menu shows a greyed out
   "Snipe: nothing left to buy"). A flip or a vendor resell has no progress (no plan time), so it sends its whole
@@ -1794,6 +1817,9 @@ Picks skip).
   (those were priced at the vendor or AH price of that moment, which no log keeps). On his saved variables: 40 lines,
   all from before the repair of 2026-11-22 12:18 (every later line replays to what it recorded), 51g 65s 36c of
   materials became 34g 32s 98c
+* `hiddenPicks[key] = { t, top, levels }` (1.51, FRV-193, optional, made by the first Hide this pick): a Flip pick you
+  hid, `t` when (epoch seconds), `top` its "up to" price and `levels` the prices it bought, cheapest first (copper);
+  it counts for 24 hours, then it is dropped at load; a click on the Picks footer's "n hidden" drops them all
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line

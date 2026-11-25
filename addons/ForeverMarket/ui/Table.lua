@@ -803,6 +803,8 @@ local function BuildRows(tab, lookup)
             end
             -- ignored items show only in the Ignored tab (FRV-83), a favorite too
             if keep and not tab.ignored and FM.IsExcluded(row.key) then keep = false end
+            -- a flip pick hidden just now (FRV-193): gone at once, before the plan made again without it is shown
+            if keep and tab.picks and row.hiddenNow then keep = false end
             if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
         end
         if keep then out[#out + 1] = row end
@@ -1272,7 +1274,9 @@ end
 -- material at its max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the
 -- biggest spend first), the row it is for, for a pick its trace { pick, at } (FRV-143: the sniper remembers the pick
 -- and its plan), and "left" when a pick sends less than its plan's units; nil where there is nothing to snipe, with
--- the row and "bought" for a pick whose AH purchases were all bought since the plan. mode: "add" (the default; an item
+-- the row and "bought" for a pick whose AH purchases were all bought since the plan, with the row and "auction" when
+-- all it would snipe is sold per auction (FRV-192: the sniper takes stackable items only, so such an item is never
+-- offered; a pick with both kinds sends its stackable ones). mode: "add" (the default; an item
 -- already sniped for other picks of the plan: TracedBought) or "restart" (Shift+right-click: the item's count starts
 -- again with this pick alone, so only its own units count)
 local function SnipeTargets(row, mode)
@@ -1280,9 +1284,18 @@ local function SnipeTargets(row, mode)
     local tab
     tab, row = RowSource(row)
     if not tab then return nil end
-    local list, status = {}, nil
+    local list, status, perAuction = {}, nil, false
+    -- an item sold per auction (stack size 1); one the client has not loaded yet ("unknown", its data asked for) stays
+    -- in, the sniper still refuses it safely
+    local function auctioned(key)
+        return type(key) == "string" and FM.SnipeKind ~= nil and FM.SnipeKind(key) == "item"
+    end
     local function add(key, price, units)
         if type(key) ~= "string" or type(price) ~= "number" or price < 1 then return end
+        if auctioned(key) then
+            perAuction = true
+            return
+        end
         list[#list + 1] = { key = key, price = math_floor(price), units = type(units) == "number" and units >= 1 and units or nil }
     end
     if tab.picks then
@@ -1305,9 +1318,15 @@ local function SnipeTargets(row, mode)
                     adjusted[b.key] = true
                     units = units + TracedBought(row, b.key, at, boughtOf[b.key] or 0)
                 end
-                if units < planned then status = "left" end
-                if units >= 1 then add(b.key, b.top, units) end
+                if auctioned(b.key) then
+                    -- never sent (FRV-192): it counts neither as still to buy nor as bought
+                    if units >= 1 then perAuction = true end
+                else
+                    if units < planned then status = "left" end
+                    if units >= 1 then add(b.key, b.top, units) end
+                end
             end
+            if perAuction and not list[1] then return nil, row, nil, "auction" end
             if row.buys[1] and not list[1] then return nil, row, nil, "bought" end
         else
             add(row.mainKey, row.mainTop)
@@ -1317,7 +1336,10 @@ local function SnipeTargets(row, mode)
     elseif tab.id == "flips" then
         add(row.key, row.top, row.units)
     end
-    if not list[1] then return nil end
+    if not list[1] then
+        if perAuction then return nil, row, nil, "auction" end
+        return nil
+    end
     local trace = tab.picks and FM.trade and FM.trade.pickAt and { pick = row.key, at = FM.trade.pickAt } or nil
     return list, row, trace, status
 end
@@ -1459,6 +1481,9 @@ local function RowHints(tab, row)
     if targets then sniped, repriced = SnipedForPlan(targets, trace) end
     if status == "bought" then
         GameTooltip:AddLine("Shift+click: nothing left to buy at the AH for this pick, adds nothing", HINT_R, HINT_G, HINT_B, true)
+    elseif status == "auction" then
+        -- all it buys at the AH is sold per auction (FRV-192): the click says so in the chat, grey as a hint that does nothing
+        GameTooltip:AddLine("Shift+click: cannot snipe, sold per auction", 0.62, 0.62, 0.62, true)
     elseif sniped then
         GameTooltip:AddLine(repriced and "Shift+click: sniped for this plan, sets this plan's prices (adds no units)"
             or "Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
@@ -1476,6 +1501,25 @@ local function RowHints(tab, row)
     if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B, true) end
     GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
     GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B, true)
+end
+FM.TableRowHints = function(row) RowHints(CurrentTab(), row) end -- for the tests (FRV-192)
+
+-- The flip picks you hid that the plan shown holds back (FRV-193, review round 1 of PR 79): the saved entries that still
+-- count of the items its pass left out for them (FM.trade.pickHidden) or hidden since it was shown (a pick's hiddenNow);
+-- an entry whose flip is a pick again (it buys at another price) is none. { { key, e = entry }, ... } by when hidden.
+-- An FM field, not a local: the main chunk is at Lua 5.1's 200 locals
+FM.TableHiddenFlips = function()
+    local trade = FM.trade or {}
+    local since = {}
+    for _, p in ipairs(trade.picks or {}) do
+        if type(p) == "table" and p.hiddenNow then since[p.key] = true end
+    end
+    local list = {}
+    for key, e in pairs(FM.HiddenFlips and FM.HiddenFlips() or {}) do
+        if (type(trade.pickHidden) == "table" and trade.pickHidden[key]) or since[key] then list[#list + 1] = { key = key, e = e } end
+    end
+    table_sort(list, function(a, b) return a.e.t < b.e.t end)
+    return list
 end
 
 local function ShowRowTooltip(button)
@@ -1576,6 +1620,22 @@ local function ShowRowMenu(button, row)
     local targets, of, trace, status = SnipeTargets(row)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(Name(key))
+        -- an AH flip pick, also from its steps line (FRV-193): first, for a flip someone else bought first; it hides
+        -- this flip only (trade/Picks.lua FM.HideFlipPick), the item is not ignored
+        local flip = CurrentTab().picks and (row.stepsOf or row) or nil
+        if flip and flip.kind == "flip" and FM.HideFlipPick then
+            root:CreateButton("Hide this pick", function()
+                local ok, why = FM.HideFlipPick(flip)
+                if not ok then
+                    FM.PrintError("Failed to hide the pick of " .. Name(flip.key) .. ": " .. tostring(why) .. ".")
+                    return
+                end
+                FM.Print(Name(flip.key) .. ": flip pick hidden until its listings change.")
+                flip.hiddenNow = true -- BuildRows leaves it out until the new plan is shown
+                FM.PlanPicks() -- its gold goes to the next pick, as after Ignore
+                FM.RefreshTable()
+            end)
+        end
         local favorite = FM.IsFavorite(key)
         root:CreateButton(favorite and "Unfavorize this item" or "Favorize this item", function()
             FM.SetFavorite(key, not favorite)
@@ -1596,6 +1656,15 @@ local function ShowRowMenu(button, row)
             -- a pick with everything bought (FRV-185): nothing to send
             local entry = root:CreateButton("Snipe: nothing left to buy", function() end)
             if entry.SetEnabled then entry:SetEnabled(false) end
+        elseif status == "auction" and FM.SnipeFromTable then
+            -- all it buys at the AH is sold per auction (FRV-192): the sniper would refuse it
+            local entry = root:CreateButton("Snipe: sold per auction", function() end)
+            if entry.SetEnabled then entry:SetEnabled(false) end
+            if entry.SetTooltip then
+                entry:SetTooltip(function(tooltip)
+                    GameTooltip_SetTitle(tooltip, "Only stackable items (commodities) can be sniped. This one is sold per auction.")
+                end)
+            end
         end
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
@@ -1691,6 +1760,12 @@ local function OnRowClick(button, mouseButton)
     -- a pick with everything bought since the plan (FRV-185): both clicks add nothing and say so
     if status == "bought" then
         NothingLeft(of)
+        return
+    end
+    -- all it buys at the AH is sold per auction (FRV-192): both clicks add nothing and say why
+    if status == "auction" then
+        FM.Print("Nothing to snipe for " .. Name(of.key) .. ": what it buys at the AH is sold per auction, only stackable"
+            .. " items (commodities) can be sniped. Nothing added.")
         return
     end
     if mouseButton == "RightButton" then
@@ -2238,7 +2313,7 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
         frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll,
-        frame.continent, frame.zone }) do
+        frame.continent, frame.zone, frame.hiddenPicks }) do
         w:Hide()
     end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
@@ -2388,9 +2463,21 @@ Render = function()
     LayoutFilters(frame)
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
+    -- Picks: the flip picks you hid (FRV-193), "  ·  2 hidden" right after the line; a click shows them again
+    local hidden = frame.hiddenPicks
+    local hiddenN = tab.picks and #FM.TableHiddenFlips() or 0
+    local hiddenW = 0
+    if hiddenN > 0 then
+        hidden.text:SetText(string_format("  ·  %d hidden", hiddenN))
+        hiddenW = hidden.text.GetUnboundedStringWidth and hidden.text:GetUnboundedStringWidth() or 60
+        hidden:SetWidth(hiddenW)
+        hidden:Show()
+    else
+        hidden:Hide()
+    end
     -- a line too long for the window takes the shorter form of its note, so the Shift hint at its end is never cut
     local footerWidth = frame.footer.GetUnboundedStringWidth and frame.footer:GetUnboundedStringWidth()
-    if type(footerWidth) == "number" and footerWidth > W - 32 then frame.footer:SetText(FooterText(total, true)) end
+    if type(footerWidth) == "number" and footerWidth + hiddenW > W - 32 then frame.footer:SetText(FooterText(total, true)) end
     if total == 0 and not (FM.trade and FM.trade.empty) then
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
@@ -3133,6 +3220,34 @@ local function CreateTable()
     f.empty = Text(f, "GameFontHighlight", "TOP", 0, TOP - 60)
     f.footer = Text(f, "GameFontHighlightSmall", "BOTTOMLEFT", 16, 14)
     f.footer:SetJustifyH("LEFT")
+    -- Picks: "  ·  2 hidden" after the footer's line (FRV-193): the flip picks you hid; a click shows them all again
+    -- and plans again, its tooltip lists them
+    local hiddenPicks = CreateFrame("Button", nil, f)
+    hiddenPicks:SetHeight(14)
+    hiddenPicks:SetPoint("LEFT", f.footer, "RIGHT", 0, 0)
+    hiddenPicks.text = Text(hiddenPicks, "GameFontHighlightSmall", "LEFT", 0, 0)
+    hiddenPicks.text:SetTextColor(HINT_R, HINT_G, HINT_B) -- the light blue of the click hints: it can be clicked
+    hiddenPicks:SetScript("OnClick", function()
+        local n = #FM.TableHiddenFlips()
+        FM.ShowHiddenFlips()
+        FM.Print(n == 1 and "1 hidden flip pick shown again." or string_format("%d hidden flip picks shown again.", n))
+        FM.PlanPicks()
+        FM.RefreshTable()
+    end)
+    FM.TableTip(hiddenPicks, function(self)
+        local list = FM.TableHiddenFlips()
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(#list == 1 and "1 flip pick hidden" or string_format("%d flip picks hidden", #list))
+        for _, h in ipairs(list) do
+            GameTooltip:AddDoubleLine(Name(h.key), "up to " .. Money(h.e.top or h.e.levels[#h.e.levels]) .. GREY .. "  hidden " .. date("%H:%M", h.e.t) .. "|r",
+                1, 1, 1, 1, 1, 1)
+        end
+        GameTooltip:AddLine("Each comes back by itself once its flip buys at another price (a new cheaper listing), or 24 hours after you hid it.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Click: show them all again", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:Show()
+    end, "hover") -- a button, as Refresh: its tooltip on plain hover (FRV-186)
+    hiddenPicks:Hide()
+    f.hiddenPicks = hiddenPicks
 
     -- "x min ago" stays fresh, and the picks plan again while the table stays open
     local elapsed = 0

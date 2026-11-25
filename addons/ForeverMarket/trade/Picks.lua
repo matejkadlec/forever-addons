@@ -1830,6 +1830,96 @@ local function LadderAfter(ladder, skip)
     return out
 end
 
+---------------------------------------------------------------- flip picks you hid (FRV-193)
+-- "Hide this pick" (the row menu of a Flip pick, for a flip someone else bought first): the item gets no Flip pick while
+-- its flip buys only at prices the hidden one bought (those cheap listings still in the data, until a later scan or the
+-- feed shows them gone); a flip that buys at another price (a new cheaper listing, a level above) is a pick again. Per
+-- realm and faction: R.hiddenPicks[key] = { t = when hidden (FM.Now), top = its "up to" price, levels = the prices it
+-- bought, cheapest first }. 24 hours after it was hidden an entry no longer counts and is dropped at the next load
+
+local HIDE_FLIP_SECONDS = 24 * 3600
+
+-- The prices of the levels a flip buys: every level of the ladder left for it up to its "up to" price (it buys the
+-- cheapest levels in full, FM.FlipPlan)
+local function FlipLevels(left, top)
+    local levels = {}
+    for _, level in ipairs(left) do
+        if level[1] > top then break end
+        levels[#levels + 1] = level[1]
+    end
+    return levels
+end
+
+-- The hidden flips that still count, [key] = entry: hidden less than 24 hours before now (a malformed entry never counts)
+function FM.HiddenFlips(now)
+    local r = FM.R()
+    local out = {}
+    if not (r and type(r.hiddenPicks) == "table") then return out end
+    now = now or FM.Now()
+    for key, e in pairs(r.hiddenPicks) do
+        if type(key) == "string" and type(e) == "table" and type(e.t) == "number" and now - e.t < HIDE_FLIP_SECONDS
+            and type(e.levels) == "table" and type(e.levels[1]) == "number" then
+            out[key] = e
+        end
+    end
+    return out
+end
+
+-- Drops the entries hidden 24 hours ago or longer, and malformed ones (at load, FM.R)
+function FM.PruneHiddenFlips(r, now)
+    if type(r) ~= "table" or r.hiddenPicks == nil then return end
+    if type(r.hiddenPicks) ~= "table" then
+        r.hiddenPicks = nil
+        return
+    end
+    now = now or FM.Now()
+    for key, e in pairs(r.hiddenPicks) do
+        if type(e) ~= "table" or type(e.t) ~= "number" or now - e.t >= HIDE_FLIP_SECONDS or type(e.levels) ~= "table" then
+            r.hiddenPicks[key] = nil
+        end
+    end
+    if next(r.hiddenPicks) == nil then r.hiddenPicks = nil end
+end
+
+-- Hides a Flip pick of the plan shown: true, or nil and why
+function FM.HideFlipPick(pick)
+    if type(pick) ~= "table" or pick.kind ~= "flip" or type(pick.key) ~= "string" then
+        return nil, "only an AH flip pick can be hidden"
+    end
+    local levels = pick.flipLevels
+    if type(levels) ~= "table" or type(levels[1]) ~= "number" then return nil, "the pick names no listings to buy" end
+    local r = FM.R()
+    if not r then return nil, "no data for this realm yet" end
+    if type(r.hiddenPicks) ~= "table" then r.hiddenPicks = {} end
+    local copy = {}
+    for i, price in ipairs(levels) do copy[i] = price end
+    r.hiddenPicks[pick.key] = { t = FM.Now(), top = copy[#copy], levels = copy }
+    return true
+end
+
+-- Shows every hidden flip pick again (a click on the Picks footer's "n hidden"): how many still counted
+function FM.ShowHiddenFlips()
+    local n = 0
+    for _ in pairs(FM.HiddenFlips()) do n = n + 1 end
+    local r = FM.R()
+    if r then r.hiddenPicks = nil end
+    return n
+end
+
+-- A flip you hid: true while every level the flip buys now is at a price the hidden one bought; the plan keeps the
+-- items it held back so (out.pickHidden: what the Picks footer counts, review round 1 of PR 79)
+local function FlipHidden(key, levels)
+    local e = P.hidden and P.hidden[key]
+    if not (e and levels[1]) then return false end
+    local known = {}
+    for _, price in ipairs(e.levels) do known[price] = true end
+    for _, price in ipairs(levels) do
+        if not known[price] then return false end
+    end
+    P.heldBack[key] = true
+    return true
+end
+
 -- A flip pick: the Flip tab's rule (FM.FlipPlan, FRV-172) within what this pick may buy, its batch (less what you hold)
 -- and its gold. The flip row buys every cheap level and lists under the cheapest listing that stays; a pick that can
 -- buy fewer units takes fewer whole levels and lists under the level above those, and when no such buy earns the
@@ -1868,6 +1958,9 @@ local function EvaluateFlip(c)
         if not f or f.sell == sell then break end
         sell = f.sell
     end
+    -- a flip you hid (FRV-193): no pick while it buys the listings the hidden one bought
+    local levels = f and FlipLevels(left, f.top) or nil
+    if levels and FlipHidden(row.key, levels) then return nil, "hidden by you (Hide this pick) until its listings change" end
     local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and (row.qty - (row.own or 0)) / buyers or 99
     local trial = NewTrial()
@@ -1940,6 +2033,7 @@ local function EvaluateFlip(c)
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
     pick.mainTop = trial.top[row.key]
+    pick.flipLevels = levels -- the prices it buys at, what "Hide this pick" saves (FRV-193)
     pick.buys = AHBuys(trial)
     pick.reasons = {
         { "h", "One listing" },
@@ -2603,6 +2697,8 @@ local function StartPass(ctx)
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
         paid = {}, -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
+        hidden = FM.HiddenFlips(ctx.now), -- the flip picks you hid (FlipHidden, FRV-193)
+        heldBack = {}, -- the items FlipHidden held back in this pass
         least = {} } -- the item tooltip's cost info of an item you hold (SellAtLeastNote, FRV-134)
     -- the craft picks an automatic plan carries over (FRV-104, FM.PickCarry), with what you crafted of each since
     if type(ctx.carry) == "table" then
@@ -2755,6 +2851,13 @@ function FM.ComputePicks(out, ctx, done)
         out.pickBudget = P.budget
         out.pickSlots = P.slots
         out.pickWhy = why
+        -- the flips you hid that this plan held back (FRV-193): each step judges every candidate again, with the gold and
+        -- the units earlier picks take gone, so a flip held back in one step can be a pick in another (review round 2 of
+        -- PR 79): one the plan shows is none
+        for _, p in ipairs(picks) do
+            if p.kind == "flip" then P.heldBack[p.key] = nil end
+        end
+        out.pickHidden = P.heldBack
         out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
             out.pickRank[p.key] = p.rank

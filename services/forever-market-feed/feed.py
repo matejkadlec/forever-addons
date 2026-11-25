@@ -643,8 +643,8 @@ def discover_house(api, cfg, wow_dir):
 # ---------------------------------------------------------------- the AddOn the game imports
 
 FEED_TOC = """## Interface: {interface}
-## Title: |cFFFF8000Forever|r Market Feed
-## Notes: Auction house snapshots from the Battle.net API for ForeverMarket, loaded by ForeverMarket on demand. Written by forever-addons/services/forever-market-feed.
+## Title: |cFFFF8000Forever|r Marketplace Feed
+## Notes: Auction house snapshots from the Battle.net API for Forever Marketplace, loaded by Forever Marketplace on demand. Written by forever-addons/services/forever-market-feed.
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\\Icons\\INV_Misc_Coin_02
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
