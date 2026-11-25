@@ -24,7 +24,8 @@ Two ways to run it:
    lines to import
 4. `Interface/AddOns/ForeverMarket_Feed/Feed.lua` gets the records the game has not imported yet (up to 72 hours,
    `r.feedT` in ForeverMarket's SavedVariables) and the newest market state; the folder is not part of this
-   repository, so `scripts/sync-addons.sh` never touches it
+   repository, so `scripts/sync-addons.sh` never touches it. Its `.toc` (`FEED_TOC` in `feed.py`) lists it as
+   "Forever Marketplace Feed" in the AddOn list (FRV-198; "Forever Market Feed" until the rename FRV-1)
 5. In the game (`addons/ForeverMarket/scan/Feed.lua`): records newer than the last import go into the item history,
    except records whose interval starts before your latest in-game deep scan (that scan already covers the time);
    the newest snapshot becomes the market state the table works from (your own auctions are recognized like in a

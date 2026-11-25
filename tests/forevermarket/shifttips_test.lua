@@ -343,6 +343,7 @@ H.test("shift tooltips: the window's elements have the kinds of FRV-186", functi
         "Table.lua f.lock \"shift\"",            -- Lock plan after refresh
         "Table.lua b \"hover\"",                 -- a row
         "Table.lua amount \"shift\"",            -- a row's Amount input
+        "Table.lua hiddenPicks \"hover\"",       -- Picks' footer: the flip picks you hid (FRV-193)
         "Filters.lua frame \"shift\"",           -- the dialog's boxes and checkboxes (Tip)
         "Performance.lua b \"hover\"",           -- This character / All characters
     }, "every helper call and its kind")
