@@ -29,7 +29,7 @@ ns.COLOR = COLOR
 ns.SLOTS = 16
 -- Keep free bag slots: 0 to 20 (0 = until the bags are full)
 ns.KEEP_MIN, ns.KEEP_MAX = 0, 20
--- A take whose target is still there after this many answers is skipped for the rest of the run
+-- A mail whose target is still there after this many answers in a row is passed over for the rest of the run
 ns.MAX_TRIES = 2
 
 --------------------------------------------------------------------------------
@@ -133,17 +133,25 @@ function ns.ItemKey(mail, item)
         tostring(item.count) }, "\001")
 end
 
--- An item of a mail the run still takes (not an item whose MAIL_FAILED came, not a skipped target)
-local function Takeable(run, mail, item)
-    if not run then
-        return true
+-- A target the run passes over: identical mails (the same AH sale or win) share a key, so the run counts, top down
+-- among the mails that hold it, as many of them as got stuck (run.skip[key]) and passes over only those; seen
+-- counts the mails of each key one walk through the inbox has met so far
+local function Passed(run, key, seen)
+    seen[key] = (seen[key] or 0) + 1
+    return run ~= nil and seen[key] <= (run.skip[key] or 0)
+end
+
+-- An item of a mail the run still takes (not an item whose MAIL_FAILED came, not a stuck target)
+local function Takeable(run, mail, item, seen)
+    if run and item.itemID and run.failed[item.itemID] then
+        return false
     end
-    return not (item.itemID and run.failed[item.itemID]) and not run.skip[ns.ItemKey(mail, item)]
+    return not Passed(run, ns.ItemKey(mail, item), seen)
 end
 
 -- The money of a mail the run still takes
-local function MoneyTakeable(run, mail)
-    return mail.money > 0 and not (run and run.skip[ns.MoneyKey(mail)])
+local function MoneyTakeable(run, mail, seen)
+    return mail.money > 0 and not Passed(run, ns.MoneyKey(mail), seen)
 end
 
 -- The next step of a run, from the top of the list down:
@@ -152,15 +160,16 @@ end
 --     (mode "items"), only while the free bag slots are above keep
 --   { action = "bags" } items are left but the free slots are down to keep; { action = "done" } nothing left
 function ns.NextStep(snapshot, mode, run, freeSlots, keep)
+    local seen = {}
     for _, mail in ipairs(snapshot.mails) do
         if Usable(mail) then
             if mode == "gold" then
-                if MoneyTakeable(run, mail) then
+                if MoneyTakeable(run, mail, seen) then
                     return { action = "money", index = mail.index, mail = mail, key = ns.MoneyKey(mail) }
                 end
             else
                 for _, item in ipairs(mail.items) do
-                    if Takeable(run, mail, item) then
+                    if Takeable(run, mail, item, seen) then
                         if type(freeSlots) ~= "number" or freeSlots <= (keep or 0) then
                             return { action = "bags" }
                         end
@@ -179,6 +188,7 @@ end
 --   the mode takes; failed: what the run could not take (items, or mails whose money it skipped)
 function ns.Waiting(snapshot, mode, run)
     local result = { amount = 0, mails = 0, cod = 0, gm = 0, failed = 0 }
+    local seen = {}
     for _, mail in ipairs(snapshot.mails) do
         local holds = (mode == "gold" and mail.money > 0) or (mode ~= "gold" and #mail.items > 0)
         if holds and not mail.unsafe then
@@ -187,7 +197,7 @@ function ns.Waiting(snapshot, mode, run)
             elseif mail.cod ~= 0 then
                 result.cod = result.cod + 1
             elseif mode == "gold" then
-                if MoneyTakeable(run, mail) then
+                if MoneyTakeable(run, mail, seen) then
                     result.amount = result.amount + mail.money
                     result.mails = result.mails + 1
                 else
@@ -196,7 +206,7 @@ function ns.Waiting(snapshot, mode, run)
             else
                 local taken = 0
                 for _, item in ipairs(mail.items) do
-                    if Takeable(run, mail, item) then
+                    if Takeable(run, mail, item, seen) then
                         taken = taken + 1
                     else
                         result.failed = result.failed + 1
@@ -259,9 +269,12 @@ function ns.Outcome(last, mailNow, shownNow, signals)
 end
 
 -- Count a step's answer into the run: what was collected and from how many mails; an item of a MAIL_FAILED is
--- skipped for the rest of the run, a target still there after MAX_TRIES answers too (never retried in a loop)
+-- skipped for the rest of the run, and a mail whose target is still there after MAX_TRIES answers in a row is passed
+-- over for the rest of it (never retried in a loop; an identical mail below it gets its own tries)
 function ns.RecordOutcome(run, last, outcome, mailLeft, failedItemID)
     if outcome == "success" then
+        -- the tries count the answers in a row without effect: the next mail of this key starts again
+        run.tries[last.key] = nil
         if last.kind == "money" then
             run.gold = run.gold + last.money
         else
@@ -287,7 +300,8 @@ function ns.RecordOutcome(run, last, outcome, mailLeft, failedItemID)
     -- no effect (or a failed money take): one more try of this target
     run.tries[last.key] = (run.tries[last.key] or 0) + 1
     if run.tries[last.key] >= ns.MAX_TRIES then
-        run.skip[last.key] = true
+        run.skip[last.key] = (run.skip[last.key] or 0) + 1
+        run.tries[last.key] = nil
     end
 end
 

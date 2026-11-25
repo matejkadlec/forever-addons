@@ -137,7 +137,7 @@ H.test("an item whose MAIL_FAILED came and a skipped target are passed over for 
     local step = ns.NextStep(snapshot, "items", run, 10, 0)
     H.eq(step.index, 2, "mail 1 holds only the failed item")
     H.eq(step.slot, 2, "the other item of mail 2")
-    run.skip[ns.ItemKey(snapshot.mails[2], snapshot.mails[2].slots[2])] = true
+    run.skip[ns.ItemKey(snapshot.mails[2], snapshot.mails[2].slots[2])] = 1
     H.eq(ns.NextStep(snapshot, "items", run, 10, 0).action, "done", "nothing else")
 end)
 
@@ -204,6 +204,38 @@ H.test("a target still there after two answers is skipped, never tried a third t
     ns.RecordOutcome(run, Last("money", stuck), "noeffect", false)
     H.eq(ns.NextStep(snapshot, "gold", run).index, 2, "two tries: the next mail")
     H.eq(ns.Waiting(snapshot, "gold", run).failed, 1, "counted as not taken")
+end)
+
+H.test("a take that works clears its tries: identical mails each get two tries of their own", function()
+    local run = ns.NewRun("gold")
+    -- eight identical AH sale mails share one key (review round 1)
+    local function Sale(index) return Mail(index, { subject = "Auction successful: Linen Cloth", money = 5000 }) end
+    ns.RecordOutcome(run, Last("money", Sale(1)), "noeffect", false)
+    ns.RecordOutcome(run, Last("money", Sale(1)), "success", true)
+    ns.RecordOutcome(run, Last("money", Sale(1)), "noeffect", false)
+    local snapshot = Snapshot({ Sale(1), Sale(2), Sale(3) })
+    H.eq(ns.NextStep(snapshot, "gold", run).index, 1, "one try in a row: the mail is tried again")
+    H.eq(ns.Waiting(snapshot, "gold", run).failed, 0, "none skipped")
+end)
+
+H.test("a stuck mail among identical ones: only it is passed over, the ones below it are taken", function()
+    local run = ns.NewRun("gold")
+    local function Sale(index) return Mail(index, { subject = "Auction successful: Linen Cloth", money = 5000 }) end
+    ns.RecordOutcome(run, Last("money", Sale(1)), "noeffect", false)
+    ns.RecordOutcome(run, Last("money", Sale(1)), "noeffect", false)
+    local snapshot = Snapshot({ Sale(1), Sale(2), Sale(3) })
+    H.eq(ns.NextStep(snapshot, "gold", run).index, 2, "the next identical mail")
+    H.same(ns.Waiting(snapshot, "gold", run), { amount = 10000, mails = 2, cod = 0, gm = 0, failed = 1 }, "waiting")
+    -- the second identical mail stuck too: both passed over
+    ns.RecordOutcome(run, Last("money", Sale(2)), "noeffect", false)
+    ns.RecordOutcome(run, Last("money", Sale(2)), "noeffect", false)
+    H.eq(ns.NextStep(snapshot, "gold", run).index, 3, "the third")
+    -- an item mail the same way: the stuck stack, then the identical one below it
+    local items = ns.NewRun("items")
+    local function Won(index) return Mail(index, { subject = "Auction won: Linen Cloth", items = { { 1, 2589, 20 } } }) end
+    ns.RecordOutcome(items, Last("item", Won(1), 1), "noeffect", false)
+    ns.RecordOutcome(items, Last("item", Won(1), 1), "noeffect", false)
+    H.eq(ns.NextStep(Snapshot({ Won(1), Won(2) }), "items", items, 10, 0).index, 2, "the identical won mail")
 end)
 
 H.test("an item of a MAIL_FAILED is marked failed by the event's item, else the step's", function()

@@ -353,6 +353,23 @@ H.test("a mail that does not empty in two tries is skipped and named", function(
     H.same(Summaries(env), { "[FEM] Collected 25s from 1 mail. The money of 1 mail could not be taken." }, "chat")
 end)
 
+H.test("a stuck mail among identical AH mails: only it is passed over, the others are taken", function()
+    local ns, env, seen = Load({ mails = {
+        Mail({ subject = "Auction successful: Linen Cloth", money = 5000 }),
+        Mail({ subject = "Auction successful: Linen Cloth", money = 5000, stuck = true }),
+        Mail({ subject = "Auction successful: Linen Cloth", money = 5000 })
+    } })
+    ns.Start("gold")
+    Run(ns, env)
+    local onStuck = 0
+    for _, take in ipairs(seen.takes) do
+        if take.mail and take.mail.stuck then onStuck = onStuck + 1 end
+    end
+    H.eq(onStuck, 2, "the stuck mail tried twice")
+    H.eq(#seen.takes, 4, "and the two others once each")
+    H.same(Summaries(env), { "[FEM] Collected 1g from 2 mails. The money of 1 mail could not be taken." }, "chat")
+end)
+
 --------------------------------------------------------------------------------
 -- Collect items
 --------------------------------------------------------------------------------
