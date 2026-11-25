@@ -416,9 +416,11 @@ end
 -- it may buy was bought and waits in your mail; dropped, a later Shift+click would add its units again); one the plan
 -- no longer asks for (0) leaves the trace and takes what it still had off the item's ceiling. Your part of the limit
 -- and the picks not in wanted stay. A pick in wanted is the logged-in character's from now on (FRV-169: the plan is
--- that character's; only one saved without a character changes hands so). Returns the new limit, or 0 when nothing is
--- left to buy and nothing was bought
-local function Retrace(saved, wanted, at)
+-- that character's; only one saved without a character changes hands so). keep[id] = true: a pick whose amount you
+-- set in the table still lists the item with nothing left to buy (FRV-154, review round 5): it stays traced at 0 like
+-- a pick that bought all it may, so a click of the same plan adds nothing and its number put back gives the rest
+-- back. Returns the new limit, or 0 when nothing is left to buy and nothing was bought
+local function Retrace(saved, wanted, at, keep)
     local list, traced, ceil = TracedNow(saved)
     local shares = Capped(list, wanted, ceil)
     local got = math_max(0, math_floor(tonumber(saved.got) or 0))
@@ -432,7 +434,7 @@ local function Retrace(saved, wanted, at)
             picks[t.id] = TraceEntry(t.id, t.pick, t.left, t.at, t.char)
         else
             local units = math_max(0, math_floor(tonumber(shares[t.id]) or 0))
-            if units >= 1 or math_floor(tonumber(asked) or 0) >= 1 then
+            if units >= 1 or math_floor(tonumber(asked) or 0) >= 1 or (keep and keep[t.id]) then
                 picks[t.id] = TraceEntry(t.id, t.pick, units, at, me or t.char)
             else
                 ceil = ceil - t.left
@@ -950,16 +952,21 @@ end
 -- leaves the list (its saved price and number stay, as after the window's X). Only the picks of the logged-in character
 -- follow (FRV-169: the plan counts its bags, bank, gold and recipes; a pick another character sent keeps its units and
 -- keeps its item in the list); a pick saved before 1.46 without a character follows as before. changed = the key of a
--- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too
+-- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too,
+-- and its buys carry what is still to buy (FM.PickBuysLeft): an item it lists with 0 left is bought in full, not
+-- dropped from its plan, so the pick stays traced for it at 0 (review round 5)
 function FM.SnipeFollowPlan(picks, at, changed)
     local s = Data()
     if not s or type(at) ~= "number" then return end
-    local plan = {}
+    local plan, listed = {}, {}
     for _, p in ipairs(type(picks) == "table" and picks or {}) do
         if type(p) == "table" and type(p.key) == "string" then
             local units = {}
             for _, b in ipairs(type(p.buys) == "table" and p.buys or {}) do
-                if type(b.key) == "string" and IsNumber(b.ah) and b.ah > 0 then units[b.key] = (units[b.key] or 0) + b.ah end
+                if type(b.key) == "string" and IsNumber(b.ah) then
+                    if b.ah > 0 then units[b.key] = (units[b.key] or 0) + b.ah end
+                    if p.key == changed then listed[b.key] = true end
+                end
             end
             plan[p.key] = units
         end
@@ -970,18 +977,19 @@ function FM.SnipeFollowPlan(picks, at, changed)
     local changes, removed = {}, {}
     for _, key in ipairs(keys) do
         local saved = s.saved[key]
-        local shares, follow = {}, false
+        local shares, keep, follow = {}, {}, false
         for _, t in ipairs(TraceList(saved)) do
             -- only a pick this plan has (review round 1: a filter or profession you only look at keeps the others),
             -- and only one this character sent (FRV-169)
             if (t.char == nil or t.char == me) and (t.at ~= at or t.pick == changed) and plan[t.pick] then
                 follow = true
                 shares[t.id] = plan[t.pick][key] or 0
+                if t.pick == changed and listed[key] then keep[t.id] = true end
             end
         end
         if follow then
             local before = Left(key)
-            local limit = Retrace(saved, shares, at)
+            local limit = Retrace(saved, shares, at, keep)
             if limit < 1 then
                 FM.SnipeRemove(key) -- no pick needs it and nothing was bought: it leaves the list
                 removed[#removed + 1] = Name(key)

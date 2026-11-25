@@ -578,9 +578,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     its columns past the new one. Stock picks show the
     units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
     (`FM.SnipeFollowPlan(picks, at, changed)`): its items get what the edited pick still has to buy (its units less
-    what was bought for it since the plan, `FM.PickBuysLeft`), never more than the pick was sent with. So a pick
-    lowered under what was already bought for it stops the sniper for it; a pick raised keeps the limit it was sent
-    with (Shift+right-click sends its whole units again, counted from 0). The plan log keeps the plan's own line and gets one more for the
+    what was bought for it since the plan, `FM.PickBuysLeft`; a flip's own units the same way), never more than the
+    pick was sent with. So a pick lowered under what was already bought for it stops the sniper for it, and it stays
+    traced with nothing left ("all bought" in the tooltips): a Shift+click of the same plan adds nothing, and its
+    number put back gives the rest back. A pick raised keeps the limit it was sent with (Shift+right-click sends its
+    whole units again, counted from 0). The plan log keeps the plan's own line and gets one more for the
     edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
     and wait / Learn / Vendor / Flip / Stock / Stock, wait; 104 px since 1.47, 110 since 1.40, "Craft" until 1.39),
