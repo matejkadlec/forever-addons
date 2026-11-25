@@ -55,6 +55,7 @@ The maintainer's in-game test of 1.0.1 passed on 2026-11-25 (FRV-178). What it s
 
 - **Calls:** out of combat, AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate` (the gold arrived, the items came into the bags).
 - **Shift+click:** Blizzard's Shift+click takes the whole mail.
+- **Hint:** the line added through `hooksecurefunc("InboxFrameItem_OnEnter", ...)` shows at the end of the row's tooltip, with the key `GetModifiedClick("MAILAUTOLOOTTOGGLE")` names (Shift in his client).
 - **ForeverMarket:** after a Collect gold run, "no longer listed" on `/fm status` did not rise. That its hooks see every take comes from the code and the tests, not from the game.
 - **Layout:** the arrow covers none of the page button's "Next" text.
 
