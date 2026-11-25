@@ -70,8 +70,14 @@ local function Craft(key, circ24)
         sold12 = circ24 / 2, parts = { { key = "900", n = 1, unit = 1000, src = "ah" } } }
 end
 
-local function Setup(buyers, settings, gold)
-    local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
+local function Setup(buyers, settings, gold, extraFiles)
+    local files = FILES
+    if extraFiles then
+        files = {}
+        for _, f in ipairs(FILES) do files[#files + 1] = f end
+        for _, f in ipairs(extraFiles) do files[#files + 1] = f end
+    end
+    local FM, env = H.LoadAddon("addons/ForeverMarket", files)
     FM.InitializeSavedData()
     env.clock = FM.EPOCH + NOW_MINUTES * 60
     env.GetMoney = function() return gold or 1000000 end
@@ -444,8 +450,8 @@ end)
 
 -- Two crafts of one material (item 900), each buying 11 at the AH; bags = your units of the material, bought = the
 -- AH purchases of it since the plan
-local function TwoPicks(startBags)
-    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 })
+local function TwoPicks(startBags, extraFiles)
+    local FM, env = Setup({ ["100"] = 27, ["101"] = 27 }, nil, nil, extraFiles)
     local state = { bags = startBags or 0, bought = 0, crafted = {} }
     FM.Owned = function(key) if key == "900" then return state.bags, state.bags, state.bags, state.bags end return 0, 0, 0, 0 end
     local out = { crafts = { Craft("100", 43), Craft("101", 43) } }
@@ -648,8 +654,8 @@ H.test("amount: a flip in the plan takes nothing from a craft's purchases of the
 end)
 
 -- FRV-185: Shift+click on a pick (and the row menu's Snipe, Shift+right-click) sends what is still to buy
-local function Targets(FM, pick)
-    local list, _, _, status = FM.TableSnipeTargets(pick)
+local function Targets(FM, pick, mode)
+    local list, _, _, status = FM.TableSnipeTargets(pick, mode)
     local units = {}
     for i, t in ipairs(list or {}) do units[i] = { t.key, t.units } end
     return units, status
@@ -706,4 +712,63 @@ H.test("amount: Shift+click on a pick with everything bought adds nothing and sa
     H.eq(#sent, 2, "nothing sent to the sniper")
     H.eq(#env.printed, printed + 2, "a chat line for each click")
     H.eq(Has(env.printed[#env.printed], "Nothing left to buy at the AH for"), true, env.printed[#env.printed])
+end)
+
+-- Review round 1 of pull request 73: the sniper's own purchases since the plan sit in its count of the item, while
+-- FM.PickBuysLeft hands every purchase since the plan to the picks in plan order; a pick added to an item already
+-- sniped for another pick of the plan must not take them off a second time
+H.test("amount: a pick added to an item the sniper buys for another pick of the plan: the two need what the plan says", function()
+    local FM, env, out, _, state = TwoPicks(0, { "scan/Sniper.lua" })
+    env.C_Timer.NewTicker = function() return { Cancel = function() end } end
+    env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
+    env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end
+    env.GetMoney = function() return 1000000 end
+    env.IsShiftKeyDown = function() return true end
+    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
+    FM.ahOpen = true
+    out.pickAt = env.clock
+    local first, second = out.picks[1], out.picks[2]
+    local function Left()
+        local saved = FM.SnipeSaved("900")
+        return saved.n - (saved.got or 0)
+    end
+    FM.TableRowClick({ row = second }, "LeftButton") -- pick #2 sent first: 11
+    H.same({ FM.SnipeSaved("900").n, Left() }, { 11, 11 }, "pick #2: 11 to buy")
+    FM.SnipeSaved("900").got, state.bought = 8, 8 -- the sniper buys 8 for it
+    H.same({ FM.PickBuysLeft(first)[1].ah, FM.PickBuysLeft(second)[1].ah }, { 3, 11 }, "the plan gives the 8 to pick #1")
+    H.same({ Targets(FM, first) }, { { { "900", 11 } } }, "pick #1 adds 11: its 3 and the 8 the sniper counted for pick #2")
+    FM.TableRowClick({ row = first }, "LeftButton")
+    H.same({ FM.SnipeSaved("900").n, Left() }, { 22, 14 }, "22 in all, 14 still to buy: what the two picks need (3 + 11)")
+    -- Shift+right-click starts the count again with this pick alone: only its own 3
+    H.same({ Targets(FM, first, "restart") }, { { { "900", 3 } }, "left" }, "restart: pick #1's own 3")
+end)
+
+H.test("amount: the other order needs no correction, and a pick the sniper covers adds nothing with a chat line", function()
+    local FM, env, out, _, state = TwoPicks(0, { "scan/Sniper.lua" })
+    env.C_Timer.NewTicker = function() return { Cancel = function() end } end
+    env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
+    env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end
+    env.GetMoney = function() return 1000000 end
+    env.IsShiftKeyDown = function() return true end
+    env.GameTooltip = setmetatable({}, { __index = function() return function() end end })
+    FM.ahOpen = true
+    out.pickAt = env.clock
+    local first, second = out.picks[1], out.picks[2]
+    FM.TableRowClick({ row = first }, "LeftButton") -- pick #1 first: 11
+    FM.SnipeSaved("900").got, state.bought = 8, 8
+    H.same({ Targets(FM, second) }, { { { "900", 11 } } }, "pick #2: its 11, the plan's 8 went to pick #1 as the sniper's did")
+    FM.TableRowClick({ row = second }, "LeftButton")
+    local saved = FM.SnipeSaved("900")
+    H.same({ saved.n, saved.n - saved.got }, { 22, 14 }, "14 still to buy")
+    -- 11 more bought by hand: the plan's picks need 3 (22 - 19), the sniper still holds 14 for them; a third pick of
+    -- the same material would be covered by that excess up to its own units
+    local third = { key = "102", buys = { { key = "900", ah = 2, top = 1000 } }, purchases = { { key = "900", ah = 2 } },
+        planAt = first.planAt }
+    out.picks[3] = third
+    state.bought = 19
+    H.same({ Targets(FM, third) }, { {}, "covered" }, "the sniper's 14 cover the 3 the picks need and its 2")
+    local printed = #env.printed
+    FM.TableRowClick({ row = third }, "LeftButton")
+    H.eq(FM.SnipeSaved("900").n, 22, "nothing added")
+    H.eq(env.printed[printed + 1] ~= nil and Has(env.printed[printed + 1], "the sniper already holds"), true, tostring(env.printed[printed + 1]))
 end)

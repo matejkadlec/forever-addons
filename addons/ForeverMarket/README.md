@@ -1486,7 +1486,13 @@ per purchase.
   purchases are all bought adds nothing and says so ("Nothing left to buy at the AH for <pick>: its plan's AH
   purchases were bought since the plan, nothing added."; Shift+right-click too, and the row menu shows a greyed out
   "Snipe: nothing left to buy"). A flip or a vendor resell has no progress (no plan time), so it sends its whole
-  units as before. Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
+  units as before. An item the sniper already buys for another pick of the same plan (review round 1 of PR 73): its
+  count holds the sniper's purchases since the plan, while what is still to buy hands every purchase since the plan to
+  the picks in plan order, so per pick the two disagree; the pick then adds what the plan's picks still need together
+  less what the sniper still holds for the ones it traces (pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
+  line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11), never more
+  than its plan's units; when the sniper holds all that already, the click adds nothing ("Nothing to add for <pick>:
+  the sniper already holds what the plan's picks still need of its AH purchases."). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
   its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip names what it snipes
   with the units ("Shift+click: snipe its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt", "snipe
   what is still to buy, ..." once some were bought; the menu's entry keeps the short "Snipe its 3 AH purchases").
