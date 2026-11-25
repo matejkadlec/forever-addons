@@ -105,11 +105,16 @@ ns.GetVersion = GetVersion
 -- Saved settings
 --------------------------------------------------------------------------------
 
+-- waypointArrow: the waypoint also takes TomTom's arrow. alertOnce: a known object alerts once, also when you
+-- come back to its zone; alertOnceReset: a /reload or a login lets each of them alert once more
 local DEFAULTS = {
     enabled = true,
     alertText = true,
     alertSound = true,
     waypoint = true,
+    waypointArrow = true,
+    alertOnce = true,
+    alertOnceReset = false,
     share = true,
     showShared = true
 }
@@ -196,13 +201,15 @@ local function InitializeSavedData()
             db.chars[charKey] = nil
         end
     end
-    -- known objects: drop broken and expired entries (a /reload keeps the live ones)
+    -- known objects: drop broken and expired entries (a /reload keeps the live ones and whether they alerted,
+    -- unless "Reset on reload" lets each of them alert once more)
+    local resetAlerts = db.alertOnce and db.alertOnceReset
     local known = {}
     if type(db.known) == "table" then
         local now = time()
         for _, entry in ipairs(db.known) do
             if ns.IsValidEntry(entry, ns.OBJECT_BY_KEY) and entry.expires > now then
-                entry.alerted = entry.alerted == true
+                entry.alerted = entry.alerted == true and not resetAlerts
                 known[#known + 1] = entry
             end
         end
@@ -471,6 +478,10 @@ function ns.ReportFind(find)
     end
     local object = ns.OBJECT_BY_KEY[find.key]
     local entry, isNew, placed = ns.AddFind(db.known, find, object.duration, ns.MapSize)
+    if not isNew then
+        -- a hover find that just got its exact place takes its waypoint along (Alert.lua)
+        ns.MoveWaypoint(entry)
+    end
     if isNew and find.source == ns.SOURCE_PLACED then
         -- you just placed it: no alert now, but finding it in range or by hovering alerts like any object
         entry.alerted = true
@@ -496,12 +507,15 @@ local function PruneKnown()
     end
 end
 
--- Follow your zone: leaving one lets its objects alert again when you come back
+-- Follow your zone: its objects that have not alerted yet do now. With "Alert me only once per feature" off,
+-- leaving a zone also lets its objects alert again when you come back
 local function UpdateZone()
     local zone = ns.PlayerPosition()
     if zone and zone ~= currentZone then
         currentZone = zone
-        ns.ResetAlerts(db.known, zone)
+        if not db.alertOnce then
+            ns.ResetAlerts(db.known, zone)
+        end
         AlertDue()
     end
 end
@@ -511,13 +525,21 @@ function ns.CurrentZone()
     return currentZone
 end
 
--- The once-a-second work: expiry, zone, in-range check (Detect.lua)
+-- True once the waypoints of the known objects were set again after this login or /reload
+local waypointsRestored = false
+
+-- The once-a-second work: expiry, zone, in-range check (Detect.lua); the first one after a login or /reload,
+-- when every AddOn has loaded, also gives the known objects their waypoints back (Alert.lua)
 local function Tick()
     if not (db and db.enabled) then
         return
     end
     PruneKnown()
     UpdateZone()
+    if not waypointsRestored then
+        waypointsRestored = true
+        ns.RestoreWaypoints(db.known, ns.IsEntryShown)
+    end
     ns.PollRange()
 end
 
@@ -741,7 +763,7 @@ local function EntryLine(entry)
     return string_format("  %s%s %s%s|r", COLOR.ORANGE, ns.ObjectName(object), COLOR.YELLOW, table_concat(parts, " · "))
 end
 
--- The known objects of your zone, nearest first
+-- The known objects of your zone, nearest first, and nothing else (no pointer to the help: FRV-181)
 local function PrintList()
     if not db.enabled then
         ns.Print(string_format(L.DISABLED_HINT, ADDON_FULL_NAME, SLASH_COMMAND))
@@ -771,7 +793,6 @@ local function PrintList()
             print(EntryLine(entry))
         end
     end
-    ns.Print(string_format(L.LIST_HINT, SLASH_COMMAND, SLASH_COMMAND))
 end
 
 -- Print the help text
@@ -815,7 +836,8 @@ local function PrintDebug(args)
         { L.DEBUG_RANGE, ns.DebugRangeLines() },
         { L.DEBUG_HOVER, ns.DebugHoverLines() },
         { L.DEBUG_PLACED, ns.DebugPlaceLines() },
-        { L.DEBUG_SHARED, ns.DebugShareLines() }
+        { L.DEBUG_SHARED, ns.DebugShareLines() },
+        { L.DEBUG_WAYPOINTS, ns.DebugWaypointLines() }
     }
     for _, section in ipairs(sections) do
         ns.Print(section[1])
