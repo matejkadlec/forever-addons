@@ -13,12 +13,15 @@ local _, FM = ...
 
 local math_max = math.max
 local math_min = math.min
-local math_ceil = math.ceil
 local math_abs = math.abs
 local string_format = string.format
 
 local NAME = "ForeverMarketSticky"
-local MIN_W, MAX_W = 240, 620   -- content width: the widest line that does not wrap, within these
+-- content width: the row tooltip's (FRV-195, FM.ROW_TIP_WIDTH from ui/Table.lua); its lines wrap at it, one that may
+-- not wrap (a title) is cut there. 240 to 620, the widest line that did not wrap, until 1.48
+local function ContentWidth()
+    return math.floor(tonumber(FM.ROW_TIP_WIDTH) or 340)
+end
 local MAX_H = 520               -- content height before it scrolls
 local PAD = 10
 local TOP = 30                  -- the title row: "as of", refresh and X
@@ -67,19 +70,17 @@ local function FontAt(w, i)
     return fs
 end
 
--- The lines into font strings, the window sized to them: as wide as the widest line that must not wrap, as high as
--- the lines up to MAX_H, then the content scrolls
+-- The lines into font strings, the window sized to them: the row tooltip's width (FRV-195), as high as the lines up to
+-- MAX_H, then the content scrolls
 local function Layout(w)
     local lines = w.lines or {}
-    local width = MIN_W
     for i, line in ipairs(lines) do
         local fs = FontAt(w, i)
         fs:SetWidth(0)
         fs:SetText(line.text)
         fs:SetTextColor(line.r, line.g, line.b)
-        if not line.wrap then width = math_max(width, fs:GetUnboundedStringWidth()) end
     end
-    width = math_min(MAX_W, math_ceil(width))
+    local width = ContentWidth()
     local y = 0
     for i, line in ipairs(lines) do
         local fs = w.fonts[i]

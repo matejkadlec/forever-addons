@@ -433,7 +433,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
-  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). Last,
+  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). On a pick
+  with an Amount input (also from its steps line), **Reset amount** (1.49, FRV-194): the plan's number back, as
+  emptying the input and pressing Enter does (`FM.SetPickAmount(key, nil)`; a refusal is said in the chat), greyed out
+  while the pick has the plan's number. Last,
   **Show history** (1.26, FRV-76, "Show price graph" until 1.36) on every row of an item (all tabs but Farm and Profit):
   see Item history.
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
@@ -608,8 +611,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     leave cheaper listings under the list price or earn no margin." and "Empty it and press Enter for the plan's
     number (1)." Leaving your red number in the input changes nothing; typing the number reached sets that one.
     When nothing can be made for it the pick stays and a chat line says why. A number you set and met is light blue
-    and its tooltip says "Set by you. Empty it and press Enter for the plan's number (11)"; emptying it brings the
-    plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
+    and its tooltip says "Set by you. Empty it and press Enter for the plan's number (11)"; emptying it, or the row
+    menu's Reset amount (1.49, FRV-194), brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
     deep scans, a new plan (Refresh, or any plan with the lock off, which carries the plan's own target of a craft in
     progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
     its columns past the new one. Stock picks show the
@@ -1008,6 +1011,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   work without a blocked popup); not seen in game: a recipe the list never shows, the chat line behind the overview
   page, a box greyed out by a cooldown, the 10 s timeout, "you don't know this recipe yet", and a reopen from the micro
   button straight after Ctrl+click (inferred from the side tab result)
+* Row tooltips are about 340 px wide in every tab (1.49, FRV-195, the maintainer's "max-width": in 1.48 a pick's
+  tooltip ran across half the screen): every line of a row's tooltip wraps (the "label: value" lines, the material
+  lines, the drops of a Farm row, the click hints; the item's name and the headings stay one line), and the tooltip's
+  minimum width is `FM.ROW_TIP_WIDTH`, so they wrap at it (`FM.RowTipWidth`: `SetMinimumWidth`, set back to 0 when the
+  tooltip hides, a hook on its `OnHide`, so the bags' and Blizzard's tooltips keep their own width). A sticky window
+  (Alt+click) has the same width. The aligned material columns of FRV-68 come later inside this width. Not yet
+  verified in game
 * The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip shows on hover, only 1.47 put it behind
   Shift, FRV-155, FRV-186), one per line in light blue: "Click: search at the
   AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)", naming the units it sends, for a pick that bought some since the plan "snipe what is still to buy, ...", for one that bought all "nothing left to buy at the AH for this pick, adds nothing" (FRV-185), and
