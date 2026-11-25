@@ -16,6 +16,7 @@ body:
       options:
         - ForeverCampFeatures
         - ForeverCraftQueue
+        - ForeverEnhancedMailbox
         - ForeverHawkTimer
         - ForeverMarket
         - ForeverRangeIndicator

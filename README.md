@@ -35,6 +35,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - [ForeverMarket](#forevermarket)
   - [ForeverCampFeatures](#forevercampfeatures)
   - [ForeverCraftQueue](#forevercraftqueue)
+  - [ForeverEnhancedMailbox](#foreverenhancedmailbox)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
   - [Skada](#skada)
@@ -234,6 +235,32 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - `/fcq help` shows help
 - Settings panel: `Jim's Forever AddOns -> Craft Queue`: enable, dock the panel to the profession window, open the queue window automatically (off by default), ask before Clear queue, the sound when the queue is done, Show queue, Reset position and a `Defaults` button
 - Standalone; the idea of the queue comes from the 3.3.5 AddOn Advanced Trade Skill Window, the code is written from scratch for Forever
+
+### ForeverEnhancedMailbox
+
+📬 More ways to collect your mail, right in the default inbox: only the gold, or only the items while a few bag slots stay free.
+
+- **A small arrow right of Open All** opens a menu:
+  - **Collect gold: 12g 34s** takes the money of every mail, from the top of the list down. Your bags do not matter here
+  - **Collect items: 18 items** takes every item of every mail, slot by slot, while your free bag slots stay above "Keep free bag slots" (0 by default: until the bags are full; only bags for any item count, not a quiver)
+  - Each entry shows what waits and is greyed when nothing does; **Settings** opens the settings page
+- Both leave **COD mail** (it would cost you its price) and **mail from a GM** alone, never delete or return a mail, and leave a letter in your inbox with its text
+- One mail at a time, a step about every 0.3 s, as fast as the server answers (Blizzard's Open All works the same way); while a collection runs, the arrow is a **stop sign**: click it to stop
+- **One chat line** when it is done: `[FEM] Collected 12g 34s 56c from 9 mails.`, `[FEM] Collected 18 items from 7 mails, 2 COD mails skipped.`, or why it stopped and what is left: `[FEM] Collected 11 items from 4 mails, stopped with 4 bag slots free: 9 items in 3 mails are left.`
+  - It stops when nothing is left, when your bags reach the free slots you keep, when you close the mailbox or switch to Send Mail, when Open All starts, and after 10 seconds without an answer from the server
+  - An item the game refuses (a unique item you already carry) is passed over, and the line counts it; so is a mail that does not empty after two tries
+  - When the mailbox holds more mail than it shows, the line says how many more wait on the server
+- **Shift+click on a mail takes all of it**: that is part of the default inbox already, and a line in the mail's tooltip now says so ("Shift+click: take everything in this mail"; on a COD mail: "COD: open the mail to pay"). The line names the key you set for it in the game's modified clicks
+- Works next to ForeverMarket, which still logs every Auction House mail you take; neither needs the other
+- Slash commands:
+  - `/fem` shows help
+  - `/fem on` and `/fem off` enable/disable it without reloading the UI (off: no arrow, no tooltip line)
+  - `/fem gold` and `/fem items` start a collection with the inbox open, `/fem stop` stops it
+  - `/fem keep <n>` sets Keep free bag slots (0 to 20), `/fem options` opens the settings
+  - `/fem debug` prints the inbox as the collection sees it and its last step (for testing)
+  - `/fem help` shows help
+- Settings panel: `Jim's Forever AddOns -> Enhanced Mailbox`: enable, Keep free bag slots (a slider and a number box, 0 to 20), show the Shift+click line in mail tooltips, and a `Defaults` button
+- Standalone; the idea of the menu comes from mail AddOns such as Postal and Parcel, the code is written from scratch for Forever
 
 ## 🧩 Backported AddOns
 
