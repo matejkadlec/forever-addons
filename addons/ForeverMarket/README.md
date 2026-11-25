@@ -4,6 +4,21 @@ Auction House market logger for WoW: Forever. It records the market over time an
 sells, how fast, at which price and what to craft, buy or flip: the market table and its picks, the item
 tooltips and the sniper, all in the game.
 
+## Install
+
+**Requires [ForeverArtisan: All Tradeskills](https://www.curseforge.com/wow/addons/foreverartisan)** (1.48, FRV-175,
+the maintainer's decision on FRV-164): Craft, Learn, Vendor and the crafting picks read its data (trade/Sources.lua),
+so the `.toc` declares its core folder as a required dependency (`## Dependencies: ForeverArtisan_Core`). Without it,
+or with it disabled, the game does not load ForeverMarket at all, the sniper and the deep scans included: the AddOn
+list shows ForeverMarket greyed out or in red with the reason (a dependency disabled or missing) and names its
+dependencies in its tooltip. ForeverArtisan's other folders are `## OptionalDeps:` (Trade Contacts, the professions
+ForeverMarket reads: Leatherworking, Cooking, First Aid, Tailoring, Blacksmithing, Alchemy, Engineering, and
+Skinning for Farm): they load before it when they are installed, and one left out or disabled only empties its part,
+as before. Copy the `ForeverMarket` folder into `Interface/AddOns` next to ForeverArtisan's folders (the root
+`README.md`, Installation). On CurseForge its file declares ForeverArtisan as a Required Dependency
+(`## X-Curse-Required-Dependencies: foreverartisan`, sent with every upload, [`docs/releasing.md`](../../docs/releasing.md)),
+so the CurseForge app installs it with ForeverMarket.
+
 ## What it records
 
 | Source | When | What |
@@ -270,7 +285,37 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
-* At most 9 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 9 since 1.35 (FRV-67), the other tabs up to 8.
+* At most 10 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 10 since 1.47 (FRV-154: Amount; 9 since
+  1.35, FRV-67), the other tabs up to 8.
+* **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
+  maintainer wanted it only on the boxes): the tooltips of the market table and of its Filters dialogs are of two
+  kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
+  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH, the Profit tab's This character / All
+  characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
+  (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
+  rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
+  filters", "Lock plan after refresh", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
+  over such an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and moving onto
+  it with Shift already held shows it too, while Shift over a row or a header changes nothing. A row's Amount input is
+  an input inside the row: over it neither the row's tooltip nor its own shows without Shift, the rest of the row
+  shows the row's on hover. While an input of the table or of its dialog has the keyboard focus nothing shows at all,
+  hover or Shift (Shift types capitals there), so a row tooltip never opens over the box you are typing in; an input of
+  another window (the chat, the sniper's item box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
+  links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
+  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
+  "All characters" buttons above it show on hover), the item tooltips in your bags,
+  the sniper window and the settings panel. The footer of every tab with a table ends with the hint of what of that
+  tab waits for Shift (the Profit tab's keeps "hover a dot"): Picks "... · hover for why · hold Shift over inputs,
+  dropdowns and checkboxes for their tips", Craft and Learn "· hold Shift over inputs and checkboxes for their tips",
+  Vendor "· hold Shift over inputs and dropdowns for their tips", the others "· hold Shift over the search box for its
+  tip"; a line too long for the window takes a shorter form of its own note (Picks drops its note on the columns), so
+  the hint is never cut (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table:
+  tooltips of inputs, dropdowns and checkboxes only while Shift is held" (`tableShiftTips`, on by default) switches
+  them to plain hover too (everything on hover, as until 1.46; Picks' footer "hover for why"). One helper holds the
+  rule, `FM.TableTip(frame, show, kind)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
+  `ui/Filters.lua`, the kind `"hover"` or `"shift"` named by every call (none is an error, so a new element has to
+  choose): apart from the graph's dots no tooltip of the window has an `OnEnter` script of its own. Not yet verified
+  in game
 * Search box (1.36, FRV-26): Blizzard's `SearchBoxTemplate` (a magnifier, "Search" until you type, a clear button),
   140 px; until 1.35 a plain box with "Filter by name" above it (the filter row and everything under it moved up by
   that label's 14 px: `FILTER_Y` -74, `TOP` -134). Each tab keeps its own search text for the session (`view.search`
@@ -388,7 +433,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `FM.TrackTarget`, places from ForeverArtisan_Contacts' `mapID`/`m`, `x`, `y`). Track is only offered where there is
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
-  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). Last,
+  unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). On a pick
+  with an Amount input (also from its steps line), **Reset amount** (1.49, FRV-194): the plan's number back, as
+  emptying the input and pressing Enter does (`FM.SetPickAmount(key, nil)`; a refusal is said in the chat), greyed out
+  while the pick has the plan's number. Last,
   **Show history** (1.26, FRV-76, "Show price graph" until 1.36) on every row of an item (all tabs but Farm and Profit):
   see Item history.
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
@@ -528,8 +576,62 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     3 days of stock listed x 0.5.
   * The plan log (1.40, FRV-103): every plan's picks go to `plans` (Data format), so the order and the plan can be
     measured later against what sold (FRV-125, the `listings` report of tools/fm_analyze.py).
+  * **Amount** (1.47, FRV-154), a column between Type and Invest and an input: what a craft makes (the "make N" of
+    its steps line) and what a vendor resell or a flip buys. Click the number, type yours and press Enter (a click
+    elsewhere applies too, Escape puts the old number back; whole numbers from 1, anything else changes nothing): that
+    pick is made again for your number by the plan's own rules (`FM.RemakePick` in `trade/Picks.lua`: the materials up
+    the AH ladder, buy or craft, what you hold, the price to list at), so its steps line, Invest, Expected, Conf., its
+    tooltip, Ctrl+click's count and what Shift+click snipes follow, and the summary's "needs" and "expected" with them.
+    The other picks stay as they are. The pick is planned **as of the plan's own moment**: with the latest scan's
+    prices, but with your bags and bank as the plan read them (`pickOwned`) and the plan picks before it taking what
+    they took then (`took`, recorded by `Commit`, applied again by `Apply`); the picks after it are not planned again.
+    It keeps the plan's time, so what you bought and crafted since the plan counts toward it as progress ("buy 4
+    more", "4 / 8"), shared out with the other picks in the plan's order, exactly as for a pick you did not touch. So
+    an amount set half way through a plan never hands one pick's materials to another: with both picks' 11 Heavy
+    Leather bought, the first pick set to 15 and the second to 12, the two together ask for the 5 that are missing.
+    A craft's number is what it makes from its plan on (crafts before the plan that an automatic plan carried do not
+    count against it), and a material the plan never looked at is read as of the plan too (your units now less what
+    was bought of it since).
+    Two limits of that: units that reached your bags outside the plan since it was made are not seen (Refresh makes a
+    new plan with them), and the picks before it keep their AH units set aside in the latest scan's ladder also when
+    you bought them before that scan, so the pick's cost can read a little high then. The amount may be over
+    the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
+    vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow (Invest,
+    Expected, the steps, Ctrl+click's count and the sniper go by that), the input shows **your** number in **red**
+    (1.48, FRV-187, `FM.AmountShown`: the maintainer's rule, it cannot be done, an error and not a warning; light
+    blue until 1.47 showed the number reached, which read as a bug) and the steps line ends the step it is about with
+    a short red note (`pick.amountNote`): "(no more available for flipping)" for a flip, "(the vendor has no more)"
+    for a vendor's limited stock, "(no more materials on the AH at a usable price)" for a craft ("make 30 (no more
+    materials ...)"; until 1.47 an orange "(of the 100 you set: ...)"). Your minimum profit is no limit of the market
+    (the maintainer's decision on FRV-187, `pick.amountWarn`): a craft it cuts keeps the number reached in light blue
+    and an orange "(more would earn under your min. profit)", its tooltip the reason in orange ("Set by you: 100.
+    Only 20 can be made now: more would earn less than your minimum profit."); FRV-188 is to let an amount pass it
+    with a warning icon.
+    The input's tooltip has the full reason (`pick.amountWhy`): "Set by you: 2. Only 1 can be bought now: more would
+    leave cheaper listings under the list price or earn no margin." and "Empty it and press Enter for the plan's
+    number (1)." Leaving your red number in the input changes nothing; typing the number reached sets that one.
+    When nothing can be made for it the pick stays and a chat line says why. A number you set and met is light blue
+    and its tooltip says "Set by you. Empty it and press Enter for the plan's number (11)"; emptying it, or the row
+    menu's Reset amount (1.49, FRV-194), brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
+    deep scans, a new plan (Refresh, or any plan with the lock off, which carries the plan's own target of a craft in
+    progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
+    its columns past the new one. Stock picks show the
+    units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
+    (`FM.SnipeFollowPlan(picks, at, changed)`): its items get what the edited pick still has to buy (its units less
+    what was bought for it since the plan, `FM.PickBuysLeft`), never more than the pick was sent with. So a craft pick
+    lowered under what was already bought for it, or to a number your own stock covers, stops the sniper for it, and
+    it stays traced with nothing left ("all bought" in the tooltips): a Shift+click of the same plan adds nothing, and
+    its number put back gives the rest back. One exception: an item nothing was bought of yet, which no other pick
+    and no number of your own needs, has nothing to stay in the sniper's list for, so it leaves the list as after a
+    new plan (the chat says "no pick needs ... any more, removed"); its number put back does not bring it back then,
+    a Shift+click on the pick sends it again. A pick raised keeps the limit it was sent with (Shift+right-click sends
+    what it still has to buy again, counted from 0). A flip's or a vendor resell's number counts from the edit: such a pick has
+    no progress, so what was bought of it before does not come off, and the sniper may buy up to the new number more
+    (never past what the pick was sent with). The plan log keeps the plan's own line and gets one more for the
+    edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
-    and wait / Learn / Vendor / Flip / Stock / Stock, wait; 110 px since 1.40, "Craft" until 1.39), **Invest** (the
+    and wait / Learn / Vendor / Flip / Stock / Stock, wait; 104 px since 1.47, 110 since 1.40, "Craft" until 1.39),
+    **Amount** (1.47, above), **Invest** (the
     gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
     brackets), **C/8h** and **C/24h**, and last **Conf.** (`pick.conf`, the confidence the tooltip explains; last since
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
@@ -548,7 +650,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     own materials, the most first: "use 9 Heavy Leather from your bags (+1 more)", bags, bank or both; 1.29, FRV-90;
     the tooltip's material lines say "9 from your bags" each) > buy (the main purchase: how many, what, up to which
     AH price or at which vendor; the other purchases and tools counted as "(+n more)", the tooltip lists them; only
-    what is bought, as Invest and the shopping list) > make > wait (Craft and wait, Stock, wait: the target price,
+    what is bought, as Invest and the shopping list) > make (following your crafts since 1.45: "make 31 more", "made 51",
+    below) > wait (Craft and wait, Stock, wait: the target price,
     the estimate and until when) > list (price, for 8h; with units you hold, how many in all and how many of them
     yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
@@ -653,7 +756,31 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     came since ("A newer snapshot, 2 posts and a change in your bags or bank since the plan", `pickT`, `pickListings`,
     `pickStock`). The plan
     is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
-    1.20.3, and turning it off plans at once.
+    1.20.3, and turning it off plans at once (keeping what you crafted of its picks, below).
+  * What you crafted counts toward a pick (1.45, FRV-104; `FM.PickProgress`, `FM.CraftedSince` in trade/Crafts.lua):
+    a craft pick's Make is its plan's target, and the units of its item this character crafted since the plan was
+    made (the craft log, `R.crafts`: batches started since, written again on every bag update) count toward it. The
+    tooltip reads "Make: 20 / 51" (crafted / target, "0 / 51" before the first craft, "(9 crafts left)" for a recipe
+    that makes several, "55 / 51, done" past it), the make step "make 31 more", and once the target is made "made 51"
+    with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With the
+    lock on the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
+    of your bags), and the buy step follows your AH purchases since the plan (review round 1, `FM.PickBuyStep`,
+    `FM.BoughtSince` in trade/Cost.lua: the purchase log of this character; picks buying one material share those
+    purchases out in their order, pick #1 first, review round 2): "buy 31 more Heavy Leather up to 2s 75c",
+    grey "bought the materials" once nothing is left to buy (the plan used your stock first, so the purchases are what
+    the target needs beyond it; the use step and the tooltip's material lines stay as planned). A purchase waits in
+    your mail until you take it out, and a plan made again counts it only then. With the lock off an automatic plan carries each craft pick that is in it again over
+    (`FM.PickCarry`: its target, the time of its plan and what you held then): it makes only the rest, its materials to
+    buy follow the rest, the crafted units you still hold go to the AH with it ("list 51 at ... (20 you hold)", the
+    tooltip's "You hold: 20 in your bags, listed with them (20 crafted for this pick)") and are no units you hold that
+    add to the plan; the room, the gold share and the batch size were about the target, so the batch does not grow or
+    shrink by them (the gold share still caps what the rest buys). Once the target is made the pick lists what you hold
+    of it (a Stock pick, its make step "made 51" first); with nothing left to list it is gone ("the 51 of its plan are
+    made, none left in your bags or bank to list"). A plan you ask for (Refresh, a change of a Picks input) starts new
+    targets: what you crafted is then units you hold. Switching the lock off keeps the progress. Not counted: crafts of
+    another item, of another character, and of a batch started before the plan. Until 1.44 a plan made again after
+    crafting counted the crafted units as yours and made the full number again (Hillman's Cloak: "make 51 > list 71 ...
+    (20 you hold)" after 20 crafted).
   * Every filter of the tab is an input of the plan, never a filter of the finished plan (1.17; before, they hid
     picks whose gold stayed reserved): the Picks filters (its own or the global ones; "Include not learned recipes"
     off plans without recipes to learn, "Exclude already listed items" leaves out what you list, "Over skill level"
@@ -697,6 +824,13 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
     the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average).
+    A flip pick follows the Flip tab's rule within its own batch and gold (1.46, FRV-172, `EvaluateFlip`): when
+    they buy fewer units than the flip row, it takes fewer whole price levels and lists under the level above those
+    (its "List at", Expected profit, "Sells", Gold needed and steps line follow that buy), and when no such buy earns
+    the margin it is no pick: "3 cheaper listings would stay under 1g 04s 99c: this pick can buy 1 of the 4". Until
+    1.45 it bought what it could and kept the row's list price (Green Dragonscale Leggings: gold for one of the two
+    at 5g 88s, listed at 8g 02s over the other one and the two at 5g 98s). Units of a flip's item you hold, when
+    nothing is bought, are a Stock pick listed under the cheapest listing of others, not at the flip's price.
 * Lowest price of an auction: single (non-stacking) items need at least 1s, Forever's server silently drops
   cheaper posts and the AH hangs ("Creating 0/15", throttled system never ready). Every sell price respects it;
   rows at that floor say so (no undercut possible, you queue behind the others).
@@ -758,12 +892,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   List at, Units, On AH, C/8h, C/24h. Once the latest snapshot is an hour old or more (`FLIP_STALE`), a line above
   the header says "Prices are 2h 19m old: cheap listings are probably gone" (the header and the list move one row
   down, as on Picks): Flip is the only tab where minutes matter.
-* **Flip** (until 1.10 "AH resell"): buy the cheapest units and relist them 1c under the next real price level (the wall:
-  where max(3, 10% of all listed) units of others wait), never above 110% of the usual price (median daily low,
-  last week, 3+ days of history). A flip needs 15% profit after the 5% cut on every unit bought (buy <= list x
-  0.95 / 1.15), at least 1s in total, the cheap units at most 25% of all listed (else they are the market), the
-  wall at least 85% of the usual price, and no new price level (last 2 days within 80-125% of usual). Every split
-  of the ladder is tried, the most profitable wins; units bought at most what waits at or under the wall (min 5).
+* **Flip** (until 1.10 "AH resell"): buy the cheapest price levels of others in full and relist the units 1c under the
+  cheapest listing that stays (the level above them), never above 110% of the usual price (median daily low, last
+  week, 3+ days of history). **A flip never lists above a listing of others that stays on the AH after its buy**
+  (1.46, FRV-172, `FM.FlipPlan` in `trade/Calc.lua`, one rule for this tab and for Flip picks). A flip needs 15%
+  profit after the 5% cut on every unit bought (buy <= list x 0.95 / 1.15), at least 1s in total, the bought units at
+  most 25% of all listed (else they are the market), a real market above (the wall, the price where max(3, 10% of
+  all listed) units of others wait, at least 85% of the usual price), no more units than others list from the
+  cheapest listing that stays up to the wall (min 5), and no new price level (last 2 days within 80-125% of usual).
+  Every split of the ladder is tried, the most profitable wins: a thin level between the cheap listings and the wall
+  is bought with them when all of that still holds, else the list price is just under it, else there is no flip.
+  The tooltip's "List at" line names what waits above: "8g 02s 01c  next: 16 at 9g 29s", or with a thin level
+  "79s 99c  next: 1 at 80s, 18 more up to 1g 05s" (`FM.FlipNextText`; "N wait at W" before, which counted the thin
+  levels as waiting at the wall).
+  Until 1.45 the list price was 1c under the wall, so thin levels stayed under it: Recipe: Cleric's Elixir (2026-11-25:
+  1g 03s 99c, 1g 04s, 1g 05s 09c, 1g 10s 98c, 1g 30s 99c, ...) read "buy 2 up to 1g 04s, list at 1g 30s" over the
+  listings at 1g 05s 09c and 1g 10s 98c; with 9 listed only two units are within the 25%, and two units earn no
+  margin under 1g 05s 09c, so it is no flip now.
   Until 1.8 a flip had to be listed under 70% of the usual price, which almost never happened.
 * **Min. price** (Craft, Vendor, Flip; 1.13, until 1.14 "Min item sell") includes one lost deposit per unit for listing a stack: the 8h deposit
   when 100+ units circulate in 24h (the C/24h column; 1.17, before: 200+), else (or unknown) the 24h one, since a slow item may not sell in 8h;
@@ -836,8 +981,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     tool it buys there); Flip, vendor resells and items without a craft the item itself. With nothing to buy on the
     AH a chat line says so. Before 1.27 it searched the item and its recipe's top-level materials
 
-  Shift+click: link to chat (at the AH: snipe what it buys there, a pick every AH purchase of its plan, added to what
-  each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see Sniper).
+  Shift+click: link to chat (at the AH: snipe what it buys there, a pick what is still to buy of every AH purchase of
+  its plan, added to what each item already snipes; Shift+right-click at the AH: the same with Bought now from 0; see
+  Sniper).
   Right-click: the menu above, with Snipe on every row Shift+click snipes from (also away from the AH). Alt+click: the
   row's tooltip as a sticky window (below). Ctrl+click: the row's recipe in its profession window (below).
 * Ctrl+click on a craft row (1.44, FRV-132, `ui/OpenRecipe.lua`): a craft pick ("Craft and sell", "Craft and wait"), a
@@ -865,8 +1011,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   work without a blocked popup); not seen in game: a recipe the list never shows, the chat line behind the overview
   page, a box greyed out by a cooldown, the 10 s timeout, "you don't know this recipe yet", and a reopen from the micro
   button straight after Ctrl+click (inferred from the side tab result)
-* The click hints at the bottom of a row tooltip (1.28, FRV-81), one per line in light blue: "Click: search at the
-  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)" and
+* Row tooltips are about 340 px wide in every tab (1.49, FRV-195, the maintainer's "max-width": in 1.48 a pick's
+  tooltip ran across half the screen): every line of a row's tooltip wraps (the "label: value" lines, the material
+  lines, the drops of a Farm row, the click hints; the item's name and the headings stay one line), and the tooltip's
+  minimum width is `FM.ROW_TIP_WIDTH`, so they wrap at it (`FM.RowTipWidth`: `SetMinimumWidth`, set back to 0 when the
+  tooltip hides, a hook on its `OnHide`, so the bags' and Blizzard's tooltips keep their own width). A sticky window
+  (Alt+click) has the same width. The aligned material columns of FRV-68 come later inside this width. Not yet
+  verified in game
+* The click hints at the bottom of a row tooltip (1.28, FRV-81; the tooltip shows on hover, only 1.47 put it behind
+  Shift, FRV-155, FRV-186), one per line in light blue: "Click: search at the
+  AH" (1.33, FRV-47; "Click: create shopping list" from 1.28 to 1.32), "Shift+click: link to chat" (at the AH where the row has something to snipe "Shift+click: snipe ... (adds to what it already snipes)", naming the units it sends, for a pick that bought some since the plan "snipe what is still to buy, ...", for one that bought all "nothing left to buy at the AH for this pick, adds nothing" (FRV-185), and
   "Shift+right-click: snipe it with Bought now from 0", 1.43, FRV-128), "Ctrl+click: open in Leatherworking" (1.44,
   FRV-132: the profession's name, only on rows where Ctrl+click works, `FM.CraftHint`),
   "Alt+click: make this tooltip sticky", "Right-click for more options" (until 1.28 one line "Click: search at the AH
@@ -1179,16 +1333,22 @@ per purchase.
     your mouse wheel steps reach the sniper"
   * The add row (FRV-41): the item box (Blizzard's `SearchBoxTemplate` with "Add an item" and its own clear button),
     the buyout per unit (Blizzard's `MoneyInputFrameTemplate`: gold, silver and copper boxes, two digits for silver
-    and copper), "max units" (buy at most, empty = no limit; right-aligned since 1.43), its x (1.43, FRV-128:
-    "Reset limit and count": empties the box, and the next Update starts the item's count at 0; loading another
-    item forgets it) and Add (**Update** for an item already sniped, "Save" until 1.42; Update keeps what was bought,
-    with a new number or buyout too: 190 of 200, 300 typed = 190/300). Typing shows
+    and copper), "max units" (buy at most, empty = no limit; right-aligned since 1.43) and Add (**Update** for an
+    item already sniped, "Save" until 1.42; Update keeps what was bought, with a new number or buyout too: 190 of
+    200, 300 typed = 190/300). **Refresh** (1.46, FRV-153) shows left of Update while an item of the list is loaded:
+    it saves the row like Update and starts the item's Bought now again at 0 with the limit kept (Turtle Scale
+    180/12 -> 0/12, 20 typed -> 0/20, an empty box -> no limit and 0), so a done item is active again at once;
+    Bought today stays. Its tooltip: "Save this item and start its Bought now count again at 0. Max units stay."
+    The window is at least as wide as the add row with both buttons (`ADD_ROW_W`). From 1.43 to 1.45 an x right of
+    "max units" cleared the limit and made the next Update start the count at 0 (two steps, and the limit had to be
+    typed again). A Refresh forgets the picks the item was sniped for, as every reset of the count does (below):
+    its limit is yours from then on. Typing shows
     8 suggestions with icon, name and the cheapest price now (items known to be sold per auction left out, sniped
     ones marked "sniped"); the empty box with the focus shows the earlier snipes (`saved` without `list`) with their
     saved price. Up / Down mark a suggestion, Enter picks it (the first without a mark) and the focus goes to the
     price; Tab runs item, gold, silver, copper, max units and back (Shift+Tab the other way); Enter in a price box
     or in max units adds or updates. After adding, the row empties and the focus is back in the item box for the next
-    one; after an update it empties too ("Updated: ... 190 bought now", or "count started again" after the x).
+    one; after an update it empties too ("Updated: ... 190 bought now", or "count started again" after Refresh).
     Shift+click an item (bags, a chat link, a row of the AH) while the
     item box has the focus, or drag one onto the window: it lands in the row, also an item never scanned (its item
     ID is the key; the bag item stays where it is). With the AH open Blizzard also writes the name into the AH's
@@ -1226,6 +1386,13 @@ per purchase.
     greyed out, while on the % box is; the boxes apply on Enter or a lost focus, Esc shows the saved amount again).
     Hovering the budget row shows three lines: "50% of your gold at 13:06" (or "Set manually: 5g"), "Spent by the
     sniper today" and "Left" (the budget minus what the sniper spent since its last refresh)
+  * **Clear** (1.46, FRV-171), at the right end of the "Automatically refresh budget" row, its right edge on the
+    refresh icon's: stops sniping every item of the list at once, paused ones too, as each row's x does
+    (`FM.SnipeClear`: their buyouts and numbers stay remembered and are suggested again by the empty item box, Bought
+    today stays, a purchase not confirmed yet is cancelled, a confirmed one is left to the server's answer). One
+    confirmation step like a row's Buy -> Confirm: the first click turns it into "Confirm" for 3 seconds, the second
+    click clears and the line under the add row says "Stopped sniping 8 items."; after 3 seconds, or when the window
+    closes, it is "Clear" again. Disabled while the list is empty. An add row that was editing a listed item empties
   * The `?`: five lines of help
 * Where it opens: a dragged position (`snipePos`, also one saved by an older version: the window is clamped to the
   screen), else at the AH's right edge while the AH is open, else the screen's center. It follows the AH: when the AH
@@ -1301,9 +1468,9 @@ per purchase.
   remove it, raise its number or reset it. Units are counted with the gold: at the confirm, given back on
   `COMMODITY_PURCHASE_FAILED` (not when the count started again since), kept when no answer comes. Since 1.43
   (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
-  number under what was bought leaves the item done); only the add row's x by "max units" followed by Update
-  (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after removing it, or for the first
-  time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
+  number under what was bought leaves the item done); only the add row's Refresh (1.46, FRV-153; the x by "max units"
+  followed by Update before) (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after
+  removing it, or for the first time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
   Shift+right-click sets the limit and starts the count again (below, Market table). Until 1.42 a new number, typed
   into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
@@ -1313,25 +1480,91 @@ per purchase.
   stay; resuming looks at the results the client holds at once. The pause is saved, so it outlasts closing the window,
   a `/reload` and a relog; a new price keeps it, an item removed and added again starts unpaused. "Watching N items"
   counts only what is searched (not paused, not done); with nothing left to search the banner says "Every item is
-  paused, done ... Resume one or add another."; on Blizzard's Buy page of a paused item "... is paused. Resume it, or
+  paused, done ... Resume one or add another." (with only done items: "Every item is done (its number bought) or
+  cannot be sniped. Refresh a done item to buy its number again, or add another.", 1.46, FRV-153); on Blizzard's Buy page of a paused item "... is paused. Resume it, or
   go back to the item list for the others."; the market table's chat line ends "(paused)" for a paused item.
 * Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
   buys at the AH at the table's prices. Picks: every AH purchase of the plan (`pick.buys`), each at its "up to"
-  price with its units as its number, one chat line for all of them ("Sniping 3 items for <pick>: 144 Heavy
-  Leather up to 2s 75c, ..."), items sold per auction skipped and named there, vendor purchases left out, the
-  window opens on the main one; Craft and Learn: the main material at the max material price (the item keeps its
-  number); Flip: its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip
-  names what it snipes ("Shift-click: snipe its 3 AH purchases").
+  price with what is still to buy of it as its number (1.48, FRV-185, `FM.PickBuysLeft`: the plan's units less what
+  was bought for the pick since the plan, by hand or by the sniper, from the purchase log, shared with the other
+  picks of the plan in their order as the buy step counts it, so a pick whose steps line reads "buy 31 more Heavy
+  Leather" snipes 31; until 1.47 always the plan's whole units, so units bought by hand before the first click were
+  bought again), one chat line for all of them ("Sniping 3 items for <pick>: 31 Heavy Leather up to 2s 75c, ..."),
+  a purchase bought in full left out (sent without units the sniper would buy it without a limit), items sold per
+  auction skipped and named there, vendor purchases left out, the window opens on the main one. A pick whose AH
+  purchases are all bought adds nothing and says so ("Nothing left to buy at the AH for <pick>: its plan's AH
+  purchases were bought since the plan, nothing added."; Shift+right-click too, and the row menu shows a greyed out
+  "Snipe: nothing left to buy"). A flip or a vendor resell has no progress (no plan time), so it sends its whole
+  units as before. An item the sniper already buys for another pick of the same plan (review rounds 1 and 2 of PR 73):
+  its count holds the sniper's purchases for that pick, while what is still to buy hands every purchase since the plan
+  to the picks in plan order, so the pick gets back what the plan gave it of those (`TracedBought`: the least of what
+  the plan took off it, what the sniper bought for the traced picks under this plan, and what the plan still gives
+  those picks beyond what the sniper holds for them, in sum: a traced pick that holds more than it needs lowers it,
+  review round 3). Pick 2 of 11 sent first, the sniper bought 8, pick 1's steps
+  line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11. Never more
+  than its plan's units; nothing back for purchases by hand, and none for a traced pick kept under its plan's units by
+  units still in your mail (the sniper bought nothing for it under this plan). A traced pick whose material you bought
+  by hand keeps its units in the sniper until a new plan follows it (Refresh). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
+  its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip names what it snipes
+  with the units ("Shift+click: snipe its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt", "snipe
+  what is still to buy, ..." once some were bought; the menu's entry keeps the short "Snipe its 3 AH purchases").
   * Shift-click and the menu's Snipe add (1.43, FRV-128, the maintainer's rule after review round 2): the units go
     on top of the limit an item already has and what was bought stays counted, so two picks that need the same
     material add up (Heavy Leather 60 and 40: 20/100 when 20 were bought; the chat line says "40 added"); an item
     sniped without a limit gets a limit of its Bought now plus the units (20 bought, a pick of 40: 20/60), so it buys
     no more than the pick at the pick's price; a new item, or one removed and added again, gets the units from 0.
-    Clicking the same pick twice adds it twice: which pick an item was sent for is not tracked yet.
-  * Shift+right-click (at the AH) starts again: each item's limit becomes the pick's units and Bought now starts
-    at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100 of 144
-    bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. A material listed twice in one plan sums
+    Until 1.45 clicking the same pick twice added it twice (below).
+  * Which picks an item is sniped for (1.45, FRV-143): a pick sent from the table (Shift-click, the menu's Snipe,
+    Shift+right-click) is remembered per item with its units and the time of its plan (`FM.trade.pickAt`, always at
+    least a second after the plan before, so two plans of one second stay two). The same
+    pick of the same plan again adds nothing: "Already sniping 2 items for Deviate Scale Belt with this plan, nothing
+    added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
+    (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
+    pick that is in it (the plan or "Also good") the units its plan buys at the AH now, but the picks of an item
+    together never more than they were sent with less what was bought for them (`Capped`, review rounds 1 to 3; one
+    ceiling for the item, `tracedMax`, so a plan that once asked less does not lower it for good and picks cut
+    unevenly never raise it): the sniper's
+    purchases come by mail ("Auction won") and a plan counts only your bags and bank, so until you take the mail out it
+    asks for those units again. One pick may get more than before where another needs less; more than the picks were
+    sent with comes only from Shift+right-click. A pick that bought all it may stays traced at 0 while its plan still
+    asks for the item ("all bought" in the tooltips), so a later Shift+click of it adds nothing either. A traced pick in the plan that no longer buys the item at the AH needs none; one the plan
+    does not show (a filter or profession you only look at) stays as it was ("(older plan)"). The item's limit is then
+    Bought now + your own part + the picks' units, so it never buys more than they need: Heavy Leather for two picks
+    (60 and 40), 20 bought and taken from the mail, the plan made again with the first needing 40: 20/100, 80 to buy,
+    no Shift+right-click needed; with the 20 still in the mail the plan asks 60 and 40, and it stays at 80. Only the
+    units follow, the price stays the one sniped at. The follow runs before the table shows the new plan, so a
+    Shift-click on a pick of the plan shown adds no units; it sets this plan's "up to" price where that differs
+    ("this plan's price, no units added", the hint "Shift+click: sniped for this plan, sets this plan's prices (adds
+    no units)"; review round 4: before, the click could not change the price at all). A traced pick the follow did not
+    reach (its follow did not run, after an error) is updated by the click the same way ("updated to the new plan");
+    an item removed from the list and sent again starts from 0 with that pick alone.
+    A purchase that fails after the trace was written again gives the units it took off the picks back to them, the
+    rest to your own part (review rounds 4 and 5; one counted before the item had a trace stays yours). One chat line names the items whose limit changed
+    ("The sniper follows the new plan: Heavy Leather 65 left (was 80)"); an item no pick needs any more, with nothing
+    bought, leaves the list. What was bought since a pick was sent comes off the picks in proportion
+    to their units; your own part is the rest of the limit (a number typed in the window, or what an item had before a
+    pick came). A number set in the window, a reset (Shift+right-click, the window's Refresh) or the item added to the
+    list again forgets the picks; so does the window's Clear and a row's x, whose items start without picks when they
+    are added again. The sniper's row tooltip lists "Sniped for" with each pick and what it still has to buy
+    ("(older plan)" for a pick traced from another plan than the one shown) and "Set by you"; the pick's tooltip in the
+    table has "Sniped for this pick" with its materials.
+  * A pick belongs to the character that sent it (1.46, FRV-169). The sniper's list is the realm's, a plan is one
+    character's (its bags, bank, gold and recipes), so `FM.SnipeFollowPlan` follows only the picks the logged-in
+    character sent: a plan on an alt that has the same pick but buys none or less of its material (it holds it, or
+    has less gold) changes nothing, and the item stays in the list. Until 1.45 that plan dropped the pick and with it
+    the item ("no pick needs Heavy Leather any more, removed"). The same pick Shift+clicked on another character is
+    a pick of its own: its units add to the limit like two different picks needing one material, and each
+    character's plans and clicks change only its own (`saved.picks[id] = { n, at, char, pick }`, id = the pick's key
+    and the character). The tooltips name the character of a pick that is not the logged-in one's: "Hillman's Cloak
+    (Elfiehu)" in the sniper row's "Sniped for", "sent by Elfiehu" in the pick's "Sniped for this pick". A pick
+    traced by 1.45 has no character: it is followed as before and belongs to the character whose plan or click first
+    changes it. What was bought comes off all picks of the item in proportion, whoever was logged in.
+  * Shift+right-click (at the AH) starts again: each item's limit becomes what the pick still has to buy and Bought
+    now starts at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100
+    of 144 bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. It sends what is still to buy like
+    Shift+click (1.48, FRV-185, the choice its ticket left open): the plan's whole units counted from 0 would buy
+    again what was bought for the pick since the plan; 69 of a pick's 100 bought by hand, it gives 0/31. A material listed twice in one plan sums
     up in both. Until 1.42 a number other than the item's started the count again, the same one kept it.
 * Only commodities: unstackable items (sold per auction) are refused.
 * While sniping, the searches of a sniped item go into the market log once per 10 minutes at most.
@@ -1362,7 +1595,20 @@ Numbers are base36, times are base36 minutes since 2026-01-01 00:00 UTC. Item ke
 (random suffix variants share one key, like in Auctionator on Forever; `items[key].v = 1` marks such items,
 whose prices mix variants of different value, so flips skip them). The replicate list
 only has base names, so a deep scan reads one auction link per weapon/armor item never checked: a suffix ID
-or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that was never checked.
+or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that was never checked. The feed's list of
+items seen with two bonus lists marks its items at every load of the feed (since 1.45, FRV-138; before only when it
+brought new snapshots). Since 1.45 (FRV-138) an empty name (taken to be an item whose data the client has not loaded
+yet, the replicate list giving ""; inferred from this code and the maintainer's saved variables, not yet seen in
+game: [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#auction-house), Full scans) is no name, in the snapshot's two-names check, in the deep scan's link check (an auction
+with an empty replicate name or an empty link name decides nothing) and in item searches; and an item that stacks
+(`FM.ItemStacks`: a commodity) never has a suffix: it is never marked and a saved mark of it does not count
+(`FM.HasVariants`). Until then "" in front of the real name counted as a second name: on the maintainer's data of
+2026-11-24 the mark was on 7,109 of 7,539 items, 1,366 of them commodities (Heavy Leather, Silk Cloth), so Flip
+showed nothing and Picks skipped them. The one-time repair (`variantsRepair` = 1, `variantsRepaired` = { t, dropped },
+`FM.RepairVariants` in core/Store.lua, from `FM.R` after the other repairs) drops every `v = 1` of the bucket and
+keeps `v = 0`; the feed's list (1,602 items that day, none of them stacking) marks its items again at the same load,
+and gear is checked again by the next deep scan's link check (until then it counts as not checked, which Flip and
+Picks skip).
 
 * `items[key].d` deep `r` / browse `b` records, `;` separated. Deep fields:
   `r<t>, min, qty, auctions, qty≤min+5%, qty≤min+20%, median, yours, gapMin, sold, soldAuctions, soldValue,
@@ -1398,7 +1644,9 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
   `craft` (Craft and sell) / `wait` (Craft and wait) / `stock` / `swait` (Stock, wait) / `learn` / `vendor` / `flip`,
   batch = the units of its listing, invest and expected in copper (expected at its confidence), conf in %, rank its
   place, x = `x` for a pick of "Also good, but out of scope"; the same plan as the one logged last is logged again only
-  after an hour, lines older than 14 days go (at most 6,000)
+  after an hour, lines older than 14 days go (at most 6,000). Since 1.47 (FRV-154) a pick whose amount you set in the
+  table gets a line of its own at that moment with x = `e` (`xe` for one out of scope): its batch, invest and expected
+  are those of your number, the plan's own line stays as it was
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
@@ -1519,11 +1767,23 @@ or a longer link name = variants (`v = 1`), else `v = 0`. Flips skip gear that w
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
-* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused }` (kept after removal;
+* `snipe` sniper: `list` (sniped keys in order), `saved[key] = { p = copper, n, got, paid, paused, picks, tracedGot, tracedMax, traceId }` (kept after removal;
   `n` = "buy at most", 1.25 on; `got`, `paid` = units bought since the count was last reset and what they cost, only
   with a number until 1.42, with or without one since 1.43 (FRV-128: set to 0 when the item is added to the list or
   reset; a saved entry from before keeps its count, an item without a number starts at 0); `paused` =
-  true while the item is paused, 1.39, FRV-101, optional; a `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
+  true while the item is paused, 1.39, FRV-101, optional; `picks[id] = { n, at, char, pick, sent }` = the picks of the market
+  table the item is sniped for (1.45, FRV-143, optional): `n` units still to buy for it as of `tracedGot` (the item's
+  `got` then; what was bought since comes off the picks in proportion; 0 = all it may bought, its plan still asks),
+  `at` the time of its plan (`FM.trade.pickAt`), `char` the character that sent it and `pick` its item key (1.46,
+  FRV-169: `id` = the pick's key .. "@" .. the character, `FM.PlayerName()`; an entry saved by 1.45 is
+  `picks[pickKey] = { n, at }`, the pick's key as its id without `char` and `pick`, and is read as before: it gets
+  its `char` when a plan or a click of a character changes it, its id stays; no conversion; `sent`, 1.48, review round
+  2 of PR 73: its units when `at` was set, kept while the trace is written again within that plan, so `sent` less
+  what it still has is what the sniper bought for it under that plan; an entry without it counts as nothing bought,
+  no conversion); `tracedMax` the most the item's picks may still buy together as of
+  `tracedGot` (what they were sent with less what was bought for them); `traceId` which trace a purchase was counted
+  in (a failed one goes back to that trace only); a
+  `pct` from before 1.25 is left unused), `budget[character] = { base, since, reset, total, day, spent[key], units[key] }`
   (`day` and `units` 1.34, FRV-94, FRV-40, optional: a budget saved before counts its `total` as the day's, no
   conversion)
 

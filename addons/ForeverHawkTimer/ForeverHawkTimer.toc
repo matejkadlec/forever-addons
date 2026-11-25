@@ -4,9 +4,10 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Ability_Hunter_AnimalHandler
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.2.0
+## Version: 1.3.0
 ## X-Repository: https://github.com/matejkadlec/forever-addons
-## SavedVariables: ForeverHawkTimerSettings
+## SavedVariables: ForeverHawkTimerSettings, JimsForeverAddOnsDB
 
+JimsForeverAddOns.lua
 ForeverHawkTimer.lua
 SettingsPanel.lua

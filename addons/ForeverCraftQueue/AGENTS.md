@@ -10,6 +10,7 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 
 | File | Holds |
 | --- | --- |
+| `JimsForeverAddOns.lua` | The shared file of every first-party AddOn (login line, `/jfa`, minimap button): an identical copy, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
 | `Locale.lua` | Every shown text (`ns.L`) |
 | `Core.lua` | Pure queue logic, no game calls (tested in `tests/forevercraftqueue/core_test.lua`): rows and their cleanup, adding and merging, moving, counts, what the bags allow, `ns.NextStep`, `ns.OnCrafted`, the summaries |
 | `ForeverCraftQueue.lua` | Messages, saved data, the profession window's state (`ns.OpenSkillLine`, `ns.IsCrafting`), the steps of Process queue (`ns.Process`), counting crafts, events, key binding globals, slash commands |

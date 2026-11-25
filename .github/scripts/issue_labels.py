@@ -25,6 +25,7 @@ import urllib.request
 ADDON_LABELS = {
     "ForeverCampFeatures": "forever-camp-features",
     "ForeverCraftQueue": "forever-craft-queue",
+    "ForeverEnhancedMailbox": "forever-enhanced-mailbox",
     "ForeverHawkTimer": "forever-hawk-timer",
     "ForeverMarket": "forever-marketplace",
     "ForeverRangeIndicator": "forever-range-indicator",

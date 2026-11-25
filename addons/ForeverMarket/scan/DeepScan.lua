@@ -167,7 +167,9 @@ end
 -- missing because the item was not cached yet are loaded afterwards (FM.LearnName).
 -- Random suffix items ("Arachnidian Pauldrons of Healing") share one item ID, and the replicate list
 -- only gives the base name. One auction link per weapon or armor item that was never checked tells them
--- apart: a suffix ID or a longer name in the link = variants (items[key].v = 1), else v = 0.
+-- apart: a suffix ID or a longer name in the link = variants (items[key].v = 1), else v = 0. Only an auction
+-- whose replicate name is there is looked at, and an empty name in the link decides nothing (FRV-138: an item
+-- not loaded yet has "" for its name, which differs from every link's name)
 local function CheckSuffix(snap, index, key, name)
     local checked = snap.suffixChecked
     if not checked then
@@ -183,10 +185,11 @@ local function CheckSuffix(snap, index, key, name)
     local ok, link = pcall(ah.GetReplicateItemLink, index)
     if not ok or type(link) ~= "string" or FM.IsSecret(link) then return end
     local linkName = link:match("|h%[(.-)%]|h")
+    if linkName == "" then linkName = nil end
     local suffix = link:match("item:%-?%d+:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:([^:|]*)")
-    if (suffix and suffix ~= "" and suffix ~= "0") or (linkName and name and linkName ~= name) then
+    if (suffix and suffix ~= "" and suffix ~= "0") or (linkName and linkName ~= name) then
         FM.MarkVariants(key)
-    elseif linkName or suffix then
+    elseif linkName then
         FM.Item(key).v = 0
     end
 end
@@ -200,7 +203,7 @@ local function ReadEntry(snap, index)
     end
     local key = tostring(itemID)
     local band = ah.GetReplicateItemTimeLeft and ah.GetReplicateItemTimeLeft(index)
-    if type(name) == "string" and not FM.IsSecret(name) then CheckSuffix(snap, index, key, name) end
+    if type(name) == "string" and name ~= "" and not FM.IsSecret(name) then CheckSuffix(snap, index, key, name) end
     FM.SnapshotAdd(snap, key, type(name) == "string" and name or nil, count, buyout, ownerFull or owner, band)
     return true
 end

@@ -2,9 +2,9 @@
 
 > **Scope:** the first-party Forever AddOns in this folder. The root [`AGENTS.md`](../AGENTS.md) (API verification, coding rules, version bump, automatic sync, pull requests) applies here and is not repeated.
 >
-> **Maintenance:** update this guide when a naming, `.toc`, chat, settings panel or slash command convention changes, and the lists of current icons and slash commands when an AddOn changes them.
+> **Maintenance:** update this guide when a naming, `.toc`, chat, settings panel or slash command convention changes, the lists of current icons and slash commands when an AddOn changes them, and the shared file's section when `JimsForeverAddOns.lua` changes.
 
-The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue have their own guides: [`ForeverMarket/AGENTS.md`](ForeverMarket/AGENTS.md), [`ForeverCraftQueue/AGENTS.md`](ForeverCraftQueue/AGENTS.md).
+The AddOn inventory is in the root guide. ForeverMarket, ForeverCraftQueue and ForeverEnhancedMailbox have their own guides: [`ForeverMarket/AGENTS.md`](ForeverMarket/AGENTS.md), [`ForeverCraftQueue/AGENTS.md`](ForeverCraftQueue/AGENTS.md), [`ForeverEnhancedMailbox/AGENTS.md`](ForeverEnhancedMailbox/AGENTS.md).
 
 ---
 
@@ -12,7 +12,9 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
 
 - First-party AddOns are named `Forever{AddonName}`, for example `ForeverTweaks` or `ForeverTrackingAid`; the name part does not have to be two words
 - Each AddOn picks a unique three letter shortname starting with `F` (used for the chat prefix and the slash command)
-- Each AddOn is fully standalone, no cross-AddOn dependencies
+- Each AddOn is fully standalone, no cross-AddOn dependencies; the one exception is ForeverMarket, which requires the third-party ForeverArtisan (`## Dependencies: ForeverArtisan_Core` since 1.48, the maintainer's decision on FRV-164, FRV-175)
+- `## X-Curse-Required-Dependencies:` / `## X-Curse-Optional-Dependencies:` (comma separated CurseForge project slugs) declare the relations the `Release` workflow sends with an upload ([`docs/releasing.md`](../docs/releasing.md)); `## Dependencies:` names folders, a relation names a project, so an AddOn that requires another declares both
+- Each AddOn carries the shared file `JimsForeverAddOns.lua` as the first file of its `.toc` and `JimsForeverAddOnsDB` in its `## SavedVariables:` (see [Shared file](#shared-file-jimsforeveraddonslua); ForeverMarket and ForeverCampFeatures get it with FRV-176 and FRV-177)
 - Required `.toc` fields for first-party AddOns:
   ```ini
   ## Interface: 16001
@@ -23,12 +25,12 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
   ## Author: Matej Kadlec (https://github.com/matejkadlec)
   ## Version: 1.0.0
   ## X-Repository: https://github.com/matejkadlec/forever-addons
-  ## SavedVariables: Forever{AddonName}Settings
+  ## SavedVariables: Forever{AddonName}Settings, JimsForeverAddOnsDB
   ```
   - `## X-Curse-Project-ID: <id>` (after `## X-Repository:`) only for an AddOn the maintainer put on CurseForge: the `Release` workflow uploads its releases to that project ([`docs/releasing.md`](../docs/releasing.md)); it is set only with the ID he gives, and an AddOn without it is released on GitHub only
   - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name, `ForeverMarket` uses `ForeverMarketDB` (it stores market data, not only settings)
   - `## Category: Jim's Forever AddOns` groups all first-party AddOns under one collapsible header in the AddOn list (`Blizzard_AddOnList/AddonList.lua`, the header's right-click menu enables/disables the whole category); keep the exact same text in every AddOn
-  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`, Camp Features `Spell_Fire_Fire` (the campfire icon), Craft Queue `INV_Misc_Note_01`
+  - `## IconTexture:` gives every AddOn its own icon in the AddOn list instead of the question mark; use the icon of a spell or item that exists in WoW: Forever (vanilla icons or the icons of Forever's own spells), current icons: Tweaks `Trade_Engineering`, Tracking Aid `Ability_Tracking`, Range Indicator `Ability_Hunter_EagleEye`, Hawk Timer `Ability_Hunter_AnimalHandler` (the Summon Hawk icon), Market `INV_Misc_Coin_02`, Camp Features `Spell_Fire_Fire` (the campfire icon), Craft Queue `INV_Misc_Note_01`, Enhanced Mailbox `INV_Letter_15`
 - Key bindings go in the AddOn's `Bindings.xml` (the client loads it from the AddOn folder, it is not listed in the `.toc`) with `category="Jim's Forever AddOns"`, names in `BINDING_NAME_*` globals
 - Bump `## Version:` (semantic versioning) whenever any file of an AddOn changes; the `pre-commit` hook enforces it
 - Update `## Interface:` when the WoW: Forever client changes its interface version
@@ -46,9 +48,10 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
 - Important values (names, creature types, numbers): **orange** (`|cFFFF8000`)
 - Error text: **red** (`|cFFFF0000`) with same orange prefix, body starts with `Failed to ...`
 - Messages are built by a `FormatMessage(prefix, msg, value)` / `FormatErrorMessage(prefix, msg)` pair (ForeverTweaks wraps them with a fixed prefix as `FTW.FormatMessage(msg, value)` / `FTW.Print`)
-- Loading message: `{AddonFullName} v{Version} loaded`, e.g. `[FTW] ForeverTweaks v1.2.3 loaded`
-  - The version is read from the `.toc` via `C_AddOns.GetAddOnMetadata`
-  - AddOns that only activate for some characters (ForeverTrackingAid, ForeverRangeIndicator, ForeverHawkTimer: Hunters) print it only when active
+- No AddOn prints a loading message of its own: the shared file prints one line for all of them at every load (`[JFA] Jim's Forever AddOns: 5 loaded [versions]`, with one AddOn `[JFA] Jim's Forever AddOns: ForeverTweaks v1.8.0 loaded`; see [Shared file](#shared-file-jimsforeveraddonslua))
+  - The versions are read from the `.toc` via `C_AddOns.GetAddOnMetadata`
+  - An AddOn that has something to say at every load (ForeverMarket's key hints, FRV-176) registers one line, printed right under the `[JFA]` line: `JimsForeverAddOns:RegisterLoginLine(addonName, "Name: ...")`, or a function that returns the text when it is printed (nil: nothing)
+  - ForeverMarket and ForeverCampFeatures still print their own `{AddonFullName} v{Version} loaded` line until FRV-176 and FRV-177
 
 ---
 
@@ -57,6 +60,7 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
 - First-party AddOns with settings register under `Esc -> Options -> AddOns -> Jim's Forever AddOns` (same name as the AddOn list category)
 - The shared `Jim's Forever AddOns` parent category is created by whichever AddOn loads first (global frame `JimsForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
 - Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking Aid`, `Range Indicator` or `Hawk Timer`
+- The entries of `.foreverEntries` (`{ name, button }`) are also the minimap button's right-click menu (the shared file sorts them by name and opens a page with a click on its overview button), so registering the settings this way is all an AddOn does to be in the menu; the shared file adds `Show minimap button` to the overview page below the entries
 - Panel layout follows the warmane-addons style: large title `Forever {Addon Name}` with the version, `User Settings` header, enable checkbox first, indented child options below it
 - Everything that can be set with a slash command must also be settable in the panel
 - Child options are greyed out while the AddOn is disabled
@@ -91,4 +95,18 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`
   - `/fcf` (also `/campfeatures`; the alias and the bare command's list were asked for in FRV-116): bare command lists the known camp objects of the current zone and ends with a pointer to `/fcf help`; `on`, `off`, `test` (a sample alert), `options` (the settings panel), `debug` (what each way of finding objects sees right now: the recipes asked and their answers, the last world tooltip, the last placement, the channel, what was sent and received), `debug objects` (every object with its item and placement spell), `help`
   - `/fcq` (the bare command opening the queue panel was asked for in FRV-131): bare command shows or hides the queue panel; `on`, `off`, `clear` (empties the queue, asking first in the panel while that option is on), `options` (the settings panel), `debug` (the profession window's state, the next step, the last call to the game, the last successful casts and the queue), `help`
+  - `/fem`: bare command behaves like `help`; `on`, `off`, `gold` (Collect gold), `items` (Collect items), `stop` (stops the collection that runs), `keep <n>` (Keep free bag slots, 0 to 20), `options` (the settings panel), `debug` (the state, the last step and the inbox as the collection sees it), `help`
+  - `/jfa` (the shared file, not an AddOn: no `on` / `off`): bare command lists the loaded Jim's Forever AddOns with their versions (asked for in FRV-180), `help`
   - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the market table; `help`, `snipe`, `status`, `scan`, `scanlog`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `item`, `held`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `options`, `wipe confirm`
+
+---
+
+## Shared file (`JimsForeverAddOns.lua`)
+
+One file, the same in every first-party AddOn (FRV-120, FRV-180), so whichever of them are installed share one login line, one `/jfa` and one minimap button, and still none needs another:
+
+- **Copies:** every AddOn's copy is byte for byte the same; `tests/jimsforeveraddons/copies_test.lua` fails when one differs, when an AddOn lacks it (ForeverMarket and ForeverCampFeatures are listed as pending until FRV-176 and FRV-177), when it is not the first file of the `.toc`, when `JimsForeverAddOnsDB` is missing from `## SavedVariables:`, or when a carrier still prints its own `v%s loaded` line
+- **Versions, like LibStub:** the copies meet in the global table `JimsForeverAddOns`; each copy registers the AddOn that carries it (`carriers`), the newest `VERSION` present defines the code and older copies step aside. A change of the file raises `VERSION` and goes into every carrier in the same change (each gets its `## Version:` bump). A player who updates only some of the AddOns runs older copies next to the newer one, and an older copy may have run first: that is why every version keeps the fields of the table, the shape of `JimsForeverAddOnsDB` and `RegisterLoginLine(addonName, line)` as they are
+- **The login line:** at `PLAYER_LOGIN` (login and every `/reload`) the newest code prints one `[JFA]` line, then each AddOn's registered line in the list's order. The list is every loaded AddOn whose `## Category:` is `Jim's Forever AddOns` and that is not loaded on demand (so ForeverMarket_Feed, ForeverMarket's data, is not one), read through `C_AddOns`: AddOns that do not carry the file yet are listed too. `[versions]` is an `addon:JimsForeverAddOns:versions` link; Blizzard hands its clicks to `EventRegistry`'s `SetItemRef` callbacks, and the click prints the list `/jfa` prints
+- **The minimap button** `JimsForeverAddOnsMinimapButton`, a child of `Minimap` built like LibDBIcon-1.0's buttons: MinimapButtonButton collects `Minimap` children whose name holds `MinimapButton` (and does not end in a digit), so it lands in its panel; without it the button sits on the minimap's edge and is dragged around it. Click: the overview page (`Settings.OpenToCategory`, never in combat: a `[JFA]` message instead), right-click: `MenuUtil.CreateContextMenu` with one entry per `.foreverEntries` entry. The icon is one constant (`ICON`, a Blizzard icon for now)
+- **Shared settings** (`showButton`, `minimapPos`, `updated`): `JimsForeverAddOnsDB` is in every carrier's `## SavedVariables:`, so the client keeps a copy of it in each carrier's file; at each carrier's `ADDON_LOADED` the copy with the newest `updated` wins, so an AddOn that was disabled for a while does not bring back old settings, and from login on the one table in use is saved into every carrier's file. `Show minimap button` on the overview page sets `showButton`

@@ -297,8 +297,6 @@ FTA:SetScript("OnEvent", function(self, event, ...)
             return
         end
 
-        -- Print loading message
-        print(FormatMessage(ADDON_PREFIX, string_format("%s v%s loaded", ADDON_FULL_NAME, GetVersion())))
         RefreshTrackingActivation()
         return
     end

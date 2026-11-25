@@ -27,6 +27,7 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
 
 1. Follow the naming format `Forever[AddOnName]` for consistency, with a three letter shortname starting with `F` for its chat prefix and its slash command
 2. Each AddOn must be fully standalone, with no dependency on another AddOn of this repository
+   - It carries a copy of the shared file `JimsForeverAddOns.lua` (copy it from any AddOn that has it) as the first file of its `.toc` and adds `JimsForeverAddOnsDB` to its `## SavedVariables:`; the file prints the one `[JFA]` login line, so the AddOn prints no loading message of its own ([`addons/AGENTS.md`](addons/AGENTS.md#shared-file-jimsforeveraddonslua))
 3. Required `.toc` fields, as in [`addons/AGENTS.md`](addons/AGENTS.md) (which also has the rules for chat messages, the settings panel and the slash commands), plus `## X-Collaboration:`:
    ```ini
    ## Interface: 16001
@@ -38,7 +39,7 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
    ## Version: 1.0.0
    ## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
    ## X-Repository: https://github.com/matejkadlec/forever-addons
-   ## SavedVariables: Forever{AddonName}Settings
+   ## SavedVariables: Forever{AddonName}Settings, JimsForeverAddOnsDB
    ```
 4. Add it to the `AddOn` dropdown of both issue forms (`.github/ISSUE_TEMPLATE/bug_report.yml` and `feature_request.yml`) and to `ADDON_LABELS` in `.github/scripts/issue_labels.py`, with a label as in [`AGENTS.md`, AddOn Labels](AGENTS.md#addon-labels) (`tests/run.sh` fails until they agree); the maintainer creates the label on GitHub
 
@@ -46,7 +47,7 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
 
 - `luac5.1 -p <file>` for every Lua file you changed (`sudo apt install lua5.1`); a few third-party files start with a UTF-8 byte order mark, which WoW accepts and `luac5.1` rejects: check those with `tail -c +4 <file> | luac5.1 -p -`
 - `tests/run.sh` (needs `lua5.1` and `python3`) runs the tests of the logic that needs no game client ([`tests/README.md`](tests/README.md)); the `Tests` workflow runs it on every pull request
-- In the game: the AddOn loads (its loading message, no Lua error with `/console scriptErrors 1`), and what you changed works where it is used
+- In the game: the AddOn loads (`/jfa` lists it, no Lua error with `/console scriptErrors 1`), and what you changed works where it is used
 
 ## Development sync
 

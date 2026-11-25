@@ -209,6 +209,26 @@ class PrepareTests(unittest.TestCase):
         self.repo.write("addons/TestCamp/TestCamp.toc", TOC.replace("## X-Curse-Project-ID: 123456\n", ""))
         self.assertEqual(ra.prepare(self.repo.root, "TestCamp-v1.2.3")["project_id"], "")
 
+    def test_relations(self):
+        self.assertEqual(ra.prepare(self.repo.root, "TestCamp-v1.2.3")["relations"], [], "none declared")
+        self.repo.write("addons/TestCamp/TestCamp.toc", TOC + "## X-Curse-Required-Dependencies: foreverartisan, libstub\n"
+                        "## X-Curse-Optional-Dependencies: tomtom\n")
+        self.assertEqual(ra.prepare(self.repo.root, "TestCamp-v1.2.3")["relations"], [
+            {"slug": "foreverartisan", "type": "requiredDependency"},
+            {"slug": "libstub", "type": "requiredDependency"},
+            {"slug": "tomtom", "type": "optionalDependency"},
+        ])
+
+    def test_bad_relations(self):
+        cases = (
+            ("## X-Curse-Required-Dependencies: ForeverArtisan_Core\n", "is not a CurseForge project slug"),
+            ("## X-Curse-Required-Dependencies: tomtom\n## X-Curse-Optional-Dependencies: tomtom\n", "twice"),
+        )
+        for extra, error in cases:
+            self.repo.write("addons/TestCamp/TestCamp.toc", TOC + extra)
+            with self.assertRaisesRegex(ra.ReleaseError, error):
+                ra.prepare(self.repo.root, "TestCamp-v1.2.3")
+
     def test_bad_toc_fields(self):
         cases = (
             (TOC.replace("123456", "test-camp"), "is not a number"),
@@ -386,6 +406,12 @@ class CurseForgeTests(unittest.TestCase):
                                     "releaseType": "release"})
         self.assertEqual(api.requests[0].full_url, "https://wow.curseforge.com/api/game/wow/versions")
         self.assertEqual(api.requests[0].get_header("X-api-token"), "secret-token")
+
+    def test_relations_go_with_the_upload(self):
+        info = dict(self.info, relations=[{"slug": "foreverartisan", "type": "requiredDependency"}])
+        metadata = ra.curseforge_metadata(info, "x", "", opener=FakeApi())
+        self.assertEqual(metadata["relations"], {"projects": [{"slug": "foreverartisan", "type": "requiredDependency"}]})
+        self.assertNotIn("relations", ra.curseforge_metadata(self.info, "x", "", opener=FakeApi()), "none declared: no key")
 
     def test_no_forever_game_version_fails(self):
         api = FakeApi(versions=[{"id": 9001, "gameVersionTypeID": 67408, "name": "1.60.1"},

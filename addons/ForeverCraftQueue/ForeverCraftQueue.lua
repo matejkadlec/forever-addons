@@ -646,7 +646,6 @@ FCQ:SetScript("OnEvent", function(self, event, ...)
         if isLoaded and isLoaded("Blizzard_Professions") and ns.HookProfessions then
             ns.HookProfessions()
         end
-        print(FormatMessage(ADDON_PREFIX, string_format(L.LOADED, ADDON_FULL_NAME, GetVersion())))
     elseif event == "TRADE_SKILL_SHOW" then
         tradeSkillOpen = true
         pendingOpen = nil

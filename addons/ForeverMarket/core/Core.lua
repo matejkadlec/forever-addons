@@ -57,6 +57,7 @@ FM.DEFAULTS = {
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
+    tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
@@ -660,6 +661,7 @@ function FM.R()
     if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, FRV-113, trade/Cost.lua)
     if FM.RepairCrafts then FM.RepairCrafts(r) end -- the craft log's material cost worked out again (FRV-112, trade/Crafts.lua)
+    if FM.RepairVariants then FM.RepairVariants(r) end -- the random suffix marks an empty name set go (FRV-138, core/Store.lua)
     return r
 end
 

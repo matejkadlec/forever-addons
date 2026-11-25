@@ -15,7 +15,7 @@ The steps below are what those skills do, for work done without them.
 
 ## Deliver a change (ticket to merge)
 
-1. **Ticket:** find or create the FRV ticket, label it, move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
+1. **Ticket:** find or create the FRV ticket, label it, give a new one its priority ([docs/ai-development-flow.md](docs/ai-development-flow.md#issues)), move it to In Progress ([Issue Tracking](AGENTS.md#issue-tracking-jira)). Jira tools missing at session start: wait and retry each minute
 2. **Worktree:** a branch named after the ticket, in its own worktree from a fresh `origin/master` ([Branches and Worktrees](AGENTS.md#branches-and-worktrees))
 3. **Implement:** follow the [Development Workflow](AGENTS.md#development-workflow) and the nearest nested guide
 4. **Check:** `luac5.1 -p` on every changed Lua file, `tests/run.sh` ([tests/README.md](tests/README.md)), the version bump of every changed AddOn, the documentation
@@ -38,7 +38,7 @@ When the maintainer asks: read the issue (its form's AddOn, versions, steps, err
 
 ## Change a first-party AddOn
 
-Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket, [addons/ForeverCraftQueue/AGENTS.md](addons/ForeverCraftQueue/AGENTS.md) for ForeverCraftQueue). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
+Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket, [addons/ForeverCraftQueue/AGENTS.md](addons/ForeverCraftQueue/AGENTS.md) for ForeverCraftQueue, [addons/ForeverEnhancedMailbox/AGENTS.md](addons/ForeverEnhancedMailbox/AGENTS.md) for ForeverEnhancedMailbox). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
 
 ## Add a first-party AddOn
 

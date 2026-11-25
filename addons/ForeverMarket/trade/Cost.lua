@@ -85,6 +85,25 @@ function FM.LogPurchase(key, qty, total)
     Prune()
 end
 
+-- Units of an item this character bought on the AH since `since` (time()): what a Picks plan made then has bought of
+-- its purchases since (FRV-104, review round 1); lines without a character (before 1.15.5) count for every one
+function FM.BoughtSince(key, since)
+    if type(key) ~= "string" or type(since) ~= "number" then return 0 end
+    local r = FM.R()
+    local buys = r and type(r.buys) == "table" and r.buys or nil
+    if not buys then return 0 end
+    local me = FM.PlayerName()
+    local n = 0
+    -- newest last: the walk ends at the first purchase before `since`
+    for i = #buys, 1, -1 do
+        local t, k, qty, who = buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)")
+        t = tonumber(t)
+        if t and t < since then break end
+        if t and k == key and (who == "" or who == me) then n = n + (tonumber(qty) or 0) end
+    end
+    return n
+end
+
 local function Guarded(fn)
     return function(...)
         local ok, err = pcall(fn, ...)

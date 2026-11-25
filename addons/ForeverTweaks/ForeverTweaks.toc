@@ -4,10 +4,11 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Trade_Engineering
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.7.0
+## Version: 1.8.0
 ## X-Repository: https://github.com/matejkadlec/forever-addons
-## SavedVariables: ForeverTweaksDB
+## SavedVariables: ForeverTweaksDB, JimsForeverAddOnsDB
 
+JimsForeverAddOns.lua
 core\Core.lua
 tweaks\ZoneText.lua
 tweaks\ChatInput.lua

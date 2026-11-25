@@ -1076,6 +1076,9 @@ function FM.CheckStock()
         elseif FM.EnsureTrade then
             FM.EnsureTrade()
         end
+    elseif FM.trade and not FM.trade.empty and FM.TableShown and FM.TableShown() and FM.RefreshTable then
+        -- locked: the plan stays, its craft picks' Make and make step show what you crafted since (FRV-104)
+        FM.RefreshTable()
     end
     return true
 end

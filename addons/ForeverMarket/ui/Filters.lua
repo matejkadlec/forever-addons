@@ -79,15 +79,114 @@ local function SameTabs(a, b)
     return true
 end
 
+---------------------------------------------------------------- tooltips on hover or while Shift is held (FRV-155, FRV-186)
+-- One rule for every tooltip of the market table and its dialogs, in two kinds that every element chooses:
+--   * "hover": the rows (their item tooltip too), the column headers, the tabs, the buttons (Filters, Global filters,
+--     Refresh, Search all at the AH, the Profit tab's scope buttons) and the summary line show their tooltip on hover,
+--     as until 1.46
+--   * "shift": the inputs (the search box, the budget row's boxes, the Amount inputs of the rows, the dialog's boxes),
+--     the dropdowns and the checkboxes show theirs only while Shift is held with the mouse over them, so a tooltip never
+--     covers the box you type in (FRV-155). Shift pressed over such an element shows it at once, Shift released hides
+--     it, the mouse leaving hides it as before
+-- While an input of the table or of this dialog has the keyboard focus nothing shows, hover or Shift (Shift types
+-- capitals there): a row tooltip never opens over the box you are typing in; an input of another window (the chat, the
+-- sniper's item box) does not hold them back. Every tooltip of the window is set with FM.TableTip (or FM.TableTipHook
+-- where a template has its own OnEnter) and its kind, never with its own OnEnter script, so none can forget the rule.
+-- With the setting off (tableShiftTips, the settings panel) all of them show on plain hover as until 1.46. Not under
+-- the rule: the Profit graph's readout (the graph itself), a sticky tooltip (it stays until closed), the item tooltips
+-- elsewhere, the sniper window and the settings panel.
+local tipOwner, tipShow, tipKind -- the element under the mouse that has a tooltip, what shows it, and its kind
+local TIP_KINDS = { hover = true, shift = true }
+
+-- Tooltips on plain hover: the setting is off
+local function TipsOnHover()
+    return FM.GetSettings().tableShiftTips == false
+end
+FM.TableTipsOnHover = TipsOnHover
+
+-- You are typing in an input of the market table or of its dialog: the frame with the keyboard focus is inside one of
+-- them (the budget row's boxes sit a few frames deep)
+local TIP_WINDOWS = { ForeverMarketTable = true, [NAME] = true }
+local function TypingHere()
+    local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+    for _ = 1, 12 do
+        -- the focused frame and its parents may be another window's: what they answer can be secret (review round 2:
+        -- IsForbidden, GetName and GetParent are flagged SecretReturnsForAspect), and then it is not ours
+        if FM.IsSecret(focus) or type(focus) ~= "table" then return false end
+        local forbidden = focus.IsForbidden and focus:IsForbidden()
+        if FM.IsSecret(forbidden) or forbidden then return false end
+        local name = focus.GetName and focus:GetName()
+        if FM.IsSecret(name) then return false end
+        if name and TIP_WINDOWS[name] then return true end
+        focus = focus.GetParent and focus:GetParent()
+    end
+    return false
+end
+
+-- Whether a tooltip of this kind may show now
+local function TipWanted(kind)
+    if TipsOnHover() then return true end
+    if TypingHere() then return false end
+    if kind == "hover" then return true end
+    return IsShiftKeyDown and IsShiftKeyDown() and true or false
+end
+
+local function TipEnter(self, show, kind)
+    tipOwner, tipShow, tipKind = self, show, kind
+    if TipWanted(kind) then show(self) end
+end
+
+local function TipLeave(self)
+    if tipOwner == self then tipOwner, tipShow, tipKind = nil, nil, nil end
+    GameTooltip:Hide()
+end
+
+-- The kind is part of every call, so a new element has to choose (FRV-186)
+local function CheckKind(kind)
+    if not TIP_KINDS[kind] then error("FM.TableTip: the kind must be \"hover\" or \"shift\", not " .. tostring(kind), 3) end
+end
+
+-- frame's tooltip: show(frame) builds it (SetOwner, its lines, Show); kind "hover" (shows on hover) or "shift" (only
+-- while Shift is held)
+function FM.TableTip(frame, show, kind)
+    CheckKind(kind)
+    frame:SetScript("OnEnter", function(self) TipEnter(self, show, kind) end)
+    frame:SetScript("OnLeave", TipLeave)
+end
+
+-- The same on a frame whose template has scripts of its own (the search box, a dropdown, the refresh button)
+function FM.TableTipHook(frame, show, kind)
+    CheckKind(kind)
+    frame:HookScript("OnEnter", function(self) TipEnter(self, show, kind) end)
+    frame:HookScript("OnLeave", TipLeave)
+end
+
+-- Shift pressed or released while the mouse rests on an element of the "shift" kind: its tooltip shows or hides at
+-- once. A "hover" element keeps its tooltip (Shift+click on a row or a header must not hide it)
+FM.On("MODIFIER_STATE_CHANGED", function(key)
+    if key ~= "LSHIFT" and key ~= "RSHIFT" then return end
+    local owner, show = tipOwner, tipShow
+    if not owner or tipKind ~= "shift" or TipsOnHover() then return end
+    -- the element went away under the mouse (its window closed): nothing to show
+    if (owner.IsVisible and not owner:IsVisible()) or (owner.IsMouseOver and not owner:IsMouseOver()) then
+        tipOwner, tipShow, tipKind = nil, nil, nil
+        return
+    end
+    if TipWanted("shift") then
+        show(owner)
+    elseif GameTooltip:IsOwned(owner) then
+        GameTooltip:Hide()
+    end
+end)
+
 local function Tip(frame, opt)
-    frame:SetScript("OnEnter", function(self)
+    FM.TableTip(frame, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(opt.label)
         GameTooltip:AddLine(opt.tip, 1, 1, 1, true)
         if opt.box or opt.money then GameTooltip:AddLine("Enter or click elsewhere to apply.", 0.6, 0.6, 0.6, true) end
         GameTooltip:Show()
-    end)
-    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "shift") -- the dialog holds only inputs and checkboxes
 end
 
 -- A change of one value: into the set the dialog shows, then the table (and the plan) follow

@@ -16,6 +16,7 @@ body:
       options:
         - ForeverCampFeatures
         - ForeverCraftQueue
+        - ForeverEnhancedMailbox
         - ForeverHawkTimer
         - ForeverMarket
         - ForeverRangeIndicator
@@ -29,7 +30,7 @@ body:
     id: addon-version
     attributes:
       label: AddOn version
-      description: "In the game: `Esc` -> AddOns, then rest the mouse on the AddOn; its tooltip shows the version. It is also the `## Version:` line of the AddOn's `.toc` file."
+      description: "In the game: type `/jfa` in the chat, it lists every Jim's Forever AddOn with its version. For Quartz or Skada (or where `/jfa` is unknown): `Esc` -> AddOns, then rest the mouse on the AddOn; its tooltip shows the version. It is also the `## Version:` line of the AddOn's `.toc` file."
       placeholder: "1.1.2"
     validations:
       required: true

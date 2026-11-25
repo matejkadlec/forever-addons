@@ -14,10 +14,17 @@
 --   * FRV-128: the headers read Item, Buyout, Cheapest now, Bought now, Bought today; each column is as wide as its
 --     widest value (99,999/99,999 in Bought now, 999g 99s 99c as a buyout) and the window wide enough for them;
 --     Bought now shows 490/1,000 against a limit, Bought today the day's units; the max units box is right-aligned;
---     Update keeps what was bought (190/200, 300 typed: 190/300), the x by the box clears the limit and Update then
---     starts the count at 0, Bought today unchanged; the wheel light is ON for half a second after a wheel step
---     reached the sniper (catcher or bindings), OFF otherwise and while sniping is off; every item reaches the list's
---     data and the list takes the wheel only while sniping is off
+--     Update keeps what was bought (190/200, 300 typed: 190/300); the wheel light is ON for half a second after a
+--     wheel step reached the sniper (catcher or bindings), OFF otherwise and while sniping is off; every item reaches
+--     the list's data and the list takes the wheel only while sniping is off
+--   * FRV-153: the add row has no x by "max units"; "Refresh" shows left of "Update" only while an item of the list
+--     is loaded, saves like Update and starts Bought now at 0 with the limit kept (180/12 -> 0/12, 20 typed -> 0/20,
+--     empty -> no limit and 0), a done row is active again; Update keeps the count (180/12 stays, done); Bought today
+--     keeps its number after both; the window is wide enough for the add row with both buttons
+--   * FRV-171: "Clear" on the "Automatically refresh budget" row is disabled with an empty list; the first click turns
+--     it into "Confirm" for 3 seconds and changes nothing, the second click within them stops sniping every item
+--     (paused ones too), says how many, empties an add row that was editing one of them and keeps the buyouts and
+--     numbers for the suggestions; after 3 seconds it is "Clear" again
 -- How it looks and whether the client accepts these calls is the in-game test's job.
 
 local H = require("harness")
@@ -416,7 +423,7 @@ H.test("sniper window: without the scroll bar the list reaches the end of the he
     H.eq(f.scrollBox.anchorsWithBar[2].x, -34, "with the bar it makes room for it")
 end)
 
--- FRV-128: the columns, the add row's Update and x, the wheel light, a long list
+-- FRV-128: the columns, the add row's Update, the wheel light, a long list
 local GREY = "|cFF9D9D9D"
 
 H.test("sniper window: the headers, and every column as wide as its widest value", function()
@@ -456,7 +463,7 @@ H.test("sniper window: without a measure the columns take their fallback widths 
     H.eq(f.width >= 620, true, "never narrower than before")
 end)
 
-H.test("sniper window: Update keeps what was bought, the x clears the limit and starts the count again", function()
+H.test("sniper window: Update keeps what was bought (190/200, 300 typed: 190/300)", function()
     local FM, env = Load()
     local key = tostring(LEATHER)
     local f = Open(FM, env)
@@ -476,47 +483,175 @@ H.test("sniper window: Update keeps what was bought, the x clears the limit and 
     H.eq(f.note:GetText():find("Updated: Heavy Leather", 1, true) ~= nil, true, "the message says Updated")
     H.eq(f.note:GetText():find("190 bought now", 1, true) ~= nil, true, "and what was bought")
     H.eq(f.add:GetText(), "Add", "the row empties")
-    Fire(row, "OnClick")
-    Fire(f.clearUnits, "OnClick")
-    H.eq(f.units:GetText(), "", "the x empties the box")
-    H.eq(FM.SnipeSaved(key).n, 300, "nothing changes before Update")
-    Fire(f.add, "OnClick")
-    H.eq(FM.SnipeSaved(key).n, nil, "Update: no limit")
-    H.eq(row.now:GetText(), GREY .. "0|r", "Bought now starts at 0")
-    H.eq(row.today:GetText(), "190", "Bought today unchanged")
-    H.eq(f.note:GetText():find("count started again", 1, true) ~= nil, true, "the message says so")
 end)
 
-H.test("sniper window: the x is forgotten when another item is loaded", function()
-    local FM, env = Load()
-    local f = Open(FM, env)
-    FM.SnipeSet(tostring(HIDE), 500, 50)
-    FM.SnipeSet(tostring(LEATHER), 100, 20)
-    FM.SnipeSaved(tostring(HIDE)).got = 10
-    FM.SnipeSaved(tostring(LEATHER)).got = 5
-    FM.RefreshSnipe()
-    local rows = f.scrollBox.rows
-    Fire(rows[1], "OnClick")
-    Fire(f.clearUnits, "OnClick")
-    Fire(rows[2], "OnClick") -- another item instead
-    Fire(f.add, "OnClick")
-    H.same({ FM.SnipeSaved(tostring(LEATHER)).got, FM.SnipeSaved(tostring(LEATHER)).n }, { 5, 20 }, "its count and limit stay")
-    H.eq(FM.SnipeSaved(tostring(HIDE)).got, 10, "and the first one's too")
-end)
-
--- review round 1 of PR #59: the x clicked with no item loaded must not reset an item typed in by name afterwards
-H.test("sniper window: the x with no item loaded resets nothing typed in afterwards", function()
+-- FRV-153: Refresh left of Update, the x by "max units" gone
+H.test("sniper window: Refresh starts a done row's count again with its limit kept (180/12 -> 0/12), Update keeps it", function()
     local FM, env = Load()
     local key = tostring(LEATHER)
     local f = Open(FM, env)
-    FM.SnipeSet(key, 100, 200)
-    FM.SnipeSaved(key).got = 190
-    Fire(f.clearUnits, "OnClick") -- the add row is empty
-    Type(f.search, "Heavy Leather") -- its exact name, no suggestion picked
-    f.price.copper.text = "100"
-    Type(f.units, "300")
+    H.eq(f.clearUnits, nil, "no x by the max units box")
+    H.eq(f.refresh.shown, false, "an empty add row: no Refresh")
+    FM.SnipeSet(key, 100, 12)
+    FM.SnipeSaved(key).got = 180
+    FM.SnipeSaved(key).paid = 18000
+    FM.SnipeBudgetInfo().units[key] = 180
+    FM.RefreshSnipe()
+    local row = f.scrollBox.rows[1]
+    H.eq(row.now:GetText(), "180/12", "180 of 12")
+    H.eq(FM.SnipeItemState(key).done, true, "done")
+    -- Update: 180/12 stays, done, nothing is bought
+    Fire(row, "OnClick")
+    H.eq(f.refresh.shown, true, "an item of the list loaded: Refresh shows")
+    H.eq(f.refresh:GetText(), "Refresh", "its full label")
+    H.eq(f.add:GetText(), "Update", "next to Update")
     Fire(f.add, "OnClick")
-    H.same({ FM.SnipeSaved(key).got, FM.SnipeSaved(key).n }, { 190, 300 }, "190 of 200, 300 typed: 190/300, nothing reset")
+    H.eq(row.now:GetText(), "180/12", "Update keeps 180/12")
+    H.eq(FM.SnipeItemState(key).done, true, "still done")
+    H.eq(f.refresh.shown, false, "the row emptied: Refresh hides")
+    -- Refresh: 0/12, active again, Bought today unchanged
+    Fire(row, "OnClick")
+    Fire(f.refresh, "OnClick")
+    H.eq(row.now:GetText(), GREY .. "0/12|r", "Refresh: 0/12")
+    H.same({ FM.SnipeSaved(key).n, FM.SnipeSaved(key).got, FM.SnipeSaved(key).paid }, { 12, 0, 0 }, "the limit kept, the count at 0")
+    H.eq(FM.SnipeItemState(key).done, false, "no longer done")
+    H.eq(row.today:GetText(), "180", "Bought today unchanged")
+    H.eq(f.note:GetText():find("count started again", 1, true) ~= nil, true, "the message says so")
+    H.eq(f.add:GetText(), "Add", "the row empties")
+    H.eq(f.refresh.shown, false, "and Refresh hides with it")
+end)
+
+H.test("sniper window: Refresh saves the add row like Update: a new number, a new buyout, an empty box = no limit", function()
+    local FM, env = Load()
+    local key = tostring(LEATHER)
+    local f = Open(FM, env)
+    FM.SnipeSet(key, 100, 12)
+    FM.SnipeSaved(key).got = 180
+    FM.SnipeBudgetInfo().units[key] = 180
+    FM.RefreshSnipe()
+    local row = f.scrollBox.rows[1]
+    Fire(row, "OnClick")
+    Type(f.units, "20")
+    f.price.copper.text = "95"
+    f.price.silver.text = ""
+    f.price.gold.text = ""
+    Fire(f.refresh, "OnClick")
+    H.eq(row.now:GetText(), GREY .. "0/20|r", "max units changed to 20: 0/20")
+    H.eq(FM.SnipeSaved(key).p, 95, "the buyout from the add row")
+    FM.SnipeSaved(key).got = 7
+    Fire(row, "OnClick")
+    Type(f.units, "")
+    Fire(f.refresh, "OnClick")
+    H.eq(FM.SnipeSaved(key).n, nil, "an empty box and Refresh: no limit")
+    H.eq(row.now:GetText(), GREY .. "0|r", "Bought now 0")
+    -- an empty box and Update: no limit, the count kept
+    FM.SnipeSet(key, 95, 50)
+    FM.SnipeSaved(key).got = 30
+    Fire(row, "OnClick")
+    Type(f.units, "")
+    Fire(f.add, "OnClick")
+    H.same({ FM.SnipeSaved(key).n, FM.SnipeSaved(key).got }, { nil, 30 }, "an empty box and Update: no limit, 30 kept")
+    H.eq(row.today:GetText(), "180", "Bought today unchanged by all of it")
+end)
+
+H.test("sniper window: Refresh shows only for an item of the list, and the window is wide enough for both buttons", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.SnipeSet(tostring(HIDE), 500, 50)
+    FM.RefreshSnipe()
+    -- a new item typed by its exact name: Add alone
+    Type(f.search, "Heavy Leather")
+    H.eq(f.add:GetText(), "Add", "a new item: Add")
+    H.eq(f.refresh.shown, false, "no Refresh for it")
+    -- a listed item loaded, then typed over with another name
+    Fire(f.scrollBox.rows[1], "OnClick")
+    H.eq(f.refresh.shown, true, "a listed item: Refresh")
+    Type(f.search, "Heavy Lea")
+    H.eq(f.refresh.shown, false, "typed over: Refresh hides")
+    -- the add row: item box 22 + 190, 18, the buyout's 176, 14, max units 60, 12, Refresh 70, 4, Update 70, 16
+    H.eq(f.width >= 22 + 190 + 18 + 176 + 14 + 60 + 12 + 70 + 4 + 70 + 16, true, "the two buttons end right of the max units box")
+    H.same({ f.refresh.width, f.add.width }, { 70, 70 }, "both as wide as Add was")
+end)
+
+-- FRV-171: Clear on the "Automatically refresh budget" row
+H.test("sniper window: Clear is disabled with an empty list, one click and 3 seconds change nothing", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    H.eq(f.clear:GetText(), "Clear", "the button")
+    H.eq(f.clear.enabled, false, "disabled while the list is empty")
+    FM.SnipeSet(tostring(LEATHER), 100, 20)
+    FM.SnipeSet(tostring(HIDE), 500)
+    H.eq(f.clear.enabled, true, "enabled with items")
+    Fire(f.clear, "OnClick")
+    H.eq(f.clear:GetText(), "Confirm", "the first click asks for a second")
+    H.eq(#FM.SnipeList(), 2, "nothing cleared yet")
+    env.clock = env.clock + 3.1
+    env.FlushTimers()
+    H.eq(f.clear:GetText(), "Clear", "after 3 seconds it is Clear again")
+    H.eq(#FM.SnipeList(), 2, "and nothing changed")
+    Fire(f.clear, "OnClick")
+    H.eq(f.clear:GetText(), "Confirm", "a click after that only arms it again")
+    H.eq(#FM.SnipeList(), 2, "still two items")
+end)
+
+H.test("sniper window: Clear, then Confirm within 3 seconds stops sniping every item and remembers their buyouts", function()
+    local FM, env = Load()
+    local leather, hide = tostring(LEATHER), tostring(HIDE)
+    local f = Open(FM, env)
+    FM.SnipeSet(leather, 100, 20)
+    FM.SnipeSet(hide, 500)
+    FM.SnipeSetPaused(hide, true)
+    FM.SnipeSaved(leather).got = 5
+    FM.SnipeBudgetInfo().units[leather] = 5
+    FM.RefreshSnipe()
+    Fire(f.scrollBox.rows[1], "OnClick") -- Heavy Leather is being edited
+    H.eq(f.add:GetText(), "Update", "editing a listed item")
+    Fire(f.clear, "OnClick")
+    env.clock = env.clock + 2
+    Fire(f.clear, "OnClick")
+    H.eq(#FM.SnipeList(), 0, "the list is empty, the paused item too")
+    H.eq(f.empty.shown, true, "No items yet")
+    H.eq(f.note:GetText():find("Stopped sniping 2 items.", 1, true) ~= nil, true, "the message says how many")
+    H.eq(f.clear:GetText(), "Clear", "the button is Clear again")
+    H.eq(f.clear.enabled, false, "and disabled")
+    H.eq(f.search:GetText(), "", "the add row that edited a listed item is empty")
+    H.eq(f.add:GetText(), "Add", "with Add")
+    H.same({ FM.SnipeSaved(leather).p, FM.SnipeSaved(leather).n, FM.SnipeSaved(hide).p }, { 100, 20, 500 },
+        "their buyouts and numbers are remembered")
+    H.eq(FM.SnipeBudgetInfo().units[leather], 5, "Bought today unchanged")
+    -- the empty item box suggests them again, and picking one brings its buyout and number back
+    f.search:SetFocus()
+    local rows = f.hints.rows
+    H.eq(rows[1].text:GetText():find("Heavy Hide", 1, true) ~= nil, true, "the earlier snipes are suggested")
+    H.eq(rows[2].text:GetText():find("Heavy Leather", 1, true) ~= nil, true, "both")
+    Fire(rows[2], "OnClick")
+    H.eq(f.units:GetText(), "20", "its number is back")
+    H.eq(env.MoneyInputFrame_GetCopper(f.price), 100, "and its buyout")
+end)
+
+H.test("sniper window: Clear with one item says 1 item, a new item typed into the add row stays", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.SnipeSet(tostring(HIDE), 500)
+    FM.RefreshSnipe()
+    Type(f.search, "Heavy Leather") -- a new item, not in the list
+    Fire(f.clear, "OnClick")
+    Fire(f.clear, "OnClick")
+    H.eq(f.note:GetText():find("Stopped sniping 1 item.", 1, true) ~= nil, true, "one item")
+    H.eq(f.search:GetText(), "Heavy Leather", "the add row was not editing a listed item: it stays")
+end)
+
+H.test("sniper window: closing the window forgets a Clear that waits for its second click", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    FM.SnipeSet(tostring(HIDE), 500)
+    FM.RefreshSnipe()
+    Fire(f.clear, "OnClick")
+    f:Hide()
+    FM.ShowSnipe()
+    H.eq(f.clear:GetText(), "Clear", "reopened: Clear again")
+    Fire(f.clear, "OnClick")
+    H.eq(#FM.SnipeList(), 1, "its click only arms it")
 end)
 
 H.test("sniper window: the wheel light is ON half a second after a wheel step that reached the sniper", function()
