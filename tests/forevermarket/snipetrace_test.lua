@@ -19,8 +19,14 @@
 --     round 3: picks cut unevenly never raise it): a plan that asked less once does not lower it for good, and a pick that bought all it may stays traced at 0 while its plan still asks (review round 2), so
 --     a later Shift+click of the same plan adds nothing and one of a newer plan nothing either
 --   * what was bought since a pick was sent comes off the picks in proportion (what each still has to buy)
---   * a number set in the window, a reset (Shift+right-click, the window's x) or the item added to the list again
---     forgets the picks; an item no pick needs, with nothing bought, leaves the list
+--   * a number set in the window, a reset (Shift+right-click, the window's Refresh) or the item added to the list
+--     again forgets the picks; an item no pick needs, with nothing bought, leaves the list
+--   * FRV-169: a pick belongs to the character that sent it. A plan on another character of the realm follows none of
+--     its picks: it keeps its units and its item stays in the list, also when that plan has the same pick and buys
+--     none or less of the material. Its own character's next plan follows it as before. The same pick sent by
+--     another character is a pick of its own: its units add up, each character's plan and clicks change only its own.
+--     A trace saved before 1.46 has no character: it is followed as before and belongs to the character whose plan or
+--     click first changes it. FM.SnipeTrace names the character and says whether the pick is the logged-in one's
 -- The server's answers are faked as in sniper_test.lua.
 
 local H = require("harness")
@@ -370,4 +376,111 @@ H.test("snipe trace: a Shift+click without a pick (a craft row) adds every time,
     FM.SnipeFromTable(leather, 275, 60, "add")
     H.eq(FM.SnipeSaved(leather).n, 120, "no trace: each click adds, as before")
     H.eq(FM.SnipeTrace(leather), nil, "nothing traced")
+end)
+
+-- FRV-169: picks traced per character. The realm has two characters; FM.PlayerName() says who is logged in
+local function As(FM, name)
+    FM.PlayerName = function() return name end
+end
+
+-- "pick=left@at:character" per traced pick, "-" for one without a character; "*" marks another character's
+local function Who(FM, id)
+    local parts = {}
+    for _, t in ipairs(FM.SnipeTrace(tostring(id)) or {}) do
+        parts[#parts + 1] = t.pick .. "=" .. t.left .. "@" .. tostring(t.at) .. ":" .. (t.char or "-") .. (t.mine and "" or "*")
+    end
+    return table.concat(parts, " ")
+end
+
+H.test("snipe trace: a plan on another character does not change or remove a pick (FRV-169)", function()
+    local FM, env = Load()
+    local leather = tostring(LEATHER)
+    As(FM, "Elfiehu")
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 60 } })
+    H.eq(Who(FM, LEATHER), CLOAK .. "=60@1000:Elfiehu", "traced with its character")
+    -- the alt opens Picks: its plan has the same pick but buys no Heavy Leather, it holds enough
+    As(FM, "Banker")
+    env.printed = {}
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 5000)
+    H.eq(FM.IsSniped(leather), true, "Heavy Leather stays in the sniper list")
+    H.same(State(FM, LEATHER), { 0, 60, 60 }, "with its 60 units")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=60@1000:Elfiehu*", "the pick is still the first character's")
+    H.eq(#env.printed, 0, "no chat line: nothing followed")
+    -- a plan of the alt with less gold that buys fewer
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 10, top = 275 } } } }, 6000)
+    H.same(State(FM, LEATHER), { 0, 60, 60 }, "a smaller plan on the alt lowers nothing")
+    -- back on the first character: its own next plan follows the pick as before
+    As(FM, "Elfiehu")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 40, top = 275 } } } }, 7000)
+    H.same(State(FM, LEATHER), { 0, 40, 40 }, "its own plan lowers it to 40")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=40@7000:Elfiehu", "re-tagged to that plan")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 8000)
+    H.eq(FM.IsSniped(leather), false, "and its own plan that buys none removes the item")
+end)
+
+H.test("snipe trace: the same pick sent by another character is a pick of its own (FRV-169)", function()
+    local FM, env, ah = Load()
+    local leather = tostring(LEATHER)
+    As(FM, "Elfiehu")
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 60 } })
+    As(FM, "Banker")
+    env.printed = {}
+    Send(FM, CLOAK, 5000, { { key = leather, price = 275, units = 40 } })
+    H.same(State(FM, LEATHER), { 0, 100, 100 }, "its 40 add to the first character's 60")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=40@5000:Banker " .. CLOAK .. "=60@1000:Elfiehu*", "two picks, each with its character")
+    H.eq(Has(env.printed[1], "40 added"), true, env.printed[1])
+    -- the alt's same plan again adds nothing
+    env.printed = {}
+    Send(FM, CLOAK, 5000, { { key = leather, price = 275, units = 40 } })
+    H.same(State(FM, LEATHER), { 0, 100, 100 }, "the same plan again: still 100")
+    H.eq(Has(env.printed[1], "Already sniping"), true, env.printed[1])
+    -- the alt's newer plan replaces only its own units
+    Send(FM, CLOAK, 6000, { { key = leather, price = 275, units = 20 } })
+    H.same(State(FM, LEATHER), { 0, 80, 80 }, "the alt's 20 and the first character's 60")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=20@6000:Banker " .. CLOAK .. "=60@1000:Elfiehu*", "only the alt's pick changed")
+    -- the alt's plan follows only its own pick
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 10, top = 275 } } } }, 7000)
+    H.eq(Who(FM, LEATHER), CLOAK .. "=10@7000:Banker " .. CLOAK .. "=60@1000:Elfiehu*", "the alt's 10, the other's 60")
+    -- the first character's plan no longer buys the material: only its pick leaves, the alt's keeps the item listed
+    As(FM, "Elfiehu")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 8000)
+    H.eq(FM.IsSniped(leather), true, "the alt's pick keeps Heavy Leather in the list")
+    H.same(State(FM, LEATHER), { 0, 10, 10 }, "with the alt's 10")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=10@7000:Banker*", "the alt's pick alone, named on this character")
+    -- a purchase comes off it whoever is logged in, and a Shift+click of the first character adds its own again
+    Bought(FM, env, ah, LEATHER, 250, 4)
+    Send(FM, CLOAK, 8000, { { key = leather, price = 275, units = 30 } })
+    H.same(State(FM, LEATHER), { 4, 40, 36 }, "4 bought, the alt's 6 left and the first character's 30")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=6@7000:Banker* " .. CLOAK .. "=30@8000:Elfiehu", "both again")
+end)
+
+H.test("snipe trace: a trace saved without a character keeps working and becomes its follower's (FRV-169)", function()
+    local FM, env = Load()
+    local leather = tostring(LEATHER)
+    -- as 1.45 saved it: the pick's key as the id, no character
+    FM.SnipeSet(leather, 275, 60)
+    local saved = FM.SnipeSaved(leather)
+    saved.picks = { [CLOAK] = { n = 60, at = 1000 } }
+    saved.tracedGot, saved.tracedMax, saved.traceId = 0, 60, "old:1"
+    As(FM, "Elfiehu")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=60@1000:-", "read as before, it counts as the logged-in character's")
+    -- a Shift+click on the pick of the plan it was sent with adds nothing
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 60 } })
+    H.same(State(FM, LEATHER), { 0, 60, 60 }, "the same plan: nothing added")
+    -- a new plan follows it, and it is that character's from then on
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 40, top = 275 } } } }, 2000)
+    H.same(State(FM, LEATHER), { 0, 40, 40 }, "followed: 40")
+    H.eq(Who(FM, LEATHER), CLOAK .. "=40@2000:Elfiehu", "now with its character")
+    As(FM, "Banker")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = {} } }, 3000)
+    H.same(State(FM, LEATHER), { 0, 40, 40 }, "the alt's plan no longer touches it")
+    -- a Shift+click of a newer plan on a trace without a character replaces its units, as before
+    local thick = tostring(THICK)
+    FM.SnipeSet(thick, 500, 10)
+    saved = FM.SnipeSaved(thick)
+    saved.picks = { [BELT] = { n = 10, at = 1000 } }
+    saved.tracedGot, saved.tracedMax, saved.traceId = 0, 10, "old:2"
+    Send(FM, BELT, 4000, { { key = thick, price = 500, units = 6 } })
+    H.same(State(FM, THICK), { 0, 6, 6 }, "replaced, not added")
+    H.eq(Who(FM, THICK), BELT .. "=6@4000:Banker", "and it is the clicking character's")
 end)

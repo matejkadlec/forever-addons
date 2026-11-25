@@ -306,17 +306,96 @@ H.test("picks: vendor resells and flips are capped the same way", function()
     local FM, env = Setup({ ["104"] = 27, ["105"] = 27 })
     local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 200,
         own = 0, sold12 = 10 }
-    local flip = { key = "105", sell = 10000, usual = 10000, top = 5000, units = 40, support = 10, wall = 10000, qty = 60,
+    -- the flip row as FM.FlipPlan makes it (FRV-172): the 5 cheap units of 60 listed, listed under the 1g that stays
+    local flip = { key = "105", sell = 9999, usual = 10000, top = 4000, units = 5, support = 55, wall = 10000, qty = 60,
         sold12 = 10 }
     local view = View({
         ["104"] = { ladder = { { 10000, 200 } }, qty = 200, own = 0 },
-        ["105"] = { ladder = { { 4000, 40 }, { 10000, 20 } }, qty = 60, own = 0 }
+        ["105"] = { ladder = { { 4000, 5 }, { 10000, 55 } }, qty = 60, own = 0 }
     })
     local picks = Compute(FM, env, { vendor = { vendor }, flips = { flip } }, view)
     H.eq(picks["104"].invest, 5 * 1000, "the vendor resell buys 5 (40 would be 20% of what others list)")
-    H.eq(picks["105"].invest, 5 * 4000, "the flip buys 5 of the 40 cheap units")
+    H.eq(picks["105"].invest, 5 * 4000, "the flip buys the 5 cheap units, its cap")
+    H.eq(picks["105"].listAt, 9999, "and lists them under the 1g of the others")
     H.eq(Reason(picks["104"], "C/24h 20, cap 5 (25%), you list 0 -> buy 5") ~= nil, true, "the vendor pick's room line")
     H.eq(Reason(picks["105"], "C/24h 20, cap 5 (25%), you list 0 -> buy 5") ~= nil, true, "the flip's room line")
+end)
+
+-- Rule (FRV-172): a flip pick never lists above a listing of others that stays after its buy. The flip row buys every
+-- cheap level and lists under the level above; a pick whose gold or room buys fewer units takes fewer whole levels and
+-- lists under the level above those when that still earns the margin, else it is no pick and the reason names the
+-- listings that would stay. Units of the item you hold, with nothing bought, list under the cheapest listing too.
+local function Uncolored(text)
+    return (tostring(text):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+end
+
+-- The value of a tooltip line of a pick by its label
+local function LineOf(pick, label)
+    for _, r in ipairs(pick.reasons) do
+        if r[1] == "l" and r[2] == label then return Uncolored(r[3]) end
+    end
+    return nil
+end
+
+H.test("picks: a flip with gold for one of four cheap units is no pick, the reason names the listings that would stay", function()
+    -- the report's Green Dragonscale Leggings at a tenth of their price, with 16 listed above: the row buys the 2 at
+    -- 50s and the 2 at 51s and lists under the 1g 05s that stays; 90s of gold buy one unit
+    local FM, env = Setup({ ["105"] = 27 }, { tableInvestPicks = 1 }, 10000)
+    local ladder = { { 5000, 2 }, { 5100, 2 }, { 10500, 16 } }
+    local flip = { key = "105", sell = 10499, usual = 10000, top = 5100, units = 4, support = 16, wall = 10500, qty = 20, sold12 = 10 }
+    local out = { flips = { flip } }
+    local picks = Compute(FM, env, out, View({ ["105"] = { ladder = ladder, qty = 20, own = 0 } }))
+    H.eq(picks["105"], nil, "no pick: it would list at 1g 04s 99c over the 50s and the two at 51s it cannot buy")
+    H.eq(Uncolored(out.pickWhy["105"]), "3 cheaper listings would stay under 1g 4s 99c: this pick can buy 1 of the 4", "the reason")
+    -- with the gold for all four it is the flip row's buy at the flip row's price
+    FM, env = Setup({ ["105"] = 27 }, { tableInvestPicks = 1 }, 1000000)
+    out = { flips = { flip } }
+    picks = Compute(FM, env, out, View({ ["105"] = { ladder = ladder, qty = 20, own = 0 } }))
+    H.eq(picks["105"].invest, 2 * 5000 + 2 * 5100, "all four units")
+    H.eq(picks["105"].listAt, 10499, "listed under the 1g 05s that stays")
+    H.eq(picks["105"].steps[1], "buy 4 up to " .. FM.FormatMoney(5100), "its buy step")
+    H.eq(LineOf(picks["105"], "List at"), "1g 4s 99c  next: 16 at 1g 5s 0c", "the tooltip names the cheapest listing that stays")
+end)
+
+H.test("picks: a flip that can buy only the cheapest level lists under the level that stays", function()
+    -- 40s, 80s, then 18 at 1g 05s: the row buys both cheap units and lists under 1g 05s; 90s of gold buy the first
+    local FM, env = Setup({ ["105"] = 27 }, { tableInvestPicks = 1 }, 10000)
+    local ladder = { { 4000, 1 }, { 8000, 1 }, { 10500, 18 } }
+    local flip = { key = "105", sell = 10499, usual = 10000, top = 8000, units = 2, support = 18, wall = 10500, qty = 20, sold12 = 10 }
+    local out = { flips = { flip } }
+    local picks = Compute(FM, env, out, View({ ["105"] = { ladder = ladder, qty = 20, own = 0 } }))
+    local pick = picks["105"]
+    H.eq(pick ~= nil, true, "a pick: " .. tostring(out.pickWhy and out.pickWhy["105"]))
+    H.eq(pick.invest, 4000, "it buys the unit at 40s")
+    H.eq(pick.listAt, 7999, "and lists it under the 80s that stays, not at the row's 1g 04s 99c")
+    H.eq(pick.steps[1], "buy 1 up to " .. FM.FormatMoney(4000), "its buy step")
+    H.eq(LineOf(pick, "List at"), "79s 99c  next: 1 at 80s 0c, 18 more up to 1g 5s 0c", "the tooltip names what waits above")
+    H.eq(LineOf(pick, "Gold needed"), "40s 0c", "the gold of the smaller buy")
+    H.eq(pick.unitProfit, 7999 * 0.95 - 4000, "the profit per item at the lower price")
+    -- the listings of others after its buy: none under its list price
+    H.eq(ladder[2][1] > pick.listAt, true, "the cheapest listing that stays is above it")
+end)
+
+H.test("picks: units of a flip's item you hold, with no gold to buy more, list under the cheapest listing of others", function()
+    local FM, env = Setup({ ["105"] = 27 }, { tableInvestPicks = 1 }, 100) -- 1s of gold: nothing can be bought
+    FM.Owned = function(key) if key == "105" then return 3, 3, 3, 3 end return 0, 0, 0, 0 end
+    local ladder = { { 9000, 2 }, { 9100, 2 }, { 20000, 16 } }
+    local flip = { key = "105", sell = 11000, usual = 10000, top = 9100, units = 4, support = 16, wall = 20000, qty = 20, sold12 = 10 }
+    local out = { flips = { flip } }
+    local picks = Compute(FM, env, out, View({ ["105"] = { ladder = ladder, qty = 20, own = 0 } }))
+    -- units without a known cost count at the 90s one more costs now: under the 90s of others they earn nothing
+    H.eq(picks["105"], nil, "no pick at the flip's 1g 10s above the listings that stay")
+    H.eq(Uncolored(out.pickWhy["105"]), "under your minimum profit per item, 10% = 9s 0c", "judged at the price under them")
+    -- units you paid 50s for earn their profit under the 90s too
+    FM, env = Setup({ ["105"] = 27 }, { tableInvestPicks = 1 }, 100)
+    FM.Owned = function(key) if key == "105" then return 3, 3, 3, 3 end return 0, 0, 0, 0 end
+    FM.PaidBasis = function(_, n) return n, n * 5000 end
+    out = { flips = { flip } }
+    picks = Compute(FM, env, out, View({ ["105"] = { ladder = ladder, qty = 20, own = 0 } }))
+    local pick = picks["105"]
+    H.eq(pick ~= nil, true, "a pick: " .. tostring(out.pickWhy and out.pickWhy["105"]))
+    H.eq(FM.PickKind(pick), "stock", "a Stock pick")
+    H.eq(pick.listAt, 8999, "listed under the 90s of others, not at the flip's 1g 10s above them")
 end)
 
 -- Rule (FRV-99): the place filter of Picks (Continent, Zone) limits vendor flips to the vendors there: a vendor flip is
@@ -337,11 +416,11 @@ H.test("picks: with a place, vendor flips buy only from a vendor there; crafts a
         local dear = { where = "Darnassus vendor, Darnassus", mapID = 1457, unit = 1500 }
         local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = cheap, offers = { cheap, dear },
             qty = 200, own = 0, sold12 = 10 }
-        local flip = { key = "105", sell = 10000, usual = 10000, top = 5000, units = 40, support = 10, wall = 10000, qty = 60,
+        local flip = { key = "105", sell = 9999, usual = 10000, top = 4000, units = 5, support = 55, wall = 10000, qty = 60,
             sold12 = 10 }
         local view = View({
             ["104"] = { ladder = { { 10000, 200 } }, qty = 200, own = 0 },
-            ["105"] = { ladder = { { 4000, 40 }, { 10000, 20 } }, qty = 60, own = 0 }
+            ["105"] = { ladder = { { 4000, 5 }, { 10000, 55 } }, qty = 60, own = 0 }
         })
         local out = { crafts = { Craft("100", 43) }, vendor = { vendor }, flips = { flip } }
         return Compute(FM, env, out, view), out

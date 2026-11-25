@@ -1775,6 +1775,27 @@ local function EvaluateVendor(c)
     return pick
 end
 
+-- The levels of a ladder without its `skip` cheapest units (what earlier picks of the plan buy of the item)
+local function LadderAfter(ladder, skip)
+    if skip <= 0 then return ladder end
+    local out = {}
+    for _, level in ipairs(ladder) do
+        local q = level[2]
+        if skip >= q then
+            skip = skip - q
+        else
+            out[#out + 1] = { level[1], q - skip }
+            skip = 0
+        end
+    end
+    return out
+end
+
+-- A flip pick: the Flip tab's rule (FM.FlipPlan, FRV-172) within what this pick may buy, its batch (less what you hold)
+-- and its gold. The flip row buys every cheap level and lists under the cheapest listing that stays; a pick that can
+-- buy fewer units takes fewer whole levels and lists under the level above those, and when no such buy earns the
+-- margin it is no pick: the units it cannot buy would stay under its list price (until 1.45 it bought what it could
+-- and kept the row's list price)
 local function EvaluateFlip(c)
     local row = c.row
     if Yours(row.key) > 0 then return nil, "you list it yourself" end
@@ -1786,27 +1807,38 @@ local function EvaluateFlip(c)
     if not room then return nil, noRoom end
     local ladder = Ladder(row.key)
     local cheapest = ladder[1] and ladder[1][1] or row.top
-    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, row.sell), room)
-    if not b then return nil, noBatch end
-    if b.batch < 1 then return nil, BatchShort(b, room, 1) end
+    local heldAll = HeldOf(row.key)
+    local cap = math_min(P.perPick, P.budgetLeft)
+    -- the listings left for this pick: without the units earlier picks of the plan buy
+    local left = LadderAfter(ladder, P.used[row.key] or 0)
+    local floor = FM.MinListPrice and FM.MinListPrice(row.key, P.view.Get(row.key)) or 1
+    -- the batch depends on the margin at the list price, and the list price on how many units the batch allows: a
+    -- smaller buy lists lower, which can halve the batch again (its eco factor has three values, so this settles)
+    local sell = row.sell
+    local b, noBatch, held, f
+    for _ = 1, 4 do
+        b, noBatch = Batch(row, d, sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, sell), room)
+        if not b then return nil, noBatch end
+        if b.batch < 1 then return nil, BatchShort(b, room, 1) end
+        -- what you hold first: the flip buys only the rest of the batch
+        held = math_min(heldAll, b.batch)
+        f = FM.FlipPlan(left, row.qty, row.usual, floor, b.batch - held, cap)
+        if not f or f.sell == sell then break end
+        sell = f.sell
+    end
     local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and (row.qty - (row.own or 0)) / buyers or 99
-    -- what you hold first: the flip buys only the rest of the batch
-    local heldAll = HeldOf(row.key)
-    local held = math_min(heldAll, b.batch)
-    local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
-    local skip = P.used[row.key] or 0
     local n, cost = 0, 0
-    for _, level in ipairs(ladder) do
-        if level[1] > row.top then break end
-        local q = level[2]
-        if skip >= q then
-            skip = skip - q
-        else
-            q = q - skip
-            skip = 0
-            local take = math_min(q, row.units - n, b.batch - held - n, math_floor((cap - cost) / level[1]))
+    if f then
+        n, cost = f.units, f.cost
+        trial.used[row.key], trial.top[row.key] = n, f.top
+    else
+        -- no buy within the batch and the gold lists under every listing that stays: what it could buy of the row's
+        -- cheap units, for the reason
+        for _, level in ipairs(left) do
+            if level[1] > row.top then break end
+            local take = math_min(level[2], b.batch - held - n, math_floor((cap - cost) / level[1]))
             if take <= 0 then break end
             n = n + take
             cost = cost + take * level[1]
@@ -1817,20 +1849,37 @@ local function EvaluateFlip(c)
     P.tried = trial -- what the flip would buy, for the reason of a later drop (FRV-133)
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
-    if n < 1 then
-        if held <= 0 then return nil, NoGold() end
-        -- what you hold at the cheapest price on the AH now, which a flip would pay for one more
-        return StockPick(c, row, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(row, d))
+    if n < 1 or not f then
+        if held > 0 then
+            -- what you hold at the cheapest price on the AH now, which a flip would pay for one more. Nothing is
+            -- bought, so every listing of others stays: your units list under the cheapest of them, not at the
+            -- flip's price above it (FRV-172)
+            local under = row
+            if left[1] and left[1][1] <= row.sell then
+                under = setmetatable({ sell = math_max(floor, left[1][1] - 1) }, { __index = row })
+            end
+            return StockPick(c, under, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(under, d))
+        end
+        if n < 1 then return nil, NoGold() end
+        -- the units of others under the row's list price that this pick cannot buy
+        local stay = -n
+        for _, level in ipairs(left) do
+            if level[1] >= row.sell then break end
+            stay = stay + level[2]
+        end
+        if stay < 1 then return nil, "no profit left under the cheapest listing that stays" end
+        return nil, string_format("%s cheaper listing%s would stay under %s: this pick can buy %s of the %s", Count(stay),
+            stay == 1 and "" or "s", M(row.sell), Count(n), Count(stay + n))
     end
     local items = n + held
     local unitCost = cost / n
-    local m = row.sell * (1 - AH_CUT) - unitCost
+    local m = sell * (1 - AH_CUT) - unitCost
     -- what you hold at what it cost you (FRV-134), else at what the flip pays per unit now
     local heldUnit, heldKnown = HeldUnit(row.key, held, unitCost)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
     local heldPart = (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unitCost - heldUnit)
     expected = expected + heldPart
-    if (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) or (expected <= 0 and expected - heldPart <= 0) then
+    if (sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) or (expected <= 0 and expected - heldPart <= 0) then
         return nil, "no profit left after the cut and deposits"
     end
     -- what you hold at what you paid makes it none (FRV-134): that is the reason
@@ -1839,7 +1888,7 @@ local function EvaluateFlip(c)
     if m < MinUnit(unitCost) then return nil, UnderProfit(unitCost) end
     local score = expected * conf
     if score < P.minScore then return nil, TooSmall(score, conf) end
-    local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
+    local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
         unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf }
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
@@ -1854,10 +1903,11 @@ local function EvaluateFlip(c)
             StockWhere(held, OwnedOf(row.key)[3])) }
     end
     HeldLine(pick.reasons, held, heldKnown, heldUnit, m + unitCost - heldUnit)
-    SellAtLeastNote(pick.reasons, row.key, held, heldUnit, heldKnown, row.sell)
+    SellAtLeastNote(pick.reasons, row.key, held, heldUnit, heldKnown, sell)
     for _, line in ipairs({
         { "l", "Gold needed", M(cost) },
-        { "l", "List at", M(row.sell) .. GREY .. string_format("  %s others wait at %s", Count(row.support), M(row.wall)) .. "|r" },
+        -- the cheapest listing of others that stays after the buy, and the units up to the next real price level
+        { "l", "List at", M(sell) .. GREY .. "  " .. FM.FlipNextText(f) .. "|r" },
         { "l", "Expected profit", M(expected) },
         { "l", "Sells", string_format("about %s of %s in 8h", Units(sold), Count(items)) },
         { "h", "Market" },
