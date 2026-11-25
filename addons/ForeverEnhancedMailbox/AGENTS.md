@@ -49,12 +49,16 @@ More ways to collect mail from the default inbox (FRV-178, after the analysis FR
 
 - `ForeverEnhancedMailboxSettings` (account): `enabled`, `hint` (booleans, default true), `keepFree` (0 to 20, default 0); cleaned at load (a broken value takes its default)
 
-## Not verified in game (the in-game test of FRV-178)
+## In game
 
-- That AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate`, also in a fight (no "AddOn has been blocked" popup)
-- Which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`) and which emptied mails the server removes
-- That Blizzard's Shift+click takes the whole mail (`AutoLootMailItem`), and that the arrow covers none of the page button's "Next" text
-- What the test proves goes into [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#mail)
+The maintainer's in-game test of 1.0.1 passed on 2026-11-25 (FRV-178). What it showed is in [`docs/forever-api-notes.md`](../../docs/forever-api-notes.md#mail):
+
+- **Calls:** AddOn code may call `TakeInboxMoney` and `TakeInboxItem` from `OnUpdate`. No "AddOn has been blocked" popup came, also in a fight; whether the takes go through in combat is not recorded.
+- **Shift+click:** Blizzard's Shift+click takes the whole mail.
+- **ForeverMarket:** its hooks see every take.
+- **Layout:** the arrow covers none of the page button's "Next" text.
+
+Not seen in game yet: which signals the live client gives for a take (`MAIL_SUCCESS`, `MAIL_FAILED`, the inbox update, `GetMoney`), which emptied mails the server removes, and how many mails a list holds.
 
 ## Not in this version (FRV-179)
 
