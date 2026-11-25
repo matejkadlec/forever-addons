@@ -12,7 +12,8 @@ The AddOn inventory is in the root guide. ForeverMarket and ForeverCraftQueue ha
 
 - First-party AddOns are named `Forever{AddonName}`, for example `ForeverTweaks` or `ForeverTrackingAid`; the name part does not have to be two words
 - Each AddOn picks a unique three letter shortname starting with `F` (used for the chat prefix and the slash command)
-- Each AddOn is fully standalone, no cross-AddOn dependencies
+- Each AddOn is fully standalone, no cross-AddOn dependencies; the one exception is ForeverMarket, which requires the third-party ForeverArtisan (`## Dependencies: ForeverArtisan_Core` since 1.48, the maintainer's decision on FRV-164, FRV-175)
+- `## X-Curse-Required-Dependencies:` / `## X-Curse-Optional-Dependencies:` (comma separated CurseForge project slugs) declare the relations the `Release` workflow sends with an upload ([`docs/releasing.md`](../docs/releasing.md)); `## Dependencies:` names folders, a relation names a project, so an AddOn that requires another declares both
 - Each AddOn carries the shared file `JimsForeverAddOns.lua` as the first file of its `.toc` and `JimsForeverAddOnsDB` in its `## SavedVariables:` (see [Shared file](#shared-file-jimsforeveraddonslua); ForeverMarket and ForeverCampFeatures get it with FRV-176 and FRV-177)
 - Required `.toc` fields for first-party AddOns:
   ```ini

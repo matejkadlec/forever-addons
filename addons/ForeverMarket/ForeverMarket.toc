@@ -4,10 +4,12 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.47.10
+## Version: 1.48.4
 ## X-Repository: https://github.com/matejkadlec/forever-addons
+## X-Curse-Required-Dependencies: foreverartisan
 ## SavedVariables: ForeverMarketDB
-## OptionalDeps: Auctionator
+## Dependencies: ForeverArtisan_Core
+## OptionalDeps: Auctionator, ForeverArtisan_Contacts, ForeverArtisan_Leatherworking, ForeverArtisan_Cooking, ForeverArtisan_FirstAid, ForeverArtisan_Tailoring, ForeverArtisan_Blacksmithing, ForeverArtisan_Alchemy, ForeverArtisan_Engineering, ForeverArtisan_Skinning
 
 core\Core.lua
 core\Codec.lua

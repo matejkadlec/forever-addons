@@ -1686,9 +1686,14 @@ local function EvaluateCraft(c)
     end
     pick.toolCost = toolCost
     if c.kind ~= "level" then Track(pick, made) end
-    -- fewer than the amount you set: the steps line says what is short (FRV-154)
+    -- fewer than the amount you set: the steps line says what is short in a few words, the input's tooltip in full
+    -- (FRV-154, FRV-187). Your minimum profit is no limit of the market (the maintainer's decision on FRV-187): a warning
+    -- (amountWarn, orange, the input light blue), not "cannot be done" (red); FRV-188 lets an amount pass it
     if want and made < want then
-        pick.amountNote = string_format("of the %s you set: %s", Count(want), plan.stop == "margin"
+        local margin = plan.stop == "margin"
+        pick.amountWarn = margin or nil
+        pick.amountNote = margin and "more would earn under your min. profit" or "no more materials on the AH at a usable price"
+        pick.amountWhy = string_format("Only %s can be made now: %s", Count(made), margin
             and "more would earn less than your minimum profit" or "the AH has no more materials at a usable price")
     end
     return pick
@@ -1769,7 +1774,8 @@ local function EvaluateVendor(c)
         unitProfit = m, cand = c, trial = NewTrial(), held = held, listUnits = items, batch = items, offer = row.offer,
         trackOffer = row.trackOffer, placeOf = row.placeOf, expected = expected * conf }
     if want and n < want then
-        pick.amountNote = string_format("of the %s you set: the vendor sells %s at a time", Count(want), Count(n))
+        pick.amountNote = "the vendor has no more"
+        pick.amountWhy = string_format("Only %s can be bought now: the vendor sells %s at a time", Count(n), Count(row.offer.limited or n))
     end
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
     local list = {
@@ -1921,8 +1927,9 @@ local function EvaluateFlip(c)
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
         unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf }
     if want and n < want then
-        pick.amountNote = string_format("of the %s you set: more would leave cheaper listings under the list price or earn "
-            .. "no margin", Count(want))
+        pick.amountNote = "no more available for flipping"
+        pick.amountWhy = string_format("Only %s can be bought now: more would leave cheaper listings under the list price or "
+            .. "earn no margin", Count(n))
     end
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
@@ -2767,7 +2774,9 @@ end
 -- purchases from then, next to picks counting from the plan: the materials bought for one pick showed up as free
 -- stock or as bought for another, whichever way the claims were shared out. The amount may be over the room on the AH and the pick's share of the gold (your
 -- choice); the materials, a vendor's limited stock, your minimum profit and the flip rule still stop it, and then the
--- pick makes or buys what they allow and its steps line says so (amountNote). The pick it replaces stays as
+-- pick makes or buys what they allow: its steps line says so in red and in a few words (amountNote), the input shows
+-- your number in red (amountWant) and its tooltip the full reason (amountWhy, FRV-187); your minimum profit is a
+-- warning instead (amountWarn: the note orange, the input the number reached in light blue). The pick it replaces stays as
 -- pick.original: emptying the input brings the plan's own pick back (FM.RestorePick). A new plan starts from its own
 -- numbers. The plan log keeps the plan's lines and gets one more for the pick with "e" in its last field.
 
@@ -2838,6 +2847,7 @@ function FM.RemakePick(out, ctx, key, amount)
     -- the plan's own pick and its number: what emptying the input brings back
     pick.original = old.original or old
     pick.amountSet, pick.amountPlan = true, pick.original.amount
+    pick.amountWant = amount -- the number you set: the input shows it, in red while the pick has fewer (amountNote)
     -- a pick out of scope keeps the lines that say why it is not in the plan
     if old.extra and old.outNotes and old.reasons then
         for i = old.outNotes, 1, -1 do

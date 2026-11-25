@@ -1,15 +1,18 @@
--- ForeverMarket ui/Filters.lua, ui/Table.lua: the market table's tooltips show only while Shift is held (FRV-155).
+-- ForeverMarket ui/Filters.lua, ui/Table.lua: the market table's tooltips show on hover (rows, headers, tabs,
+-- buttons, the summary) or only while Shift is held (inputs, dropdowns, checkboxes) (FRV-155, FRV-186).
 -- Rules:
---   * a tooltip set with FM.TableTip (or FM.TableTipHook on a frame whose template has scripts of its own) shows only
---     while Shift is held with the mouse over its element: hovering without Shift shows nothing, Shift pressed over the
---     element shows it at once, Shift released hides it, Shift held before the mouse arrives shows it too; the mouse
---     leaving hides it, and Shift after that shows nothing
---   * while an input of the table or of its filters dialog has the keyboard focus nothing shows, Shift or not (Shift
+--   * every FM.TableTip / FM.TableTipHook call names its kind, "hover" or "shift"; none is an error
+--   * a "shift" tooltip shows only while Shift is held with the mouse over its element: hovering without Shift shows
+--     nothing, Shift pressed over the element shows it at once, Shift released hides it, Shift held before the mouse
+--     arrives shows it too; the mouse leaving hides it, and Shift after that shows nothing
+--   * a "hover" tooltip shows on hover without Shift; Shift pressed or released over it neither hides nor rebuilds it
+--   * while an input of the table or of its filters dialog has the keyboard focus nothing shows, hover or Shift (Shift
 --     types capitals there); an input of another window (the chat, the sniper's item box) does not hold them back
 --   * another modifier key changes nothing; an element that went away under the mouse shows nothing
 --   * with the setting off (tableShiftTips) every tooltip shows on plain hover, a focused input or not
---   * Picks' footer ends with the Shift hint ("hover for why" with the setting off); a line too long for the window
---     takes a shorter form that still ends with the hint
+--   * the elements of the window have their kind (read from the sources: the stubs cannot build the window)
+--   * every footer ends with the Shift hint of what its tab has (Picks "hover for why" before it, only that with the
+--     setting off); a line too long for the window takes a shorter form that still ends with the whole hint
 -- Whether the client sends MODIFIER_STATE_CHANGED like this is the in-game test's job.
 
 local H = require("harness")
@@ -34,8 +37,9 @@ local function Load()
     return FM, env, tip
 end
 
--- An element of the window under the mouse, with the tooltip it shows; shown counts how often it was built
-local function Element(FM, env, hook)
+-- An element of the window under the mouse, with the tooltip it shows; shown counts how often it was built. kind:
+-- "shift" (an input, a dropdown, a checkbox) unless "hover" (a row, a header, a button) is given
+local function Element(FM, env, hook, kind)
     local f = env.CreateFrame("Button")
     f.hooks, f.visible, f.over, f.shown = {}, true, true, 0
     function f:IsVisible() return self.visible end
@@ -45,7 +49,8 @@ local function Element(FM, env, hook)
         self.shown = self.shown + 1
         env.GameTooltip:SetOwner(self)
     end
-    if hook then FM.TableTipHook(f, Show) else FM.TableTip(f, Show) end
+    kind = kind or "shift"
+    if hook then FM.TableTipHook(f, Show, kind) else FM.TableTip(f, Show, kind) end
     f.Enter = function() (hook and f.hooks or f.scripts).OnEnter(f) end
     f.Leave = function() (hook and f.hooks or f.scripts).OnLeave(f) end
     return f
@@ -74,7 +79,7 @@ H.test("shift tooltips: the setting is on by default", function()
     H.eq(FM.TableTipsOnHover(), false, "not on plain hover")
 end)
 
-H.test("shift tooltips: hovering shows nothing, Shift over the element shows it at once, releasing hides it", function()
+H.test("shift tooltips: hovering an input shows nothing, Shift over it shows it at once, releasing hides it", function()
     local FM, env, tip = Load()
     local row = Element(FM, env)
     row.Enter()
@@ -220,15 +225,162 @@ local function Plain(text)
     return (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
 end
 
-H.test("shift tooltips: Picks' footer ends with the Shift hint, with the setting off with \"hover for why\"", function()
+H.test("shift tooltips: a row, a header or a button shows on hover, Shift neither hides nor rebuilds it", function()
+    local FM, env, tip = Load()
+    local row = Element(FM, env, false, "hover")
+    row.Enter()
+    H.same({ row.shown, tip.owner }, { 1, row }, "the mouse over it: its tooltip, no Shift needed")
+    Shift(env, true) -- Shift+click on a row snipes, on a header adds a sort level
+    Shift(env, false)
+    H.same({ row.shown, tip.owner }, { 1, row }, "Shift pressed and released: it stays as it was")
+    row.Leave()
+    H.eq(tip.owner, nil, "the mouse leaving hides it")
+    local refresh = Element(FM, env, true, "hover") -- a template with its own scripts (Refresh)
+    refresh.Enter()
+    H.same({ refresh.shown, tip.owner }, { 1, refresh }, "hooked: the same")
+end)
+
+H.test("shift tooltips: a row's Amount input waits for Shift while the row around it shows on hover", function()
+    local FM, env, tip = Load()
+    local row = Element(FM, env, false, "hover")
+    local amount = Element(FM, env, false, "shift")
+    row.Enter()
+    H.eq(tip.owner, row, "the row: its tooltip")
+    -- onto the input: the row's OnLeave, then the input's OnEnter (the input takes the mouse)
+    row.Leave()
+    amount.Enter()
+    H.same({ amount.shown, tip.owner }, { 0, nil }, "over the input: no row tooltip and none of its own")
+    Shift(env, true)
+    H.same({ amount.shown, tip.owner }, { 1, amount }, "Shift: the input's own tooltip")
+end)
+
+H.test("shift tooltips: while an input of the table has the focus a row shows nothing either", function()
+    local FM, env, tip = Load()
+    local row = Element(FM, env, false, "hover")
+    env.focus = InputIn(env, "ForeverMarketTable") -- typing in another row's Amount input
+    row.Enter()
+    H.same({ row.shown, tip.owner }, { 0, nil }, "the mouse over a row while typing: no tooltip")
+    Shift(env, true)
+    H.same({ row.shown, tip.owner }, { 0, nil }, "Shift neither")
+    Shift(env, false)
+    row.Leave()
+    env.focus = InputIn(env, "ForeverMarketSnipe")
+    row.Enter()
+    H.same({ row.shown, tip.owner }, { 1, row }, "the focus in another window: it shows")
+end)
+
+H.test("shift tooltips: a call without a kind is an error", function()
+    local FM, env = Load()
+    local f = env.CreateFrame("Button")
+    local ok, err = pcall(FM.TableTip, f, function() end)
+    H.eq(ok, false, "FM.TableTip without a kind")
+    H.eq(tostring(err):find("hover", 1, true) ~= nil, true, "the error names the kinds")
+    H.eq((pcall(FM.TableTipHook, f, function() end, "always")), false, "FM.TableTipHook with an unknown kind")
+end)
+
+-- The calls of the helpers in a source file: { first argument, last argument } each, in order (a small scanner that
+-- skips strings and comments and counts brackets; the helpers' own definitions are left out)
+local function TipCalls(path)
+    local src = assert(io.open(path, "r")):read("*a")
+    local calls = {}
+    local pos = 1
+    while true do
+        local s, e, suffix = src:find("FM%.TableTip(%a*)%(", pos)
+        if not s then break end
+        pos = e + 1
+        local lineStart = s
+        while lineStart > 1 and src:sub(lineStart - 1, lineStart - 1) ~= "\n" do lineStart = lineStart - 1 end
+        local inComment = src:sub(lineStart, s - 1):find("--", 1, true) ~= nil
+        local isHelper = suffix == "" or suffix == "Hook" -- not FM.TableTipsOnHover
+        if isHelper and not inComment and src:sub(math.max(1, s - 9), s - 1) ~= "function " then
+            local depth, args, start, i = 1, {}, e + 1, e + 1
+            while depth > 0 do
+                local c = src:sub(i, i)
+                if c == "\"" or c == "'" then
+                    i = i + 1
+                    while src:sub(i, i) ~= c do
+                        if src:sub(i, i) == "\\" then i = i + 1 end
+                        i = i + 1
+                    end
+                elseif c == "-" and src:sub(i + 1, i + 1) == "-" then
+                    i = src:find("\n", i, true)
+                elseif c == "(" or c == "{" then
+                    depth = depth + 1
+                elseif c == ")" or c == "}" then
+                    depth = depth - 1
+                elseif c == "," and depth == 1 then
+                    args[#args + 1] = src:sub(start, i - 1)
+                    start = i + 1
+                end
+                i = i + 1
+            end
+            args[#args + 1] = src:sub(start, i - 2)
+            local function Trim(text) return (text:gsub("^%s+", ""):gsub("%s+$", "")) end
+            calls[#calls + 1] = { Trim(args[1]), Trim(args[#args]) }
+        end
+    end
+    return calls
+end
+
+H.test("shift tooltips: the window's elements have the kinds of FRV-186", function()
+    local base = "addons/ForeverMarket/ui/"
+    local seen = {}
+    for _, file in ipairs({ "Table.lua", "Filters.lua", "Performance.lua" }) do
+        for _, call in ipairs(TipCalls(base .. file)) do
+            seen[#seen + 1] = file .. " " .. call[1] .. " " .. call[2]
+        end
+    end
+    H.same(seen, {
+        "Table.lua dd \"shift\"",                -- the place dropdowns
+        "Table.lua ignoredTab \"hover\"",        -- the Ignored tab
+        "Table.lua search \"shift\"",            -- the search box
+        "Table.lua button kind",                 -- FilterTip: Filters and Global filters "hover", Use global filters "shift"
+        "Table.lua f.searchAll \"hover\"",       -- Favorites' Search all at the AH
+        "Table.lua widget \"shift\"",            -- the budget row's boxes and checkboxes (RowTip)
+        "Table.lua refresh \"hover\"",
+        "Table.lua header \"hover\"",
+        "Table.lua summaryZone \"hover\"",       -- the plan's summary line
+        "Table.lua f.lock \"shift\"",            -- Lock plan after refresh
+        "Table.lua b \"hover\"",                 -- a row
+        "Table.lua amount \"shift\"",            -- a row's Amount input
+        "Filters.lua frame \"shift\"",           -- the dialog's boxes and checkboxes (Tip)
+        "Performance.lua b \"hover\"",           -- This character / All characters
+    }, "every helper call and its kind")
+    local src = assert(io.open(base .. "Table.lua", "r")):read("*a")
+    for _, case in ipairs({ { "f.filtersButton", "hover" }, { "f.globalButton", "hover" }, { "f.useGlobal", "shift" } }) do
+        local pattern = "FilterTip%(" .. case[1]:gsub("%.", "%%.") .. ",[^\n]*\"" .. case[2] .. "\"%)"
+        H.eq(src:find(pattern) ~= nil, true, case[1] .. " is " .. case[2])
+    end
+end)
+
+H.test("shift tooltips: Picks' footer ends with \"hover for why\" and the Shift hint, only \"hover for why\" with the setting off", function()
     local FM = Load()
-    local hint = "  ·  hold Shift over rows, inputs, dropdowns and checkboxes to show tooltips"
+    local hint = "  ·  hover for why  ·  hold Shift over inputs, dropdowns and checkboxes for their tips"
     local text = Plain(FM.TableFooterText(0))
     H.eq(text, "0-0 of 0  ·  # = a day's profit, Expected = one listing of all of it" .. hint, "the Picks footer")
     local short = Plain(FM.TableFooterText(0, true))
-    H.eq(short, "0-0 of 0  ·  # = a day's profit, Expected = one listing of all of it  ·  hold Shift for tooltips",
-        "the shorter form for a line that would be cut: the hint is still its end")
+    H.eq(short, "0-0 of 0" .. hint, "the shorter form for a line that would be cut drops the note, the hints stay whole at its end")
     FM.GetSettings().tableShiftTips = false
     H.eq(Plain(FM.TableFooterText(0)), "0-0 of 0  ·  # = a day's profit, Expected = one listing of all of it  ·  hover for why",
-        "the setting off: as before")
+        "the setting off: as before 1.47")
+end)
+
+H.test("shift tooltips: every other tab's footer ends with what of it waits for Shift", function()
+    local FM = Load()
+    local function Ends(text, tail) return text:sub(-#tail) == tail end
+    local CASES = {
+        { "latest", "  ·  hold Shift over inputs and checkboxes for their tips" },  -- Craft: the search box, Use global filters
+        { "learn", "  ·  hold Shift over inputs and checkboxes for their tips" },
+        { "vendor", "  ·  hold Shift over inputs and dropdowns for their tips" },   -- the search box, the place dropdowns
+        { "flips", "  ·  hold Shift over the search box for its tip" },
+        { "favs", "  ·  hold Shift over the search box for its tip" },
+        { "ignored", "  ·  hold Shift over the search box for its tip" },
+        { "farm", "  ·  hold Shift over the search box for its tip" },
+    }
+    for _, case in ipairs(CASES) do
+        H.eq(Ends(Plain(FM.TableFooterText(0, false, case[1])), case[2]), true, case[1] .. ": the long form ends with the hint")
+        H.eq(Ends(Plain(FM.TableFooterText(0, true, case[1])), case[2]), true, case[1] .. ": the short form too")
+    end
+    FM.GetSettings().tableShiftTips = false
+    H.eq(Plain(FM.TableFooterText(0, false, "latest")):find("Shift", 1, true), nil, "the setting off: no Shift hint")
 end)
