@@ -23,7 +23,8 @@ local COLOR = {
 
 FM.COLOR = COLOR
 FM.ADDON_PREFIX = "FM"
-FM.ADDON_FULL_NAME = "ForeverMarket"
+FM.ADDON_FULL_NAME = "ForeverMarket" -- the folder: what the game names in its events (ADDON_ACTION_BLOCKED)
+FM.DISPLAY_NAME = "Forever Marketplace" -- the name players read (FRV-1; the AddOn list adds the blue "[Core]")
 FM.SLASH_COMMAND = "/fm"
 
 -- All stored timestamps are minutes since this moment (2026-01-01 00:00 UTC), base36 encoded
@@ -56,6 +57,8 @@ FM.DEFAULTS = {
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
+    tableMatRefHours = 8, -- craft materials: one bought on the AH costs at least the average cheapest price of others of
+                          -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
     tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
@@ -175,6 +178,7 @@ FM.SETTING_RANGE = {
     tableCircPct = { 1, 100 },
     tableFirstPct = { 1, 10 },
     tableTimePct = { 0, 20 }, -- 0 = always the cheaper route
+    tableMatRefHours = { 0, 24 }, -- 0 = no reference price, the latest scan alone (FRV-196)
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
     -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
     -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)

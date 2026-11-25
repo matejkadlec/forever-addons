@@ -214,6 +214,78 @@ end
 
 FM.BatchUnit = BatchUnit
 
+---------------------------------------------------------------- the reference price of a material (FRV-196)
+
+local REF_MIN_PRICES = 3      -- prices of others the window needs, else it reaches further back
+local REF_MAX_HOURS = 24      -- ... at most this far
+local REF_STEP_MAX = 4 * 3600 -- a record's price stands until the next record, at most 4 hours (the feed writes an
+                              -- unchanged item every 4 hours)
+
+-- The cheapest prices of others in an item's records up to endT, oldest first: { t, price, index } (price nil: no
+-- auction of others listed); a record that cannot tell (FM.OthersMin's nil, nil) is left out, the price before it
+-- stands on
+local function OthersSteps(key, endT)
+    local steps = {}
+    for i, f in ipairs(FM.DetailRecords(FM.R().items[key])) do
+        local t = FM.Unstamp(string_sub(f[1] or "", 2))
+        if t and t <= endT then
+            local p, known = FM.OthersMin(f, key)
+            if known ~= nil then steps[#steps + 1] = { t, p, i } end
+        end
+    end
+    table_sort(steps, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[3] < b[3]) end)
+    return steps
+end
+
+-- The average of the steps' prices from the window's start to endT, each weighted by the time until the next record
+-- (an hour of 15-minute scans weighs as much as one hourly feed snapshot): { average, the window's hours }, or nil
+-- with fewer than 3 prices in 24 hours. A window of `hours` holding fewer than 3 reaches back to the third newest
+local function RefOf(key, endT, hours)
+    local steps = OthersSteps(key, endT)
+    local third
+    local priced = 0
+    for i = #steps, 1, -1 do
+        if steps[i][2] then
+            priced = priced + 1
+            if priced == REF_MIN_PRICES then
+                third = steps[i][1]
+                break
+            end
+        end
+    end
+    if not third or third < endT - REF_MAX_HOURS * 3600 then return nil end
+    local since = math_min(endT - hours * 3600, third)
+    local sum, weight = 0, 0
+    for i, step in ipairs(steps) do
+        if step[1] >= since and step[2] then
+            local nextT = steps[i + 1] and steps[i + 1][1] or endT
+            local w = math_min(nextT - step[1], REF_STEP_MAX)
+            if w > 0 then sum, weight = sum + step[2] * w, weight + w end
+        end
+    end
+    if weight <= 0 then return nil end
+    return { sum / weight, (endT - since) / 3600 }
+end
+
+-- A material's reference price (FRV-196): the time-weighted average of its cheapest price of others over the last
+-- tableMatRefHours hours of records before endT (the latest snapshot's time); second value the hours it covers. nil
+-- when the setting is 0 or the records are too few. A material bought on the AH costs at least this much
+-- (MaterialUnit, Picks' Buy). Cached until the data, the setting or the snapshot changes
+local refCache, refSig = {}, nil
+function FM.MaterialRef(key, endT)
+    local hours = tonumber(FM.GetSettings().tableMatRefHours) or 0
+    if hours <= 0 or type(endT) ~= "number" or type(key) ~= "string" then return nil end
+    local sig = (FM.dataVersion or 0) .. "|" .. hours .. "|" .. endT
+    if refSig ~= sig then refCache, refSig = {}, sig end
+    local c = refCache[key]
+    if c == nil then
+        c = RefOf(key, endT, hours) or false
+        refCache[key] = c
+    end
+    if not c then return nil end
+    return c[1], c[2]
+end
+
 -- The cheapest price of one record or rollup: others' when it knows them, else its minimum (only yours, or a record
 -- that cannot tell yours apart); nil without any
 local function RecordPrice(f, key)
@@ -355,13 +427,27 @@ local function MaterialUnit(key, need, view, depth, crafts)
     depth = depth or 0
     crafts = crafts or passCrafts
     local best
+    local refUsed = false -- a reference price raised this material or one of its own (refUsed on the result)
     local vendorUnit, offer = FM.VendorUnit(key, false)
     if vendorUnit then best = { unit = vendorUnit, src = "vendor", where = offer and offer.where } end
     local p = view.Get(key)
     if p and p.ladder[1] then
         local ahUnit, short = BatchUnit(p.ladder, need)
-        if ahUnit and (not best or ahUnit < best.unit) then
-            best = { unit = ahUnit, src = "ah", short = short, approx = p.approx, listed = p.qty - (p.own or 0) }
+        if ahUnit then
+            -- never under its reference price (FRV-196): one scan's cheap units do not price the batch. The latest
+            -- scan only (an older scan's view is estimated); now = what the ladder asks, refHours = the window
+            local unit, now, ref, refHours = ahUnit, nil, nil, nil
+            if not view.estimated and not view.noRef then
+                local last = FM.R().last
+                ref, refHours = FM.MaterialRef(key, view.t or (last and last.t))
+            end
+            if ref and ref > ahUnit then
+                unit, now, refUsed = ref, ahUnit, true
+            end
+            if not best or unit < best.unit then
+                best = { unit = unit, src = "ah", short = short, approx = p.approx, listed = p.qty - (p.own or 0),
+                    now = now, refHours = now and refHours or nil }
+            end
         end
     end
     local craft = depth < MAX_DEPTH and crafts[key]
@@ -382,6 +468,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
             parts[i] = m
             cost = cost + m.unit * g.n
             if m.approx or m.short then approx = true end
+            if m.refUsed then refUsed = true end
         end
         if cost then
             local unit = cost / makes
@@ -398,6 +485,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
     end
     if best then
         best.craftAlt, best.noCraft = alt, noCraft
+        best.refUsed = refUsed or nil
         return best
     end
     if not view.estimated then
@@ -431,6 +519,7 @@ local function CraftRow(craft, view)
         parts[i] = m
         cost = cost + m.unit * g.n
         if m.approx or m.short then row.approx = true end
+        if m.refUsed then row.refUsed = true end
     end
     row.parts = parts
     row.cost = cost
@@ -970,6 +1059,40 @@ local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy
     "pickStock", "pickEdit", "pickOwned" }
 FM.PICK_FIELDS = PICK_FIELDS
 
+-- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference
+-- price raised is priced again without references for the history line (the same sell price cap)
+local function LadderRows(rows, view)
+    local ladderView
+    local out = {}
+    for i, row in ipairs(rows) do
+        if row.refUsed and row.craft then
+            ladderView = ladderView or setmetatable({ noRef = true }, { __index = view })
+            local again = CraftRow(row.craft, ladderView)
+            CapSell(again)
+            out[i] = again
+        else
+            out[i] = row
+        end
+    end
+    return out
+end
+
+-- The materials of this pass's recipes listed in the latest snapshot: their reference prices are read sliced
+-- before the rows (each one parses the item's records)
+local function ListedMaterials(sources, view)
+    local keys, seen = {}, {}
+    for _, list in ipairs({ sources.crafts or {}, sources.later or {} }) do
+        for _, craft in ipairs(list) do
+            for _, g in ipairs(craft.reagents or {}) do
+                local p = not seen[g.key] and view.Get(g.key)
+                if p and p.ladder[1] then keys[#keys + 1] = g.key end
+                seen[g.key] = true
+            end
+        end
+    end
+    return keys
+end
+
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
 function FM.PicksLocked()
     return FM.GetSettings().tablePicksLock ~= false
@@ -1045,6 +1168,12 @@ function FM.ComputeTrade(record, onDone)
         function(done)
             sources = FM.BuildSources()
             passCrafts = sources.byKey
+            -- the materials' reference prices (FRV-196), cached for the rows, Picks and the item tooltips
+            FM.RunSliced(ListedMaterials(sources, view), 40, Safe(function(key)
+                FM.MaterialRef(key, view.t)
+            end), done)
+        end,
+        function(done)
             local rows = {}
             for _, craft in ipairs(sources.crafts) do
                 rows[#rows + 1] = CraftRow(craft, view)
@@ -1057,7 +1186,7 @@ function FM.ComputeTrade(record, onDone)
             -- list at the usual price then (median daily low of the last week)
             usualCache, usualNow = {}, now
             FM.RunSliced(out.crafts, 30, Safe(CapSell), function()
-                AddHistory(latestMinutes, "", out.crafts)
+                AddHistory(latestMinutes, "", LadderRows(out.crafts, view))
                 done()
             end)
         end,

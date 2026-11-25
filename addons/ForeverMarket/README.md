@@ -1,7 +1,8 @@
-# Forever Market
+# Forever Marketplace [Core]
 
-Auction House market logger for WoW: Forever. It records the market over time and works out from it what
-sells, how fast, at which price and what to craft, buy or flip: the market table and its picks, the item
+Forever Marketplace [Core] (folder `ForeverMarket`, `/fm`; "Forever Market" until 1.49, FRV-1) is an Auction House
+market logger for WoW: Forever. It records the market over time and works out from it what
+sells, how fast, at which price and what to craft, buy or flip: the marketplace and its picks, the item
 tooltips and the sniper, all in the game.
 
 ## Install
@@ -120,12 +121,13 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   you (1.21, FRV-64 / FRV-65): your newest purchases and crafts of the item cover them, newest first (the ones you
   most likely still hold); units of an item you can make (a learned recipe of the ForeverArtisan data, or a craft
   of yours in the craft log) that no record covers count as crafted before the log; units you do not hold are one
-  stack you would make. Before 1.21 the crafted branch ("Craft cost") applied only once the market table had
+  stack you would make. Before 1.21 the crafted branch ("Craft cost") applied only once the marketplace had
   computed its numbers in the session (opening it or a deep scan), so after a login a crafted item showed its own
   AH price
   * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
-    * **today's prices** ("now" until 1.41, FRV-134): the materials of one unit at today's prices, priced the way the market table prices them
-      (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, whichever is cheaper, an intermediate you
+    * **today's prices** ("now" until 1.41, FRV-134): the materials of one unit at today's prices, priced the way the marketplace prices them
+      (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, never under the material's 8 hour
+      reference price (1.50, FRV-196, see Marketplace, Material prices), whichever is cheaper, an intermediate you
       can make yourself up to 2 levels deep unless buying it costs at most the allowance of the crafting time it
       saves, FRV-69, see Picks), here on the freshest ladders (below);
       the recipe is the learned one of the ForeverArtisan data, else the one your newest craft of it used. Never the
@@ -206,13 +208,20 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   written into the AddOn's `data/` folder, the reload offer after the AH closed, `/fm save`, the bag counts of watched
   items `inv`) and the chat alerts for undercuts and buy prices (`/fm popup`, `/fm alerts`); their saved keys go at
   load
-* `/fm` or the key `U` opens the market table (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of; `/fm scanlog [n]` the last deep scan attempts, below), settings under Options → AddOns → Jim's Forever AddOns → Market
-* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): market table and "toggle sniper
-  window". The market table gets `U` and the sniper window `Z` (1.34, FRV-94; Z also when the game's
-  Sheathe/Unsheathe Weapon has it) once per binding set (account, or a character with its own bindings), replacing
-  what the key did (the chat says what); after that a rebind or a cleared key stays as the player set it
-  (`settings.keyGiven`, `settings.snipeKeyGiven`), and a binding that already has a key is left alone
-* `/fm snipe`, the key `Z` or "FM: snipe" at the AH opens and closes the sniper (below)
+* `/fm` or the key `U` opens the marketplace (`/fm help` for commands; `/fm held` prints what the Profit tab's "Held from the AH" is made of; `/fm scanlog [n]` the last deep scan attempts, below), settings under Options → AddOns → Jim's Forever AddOns → Marketplace ("Market" until 1.49)
+* No loading line of its own since 1.50 (FRV-176): the shared `[JFA] Jim's Forever AddOns: ...` line of all of Jim's
+  Forever AddOns names it, and right under it, at every login and `/reload`, its key line from your current key
+  bindings: "Forever Marketplace: press U to open the marketplace, Y to open the sniper window" (a binding without a
+  key: "type /fm ...", "/fm snipe"; while the client has not loaded the bindings yet at the login, the same line
+  comes a moment later, still after the `[JFA]` line)
+* Key bindings (`Bindings.xml`, Options → Keybindings → Jim's Forever AddOns): "Forever Marketplace: toggle
+  marketplace window" and "toggle sniper window". The marketplace gets `U` (1.34, FRV-94), replacing what the key did
+  (the chat says what), and the sniper window `Y` only while `Y` does nothing else (1.50, FRV-1: `Z` until 1.49, a
+  choice on a QWERTZ keyboard; a taken `Y` is left alone and the chat says once to bind a key), once per binding set
+  (account, or a character with its own bindings); after that a rebind or a cleared key stays as the player set it
+  (`settings.keyGiven`, `settings.snipeKeyGiven`: a set that got `Z` keeps it), and a binding that already has a key
+  is left alone
+* `/fm snipe`, the key `Y` or "FM: snipe" at the AH opens and closes the sniper (below)
 * AH title bar buttons, right to left (ui/AHButton.lua): "FM: snipe", "FM: scan" (1.30, FRV-84, back where it was
   until 1.7: a click starts the same deep scan as the automatic one, `FM.StartDeepScan(true)`; disabled while a
   scan waits for a free AH (1.41), waits for the server, reads or saves, while Auctionator runs its own full scan,
@@ -249,7 +258,7 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   as seen under its new key (it is not logged twice; `charInfo[key].since`); what the character that keeps the
   first name logs later stays its own
 
-## Market table (`/fm`, key `U`, "FM: table" at the AH, settings button)
+## Marketplace (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
 Refreshes by itself after every deep scan, nothing to maintain by hand:
 
@@ -279,6 +288,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   `currencyID`; `price` is for `stackCount` units) is kept with the NPC's name (`UnitName("npc")`, kept without it
   when secret); a visit replaces what it saw; the material line names it "a vendor (seen at <npc>)". Until 1.32 the
   fallback was Auctionator's own cache of vendor prices ("a vendor (Auctionator saw it)").
+* **Material prices** (1.50, FRV-196, `FM.MaterialRef` in trade/Calc.lua): a material bought on the AH costs the
+  higher of what the latest scan's ladder asks for a batch of 5 crafts and its reference price, the average of its
+  cheapest price of others over the last 8 hours of scans, feed snapshots and Auctionator's browse records (the
+  settings panel's "Material prices: average cheapest price of the last [8] hours", 1 to 24, 0 = the latest scan
+  alone as until 1.49). Each price counts for the time until the next record, at most 4 hours, so an hour of
+  15-minute scans weighs as much as one hourly feed snapshot; a record that cannot tell your auctions from others' is
+  left out. With fewer than 3 prices in those hours the window reaches back to the third newest, at most 24 hours;
+  still fewer: the ladder alone. Why: a few cheap units at the bottom of one scan priced the whole batch, and snipers
+  take them within minutes (the maintainer's Light Hide at 78c in a scan, 1s 11c cheapest when he came to buy). A
+  price that rose counts at what the AH asks now. Craft, Learn, the item tooltip's material cost, the buy or craft
+  choice and the costs Picks plans with all follow it; the row tooltip's material line says it: "Light Hide 1s 10c AH
+  (8h average of the cheapest; now 78c)". Picks counts every AH unit under the reference at the reference, while its
+  buy steps still name what the AH asks ("buy 240 Medium Leather up to 1s 25c"): cheap units still there are bought,
+  the plan only does not count on them. "Craft and wait" crafts now only when its materials cost 10%+ under their
+  usual cost at these prices, so a dip of one scan no longer passes it, materials cheap for hours do. "Past 3 days"
+  stays the average of each scan's own numbers, and the sniper keeps its prices (a craft row's Shift+click snipes its
+  main material at its max price, which that material's own reference does not move)
 * Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
   (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
@@ -288,7 +314,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * At most 10 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 10 since 1.47 (FRV-154: Amount; 9 since
   1.35, FRV-67), the other tabs up to 8.
 * **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
-  maintainer wanted it only on the boxes): the tooltips of the market table and of its Filters dialogs are of two
+  maintainer wanted it only on the boxes): the tooltips of the marketplace and of its Filters dialogs are of two
   kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
   the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH, the Profit tab's This character / All
   characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
@@ -309,7 +335,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   dropdowns and checkboxes for their tips", Craft and Learn "· hold Shift over inputs and checkboxes for their tips",
   Vendor "· hold Shift over inputs and dropdowns for their tips", the others "· hold Shift over the search box for its
   tip"; a line too long for the window takes a shorter form of its own note (Picks drops its note on the columns), so
-  the hint is never cut (`FooterText(total, short)`, measured in `Render`). The settings panel's "Market table:
+  the hint is never cut (`FooterText(total, short)`, measured in `Render`). The settings panel's "Marketplace:
   tooltips of inputs, dropdowns and checkboxes only while Shift is held" (`tableShiftTips`, on by default) switches
   them to plain hover too (everything on hover, as until 1.46; Picks' footer "hover for why"). One helper holds the
   rule, `FM.TableTip(frame, show, kind)` (`FM.TableTipHook` for a frame whose template has scripts of its own) in
@@ -946,9 +972,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   that earn less per item, and crafts without a known profit; 0g 0s 0c is no minimum (the old "Any"); Picks has its own
   minimum since 1.42, Profit in its budget row (FRV-126; from 1.17 to 1.41 the plan left such picks out). Below it the Picks' share of an
   item's C/24h one pick may plan (1.19, `tableCircPct`), the first batch of a commodity without your sales (1.31,
-  FRV-71, `tableFirstPct`; see Picks, Room on the AH) and the buy or craft rate (1.33, FRV-69, `tableTimePct`: "Buy a
+  FRV-71, `tableFirstPct`; see Picks, Room on the AH), the buy or craft rate (1.33, FRV-69, `tableTimePct`: "Buy a
   craftable material when it costs at most [N]% more per second of crafting it saves", 0 to 20, default 2, 0 = always
-  the cheaper route; see Picks, buy or craft). Its checkbox "Allow picks budget over current gold (% up to 999, any
+  the cheaper route; see Picks, buy or craft) and the materials' reference window (1.50, FRV-196,
+  `tableMatRefHours`: "Material prices: average cheapest price of the last [N] hours", 0 to 24, default 8, 0 = the
+  latest scan alone; see Material prices). Its checkbox "Allow picks budget over current gold (% up to 999, any
   amount set)" (1.35, FRV-95, `tablePicksOverGold`, off) is the budget row's: see Picks; a click plans again. Under the
   number inputs two dropdowns (1.42, FRV-126, Blizzard's `WowStyle1DropdownTemplate`): "% + manual invest logic"
   (`tableInvestLogic`, default "Both must apply") and "% + manual profit logic" (`tableProfitLogic`, default "Either
@@ -1033,7 +1061,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   brings it to the front; as many windows as you like. They are movable; a new one opens where the last one was
   left (`tableStickyPos`, its top left corner; right of the screen's middle the first time), moved down and right
   while another open window sits there. Long content scrolls (Blizzard's `ScrollFrameTemplate`, from 520 px).
-  Closing the market table leaves them, Esc closes them all at once (`UISpecialFrames`, which closes the table
+  Closing the marketplace leaves them, Esc closes them all at once (`UISpecialFrames`, which closes the table
   too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Lock plan
   after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
   Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
@@ -1243,9 +1271,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 
 ## Item history (1.26 the price graph, FRV-76; 1.37 the history, FRV-52: trade/PriceHistory.lua, ui/PriceGraph.lua, ui/Chart.lua)
 
-Right-click an item row of the market table > **Show history** (until 1.36 "Show price graph"), or `/fm item <link or
+Right-click an item row of the marketplace > **Show history** (until 1.36 "Show price graph"), or `/fm item <link or
 ID>` (after its chat summary, the first item given): the item's price over time and your trading of it in its own
-window (760 × 640, movable, closes with its X or Escape, above the market table, which stays usable; another item
+window (760 × 640, movable, closes with its X or Escape, above the marketplace, which stays usable; another item
 replaces the one shown; the item's icon and name in the title, the position is saved in `priceGraphPos`). FRV-52
 asked for about 520 × 360 next to the table: the chart, the block under it and the list of 10 do not fit that, so the
 window keeps the price graph's width and place (centered at first, then where you leave it) and grows by the list. One window
@@ -1279,7 +1307,7 @@ in place of FRV-52's median and 30 / 60 days.
 * **Hover a dot:** the period, the average price, the lowest price, the scans with the item (and your searches),
   the scans without it that carried the price before, the units listed on average (yours included) and the change
   against the dot before, also in %; a carried dot says "Not listed, previous price carried".
-* **Break-even:** a dashed orange line with its value at the market table's Min. price of a craft you know, else
+* **Break-even:** a dashed orange line with its value at the marketplace's Min. price of a craft you know, else
   at what you paid per unit for your latest purchases of it (`FM.BoughtUnit`), else at the Min. price of a craft
   you could learn; no break-even, no line (`FM.PriceBreakEven`).
 * Header: the latest dot's price and the change over the dots shown, when the item was seen first and last, and the
@@ -1291,7 +1319,7 @@ in place of FRV-52's median and 30 / 60 days.
   an unchanged record adds none; a period no deep diff measured (no record or rollup with a gap: browse scans alone
   measure nothing) has no bar and says "not known", one whose scans saw none leave has none either. The hover says "Left the AH 50 for 48s 10c" (their listed value, fields 12 and 8).
 * **The usual price** (1.37): a thin light blue solid line at the item's usual price now (`FM.UsualPrice`, the median
-  daily low of the last 7 days, the market table's tooltips' "Usual price"), labeled at its left end when the
+  daily low of the last 7 days, the marketplace's tooltips' "Usual price"), labeled at its left end when the
   break-even line is drawn too (whose label is at the right end), else at its right end.
 * **Your trading** (1.37, `FM.ItemActivity`): your posts (`posts`), sales (the AH's sale mails, `invoices` "seller",
   by the item's name) and purchases (the purchase log `buys`; for an item it has no line of, one sold per auction,
@@ -1299,7 +1327,7 @@ in place of FRV-52's median and 30 / 60 days.
   orange purchase) and in the hover ("Posted 20 at 1s 05c", the units and the average price of the period).
 * **Under the chart** (1.37): Now (others' cheapest in the latest record and the units it listed), Usual, 3 days (the
   lowest and highest cheapest price of others in the per-scan records of the last 72 hours, `FM.PriceRange3d`, with
-  the scans), C/8h and C/24h (the item's row in the market table's pass, else its own records, `FM.SoldPerDay`); then
+  the scans), C/8h and C/24h (the item's row in the marketplace's pass, else its own records, `FM.SoldPerDay`); then
   your last 10 posts, sales and purchases of it, newest first (date, what, units, price per unit, and the character
   when more than one appears), or "None in the logs: ...". The window draws again on new data, a new break-even or
   new activity of the item.
@@ -1309,13 +1337,13 @@ in place of FRV-52's median and 30 / 60 days.
   rollups kept a year (`FM.LIMITS.monthlyDays`, `items[key].m`, about 2 MB once full). Others' prices apart from
   yours in a daily rollup add bytes only on days with your auctions (18 items in the 72 hours measured).
 
-## Sniper (`/fm snipe`, key `Z`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
+## Sniper (`/fm snipe`, key `Y`, "FM: snipe" at the AH, scan/Sniper.lua + ui/SniperPanel.lua)
 
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step (or a click on Buy)
 per purchase.
 
 * Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, DIALOG strata, opaque: always above
-  the market table, which is HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
+  the marketplace, which is HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
   list's columns need it, see the list), top to bottom:
   * The banner (FRV-40), as wide as the window and colored by what sniping does: an offer to buy in large green with
     a short pulse and the sound ("Scroll or click Buy: 12 Heavy Leather for 25s 20c (2s 10c each)", a price per unit
@@ -1419,7 +1447,7 @@ per purchase.
 * While sniping, a mouse wheel step (up or down) anywhere on screen buys (1.30, FRV-82): an invisible full-screen
   frame above every window (`ForeverMarketSnipeWheelCatcher`, TOOLTIP strata, frame level 10000) takes the wheel
   and nothing else: clicks, hover tooltips and dragging reach the windows below, no window scrolls with the wheel
-  (the market table, a profession window, the chat, the sniper window's own list) and the camera does not zoom. It
+  (the marketplace, a profession window, the chat, the sniper window's own list) and the camera does not zoom. It
   shows while sniping runs (the window open at the AH) and hides with it. Under it, as before 1.30, the wheel is
   an override binding that clicks a hidden button (it fired only where no window took the wheel); when the game
   blocks a purchase call from a wheel step on the frame (not a hardware event there), the frame goes until
@@ -1470,8 +1498,8 @@ per purchase.
   (FRV-128) Update keeps the count, with a new number, a new price or no number (190 of 200, 300 typed: 190/300; a
   number under what was bought leaves the item done); only the add row's Refresh (1.46, FRV-153; the x by "max units"
   followed by Update before) (`FM.SnipeSet(key, price, units, true)`) or adding the item to the list again (after
-  removing it, or for the first time) starts it at 0. The market table's Shift-click adds its units to the limit and keeps the count, its
-  Shift+right-click sets the limit and starts the count again (below, Market table). Until 1.42 a new number, typed
+  removing it, or for the first time) starts it at 0. The marketplace's Shift-click adds its units to the limit and keeps the count, its
+  Shift+right-click sets the limit and starts the count again (below, Marketplace). Until 1.42 a new number, typed
   into the box or another one from the table, started the count again. The daily reset doesn't touch it. The budget applies on top: whichever is reached first stops the item.
 * Pause (1.39, FRV-101, `saved.paused`, `FM.SnipeSetPaused`): the row's pause button ("Pause sniping this item" /
   "Resume sniping this item") stops an item without removing it: a paused item is not searched in a round, has no hit
@@ -1482,8 +1510,8 @@ per purchase.
   counts only what is searched (not paused, not done); with nothing left to search the banner says "Every item is
   paused, done ... Resume one or add another." (with only done items: "Every item is done (its number bought) or
   cannot be sniped. Refresh a done item to buy its number again, or add another.", 1.46, FRV-153); on Blizzard's Buy page of a paused item "... is paused. Resume it, or
-  go back to the item list for the others."; the market table's chat line ends "(paused)" for a paused item.
-* Market table: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
+  go back to the item list for the others."; the marketplace's chat line ends "(paused)" for a paused item.
+* Marketplace: with the AH open, Shift-click a row, or anywhere its right-click menu's Snipe entry (1.25, FRV-44;
   away from the AH the items wait in the sniper and are sniped once its window is open at the AH), to snipe what it
   buys at the AH at the table's prices. Picks: every AH purchase of the plan (`pick.buys`), each at its "up to"
   price with what is still to buy of it as its number (1.48, FRV-185, `FM.PickBuysLeft`: the plan's units less what

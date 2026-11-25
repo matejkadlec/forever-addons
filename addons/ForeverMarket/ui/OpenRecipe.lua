@@ -213,7 +213,7 @@ function FM.OpenRecipe(target)
     end
     local skillLine = SkillLineOf(profName)
     if not skillLine then
-        FM.PrintError("Failed to open " .. profName .. ": ForeverMarket does not know that profession's window.")
+        FM.PrintError("Failed to open " .. profName .. ": " .. FM.DISPLAY_NAME .. " does not know that profession's window.")
         return false
     end
     StopWaiting()

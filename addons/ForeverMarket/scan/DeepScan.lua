@@ -566,7 +566,7 @@ function FM.DeepScanRefusal()
         return "A deep scan waits for the Auction House to be free: " .. (deep.busy or "a moment") .. "."
     end
     if state == "waiting" then
-        if other then return "Another AddOn asked for the full list, ForeverMarket reads it too." end
+        if other then return "Another AddOn asked for the full list, " .. FM.DISPLAY_NAME .. " reads it too." end
         return "A deep scan is already running: waiting for the server's list."
     end
     if state == "walking" then
@@ -574,7 +574,7 @@ function FM.DeepScanRefusal()
             or "A deep scan is already running", math_floor((deep.progress or 0) * 100))
     end
     if state ~= "idle" then return "A deep scan is already running: saving it." end
-    if FM.aucReplicateRunning then return "Auctionator is running its own full scan, ForeverMarket saves that one." end
+    if FM.aucReplicateRunning then return "Auctionator is running its own full scan, " .. FM.DISPLAY_NAME .. " saves that one." end
     local window, retry = WindowLeft(), RetryLeft()
     if retry > 0 and retry >= window then
         return string_format("No answer from the Auction House: the deep scan tries again in %s (try %d of %d).",
