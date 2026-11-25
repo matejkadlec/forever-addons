@@ -1906,7 +1906,8 @@ function FM.ShowHiddenFlips()
     return n
 end
 
--- A flip you hid: true while every level the flip buys now is at a price the hidden one bought
+-- A flip you hid: true while every level the flip buys now is at a price the hidden one bought; the plan keeps the
+-- items it held back so (out.pickHidden: what the Picks footer counts, review round 1 of PR 79)
 local function FlipHidden(key, levels)
     local e = P.hidden and P.hidden[key]
     if not (e and levels[1]) then return false end
@@ -1915,6 +1916,7 @@ local function FlipHidden(key, levels)
     for _, price in ipairs(levels) do
         if not known[price] then return false end
     end
+    P.heldBack[key] = true
     return true
 end
 
@@ -2696,6 +2698,7 @@ local function StartPass(ctx)
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
         paid = {}, -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
         hidden = FM.HiddenFlips(ctx.now), -- the flip picks you hid (FlipHidden, FRV-193)
+        heldBack = {}, -- the items FlipHidden held back in this pass
         least = {} } -- the item tooltip's cost info of an item you hold (SellAtLeastNote, FRV-134)
     -- the craft picks an automatic plan carries over (FRV-104, FM.PickCarry), with what you crafted of each since
     if type(ctx.carry) == "table" then
@@ -2848,6 +2851,7 @@ function FM.ComputePicks(out, ctx, done)
         out.pickBudget = P.budget
         out.pickSlots = P.slots
         out.pickWhy = why
+        out.pickHidden = P.heldBack -- the flips you hid that this plan held back (FRV-193)
         out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
             out.pickRank[p.key] = p.rank

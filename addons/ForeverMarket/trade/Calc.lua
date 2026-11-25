@@ -1056,7 +1056,7 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickEdit", "pickOwned" }
+    "pickStock", "pickEdit", "pickOwned", "pickHidden" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference

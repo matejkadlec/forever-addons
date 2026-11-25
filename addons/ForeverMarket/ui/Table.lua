@@ -1504,6 +1504,24 @@ local function RowHints(tab, row)
 end
 FM.TableRowHints = function(row) RowHints(CurrentTab(), row) end -- for the tests (FRV-192)
 
+-- The flip picks you hid that the plan shown holds back (FRV-193, review round 1 of PR 79): the saved entries that still
+-- count of the items its pass left out for them (FM.trade.pickHidden) or hidden since it was shown (a pick's hiddenNow);
+-- an entry whose flip is a pick again (it buys at another price) is none. { { key, e = entry }, ... } by when hidden.
+-- An FM field, not a local: the main chunk is at Lua 5.1's 200 locals
+FM.TableHiddenFlips = function()
+    local trade = FM.trade or {}
+    local since = {}
+    for _, p in ipairs(trade.picks or {}) do
+        if type(p) == "table" and p.hiddenNow then since[p.key] = true end
+    end
+    local list = {}
+    for key, e in pairs(FM.HiddenFlips and FM.HiddenFlips() or {}) do
+        if (type(trade.pickHidden) == "table" and trade.pickHidden[key]) or since[key] then list[#list + 1] = { key = key, e = e } end
+    end
+    table_sort(list, function(a, b) return a.e.t < b.e.t end)
+    return list
+end
+
 local function ShowRowTooltip(button)
     local row = button.row
     if not row then return end
@@ -2446,10 +2464,8 @@ Render = function()
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
     -- Picks: the flip picks you hid (FRV-193), "  ·  2 hidden" right after the line; a click shows them again
-    local hidden, hiddenN = frame.hiddenPicks, 0
-    if tab.picks and FM.HiddenFlips then
-        for _ in pairs(FM.HiddenFlips()) do hiddenN = hiddenN + 1 end
-    end
+    local hidden = frame.hiddenPicks
+    local hiddenN = tab.picks and #FM.TableHiddenFlips() or 0
     local hiddenW = 0
     if hiddenN > 0 then
         hidden.text:SetText(string_format("  ·  %d hidden", hiddenN))
@@ -3212,15 +3228,14 @@ local function CreateTable()
     hiddenPicks.text = Text(hiddenPicks, "GameFontHighlightSmall", "LEFT", 0, 0)
     hiddenPicks.text:SetTextColor(HINT_R, HINT_G, HINT_B) -- the light blue of the click hints: it can be clicked
     hiddenPicks:SetScript("OnClick", function()
-        local n = FM.ShowHiddenFlips()
+        local n = #FM.TableHiddenFlips()
+        FM.ShowHiddenFlips()
         FM.Print(n == 1 and "1 hidden flip pick shown again." or string_format("%d hidden flip picks shown again.", n))
         FM.PlanPicks()
         FM.RefreshTable()
     end)
     FM.TableTip(hiddenPicks, function(self)
-        local list = {}
-        for key, e in pairs(FM.HiddenFlips()) do list[#list + 1] = { key = key, e = e } end
-        table_sort(list, function(a, b) return a.e.t < b.e.t end)
+        local list = FM.TableHiddenFlips()
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine(#list == 1 and "1 flip pick hidden" or string_format("%d flip picks hidden", #list))
         for _, h in ipairs(list) do

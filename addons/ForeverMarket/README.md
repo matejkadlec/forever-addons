@@ -870,7 +870,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     gets no Flip pick while its flip would buy only at those prices (the same cheap listings, also with some of them
     gone; its reason "hidden by you (Hide this pick) until its listings change"), and is a pick again once it buys
     at another price (a new cheaper listing, a level above) or 24 hours after it was hidden. The Picks footer ends
-    with "  ·  2 hidden" in light blue (`f.hiddenPicks`): its tooltip lists them (item, "up to" price, when hidden),
+    with "  ·  2 hidden" in light blue (`f.hiddenPicks`), the hidden flips the plan shown holds back (`pickHidden`; one
+    that is a pick again at another price is not counted, its entry stays until the 24 hours end): its tooltip lists
+    them (item, "up to" price, when hidden),
     a click shows them all again and plans again (`FM.ShowHiddenFlips`). Saved per realm and faction
     (`hiddenPicks`, Data format), so they survive a `/reload`; entries 24 hours old are dropped at load
     (`FM.PruneHiddenFlips` from `FM.R`). The tooltip shows on plain hover like the other buttons (FRV-186: only

@@ -169,3 +169,27 @@ H.test("hide pick: \"Hide this pick\" is the first entry of a flip pick and its 
     H.eq(#env.printed, printed + 1, "one chat line")
     H.eq(Has(env.printed[#env.printed], "flip pick hidden until its listings change."), true, env.printed[#env.printed])
 end)
+
+-- Review round 1 of pull request 79: the footer counts the flips the plan shown holds back, not every saved entry
+H.test("hide pick: the footer counts the hidden flips the plan holds back, not one that is a pick again", function()
+    local FM, env = Setup()
+    local pick, before = PlanOn(FM, env, LADDER)
+    FM.trade = before
+    pick.hiddenNow = nil
+    FM.HideFlipPick(pick)
+    H.eq(#FM.TableHiddenFlips(), 0, "the plan shown has not held it back yet")
+    pick.hiddenNow = true -- what the menu's click sets
+    H.eq(#FM.TableHiddenFlips(), 1, "hidden since the plan was shown: counted")
+    local _, out = PlanOn(FM, env, LADDER)
+    FM.trade = out
+    H.eq(out.pickHidden["105"], true, "the new plan held it back")
+    local list = FM.TableHiddenFlips()
+    H.same({ #list, list[1] and list[1].key }, { 1, "105" }, "counted and listed")
+    -- a new cheaper listing: the flip is a pick again, the saved entry stays but is not counted
+    local again
+    again, out = PlanOn(FM, env, { { 3000, 1 }, { 4000, 2 }, { 6000, 3 }, { 10000, 55 } })
+    FM.trade = out
+    H.eq(again ~= nil and out.pickHidden["105"] == nil, true, "a pick again, not held back")
+    H.eq(FM.R().hiddenPicks["105"] ~= nil, true, "the entry is still saved (it counts again if the old listings come back)")
+    H.eq(#FM.TableHiddenFlips(), 0, "the footer shows nothing")
+end)
