@@ -945,6 +945,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     1.45 it bought what it could and kept the row's list price (Green Dragonscale Leggings: gold for one of the two
     at 5g 88s, listed at 8g 02s over the other one and the two at 5g 98s). Units of a flip's item you hold, when
     nothing is bought, are a Stock pick listed under the cheapest listing of others, not at the flip's price.
+  * Live check of flip picks (1.56, FRV-214): a deep scan is a look at the AH minutes before you buy, and cheap
+    listings go first (measured on the saved data: 13% of the flip picks searched about 2 minutes after their scan had
+    lost their cheap units, 73% by the next scan; [forever-api-notes](../../docs/forever-api-notes.md)). So a flip
+    pick is judged on the listings of a full AH search of its item that is newer than its snapshot when there is one
+    (any search: your click, Auctionator's, ForeverMarket's own; `FM.live`, kept for the session): confirmed, its buy
+    step reads "Buy 2 up to 3g 00s (confirmed 18:52)" and its tooltip "Confirmed by the AH search at 18:52"; when
+    that search shows none of its cheap units that earn the margin it is no pick ("its cheap listings are gone: the
+    AH search at 18:52 shows none that earn the margin"). Without such a search it is judged on the snapshot and is
+    **not confirmed yet**: its confidence is at most 85% of what it would be (never 100%), its buy step says "(not
+    confirmed yet)" and its tooltip "Seen in the deep scan of 18:51, not confirmed yet". While the AH is open,
+    ForeverMarket searches the first 6 flip picks of the plan shown itself, plan first, one search every 3 seconds at
+    most and each again after 2 minutes (`FM.FlipCheckTick` in `scan/Search.lua`, `C_AuctionHouse.SendSearchQuery`
+    as the sniper sends it), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
+    its throttle is not ready, Blizzard shows a Buy or Sell page or its buy dialog, or in combat. Each answer reaches
+    the plan shown: not locked, it is made again; locked, the pick shows it in place, confirmed (its confidence back)
+    or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
+    plans without it.")
   * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
     of scope", also on its steps line) for a flip someone else bought first. "[FM] Slayer's Skullcap: flip pick hidden
     until its listings change.", and the plan is made again without it as after Ignore (`FM.PlanPicks()`), so its gold
@@ -1023,7 +1040,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   down, as on Picks): Flip is the only tab where minutes matter.
 * **Flip** (until 1.10 "AH resell"): buy the cheapest price levels of others in full and relist the units 1c under the
   cheapest listing that stays (the level above them), never above 110% of the usual price (median daily low, last
-  week, 3+ days of history). **A flip never lists above a listing of others that stays on the AH after its buy**
+  week, 3+ days of history) or, when it is higher, of today's price (the median of today's scans' cheapest) or the
+  last 2 days' (1.56, FRV-214: the report's Thunderwood, usual 4g 37s, today 5g 40s, listed at 4g 81s under the 7g
+  that stayed). When that cap, not the listing that stays, sets the price, the tooltip says why: "Under the cheapest
+  listing that stays (7g 0s 0c): a flip lists at most 110% of today's price 5g 40s 0c, an item listed far above it
+  may not sell." (`FM.FlipCapText`); the Flip tab's tooltip shows Today too. **A flip never lists above a listing of others that stays on the AH after its buy**
   (1.46, FRV-172, `FM.FlipPlan` in `trade/Calc.lua`, one rule for this tab and for Flip picks). A flip needs 15%
   profit after the 5% cut on every unit bought (buy <= list x 0.95 / 1.15), at least 1s in total, the bought units at
   most 25% of all listed (else they are the market), a real market above (the wall, the price where max(3, 10% of

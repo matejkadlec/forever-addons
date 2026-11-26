@@ -1165,12 +1165,16 @@ local function FlipTooltip(row)
     Header("Sell")
     -- the cheapest listing of others that stays after the buy (FRV-172: the list price is just under it)
     Line("List at", Money(row.sell) .. GREY .. "  " .. FM.FlipNextText(row) .. "|r")
+    -- why it lists under the cheapest listing that stays (FRV-214)
+    local capText = FM.FlipCapText and FM.FlipCapText(row, row.usual, row.today)
+    if capText then Note(capText) end
     Line("Expected profit", P1g(row.profit))
     Line("PPG", P1g(row.p1g) .. GREY .. "  profit per 1g of the buy|r")
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
     Header("Market")
     MarketLines(row)
-    Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
+    if row.today then Line("Today", Money(row.today)) end
+    Note("Cheap listings go fast: the deep scan saw them minutes ago. A click searches the AH; a Flip pick waits for such a search to confirm it.", ORANGE)
 end
 
 -- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note, { "p", label } the Make
@@ -2313,6 +2317,10 @@ end
 -- the make step follows your crafts (FRV-104: "make 31 more"), and once the target is made ("made 51") it and the
 -- steps before it are grey: the listing is next
 local function StepsText(p)
+    -- a flip pick whose cheap listings an AH search found gone (FRV-214, a locked plan keeps it until Refresh)
+    if p.gone then
+        return GREY .. "Gone: an AH search at " .. date("%H:%M", p.gone) .. " no longer shows its cheap listings. Refresh plans without it.|r"
+    end
     local steps = p.steps or {}
     local parts = {}
     local makeText, made, buyText, bought
@@ -2327,6 +2335,8 @@ local function StepsText(p)
         if i == p.amountStep and p.amountNote then
             step = step .. (p.amountWarn and ORANGE or RED) .. " (" .. p.amountNote .. ")|r"
         end
+        -- a flip's buy: "(not confirmed yet)" until an AH search confirms it, "(confirmed 18:52)" (FRV-214)
+        if i == 1 and p.kind == "flip" and FM.FlipBuyNote then step = step .. GREY .. FM.FlipBuyNote(p) .. "|r" end
         step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
         local done = (made and i <= p.makeStep) or (bought and i == p.buyStep)
         parts[i] = done and (GREY .. step .. "|r") or step
@@ -2503,6 +2513,8 @@ Render = function()
                 local col = c <= shown and tab.columns[c] or nil
                 if col then
                     local ok, text = pcall(col.text, row)
+                    -- a flip pick found gone (FRV-214): its numbers grey
+                    if ok and row.gone then text = GREY .. tostring(text):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r" end
                     cell:SetText(ok and text or (RED .. "err|r"))
                     -- an amount that can be set is an input in place of the text (FRV-154)
                     if col.edit and row.amountEdit then
