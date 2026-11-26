@@ -76,7 +76,7 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 - **Handed over** for the in-game test: report in the What to test shape and stop until `qa1` or `qa2`.
 - **User needed:** a maintainer hold, a rejected P1 or P2 finding, a finding that needs his decision, five rounds without a pass, a failing check that needs something only he can change, a failed deploy. Say exactly what he has to do and where; the pull request stays open.
 - **Not your own pull request:** report the review, change nothing.
-- **Closed unmerged, or merged by someone else:** report; after a foreign merge still do After the merge. Your own pull request closed without a merge is withdrawn work (flow document, _Withdrawn work_): record the branch's tip SHA on each ticket first, then the Cleanup steps above with the merge check of step 3 left out.
+- **Closed unmerged, or merged by someone else:** report; after a foreign merge still do After the merge. Your own pull request that the maintainer closed without a merge is withdrawn work (flow document, _Withdrawn work_): record the branch's tip SHA on each ticket first, then the Cleanup steps above with the merge check of step 3 left out. One that GitHub closed because its base branch was deleted (`gh api repos/matejkadlec/forever-addons/issues/<n>/events` shows `base_ref_deleted`) is not withdrawn: merge `origin/master` into the branch, open a new pull request from it against `master` that names the closed one, and run this skill on the new one.
 
 ## Report
 
