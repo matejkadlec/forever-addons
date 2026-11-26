@@ -12,7 +12,7 @@ The shortcuts live in [`.claude/skills/`](../.claude/skills/):
 | `flow2` [`local`\|`cloud`] | Turns the maintainer's task description into tickets and delivers them the same way |
 | `qa1` | His in-game test passed: the waiting pull request is merged |
 | `qa2` | His in-game test found problems: the same branch is revised and handed back |
-| `finalize-pr <n>` | Independent review, fixes, the merge, and the feed deploy check when one follows |
+| `finalize-pr <n>` | Independent review, fixes, the merge, the feed deploy check when one follows, and the cleanup of the branch and worktree |
 
 They are entry points into this document, not a second source of truth: every rule here also applies to direct work on a ticket. A batch is one or more tickets delivered on one branch through one pull request.
 
@@ -116,7 +116,11 @@ Before any implementation, for every ticket of the batch:
 2. Move it to In Progress and comment `🔒 Claim`: the branch, the run location, the date
 3. Create the batch's branch and worktree once ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): `frv-<n>-<slug>`, several tickets as `frv-15-19-<slug>`
 
-A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim release` with the reason and what it leaves behind (a pushed branch, nothing), and moves it back to To Do.
+A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim release` with the reason and what it leaves behind (a pushed branch with its tip SHA, or nothing), and moves it back to To Do. When that was the batch's last ticket on the branch, it cleans up ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): it removes its worktree, and deletes its branch, remote and local, unless the release leaves that branch for a later session. A release of only some tickets of a batch keeps the branch and the worktree for the rest.
+
+### Withdrawn work
+
+When the maintainer closes a pull request without merging it, or drops every ticket of its batch, the run that owns the batch records each branch's tip SHA on the tickets (`🤖 Claude QA`: the branch, the SHA, why, the restore command `git push origin <sha>:refs/heads/<branch>`), then deletes the remote and local branch and removes the worktree ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)). Its tickets leave In Review: one he still wants goes back to To Do with a `🔒 Claim release` that names the recorded SHA; one he drops is left as he decides, never moved to Done by the run. When he drops only some tickets of a batch, the branch and the worktree stay for the rest: first a `🤖 Claude QA` comment on each dropped ticket records the branch, the current tip SHA and the restore command, then its changes come out of the branch like any other revision. A pull request that GitHub closed because its base branch was deleted (`base_ref_deleted` in its timeline) is not withdrawn work: when the base's pull request merged, the same branch, with `master` merged in, continues as a new pull request against `master`; when the base was closed unmerged, the branch still holds its withdrawn commits, so it is kept and the maintainer decides whether the stacked work goes on.
 
 ---
 
@@ -176,7 +180,7 @@ For a gated batch `finalize-pr` stops before the merge, once the independent rev
 
 ## After publication
 
-`finalize-pr` is the only skill that merges. It follows [AGENTS.md, Pull Requests and Code Review](../AGENTS.md#pull-requests-and-code-review): a fresh, independent reviewer for every head, fixes for valid findings, the whole diff against `origin/master` in the last review, green checks, a merge commit, only your own pull requests. A pull request that needs the maintainer (his in-game test, a step on the host, a secret, his decision) stays open and the response says what it waits for. After the merge: the tickets go to Done, a merge that touches the feed's paths is followed to the end of its deploy run, and the session removes the batch's worktree and branch.
+`finalize-pr` is the only skill that merges. It follows [AGENTS.md, Pull Requests and Code Review](../AGENTS.md#pull-requests-and-code-review): a fresh, independent reviewer for every head, fixes for valid findings, the whole diff against `origin/master` in the last review, green checks, a merge commit, only your own pull requests. A pull request that needs the maintainer (his in-game test, a step on the host, a secret, his decision) stays open and the response says what it waits for. After the merge: the tickets go to Done, a merge that touches the feed's paths is followed to the end of its deploy run, and the session cleans up the batch ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): the remote branch unless GitHub already deleted it, the worktree, the local branch, then `git worktree prune` and `git fetch --prune`.
 
 ---
 
@@ -188,4 +192,4 @@ For a gated batch `finalize-pr` stops before the merge, once the independent rev
 
 ## Run boundaries
 
-A `flow1` or `flow2` run ends when its batch is merged (and a feed deploy has finished), when its gated pull request is handed over for the in-game test, when `finalize-pr` stops for the maintainer, or when no startable batch is left. It delivers one batch at a time and starts the next only after the first has merged or been handed over, and never a second batch for an AddOn whose pull request is still open. Every response ends as [AGENTS.md, Ending a response](../AGENTS.md#ending-a-response) says; what only needs recording goes into the tickets' comments.
+A `flow1` or `flow2` run ends when its batch is merged and cleaned up (and a feed deploy has finished), when its gated pull request is handed over for the in-game test, when `finalize-pr` stops for the maintainer, or when no startable batch is left. It delivers one batch at a time and starts the next only after the first has merged or been handed over, and never a second batch for an AddOn whose pull request is still open. Every response ends as [AGENTS.md, Ending a response](../AGENTS.md#ending-a-response) says; what only needs recording goes into the tickets' comments.
