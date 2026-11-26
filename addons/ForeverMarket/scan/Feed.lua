@@ -5,7 +5,8 @@ local _, FM = ...
 --   * snapshots: per snapshot one string of "itemKey|deep record" lines, built like an in-game deep scan
 --     (scan/Diff.lua, scan/Snapshot.lua); an item gets a record when something happened or its market changed,
 --     else every few hours (always full records: an "=" could expand against a record the import skipped)
---   * last: the fingerprints of the newest snapshot, the market state the table works from
+--   * last: the fingerprints of the newest snapshot, the market state the table works from, and (FRV-201) its gear
+--     variants, the same "<variant>=<min>:<n>:<band>;..." per item a deep scan keeps in r.last.gear
 -- At login (and /reload) the records newer than r.feedT go into the item history. Records whose interval
 -- starts before your latest in-game deep scan are skipped: that scan's own diff already covers the time.
 -- A record never lands before the item's newest stored record (keeps "d" oldest first and makes an import
@@ -92,6 +93,16 @@ local function TagOwn(fpByKey)
     return tagged
 end
 
+-- The newest snapshot's gear variants (FRV-201): a table of strings, else none (an older feed or server sends none)
+local function GearOf(last)
+    local gear = last.gear
+    if type(gear) ~= "table" then return nil end
+    for key, value in pairs(gear) do
+        if type(key) ~= "string" or type(value) ~= "string" then return nil end
+    end
+    return gear
+end
+
 -- The snapshots and their records to import, walked a slice at a time
 local function Import(data)
     local r = FM.R()
@@ -124,7 +135,7 @@ local function Import(data)
     local function Finish()
         -- checked again: a deep scan may have finished in the meantime
         if last and last.t > ((r.last and r.last.t) or 0) then
-            r.last = { t = last.t, fp = TagOwn(last.fp), source = "api" }
+            r.last = { t = last.t, fp = TagOwn(last.fp), source = "api", gear = GearOf(last) }
         end
         local newest = imported
         for _, s in ipairs(snapshots) do

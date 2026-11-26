@@ -13,6 +13,9 @@ local _, FM = ...
 --     Best per slot only pick which of them show, so they change no number
 --   * Red = out of reach now: a price above your gold, a required level above yours
 --   * A row whose listing the buy window found gone (ui/UpgradeBuy.lua, FRV-204) is grey until the next snapshot
+--   * Gear you own (FRV-206, "Owned gear", on by default): rows of the gear in your bags, bank and account bank that
+--     beats what you wear, "(bags)" after the name, Price and Cost-Benefit "owned" (above every number, largest
+--     first); Cost-Benefit stays the AH rows' own, Best per slot picks among the AH rows only
 
 local type = type
 local ipairs = ipairs
@@ -41,6 +44,8 @@ local FAVORITE = " |A:auctionhouse-icon-favorite:13:13|a"
 local STALE_AGE = 3600 -- from this age of the latest snapshot on, a line above the list says its listings are old
 local LEVEL_MIN, LEVEL_MAX = 1, 60
 local EMPTY_SORT = 1e9 -- an empty slot sorts above every %
+local OWNED_SORT = 1e9 -- gear you own sorts above every Cost-Benefit (FRV-206)
+local PLACE_TEXT = { bags = "bags", bank = "bank", account = "account bank" }
 local BAND_TEXT = { [0] = "Short (under 30 minutes)", [1] = "Medium (30 minutes to 2 hours)", [2] = "Long (2 to 12 hours)",
     [3] = "Very long (12 to 48 hours)" }
 local RARITY_NAME = { [0] = "Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary" }
@@ -251,7 +256,12 @@ function FM.UpgradeSetScale(name)
     if info then info.upgradeScale = name end
 end
 
--- The filter of the tab now: { minLevel, maxLevel, quality = { [n] = true }, scale } (FM.EnsureUpgrades,
+-- "Owned gear" (FRV-206): the gear in your bags and bank is listed too; on unless unchecked (saved)
+function FM.UpgradesOwnedOn()
+    return Settings().upgradeOwned ~= false
+end
+
+-- The filter of the tab now: { minLevel, maxLevel, quality = { [n] = true }, scale, owned } (FM.EnsureUpgrades,
 -- FM.UpgradeRows)
 function FM.UpgradesFilter()
     local min, max = FM.UpgradesLevelRange()
@@ -259,7 +269,8 @@ function FM.UpgradesFilter()
     for q = 0, 5 do
         if RarityOn(q) then quality[q] = true end
     end
-    return { minLevel = min, maxLevel = max, quality = quality, scale = FM.UpgradeScaleChoice() }
+    return { minLevel = min, maxLevel = max, quality = quality, scale = FM.UpgradeScaleChoice(),
+        owned = FM.UpgradesOwnedOn() }
 end
 
 ---------------------------------------------------------------- the rows
@@ -319,24 +330,34 @@ local function RetrySoon()
 end
 
 -- The tab's rows (ui/Table.lua BuildRows): the scored upgrades inside Level and Rarities for the chosen scale, their
--- Cost-Benefit worked out over all of them, then only those of the checked slots, not ignored, whose name with its
--- suffix has needle (lower case; nil = every name), and with Best per slot the best of each slot. Starts the scoring
--- of what is not scored yet (FM.EnsureUpgrades)
+-- Cost-Benefit worked out over the AH rows of them, then only those of the checked slots, not ignored, whose name with
+-- its suffix has needle (lower case; nil = every name), and with Best per slot the best AH row of each slot. The gear
+-- you own (FRV-206) has no Cost-Benefit and stays out of the typical price, so owning something changes no number of
+-- the listings. Starts the scoring of what is not scored yet (FM.EnsureUpgrades)
 function FM.UpgradesTabRows(needle)
     local filter = FM.UpgradesFilter()
     local _, why = FM.EnsureUpgrades(filter)
     if why == "notready" then RetrySoon() end
-    local rows = FM.UpgradeRows(filter)
-    shown.typical = FM.CostBenefit(rows)
-    local out = {}
+    local rows, listed = FM.UpgradeRows(filter), {}
+    for _, row in ipairs(rows) do
+        if row.owned then
+            row.cb, row.cbRaw = nil, nil
+        else
+            listed[#listed + 1] = row
+        end
+    end
+    shown.typical = FM.CostBenefit(listed)
+    local ah, owned = {}, {}
     for _, row in ipairs(rows) do
         if SlotOn(row.equipLoc) and not (FM.IsExcluded and FM.IsExcluded(row.key))
             and (not needle or string_find(string_lower(row.name or ""), needle, 1, true)) then
-            out[#out + 1] = row
+            local list = row.owned and owned or ah
+            list[#list + 1] = row
         end
     end
-    if Settings().upgradeBestPerSlot == true then out = BestPerSlot(out) end
-    return out
+    if Settings().upgradeBestPerSlot == true then ah = BestPerSlot(ah) end
+    for _, row in ipairs(owned) do ah[#ah + 1] = row end
+    return ah
 end
 
 ---------------------------------------------------------------- columns
@@ -347,9 +368,16 @@ local function Shown(row, text)
     return text
 end
 
+-- Where an owned row's item is: "bags", "bank", "account bank" (FRV-206)
+function FM.UpgradePlaceText(row)
+    return PLACE_TEXT[row.place] or tostring(row.place or "?")
+end
+
 local function ItemCell(row)
     if FM.UpgradeGone(row) then return GREY .. RowName(row) .. " (gone)|r" end
-    return QualityHex(row.quality) .. RowName(row) .. "|r" .. ((FM.IsFavorite and FM.IsFavorite(row.key)) and FAVORITE or "")
+    local place = row.owned and (" " .. GREY .. "(" .. FM.UpgradePlaceText(row) .. ")|r") or ""
+    return QualityHex(row.quality) .. RowName(row) .. "|r" .. place
+        .. ((FM.IsFavorite and FM.IsFavorite(row.key)) and FAVORITE or "")
 end
 
 -- Lvl: red above your level
@@ -359,8 +387,9 @@ local function LevelCell(row)
     return Shown(row, text)
 end
 
--- Price: red when it is more than your gold
+-- Price: red when it is more than your gold; gear you own: green "owned"
 local function PriceCell(row)
+    if row.owned then return GREEN .. "owned|r" end
     local money = PlayerMoney()
     local dear = money and type(row.price) == "number" and row.price > money
     return Shown(row, FM.MoneyFull(row.price, dear and RED or nil))
@@ -386,16 +415,22 @@ FM.UPGRADE_COLUMNS = {
         sort = function(r) return SLOT_ORDER[r.equipLoc] or #SLOTS + 1 end },
     { title = "Lvl", tip = "Lvl: the level the item requires (red: above yours).", width = 50, text = LevelCell,
         sort = function(r) return r.minLevel end },
-    { title = "Price", tip = "Price: the cheapest buyout of this item with this suffix in the latest snapshot (red: more than your gold).",
-        width = 150, text = PriceCell, sort = function(r) return r.price end },
+    { title = "Price", tip = "Price: the cheapest buyout of this item with this suffix in the latest snapshot (red: more than your gold; \"owned\": in your bags or bank).",
+        width = 150, text = PriceCell, sort = function(r) return r.owned and 0 or r.price end },
     { title = "Upgrade", tip = UPGRADE_TIP, width = 110, text = function(r) return Shown(r, FM.UpgradePctText(r)) end,
         sort = function(r)
             if r.empty then return EMPTY_SORT end
             return r.pct
         end },
     { title = "Cost-Benefit", tip = CB_TIP, width = 142, default = true,
-        text = function(r) return Shown(r, type(r.cb) == "number" and (r.cb .. "%") or (GREY .. "-|r")) end,
-        sort = function(r) return r.cb end },
+        text = function(r)
+            if r.owned then return GREEN .. "owned|r" end
+            return Shown(r, type(r.cb) == "number" and (r.cb .. "%") or (GREY .. "-|r"))
+        end,
+        sort = function(r)
+            if r.owned then return OWNED_SORT end
+            return r.cb
+        end },
 }
 
 ---------------------------------------------------------------- tooltip
@@ -426,10 +461,20 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
         tip:AddLine((icon and ("|T" .. icon .. ":16:16|t ") or "") .. QualityHex(row.quality) .. RowName(row) .. "|r")
     end
     tip:AddLine(" ")
-    local money = PlayerMoney()
-    local dear = money and type(row.price) == "number" and row.price > money
-    Line(tip, "Price", FM.MoneyFull(row.price, dear and RED or nil)
-        .. (((row.n or 0) > 1) and (GREY .. string_format("  the cheapest of %s listed", FM.FormatCount(row.n)) .. "|r") or ""))
+    if row.owned then
+        -- gear you own (FRV-206): where it is, and for a bank when it was seen there last
+        local place = FM.UpgradePlaceText(row)
+        local text = "In your " .. place
+        if row.place ~= "bags" and not row.live and type(row.seenAt) == "number" then
+            text = text .. " (last seen " .. FM.FormatAge(math_max(0, FM.Now() - row.seenAt)) .. " ago)"
+        end
+        tip:AddLine(GREEN .. text .. "|r", 1, 1, 1, true)
+    else
+        local money = PlayerMoney()
+        local dear = money and type(row.price) == "number" and row.price > money
+        Line(tip, "Price", FM.MoneyFull(row.price, dear and RED or nil)
+            .. (((row.n or 0) > 1) and (GREY .. string_format("  the cheapest of %s listed", FM.FormatCount(row.n)) .. "|r") or ""))
+    end
     if row.empty then
         Line(tip, "Upgrade", "fills an empty slot")
     else
@@ -442,7 +487,7 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
         Note(tip, string_format("gains %.1f Pawn points for %s%s; prices count against the typical %s%s of this list",
             row.gain or 0, FM.MoneyFull(row.price), GREY, FM.MoneyFull(shown.typical), GREY))
     end
-    local snapshot = FM.GearSnapshot and FM.GearSnapshot()
+    local snapshot = not row.owned and FM.GearSnapshot and FM.GearSnapshot()
     if BAND_TEXT[row.band] and snapshot then
         Line(tip, "Time left when scanned", BAND_TEXT[row.band] .. ", " .. Age(FM.Now() - snapshot) .. " ago")
     end
@@ -450,11 +495,14 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
     if FM.UpgradeGone(row) then Note(tip, "This listing is gone (sold, cancelled or expired).", ORANGE) end
 end
 
--- The click hints at the bottom of the hover tooltip, one per line
-function FM.UpgradeHints(tip)
+-- The click hints at the bottom of the hover tooltip, one per line (gear you own: nothing to buy, FRV-206)
+function FM.UpgradeHints(tip, row)
     tip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
-    tip:AddLine((FM.ahOpen and FM.UpgradeBuyOpen) and "Shift+click: find this listing and buy it" or "Shift+click: link to chat",
-        HINT_R, HINT_G, HINT_B, true)
+    local atAH = FM.ahOpen and FM.UpgradeBuyOpen
+    if not (atAH and type(row) == "table" and row.owned) then
+        tip:AddLine(atAH and "Shift+click: find this listing and buy it" or "Shift+click: link to chat",
+            HINT_R, HINT_G, HINT_B, true)
+    end
     tip:AddLine("Ctrl+click: try it on", HINT_R, HINT_G, HINT_B, true)
     tip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
     tip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B, true)
@@ -652,12 +700,19 @@ function FM.UpgradesCreateFilters(f)
         Changed()
     end)
     Tip(w.best, "Best per slot", "Only the best deal of each slot (the two best rings).")
+    -- Owned gear (FRV-206): the gear in your bags and bank as rows too
+    w.owned = FM.TextCheck(f, "Owned gear")
+    w.owned:SetScript("OnClick", function(self)
+        Settings().upgradeOwned = self:GetChecked() and true or false
+        Changed()
+    end)
+    Tip(w.owned, "Owned gear", "Also list the gear in your bags and bank that beats what you wear.")
     f.upgradeFilters = w
     FM.UpgradesShowFilters(f, false)
 end
 
 -- Places the widgets right of the search box (ui/Table.lua LayoutFilters): Level, Rarities, Slots, Spec (only with
--- more than one scale), Best per slot; room is left before Refresh for more
+-- more than one scale), Best per slot, Owned gear (it ends near x 870, before Refresh at 920)
 function FM.UpgradesLayoutFilters(f)
     local w = f.upgradeFilters
     if not w then return end
@@ -677,6 +732,8 @@ function FM.UpgradesLayoutFilters(f)
     w.spec:SetPoint("LEFT", w.slots, "RIGHT", 6, 0)
     w.best.label:ClearAllPoints()
     w.best.label:SetPoint("LEFT", w.spec:IsShown() and w.spec or w.slots, "RIGHT", 12, 0)
+    w.owned.label:ClearAllPoints()
+    w.owned.label:SetPoint("LEFT", w.best, "RIGHT", 10, 0)
 end
 
 -- Whether the Spec dropdown shows: Pawn shows more than one scale for this character
@@ -689,7 +746,8 @@ end
 function FM.UpgradesShowFilters(f, on)
     local w = f and f.upgradeFilters
     if not w then return end
-    for _, widget in ipairs({ w.levelLabel, w.dash, w.min, w.max, w.rarity, w.slots, w.best, w.best.label }) do
+    for _, widget in ipairs({ w.levelLabel, w.dash, w.min, w.max, w.rarity, w.slots, w.best, w.best.label, w.owned,
+        w.owned.label }) do
         widget:SetShown(on)
     end
     w.spec:SetShown(on and FM.UpgradesSpecShown())
@@ -698,6 +756,7 @@ function FM.UpgradesShowFilters(f, on)
     if not w.min:HasFocus() then w.min:SetText(tostring(min)) end
     if not w.max:HasFocus() then w.max:SetText(tostring(max)) end
     w.best:SetChecked(Settings().upgradeBestPerSlot == true)
+    w.owned:SetChecked(FM.UpgradesOwnedOn())
     for _, dd in ipairs({ w.rarity, w.slots, w.spec }) do
         if dd.GenerateMenu then dd:GenerateMenu() end -- the texts now
     end

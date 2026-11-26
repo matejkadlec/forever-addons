@@ -302,9 +302,15 @@ local function Search(row)
 end
 
 -- Shift+click on an Upgrades row at the AH, or its menu's "Buy this listing": the window on the row, the listing
--- looked up (not in combat, not while the AH is busy, not after a blocked purchase)
+-- looked up (not in combat, not while the AH is busy, not after a blocked purchase). A row of gear you own (FRV-206)
+-- buys nothing: one chat line says where it is
 function FM.UpgradeBuyOpen(row)
     if type(row) ~= "table" or type(row.itemID) ~= "number" then return end
+    if row.owned then
+        local name = row.name or (FM.GetName and FM.GetName(row.key)) or tostring(row.key)
+        FM.Print(name .. " is yours already: it is in your " .. (FM.UpgradePlaceText and FM.UpgradePlaceText(row) or "bags") .. ".")
+        return
+    end
     if not FM.ahOpen then
         FM.Print("Open the Auction House to buy this listing.")
         return

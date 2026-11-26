@@ -47,8 +47,9 @@ reads the link field by field from itemContext on (context, the count of bonus I
 modifiers, the modifiers), `FM.GearBonusKey` sorts the bonus IDs (two listings with the same ones are the same item for a
 player), `FM.GearLink` builds the item string back. Your own auctions are in no variant (the ones the scan names as yours
 and the ones the best fit below marks). Only the latest snapshot has them: the next deep scan replaces them with
-`last`, and the item's price history stays per item ID. A Battle.net feed import brings none yet (FRV-201): after one,
-`FM.GearSnapshot()` is nil until the next deep scan. The extra link read costs one `GetReplicateItemLink` per gear
+`last`, and the item's price history stays per item ID. A Battle.net feed import brings the feed's own (1.55, FRV-201:
+the feed reads the same numbers from the API's item auctions; a feed from an older feed program or server brings none,
+and `FM.GearSnapshot()` is nil until the next deep scan then). The extra link read costs one `GetReplicateItemLink` per gear
 auction (about 108,000 of the maintainer's 282,000 on 2026-11-25), the walk still reads 2,000 auctions per frame: `/fm
 scanlog` shows how long reading the list took, the time spent reading and the gear links read. `/fm status` counts the
 variants of the latest snapshot ("Gear variants in the latest snapshot: 18,412 of 3,950 items": the listings of others,
@@ -425,9 +426,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     else the game's tooltip of the pattern item QuestieDB names. The line "Use: Teaches you how to craft X." names the
     made item, the line after it the materials ("Thick Leather (6), Turtle Scale (8), Heavy Silken Thread"), each
     found by its name among the items the market saw and ForeverArtisan's materials; an unknown name = no recipe. One
-    made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn; once you
-    learned it, the pattern's own tooltip says "Already known" and it is gone (ForeverArtisan lists it at its next
-    look at the profession window)
+    made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn
+  * Once you know it (1.55, FRV-208) it is a learned recipe made from the same lines: Craft lists it, Picks can plan
+    it as "Craft and sell" or "Craft and wait", Learn no longer lists it (until ForeverArtisan lists it itself at its
+    next look at the profession window). You know it when you learned it this session (`NEW_RECIPE_LEARNED`: its
+    recipe ID comes with it, for Ctrl+click) or when the live tooltip of one of its pattern items says "Already known".
+    A pattern item whose data the game has not loaded yet tells neither (until 1.55 that read as "not known", the
+    reason Turtle Scale Gloves stayed a Learn pick after the maintainer learned it): it is asked for, and the
+    marketplace computes again when it arrives. Learning a recipe, a profession window after which ForeverArtisan
+    lists more learned recipes, and such an item arriving each compute the tabs again a second later; a locked Picks
+    plan stays, and Refresh's tooltip names "a recipe you learned" among what changed since the plan
   * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
     for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
     "?" and the tooltip "price not known yet ... not visited yet (QuestieDB)" (QuestieDB has no prices), the skill and
@@ -1019,9 +1027,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     combat log from AddOns), kills without loot from "X dies, you gain N experience", a corpse looted twice = skin.
 * Battle.net feed (scan/Feed.lua): `services/forever-market-feed` writes the load-on-demand AddOn
   `ForeverMarket_Feed` (`ForeverMarketFeedData`: per snapshot a string of `itemKey|deep record` lines, the newest
-  fingerprints, items seen with two bonus lists = suffix variants). At login the records newer than `r.feedT` are
+  fingerprints, since 1.55 (FRV-201) its gear variants `last.gear` in the format of a deep scan's, items seen with two
+  bonus lists = suffix variants). At login the records newer than `r.feedT` are
   appended, except those whose interval (time - gap) starts before the latest in-game deep scan; the newest snapshot
-  becomes `r.last` (`source = "api"`, own auctions tagged `@` with the own pool); each snapshot gets a scans log entry
+  becomes `r.last` (`source = "api"`, own auctions tagged `@` with the own pool, `gear` when the feed's is a table of
+  strings, else none); each snapshot gets a scans log entry
   with source `api` (Backfill of "Past 3 days" skips them: their items only have records when something
   changed). Feed records only exist when something happened or the market changed, else a full record every 4
   hours (never `=`: the record it refers to may be skipped). Records never land before an item's newest record, so an
@@ -1173,6 +1183,23 @@ item's data, which a scan of 100,000 gear auctions cannot wait for. The results 
   deal by far and pushing every other row under 15%: a row far cheaper than usual is ranked by what it gives, a row far
   dearer by what it gives per gold. It is worked out over the rows after the level and rarity filters and before the
   name search, so typing a name changes no number
+* **Gear you own** (1.55, FRV-206): the weapons and armor in your bags, your bank and the account bank are rows too,
+  next to the AH listings, one per item and suffix (bonus key) at the nearest place: bags, then bank, then account bank
+  (a copy in the bags and one in the bank is one row, "(bags)"). Equipped items are never candidates: Pawn compares
+  against them. They are scored by the same code with the same cache and the same staleness rules, and show only when
+  they are an upgrade. Where they come from (`trade/Sources.lua`, `scan/Characters.lua`):
+  * the bags: read live, slot by slot (`C_Container.GetContainerItemInfo`'s `hyperlink`), again after every bag change;
+    nothing is saved for them
+  * your bank: read while it is open (when it opens and after every item move, the same reads as its counts for
+    Picks), saved as it closes from that last reading, never from a read as it closes (`R.gearBank[char]`, the same way
+    and at the same moments as `R.bank`), so it is known after a `/reload` and a new login without opening it
+  * the account bank: read while the bank is open and Blizzard lets the character view it, saved at each read
+    (`R.accountGear`, once per realm bucket, next to `R.accountBank`)
+  * kept as item key and variant (`FM.GearVariant` of the item's link: its suffix), "key/variant"; the format is under
+    Data format
+  * not in scope: gear on your other characters (it has to be mailed first, and soulbound gear cannot move at all)
+* **Owned rows have no price:** Cost-Benefit and its typical price stay the AH rows' own (`FM.CostBenefit` gets the AH
+  rows only), so owning something never changes a number of the listings
 
 ### The Upgrades tab (1.54, FRV-203, FRV-205: ui/Upgrades.lua)
 
@@ -1189,7 +1216,17 @@ The last tab of the marketplace (`/fm upgrades`, or the key `U` and the tab): th
   checked); **Slots** (one checkbox per slot, all by default, "Slots: 3" while not all are checked, saved in
   `settings.upgradeSlots`, an equipLoc set to false is not listed); **Spec** (the scales Pawn shows for this character, in
   Pawn's order, only while it shows more than one; saved for this character, a scale Pawn no longer shows falls back
-  to the first one); **Best per slot** (the best deal of each slot, the two best rings; `settings.upgradeBestPerSlot`)
+  to the first one); **Best per slot** (the best deal of each slot among the AH listings, the two best rings;
+  `settings.upgradeBestPerSlot`); **Owned gear** (1.55, FRV-206: also list the gear in your bags and bank that beats
+  what you wear; checked by default, saved in `settings.upgradeOwned`)
+* **Gear you own** (1.55, FRV-206): the item's name is followed by a grey "(bags)", "(bank)" or "(account bank)",
+  Price and Cost-Benefit read a green "owned"; owned rows sort above every number while Cost-Benefit sorts largest first
+  (and as costing nothing on Price). Level, Rarities and Slots apply to them as to every row: an item kept for a later
+  level shows once the level range takes it in, its level in red. Best per slot leaves them all in. Their tooltip has no
+  price, Cost-Benefit or time left: "In your bags", or "In your bank (last seen 2d ago)" / "In your account bank (last
+  seen 3h ago)" while the bank is closed. Shift+click at the AH buys nothing: one chat line says "Slayer's Skullcap is
+  yours already: it is in your bank."; away from the AH Shift+click links it, and Ctrl+click, Alt+click and the menu
+  (without Buy this listing) are as for the other rows
 * **Which numbers move:** Cost-Benefit is worked out over the rows inside Level and Rarities for the chosen spec. The
   search (it matches the name with its suffix), Slots and Best per slot only pick which of those rows show, so they
   never change a number; another spec does, at once and without scoring again
@@ -1822,9 +1859,12 @@ Picks skip).
   parse, `FM.GearVariant`), min = the cheapest buyout (base36), n = its auctions (base36), band = the time left of the
   cheapest (the longer one on a tie). A key whose only variant is `""` has no entry: its cheapest buyout is the
   cheapest fingerprint not marked `@`. `FM.GearListings(key)` (core/Store.lua) reads both as `{ variant, bonus,
-  buyout, n, band }`. `last.gear` exists only after a deep scan or Auctionator replicate scan of 1.53 or later that
-  read gear (`FM.GearSnapshot()`, nil otherwise: a snapshot from before, or a Battle.net feed import); no migration,
-  `last` is replaced as a whole by the next snapshot
+  buyout, n, band }`. `last.gear` exists after a deep scan or Auctionator replicate scan of 1.53 or later that read
+  gear, and (1.55, FRV-201) after a Battle.net feed import whose feed brings it (`FM.GearSnapshot()`, nil otherwise: a
+  snapshot from before, a feed of an older feed program or server); no migration, `last` is replaced as a whole by
+  the next snapshot. The feed builds it from the API's item auctions (`item.context`, `item.bonus_lists`,
+  `item.modifiers`: the same numbers as the link's fields) and cannot tell your own auctions, so a variant you list
+  yourself counts in it after a feed import (a deep scan leaves yours out)
 * `lastReplicateT` (seconds, `time()`) when the server's 15 minutes of full scans last started; `lastReplicateBy`
   (1.41) whose list started them: `fm` the deep scan (also when its retries ran out: the last request), `rep` another
   AddOn's full scan, `aucr` Auctionator's
@@ -1904,6 +1944,12 @@ Picks skip).
   current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
   hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
   baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
+* `gearBank[char]` (1.55, FRV-206, optional, made at the first close of the bank) `t|key/variant,key/variant,...`: the
+  weapons and armor in the character's bank as last read while it was open (t = when, `FM.Stamp`; key the item ID,
+  variant `FM.GearVariant` of its link as in `last.gear`, empty for an item without a suffix; sorted, each once), written
+  as the bank closes; `accountGear` (1.55, optional) the same of the account bank, once per realm bucket, written at
+  each read while the bank is open (next to `accountBank`); the Upgrades tab's owned rows read both, `/fm forget` drops
+  a character's `gearBank`
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
   character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units

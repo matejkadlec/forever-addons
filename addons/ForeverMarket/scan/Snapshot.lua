@@ -413,7 +413,7 @@ function FM.FinalizeSnapshot(snap, onDone)
         end
         FM.AppendDetail(key, record or TrimFields(f, 22), nowMinutes)
     end, function()
-        -- gear: only a scan that read gear variants has it (a feed import has none until FRV-201)
+        -- gear: only a scan that read gear variants has it (a feed import brings the feed's own, FRV-201)
         r.last = { t = now, fp = newFp, source = snap.source, gear = snap.gear and newGear or nil }
         local ms = debugprofilestop and (debugprofilestop() - started) or 0
         FM.Log("scans", table_concat({ stamp, snap.source or "?", Enc(snap.nAuctions), Enc(#snap.order),

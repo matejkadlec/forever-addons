@@ -1056,7 +1056,7 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickEdit", "pickOwned", "pickHidden" }
+    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference
@@ -1144,9 +1144,9 @@ function FM.ComputeTrade(record, onDone)
     FM.trade = shown
     if FM.RefreshTable then FM.RefreshTable() end
     -- listingsVersion: your posts and auction lists the picks were planned with, stockVersion: your bags and bank
-    -- (FRV-98, trade/Sources.lua; FM.EnsureTrade)
+    -- (FRV-98, trade/Sources.lua; FM.EnsureTrade), recipesVersion: the recipes you know (FRV-208, trade/Sources.lua)
     local out = { t = r.last.t, listingsVersion = FM.listingsVersion or 0, stockVersion = FM.stockVersion or 0,
-        placeVersion = FM.placeVersion or 0 }
+        placeVersion = FM.placeVersion or 0, recipesVersion = FM.recipesVersion or 0 }
     local sources
     local soldCache = {}
     local function Sold(key, window)
@@ -1367,6 +1367,7 @@ function FM.ComputeTrade(record, onDone)
                 -- before, also for two plans of the same second
                 local at = math_max(now, ((held and held.pickAt) or 0) + 1)
                 out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
+                out.pickRecipes = out.recipesVersion
                 done()
             end)
         end
@@ -1404,7 +1405,8 @@ function FM.EnsureTrade()
     local trade = FM.trade
     local inputs = trade and not trade.empty and not FM.PicksLocked()
         and (trade.listingsVersion ~= (FM.listingsVersion or 0) or (trade.stockVersion or 0) ~= (FM.stockVersion or 0)
-            or (trade.placeVersion or 0) ~= (FM.placeVersion or 0)) -- Where I am moved while the table was closed (FRV-99)
+            or (trade.placeVersion or 0) ~= (FM.placeVersion or 0) -- Where I am moved while the table was closed (FRV-99)
+            or (trade.recipesVersion or 0) ~= (FM.recipesVersion or 0)) -- a recipe learned (FRV-208)
     if not trade or trade.t ~= t or (trade.empty and t) or inputs then
         FM.ComputeTrade(false)
     end

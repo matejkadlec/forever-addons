@@ -494,7 +494,7 @@ function FM.LatestDeepRecord(item)
 end
 
 -- Gear variants of the latest snapshot (FRV-200): the time of r.last when it holds them, else nil (a snapshot saved
--- before 1.53, or a Battle.net feed import, which brings none yet)
+-- before 1.53, a scan that read no gear, or a Battle.net feed import without them: an older feed or server, FRV-201)
 function FM.GearSnapshot()
     local last = FM.R().last
     if type(last) == "table" and type(last.gear) == "table" and type(last.fp) == "table" then return last.t end

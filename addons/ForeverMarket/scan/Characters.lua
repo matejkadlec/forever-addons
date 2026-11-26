@@ -5,7 +5,9 @@ local _, FM = ...
 --   * R.charInfo[key] = { guid, full = "First Surname", class, seen } (the key's character, since 1.23)
 --   * R.bags[key] = "t|id:all:free,..." the bags at logout and after bag changes (at most every few minutes)
 --   * R.bank[key], R.mailbox[key] (scan/Worth.lua), R.owned[key] (scan/Ledger.lua), R.goldLast[key]
---   * R.accountBank = "t|id:all:free,..." the account bank, once per realm bucket, while Blizzard lets you view it
+--   * R.accountBank = "t|id:all:free,..." the account bank, once per realm bucket, while Blizzard lets you view it, and
+--     R.accountGear = "t|key/variant,..." the gear in it with its suffixes (FRV-206, the Upgrades tab)
+--   * R.gearBank[key] = "t|key/variant,..." the gear in the character's bank (trade/Sources.lua, FRV-206)
 --   * R.sent[key] = { "t|id:count,...", ... } the items of the mails your other characters sent to the key's
 --     character, until it reads its mailbox (1.24, FRV-37)
 -- FM.Owned (trade/Sources.lua) stays the logged-in character, live; the reader never counts it.
@@ -151,7 +153,11 @@ local function SaveAccountBank()
     if not (bankOpen and FM.ScanContainers) then return end
     local ids = AccountBankIDs()
     if not ids then return end
-    FM.R().accountBank = Encode(FM.ScanContainers(ids))
+    -- the same read gives the gear in it with its suffixes (FRV-206, the Upgrades tab: R.accountGear)
+    local gear = {}
+    local r = FM.R()
+    r.accountBank = Encode(FM.ScanContainers(ids, gear))
+    if FM.EncodeGear then r.accountGear = FM.Stamp() .. "|" .. FM.EncodeGear(gear) end
 end
 
 local accountPending = false
@@ -336,7 +342,7 @@ end
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "goldLast", "sent" }) do
+    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "gearBank", "mailbox", "owned", "goldLast", "sent" }) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end
     -- its auction list counted as your listings

@@ -1500,7 +1500,7 @@ local function RowHints(tab, row)
         return
     end
     if tab.upgrades then
-        FM.UpgradeHints(GameTooltip) -- no snipe (FRV-203): buy at the AH (FRV-204), try it on (FRV-205)
+        FM.UpgradeHints(GameTooltip, row) -- no snipe (FRV-203): buy at the AH (FRV-204), try it on (FRV-205)
         return
     end
     GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
@@ -1657,8 +1657,8 @@ local function ShowRowMenu(button, row)
     local gear = CurrentTab().upgrades and true or false -- an Upgrades row: one gear listing (FRV-203)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(gear and (row.name or Name(key)) or Name(key))
-        -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204)
-        if gear and FM.ahOpen and FM.UpgradeBuyOpen then
+        -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204); gear you own has none
+        if gear and not row.owned and FM.ahOpen and FM.UpgradeBuyOpen then
             root:CreateButton("Buy this listing", function() FM.UpgradeBuyOpen(row) end)
         end
         -- an AH flip pick, also from its steps line (FRV-193): first, for a flip someone else bought first; it hides
@@ -2280,6 +2280,8 @@ local function SincePlan()
     end
     -- your bags or bank changed since (FRV-98, FM.stockVersion in trade/Sources.lua): Refresh plans with them
     if trade.pickStock and (FM.stockVersion or 0) ~= trade.pickStock then bits[#bits + 1] = "a change in your bags or bank" end
+    -- a recipe learned since (FRV-208, FM.recipesVersion in trade/Sources.lua)
+    if trade.pickRecipes and (FM.recipesVersion or 0) ~= trade.pickRecipes then bits[#bits + 1] = "a recipe you learned" end
     if #bits == 0 then return nil end
     local text = #bits == 1 and bits[1] or (table.concat(bits, ", ", 1, #bits - 1) .. " and " .. bits[#bits])
     return string.upper(text:sub(1, 1)) .. text:sub(2)

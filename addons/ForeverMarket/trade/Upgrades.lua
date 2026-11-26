@@ -10,6 +10,9 @@ local _, FM = ...
 -- price (the cheapest buyout still running), n (its auctions), band, and once its item is loaded link, name, quality,
 -- minLevel, tooHigh (above the character's level); once scored scores[scaleName] = { pct, empty, replaces, value,
 -- gain } and, for the scale read last, the same fields on the row itself.
+-- An owned row (FRV-206: gear in your bags, bank or account bank, one per item and bonus key at the nearest place) has
+-- id "<key>:<bonus>:own", owned = true, place ("bags", "bank", "account"), seenAt (when that place was read; nil for
+-- the bags) and live (the bank is open now), no price: it is scored by the same code and kept the same way.
 
 local pairs = pairs
 local ipairs = ipairs
@@ -40,7 +43,9 @@ FM.upgradesVersion = 0
 
 local U = {
     t = nil,      -- the snapshot (r.last.t) the rows are of
-    list = nil,   -- the rows, sorted by id
+    ah = nil,     -- its rows (the AH listings)
+    own = nil,    -- the rows of the gear you own (FRV-206) and the readings they are of (bags, bank, account)
+    list = nil,   -- both, sorted by id
     byId = {},    -- id -> row: the session's results, kept for a new snapshot that still lists the id
     scale = nil,  -- the scale the rows were read for last
     worn = nil,   -- item IDs the character wears (the unique check)
@@ -175,8 +180,10 @@ local function EquipLoc(itemID)
     return equipLoc
 end
 
--- The listings of a bonus key that can still run in a snapshot this old: the cheapest of them on the row
+-- The listings of a bonus key that can still run in a snapshot this old: the cheapest of them on the row (a row of
+-- the gear you own is always there)
 local function Current(row, age)
+    if row.owned then return true end
     local best, n = nil, 0
     for _, offer in ipairs(row.offers) do
         if age <= (BAND_MAX_AGE[offer.band] or BAND_MAX_AGE[0]) then
@@ -191,16 +198,23 @@ local function Current(row, age)
     return true
 end
 
+-- Weapons and armor of a slot the tab lists: its equip location, else nil
+local function ListedSlot(key, itemID)
+    local equipLoc = itemID and FM.IsGear and FM.IsGear(key) and EquipLoc(itemID)
+    if equipLoc and not SKIP_SLOTS[equipLoc] then return equipLoc end
+    return nil
+end
+
 -- The rows of the latest snapshot: one per gear key and bonus key; a row whose id the session scored already keeps
 -- its item data and scores (they do not depend on the price)
-local function Rebuild(t)
+local function AHRows(t)
     local r = FM.R()
-    local list, byId = {}, {}
+    local list = {}
     local age = FM.Now() - t
     for key in pairs(r.last.fp) do
         local itemID = FM.ItemIDFromKey(key)
-        local equipLoc = itemID and FM.IsGear and FM.IsGear(key) and EquipLoc(itemID)
-        if equipLoc and not SKIP_SLOTS[equipLoc] then
+        local equipLoc = ListedSlot(key, itemID)
+        if equipLoc then
             local offersOf, order = {}, {}
             for _, listing in ipairs(FM.GearListings(key) or {}) do
                 local offers = offersOf[listing.bonus]
@@ -215,38 +229,99 @@ local function Rebuild(t)
                 local id = key .. ":" .. bonus
                 local row = U.byId[id] or { key = key, bonus = bonus, id = id, itemID = itemID, equipLoc = equipLoc }
                 row.offers = offersOf[bonus]
-                if Current(row, age) then
-                    byId[id] = row
+                if Current(row, age) then list[#list + 1] = row end
+            end
+        end
+    end
+    return list
+end
+
+-- The readings of the gear you own (trade/Sources.lua), nearest first: an item in two places is listed at the first
+local function OwnedReadings()
+    local bank, bankAt, bankOpen
+    if FM.BankGear then bank, bankAt, bankOpen = FM.BankGear() end
+    local account, accountAt
+    if FM.AccountGear then account, accountAt = FM.AccountGear() end
+    return {
+        { place = "bags", gear = FM.BagGear and FM.BagGear() or nil, live = true },
+        { place = "bank", gear = bank, at = bankAt, live = bankOpen and true or false },
+        { place = "account", gear = account, at = accountAt, live = false },
+    }
+end
+
+-- Whether a reading changed since the rows were made (each reading is the same table until it changes)
+local function OwnedChanged(readings)
+    local before = U.ownReadings
+    if not before then return true end
+    for i, reading in ipairs(readings) do
+        if reading.gear ~= before[i].gear or reading.live ~= before[i].live or reading.at ~= before[i].at then return true end
+    end
+    return false
+end
+
+-- The rows of the gear you own (FRV-206): one per item and bonus key, at the nearest place (bags, bank, account bank);
+-- equipped items are in no reading. A row the session scored already keeps its item data and scores
+local function OwnedRows(readings)
+    local list, seen = {}, {}
+    for _, reading in ipairs(readings) do
+        local entries = {}
+        for entry in pairs(reading.gear or {}) do entries[#entries + 1] = entry end
+        table_sort(entries) -- the same variant of an item each time
+        for _, entry in ipairs(entries) do
+            local key, variant = entry:match("^(%d+)/([%d:]*)$")
+            local itemID = key and tonumber(key)
+            local equipLoc = itemID and ListedSlot(key, itemID)
+            if equipLoc then
+                local bonus = FM.GearBonusKey(variant)
+                local id = key .. ":" .. bonus .. ":own"
+                if not seen[id] then
+                    seen[id] = true
+                    local row = U.byId[id] or { key = key, bonus = bonus, id = id, itemID = itemID, equipLoc = equipLoc,
+                        owned = true, variant = variant }
+                    row.place, row.seenAt, row.live = reading.place, reading.at, reading.live
                     list[#list + 1] = row
                 end
             end
         end
     end
-    table_sort(list, function(a, b) return a.id < b.id end)
-    U.t, U.list, U.byId = t, list, byId
-    worker.index = 1
-    Bump()
+    return list
 end
 
--- The rows follow the latest snapshot
+-- The rows follow the latest snapshot and the gear you own; true while there is anything to list (a snapshot with
+-- gear data, or gear you own)
 local function Sync()
     local t = FM.GearSnapshot and FM.GearSnapshot()
-    if not t then
-        if U.list then
-            U.t, U.list = nil, nil
-            Bump()
+    local readings = OwnedReadings()
+    local ahChanged = U.t ~= t or not U.ah
+    local ownChanged = not U.own or OwnedChanged(readings)
+    if ahChanged or ownChanged then
+        if ahChanged then U.t, U.ah = t, t and AHRows(t) or {} end
+        if ownChanged then U.own, U.ownReadings = OwnedRows(readings), readings end
+        local list, byId = {}, {}
+        for _, part in ipairs({ U.ah, U.own }) do
+            for _, row in ipairs(part) do
+                byId[row.id] = row
+                list[#list + 1] = row
+            end
         end
-        return false
+        table_sort(list, function(a, b) return a.id < b.id end)
+        U.list, U.byId = list, byId
+        worker.index = 1
+        Bump()
     end
-    if U.t ~= t or not U.list then Rebuild(t) end
-    return true
+    return t ~= nil or #U.list > 0
+end
+
+-- The age of the latest snapshot (0 without one: then every row is of the gear you own)
+local function SnapshotAge()
+    return U.t and (FM.Now() - U.t) or 0
 end
 
 -- One row per item and bonus key of the latest snapshot that the tab can list, with its cheapest listing still
--- running; nil while the latest snapshot has no gear data
+-- running, and one per item and bonus key of the gear you own (FRV-206); nil while there is neither
 function FM.UpgradeCandidates()
     if not Sync() then return nil end
-    local age = FM.Now() - U.t
+    local age = SnapshotAge()
     local out = {}
     for _, row in ipairs(U.list) do
         if Current(row, age) then out[#out + 1] = row end
@@ -305,6 +380,7 @@ end
 
 local function InFilter(row, filter)
     if not filter then return true end
+    if row.owned and filter.owned == false then return false end -- "Owned gear" unchecked (FRV-206)
     if filter.minLevel and row.minLevel < filter.minLevel then return false end
     if filter.maxLevel and row.minLevel > filter.maxLevel then return false end
     if type(filter.quality) == "table" and not filter.quality[row.quality] then return false end
@@ -314,6 +390,7 @@ end
 -- Nothing more to do for this row under this filter
 local function Resolved(row, filter)
     if row.dropped then return true end
+    if row.owned and filter and filter.owned == false then return true end -- not even loaded while unchecked
     if not row.link then return false end
     return row.scored == true or not InFilter(row, filter)
 end
@@ -321,6 +398,7 @@ end
 -- One step of a row: "wait" when it waits for the client or Pawn (row.retryAt), else "done"; asked = a load was asked
 local function Process(row, filter, now, level, mayAsk, inUse)
     if row.dropped then return "done" end
+    if row.owned and filter and filter.owned == false then return "done" end
     if not row.link then
         if (row.retryAt or 0) > now then return "wait" end
         if LoadRow(row, level) then
@@ -366,6 +444,7 @@ local function SameFilter(a, b)
     if a == b then return true end
     if not a or not b then return false end
     if a.minLevel ~= b.minLevel or a.maxLevel ~= b.maxLevel then return false end
+    if (a.owned == false) ~= (b.owned == false) then return false end
     local qa, qb = type(a.quality) == "table" and a.quality or nil, type(b.quality) == "table" and b.quality or nil
     if (qa == nil) ~= (qb == nil) then return false end
     for q, on in pairs(qa or {}) do
@@ -482,7 +561,7 @@ function FM.UpgradeRows(filter)
         U.scale = scale
         Bump()
     end
-    local age = FM.Now() - U.t
+    local age = SnapshotAge()
     for _, row in ipairs(U.list) do
         if row.scored and not row.dropped and InFilter(row, filter) and Current(row, age) and ApplyScale(row, scale) then
             rows[#rows + 1] = row
@@ -532,7 +611,7 @@ end
 
 -- The session's results go: the rows are loaded and scored again when the tab asks
 local function Reset()
-    U.t, U.list, U.byId, U.worn = nil, nil, {}, nil
+    U.t, U.ah, U.own, U.ownReadings, U.list, U.byId, U.worn = nil, nil, nil, nil, nil, {}, nil
     worker.token = worker.token + 1
     worker.running = false
     Bump()
@@ -553,6 +632,21 @@ end
 
 FM.On("PLAYER_EQUIPMENT_CHANGED", ResetSoon)
 FM.On("PLAYER_LEVEL_UP", ResetSoon)
+
+-- The gear you own moved (FRV-206): the tab, while it shows, follows a little later (once for a burst of bag
+-- changes; the account bank is saved a second after the bank opens, scan/Characters.lua)
+local ownedPending = false
+local function OwnedMoved()
+    if ownedPending or not (C_Timer and C_Timer.After) then return end
+    ownedPending = true
+    C_Timer.After(1.2, function()
+        ownedPending = false
+        if FM.TableTabShown and FM.TableTabShown() == "upgrades" and FM.RefreshTable then FM.RefreshTable() end
+    end)
+end
+for _, event in ipairs({ "BAG_UPDATE_DELAYED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYERBANKSLOTS_CHANGED" }) do
+    FM.On(event, OwnedMoved)
+end
 
 -- Pawn calls its global PawnResetTooltips whenever a scale or an option changes (a scale ticked or unticked, its
 -- weights changed): hooked once Pawn is loaded
