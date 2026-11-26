@@ -66,6 +66,8 @@ local SLOTS = {
 }
 local SLOT_ORDER, SLOT_ENGLISH = {}, {}
 for i, s in ipairs(SLOTS) do SLOT_ORDER[s[1]], SLOT_ENGLISH[s[1]] = i, s[2] end
+-- the slots it never lists have a name too, for the Gear view of Favorites and Ignored (FRV-207), but no place in Slots
+SLOT_ENGLISH.INVTYPE_TRINKET, SLOT_ENGLISH.INVTYPE_BODY, SLOT_ENGLISH.INVTYPE_TABARD = "Trinket", "Shirt", "Tabard"
 
 local function Settings()
     return FM.GetSettings()
@@ -505,6 +507,8 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
         Line(tip, "Upgrade", "fills an empty slot")
     elseif row.notListed then
         Line(tip, "Upgrade", GREY .. "not scored: Pawn scores the listings of the latest snapshot|r")
+    elseif row.unscored then
+        Line(tip, "Upgrade", GREY .. "not scored: Pawn scores no trinket, shirt or tabard|r")
     elseif row.noUpgrade then
         Line(tip, "Upgrade", GREY .. "none: it does not beat what you wear, or your class cannot use it|r")
     elseif row.scoring then
@@ -513,7 +517,7 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
         Line(tip, "Upgrade", Plain(FM.UpgradePctText(row)) .. " over " .. (type(row.replaces) == "string" and row.replaces or "what you wear"))
     end
     local scale = ScaleText()
-    if scale and not row.notListed then Line(tip, "Scored with", scale .. " (Pawn)") end
+    if scale and not (row.notListed or row.unscored) then Line(tip, "Scored with", scale .. " (Pawn)") end
     if type(row.cb) == "number" then
         Line(tip, "Cost-Benefit", row.cb .. "%")
         Note(tip, string_format("gains %.1f Pawn points for %s%s; prices count against the typical %s%s of this list",
@@ -869,6 +873,39 @@ local function NotListedRow(key)
     return row
 end
 
+-- The listed variants of an item whose slot this tab never lists (a trinket, shirt or tabard: Pawn scores none of
+-- them, trade/Upgrades.lua): one row per variant of the latest snapshot (FM.GearListings) with its price and no
+-- Upgrade, its item data where the client has it (review round 1: such an item was "not listed" before)
+local function UnscoredRows(key, equipLoc)
+    local out = {}
+    local itemID = FM.ItemIDFromKey and FM.ItemIDFromKey(key) or tonumber(key)
+    local level = FM.PlayerLevel and FM.PlayerLevel()
+    for _, listing in ipairs(FM.GearListings and FM.GearListings(key) or {}) do
+        local row = { key = key, bonus = listing.bonus, variant = listing.variant, id = tostring(key) .. ":" .. tostring(listing.bonus),
+            itemID = itemID, equipLoc = equipLoc, price = listing.buyout, n = listing.n, band = listing.band, unscored = true,
+            gearView = true }
+        if itemID and C_Item and C_Item.GetItemInfo and FM.GearLink then
+            local ok, name, link, quality, _, minLevel = pcall(C_Item.GetItemInfo, FM.GearLink(key, listing.variant, level))
+            if ok and type(name) == "string" and name ~= "" and type(link) == "string" and not FM.IsSecret(name)
+                and not FM.IsSecret(link) and not FM.IsSecret(quality) and not FM.IsSecret(minLevel) then
+                row.name, row.link, row.quality, row.minLevel = name, link, tonumber(quality) or 0, tonumber(minLevel)
+            end
+        end
+        row.tooHigh = (level and row.minLevel and row.minLevel > level) and true or nil
+        out[#out + 1] = row
+    end
+    return out
+end
+
+-- An item's equip location from the client, nil without it
+local function EquipLocOf(key)
+    local itemID = FM.ItemIDFromKey and FM.ItemIDFromKey(key) or tonumber(key)
+    if not (itemID and C_Item and C_Item.GetItemInfoInstant) then return nil end
+    local ok, _, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, itemID)
+    if ok and type(equipLoc) == "string" and not FM.IsSecret(equipLoc) then return equipLoc end
+    return nil
+end
+
 -- The gear among a set of items ({ [key] = true }: settings.favorites or settings.excluded)
 local function GearKeys(set)
     local keys, n = {}, 0
@@ -888,7 +925,9 @@ function FM.GearViewRows(set)
     local keys, n = GearKeys(set)
     if n == 0 then return out end
     local filter = FM.UpgradesFilter()
-    local scale = FM.UpgradeScale(filter.scale)
+    local scale, notWhy = FM.UpgradeScale(filter.scale)
+    -- Pawn still starting: look again a second later, as the Upgrades tab does (review round 1)
+    if notWhy == "notready" then RetrySoon() end
     if not scale or not (FM.GearSnapshot and FM.GearSnapshot()) then return out end
     local _, why = FM.EnsureUpgrades(filter)
     if why == "notready" then RetrySoon() end
@@ -904,7 +943,16 @@ function FM.GearViewRows(set)
         out[#out + 1] = GearCopy(row, scale, cbOf[row.id])
     end
     for key in pairs(keys) do
-        if not seen[key] then out[#out + 1] = NotListedRow(key) end
+        if not seen[key] then
+            -- a slot this tab never lists: its listings without an Upgrade; else not listed now
+            local equipLoc = EquipLocOf(key)
+            local rows = (equipLoc and not SLOT_ORDER[equipLoc]) and UnscoredRows(key, equipLoc) or {}
+            if rows[1] then
+                for _, row in ipairs(rows) do out[#out + 1] = row end
+            else
+                out[#out + 1] = NotListedRow(key)
+            end
+        end
     end
     return out
 end

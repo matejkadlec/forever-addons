@@ -6,8 +6,12 @@
 --   * a newer search that still shows its cheap units confirms it (full confidence, "(confirmed 18:52)"); one that no
 --     longer shows them makes it no pick, the reason says they are gone; a search older than the snapshot counts for
 --     nothing
---   * the plan shown follows each search of a flip pick's item: not locked, it plans again; locked, the pick shows the
---     search's answer in place: gone (its steps line says so, grey), or confirmed (its confidence back)
+--   * units of the item you bought since the snapshot count as the flip's own: your purchase is no "gone"
+--   * the plan shown follows a new answer of a search of a flip pick's item (the same answer again changes nothing):
+--     not locked, a pass plans again (FM.ComputeTrade, which keeps the craft picks' targets); locked, the pick shows
+--     the answer in place: gone (its steps line says so, grey), or confirmed (its confidence back, also in its tooltip
+--     and in the plan's expected)
+--   * the list price follows today's price: the median of today's scans' cheapest (FM.UsualPrice's third value)
 --   * while the AH is open the flip picks of the plan shown are searched one by one, at most one search every 3 s,
 --     each again after 2 minutes, never while the sniper searches, the AH is busy, Blizzard shows a Buy or Sell page,
 --     or in combat
@@ -37,7 +41,7 @@ local function Records(perInterval)
     return table.concat(list, ";")
 end
 
-local function Setup()
+local function Setup(records)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
     FM.InitializeSavedData()
     env.clock = FM.EPOCH + NOW_MINUTES * 60
@@ -47,7 +51,9 @@ local function Setup()
     FM.IsExcluded = function() return false end
     FM.SuffixUnknown = function() return false end
     FM.ItemStacks = function() return false end
-    FM.R().items["105"] = { d = Records(27) }
+    FM.R().items["105"] = { d = records or Records(27) }
+    env.bought = 0
+    FM.BoughtSince = function(key, since) return key == "105" and env.bought or 0 end
     return FM, env
 end
 
@@ -149,9 +155,10 @@ H.test("flip check: a locked plan shows the answer in place, an unlocked one pla
     local FM, env = Setup()
     local pick = PlanOn(FM, env)
     local conf = pick.conf
-    FM.trade = { picks = { pick } }
-    local planned = 0
-    FM.PlanPicks = function() planned = planned + 1 end
+    FM.trade = { picks = { pick }, pickExpected = pick.expected }
+    local planned, asked = 0, 0
+    FM.ComputeTrade = function() planned = planned + 1 end
+    FM.PlanPicks = function() asked = asked + 1 end
     H.eq(FM.PicksLocked(), true, "Lock plan after refresh is on by default")
     env.clock = env.clock + 10
     Search(FM, { { 10000, 55 } })
@@ -166,16 +173,84 @@ H.test("flip check: a locked plan shows the answer in place, an unlocked one pla
     H.eq(pick.unconfirmed, nil, "confirmed")
     H.eq(math.abs(pick.conf - conf / 0.85) < 1e-9, true, "its confidence back from the cut")
     H.eq(Note(pick, "Confirmed by the AH search at") ~= nil, true, "the tooltip says so")
+    local confLine
+    for _, r in ipairs(pick.reasons) do
+        if r[1] == "l" and r[2] == "Confidence" then confLine = r[3] end
+    end
+    H.eq(confLine, string.format("%d%%", math.floor(pick.conf * 100 + 0.5)), "the tooltip's Confidence line too")
+    H.eq(math.abs(FM.trade.pickExpected - pick.expected) < 1e-6, true, "and the plan's expected")
     -- a search of another item changes nothing
     FM.SearchLive("900", { { aid = 1, qty = 1, buyout = 100, left = 60, owner = "?" } }, true)
     H.eq(planned, 0, "another item: nothing")
-    -- unlocked: the plan is made again
+    -- unlocked: the same answer again changes nothing, a new one makes a pass plan again (never the plan you ask for)
     FM.GetSettings().tablePicksLock = false
     Search(FM, LADDER)
-    H.eq(planned, 1, "planned again")
+    H.eq(planned, 0, "confirmed again: nothing")
+    Search(FM, { { 10000, 55 } })
+    H.eq(planned, 1, "gone: a pass plans again")
+    H.eq(asked, 0, "through FM.ComputeTrade, not FM.PlanPicks")
     -- a partial result changes nothing
-    FM.SearchLive("105", { { aid = 1, qty = 55, buyout = 550000, left = 60, owner = "?" } }, false)
+    FM.SearchLive("105", { { aid = 1, qty = 4, buyout = 16000, left = 60, owner = "?" } }, false)
     H.eq(planned, 1, "a partial result: nothing")
+end)
+
+H.test("flip check: units you bought since the snapshot are the flip's own, no gone", function()
+    local FM, env = Setup()
+    local pick = PlanOn(FM, env)
+    FM.trade = { picks = { pick } }
+    -- you bought the 5 cheap units: the search shows none of them any more
+    env.bought = 5
+    env.clock = env.clock + 10
+    Search(FM, { { 10000, 55 } })
+    H.eq(pick.gone, nil, "not gone")
+    H.eq(FM.FlipLiveState(pick), "confirmed", "your purchase confirms it")
+    -- with the lock off the pass plans again: its reason says you bought them
+    local gone, out = PlanOn(FM, env)
+    H.eq(gone, nil, "no new flip of them")
+    H.eq(out.pickWhy["105"], "you bought 5 since the scan: list them once they are in your bags", "the reason")
+    -- 2 of 5 bought, the other 3 gone: gone
+    env.bought = 2
+    pick.liveState = nil
+    Search(FM, { { 10000, 55 } })
+    H.eq(pick.gone ~= nil, true, "only 2 of its 5: gone")
+end)
+
+-- FRV-214: today's price. Records of 5 days back to yesterday with the cheapest at 1g, today's three at 1g 50s, 1g 50s
+-- and 1g 60s: usual 1g, today 1g 50s; the flip lists at most at 110% of 1g 50s under the 2g that stays
+local function DayRecords()
+    local list = {}
+    local function Add(minutesAgo, minPrice)
+        local f = {}
+        for k = 1, 22 do f[k] = "" end
+        f[1] = "r" .. B(NOW_MINUTES - minutesAgo)
+        f[2], f[3] = B(minPrice), B(50)
+        f[9] = B(360)
+        f[10], f[11] = B(27), B(3)
+        f[22] = B(27)
+        list[#list + 1] = table.concat(f, ",")
+    end
+    for day = 5, 1, -1 do
+        Add(day * 1440 + 360, 10000)
+        Add(day * 1440, 10000)
+    end
+    Add(90, 15000)
+    Add(60, 16000)
+    Add(30, 15000)
+    return table.concat(list, ";")
+end
+
+H.test("flip check: today's price is the median of today's scans' cheapest, the list price follows it", function()
+    local FM, env = Setup(DayRecords())
+    local usual, recent, today = FM.UsualPrice("105", env.clock)
+    H.eq(usual, 10000, "usual: the days before today")
+    H.eq(recent, 10000, "the last 2 days")
+    H.eq(today, 15000, "today: the median of today's scans")
+    H.eq(FM.UsualPrice("106", env.clock), nil, "no records: none")
+    -- the pick: 2 at 40s and 3 at 60s, then 55 at 2g
+    local pick = PlanOn(FM, env, { { 4000, 2 }, { 6000, 3 }, { 20000, 55 } })
+    H.eq(pick and pick.kind, "flip", "a flip pick")
+    H.eq(pick.listAt, 16500, "at most 110% of today's 1g 50s, under the 2g that stays (before: 1g 10s)")
+    H.eq(Note(pick, "a flip lists at most 110% of today's price") ~= nil, true, "the tooltip says why")
 end)
 
 H.test("flip check: at the AH the flip picks are searched one by one, never while something else uses the AH", function()
@@ -216,6 +291,8 @@ H.test("flip check: at the AH the flip picks are searched one by one, never whil
     FM.AHBusyReason = function() return nil end
     env.AuctionHouseFrame = { ItemBuyFrame = { IsShown = function() return true end } }
     H.eq(FM.FlipCheckTick(), nil, "Blizzard's Buy page of an item is open")
+    env.AuctionHouseFrame = { AuctionsFrame = { IsShown = function() return true end } }
+    H.eq(FM.FlipCheckTick(), nil, "Blizzard's Auctions tab is open")
     env.AuctionHouseFrame = nil
     env.combat = true
     H.eq(FM.FlipCheckTick(), nil, "in combat")

@@ -556,7 +556,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   your items with the market columns. Gear: your gear with the Upgrades tab's columns." **Gear** lists the favorite (or
   ignored) items that are gear with the Upgrades tab's columns (Item, Slot, Lvl, Price, Upgrade, Cost-Benefit), whatever
   that tab's Level, Rarities, Slots and Best per slot say (you picked these items): one row per variant listed in the
-  latest snapshot, an item not listed one row with grey "not listed" as its price. Upgrade is Pawn's % for the Spec
+  latest snapshot, an item not listed one row with grey "not listed" as its price; a trinket, shirt or tabard (Pawn
+  scores none) one row per listed variant with its price and Upgrade "-". Upgrade is Pawn's % for the Spec
   chosen on Upgrades, "-" when it is no upgrade (the row stays); Cost-Benefit the number the Upgrades tab shows for that
   row now, "-" where it has none (outside its Level and Rarities, no upgrade, or ignored: on Ignored every row). Row
   tooltip, clicks and menu as on Upgrades; the menu keeps "Unfavorize this item" / "Stop ignoring this item", and an
@@ -958,9 +959,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     ForeverMarket searches the first 6 flip picks of the plan shown itself, plan first, one search every 3 seconds at
     most and each again after 2 minutes (`FM.FlipCheckTick` in `scan/Search.lua`, `C_AuctionHouse.SendSearchQuery`
     as the sniper sends it), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
-    its throttle is not ready, Blizzard shows a Buy or Sell page or its buy dialog, or in combat. Each answer reaches
-    the plan shown: not locked, it is made again; locked, the pick shows it in place, confirmed (its confidence back)
-    or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
+    its throttle is not ready, Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab, or in combat.
+    Units of the item you bought yourself since the snapshot count as the flip's own: your purchase is no "gone" (the
+    reason says "you bought 2 since the scan: list them once they are in your bags"). Each new answer reaches the plan
+    shown: not locked, a pass plans again as after a post (your craft picks keep their targets); locked, the pick
+    shows it in place, confirmed (its confidence back, in its tooltip and the summary too) or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
     plans without it.")
   * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
     of scope", also on its steps line) for a flip someone else bought first. "[FM] Slayer's Skullcap: flip pick hidden

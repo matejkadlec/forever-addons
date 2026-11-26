@@ -29,6 +29,7 @@ local ITEMS = {
     [13128] = { name = "High Bergg Helm", quality = 3, minLevel = 52, equipLoc = "INVTYPE_HEAD" },
     [7545] = { name = "Ironhide Belt", quality = 2, minLevel = 41, equipLoc = "INVTYPE_WAIST" },
     [7546] = { name = "Ironhide Bracers", quality = 2, minLevel = 42, equipLoc = "INVTYPE_WRIST" },
+    [11122] = { name = "Carrot on a Stick", quality = 2, minLevel = 40, equipLoc = "INVTYPE_TRINKET" },
 }
 local SUFFIX = { ["12733"] = " of Power", ["12724"] = " of the Falcon" }
 local SCORES = {
@@ -39,7 +40,7 @@ local SCORES = {
     ["13128"] = { [MM] = { 0.60, 40 } },
     ["7545"] = {}, -- Pawn knows it: no upgrade for any scale
 }
-local PRICES = { ["15638"] = 5000, ["4000"] = 500, ["13128"] = 20000, ["7545"] = 1500 }
+local PRICES = { ["15638"] = 5000, ["4000"] = 500, ["13128"] = 20000, ["7545"] = 1500, ["11122"] = 9900 }
 
 local function Timers(env)
     local queue = {}
@@ -293,4 +294,18 @@ H.test("gear view: no rows and the Upgrades tab's texts without Pawn or gear dat
     FM.GetSettings().favorites = {}
     H.eq(FM.GearViewEmptyText("favs"), "No favorites yet: right-click a row in any tab > Favorize this item.", "no favorites")
     H.eq(FM.GearViewEmptyText("ignored"), "No ignored items: right-click a row in any tab > Ignore this item.", "nothing ignored")
+end)
+
+H.test("gear view: a listed trinket is a row with its price and no Upgrade, never \"not listed\"", function()
+    local FM, env = Load(true)
+    FM.GetSettings().favorites = { ["11122"] = true, ["7546"] = true }
+    local rows, byId = GearRows(FM, env, "favsGear")
+    H.eq(Sorted(rows), "11122: 7546:none", "the trinket's listing, the bracers not listed")
+    local trinket = byId["11122:"]
+    H.eq(Cell(FM, 1, trinket), "Carrot on a Stick ", "its name (and the favorite's star)")
+    H.eq(Cell(FM, 2, trinket), "Trinket", "its slot")
+    H.eq(Cell(FM, 4, trinket), "99s 00c", "its price")
+    H.eq(Cell(FM, 5, trinket), "-", "no Upgrade: Pawn scores no trinket")
+    H.eq(trinket.unscored, true, "marked as not scored")
+    H.eq(trinket.notListed, nil, "never not listed")
 end)

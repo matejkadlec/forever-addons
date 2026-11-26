@@ -270,8 +270,8 @@ end)
 -- by one with C_AuctionHouse.SendSearchQuery (the sniper's call, no HasRestrictions; 100 a minute at most, this sends
 -- one every CHECK_GAP seconds at most), each again after CHECK_AGAIN while the AH stays open. Never while the sniper
 -- searches, a deep scan wants the AH or reads it, a pass plans, the AH waits for an answer (FM.AHBusyReason), the AH's
--- throttle is not ready, in combat, or while Blizzard shows a Buy or Sell page or its buy dialog (a search of another
--- item would replace that page's list). Results come back through the capture above like any search's. An item
+-- throttle is not ready, in combat, or while Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab (a
+-- search of another item would replace that page's list). Results come back through the capture above like any search's. An item
 -- search with an item key of the bare item ID is not yet verified in game (docs/forever-api-notes.md)
 
 local CHECK_TICK = 1     -- the loop looks this often
@@ -288,12 +288,13 @@ local function Shown(frame)
     return ok and not FM.IsSecret(shown) and shown == true
 end
 
--- Blizzard shows a page whose list a search of another item would replace: its Buy or Sell page, its buy dialog
+-- Blizzard shows a page whose list a search of another item would replace: its Buy or Sell page, its buy dialog, its
+-- Auctions tab (its item and commodity lists follow the search results too, review round 1)
 local function PageInTheWay()
     local ah = _G.AuctionHouseFrame
     if type(ah) ~= "table" then return false end
     return Shown(ah.CommoditiesBuyFrame) or Shown(ah.ItemBuyFrame) or Shown(ah.CommoditiesSellFrame)
-        or Shown(ah.ItemSellFrame) or Shown(ah.BuyDialog)
+        or Shown(ah.ItemSellFrame) or Shown(ah.BuyDialog) or Shown(ah.AuctionsFrame)
 end
 
 -- Why no check search may go out now (nil = it may)

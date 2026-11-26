@@ -1941,15 +1941,21 @@ local function Clock(t)
     return date("%H:%M", t)
 end
 
+-- Units of an item this character bought since a time (trade/Cost.lua's purchase log), 0 without it
+local function BoughtSince(key, since)
+    return FM.BoughtSince and FM.BoughtSince(key, since or 0) or 0
+end
+
 -- A flip pick of the plan shown against the newest search of its item (FRV-214): "confirmed" while that search, newer
 -- than the snapshot the pick came from, still shows the units it buys at its prices (of others, at most its highest
--- price), "gone" when it shows fewer; nil without such a search. Also the search and the units it shows
+-- price) or you bought them since that snapshot (review round 1: your own purchase is no "gone"), "gone" when there
+-- are fewer; nil without such a search. Also the search and the units it counts
 function FM.FlipLiveState(pick)
     if type(pick) ~= "table" or pick.kind ~= "flip" or not pick.mainTop then return nil end
     local live = FM.FlipLive(pick.key, pick.seenAt or 0)
     if not live then return nil end
     local need = math_max(1, (pick.listUnits or 0) - (pick.held or 0))
-    local have = 0
+    local have = BoughtSince(pick.key, pick.seenAt)
     for _, level in ipairs(live.ladder or EMPTY) do
         if level[1] > pick.mainTop then break end
         have = have + level[2]
@@ -1985,17 +1991,27 @@ end
 function FM.FlipSearched(key)
     local trade = FM.trade
     if not (trade and trade.picks) then return end
-    local touched = false
+    local changed = false
     for _, pick in ipairs(trade.picks) do
         if pick.kind == "flip" and pick.key == key then
-            touched = true
             local state, live, have = FM.FlipLiveState(pick)
-            if state then
+            -- only a new answer changes anything (review round 1: a pick confirmed again plans nothing again)
+            if state and state ~= pick.liveState then
+                changed = true
+                pick.liveState = state
                 if state == "confirmed" and pick.unconfirmed then
+                    local before = pick.expected or 0
                     pick.conf = pick.conf / UNCONFIRMED
                     pick.score = pick.score / UNCONFIRMED
-                    pick.expected = (pick.expected or 0) / UNCONFIRMED
+                    pick.expected = before / UNCONFIRMED
                     pick.unconfirmed = nil
+                    -- its tooltip's Confidence line and the plan's expected follow (review round 1)
+                    for _, line in ipairs(pick.reasons or EMPTY) do
+                        if line[1] == "l" and line[2] == "Confidence" then line[3] = string_format("%d%%", Pct(pick.conf)) end
+                    end
+                    if not pick.extra and type(trade.pickExpected) == "number" then
+                        trade.pickExpected = trade.pickExpected + pick.expected - before
+                    end
                 end
                 pick.gone = state == "gone" and live.t or nil
                 if pick.liveNote and pick.reasons and pick.reasons[pick.liveNote] then
@@ -2004,9 +2020,11 @@ function FM.FlipSearched(key)
             end
         end
     end
-    if not touched then return end
-    if not FM.PicksLocked() and FM.PlanPicks then
-        FM.PlanPicks()
+    if not changed then return end
+    -- not locked: a pass plans again, as after a post or a bag change (FM.ComputeTrade keeps the craft picks' targets,
+    -- review round 1: FM.PlanPicks is the plan you ask for, which starts them anew)
+    if not FM.PicksLocked() and FM.ComputeTrade then
+        FM.ComputeTrade(false)
     elseif FM.RefreshTable then
         FM.RefreshTable()
     end
@@ -2065,6 +2083,11 @@ local function EvaluateFlip(c)
     -- a search newer than the snapshot holds no flip any more, whatever this pick could buy: gone (FRV-214; a flip
     -- that is only too big for its batch or gold keeps the reasons below)
     if live and not f and held <= 0 and not FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref) then
+        -- you bought them yourself since the snapshot (review round 1): that is no "gone"
+        local mine = BoughtSince(row.key, P.view.t)
+        if mine > 0 then
+            return nil, string_format("you bought %s since the scan: list them once they are in your bags", Count(mine))
+        end
         return nil, string_format("its cheap listings are gone: the AH search at %s shows none that earn the margin", Clock(live.t))
     end
     if f then
@@ -2130,7 +2153,8 @@ local function EvaluateFlip(c)
     if score < P.minScore and not want then return nil, TooSmall(score, conf) end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
         unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf,
-        seenAt = P.view.t, seenSource = P.view.source, unconfirmed = not live or nil } -- the snapshot it came from (FRV-214)
+        seenAt = P.view.t, seenSource = P.view.source, unconfirmed = not live or nil, -- the snapshot it came from (FRV-214)
+        liveState = live and "confirmed" or nil }
     if want and n < want then
         pick.amountNote = "no more available for flipping"
         pick.amountWhy = string_format("Only %s can be bought now: more would leave cheaper listings under the list price or "
