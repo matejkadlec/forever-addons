@@ -23,13 +23,26 @@ Two ways to run it:
    when something happened or its market changed, else an unchanged record every 4 hours, so the game has far fewer
    lines to import
 4. `Interface/AddOns/ForeverMarket_Feed/Feed.lua` gets the records the game has not imported yet (up to 72 hours,
-   `r.feedT` in ForeverMarket's SavedVariables) and the newest market state; the folder is not part of this
+   `r.feedT` in ForeverMarket's SavedVariables) and the newest market state: `last = { t, fp = { itemKey = "fingerprints" },
+   gear = { itemKey = "<variant>=<min>:<n>:<band>;..." } }`. `gear` (FRV-201) holds the gear variants (random suffixes)
+   of the newest snapshot in the format of an in-game deep scan's `r.last.gear`: per item of the items list (never a
+   commodity) every variant listed, with the cheapest buyout, the auctions and the time left of the cheapest (base36);
+   the variant is built from `item.context`, `item.bonus_lists` and `item.modifiers` exactly as `FM.GearVariant` reads
+   an item link from its itemContext on (`context:numBonusIDs[:bonusID...]:numModifiers[:type:value...]`, a zero or a
+   missing field empty, the API's order, trailing empty fields trimmed); an item whose only variant is "" has no entry.
+   The feed does not know which items are gear (the AddOn reads only weapons and armor), so it keeps every item with a
+   variant. It travels with the latest snapshot (`state["prev"]["gear"]`, the server's `/v1/feed` hands it out as
+   `last.gear`), and `checked_feed` passes it only when every key is an item ID and every value matches
+   `^[0-9a-z:=;]*$`. `FEED_VERSION` stays 1: the field is optional on both sides (an older `feed.py` drops it, an older
+   server sends none, a snapshot from before has none). `tests/fixtures/gear_cases.txt` holds both sides to the same
+   strings. The folder is not part of this
    repository, so `scripts/sync-addons.sh` never touches it. Its `.toc` (`FEED_TOC` in `feed.py`) lists it as
    "Forever Marketplace Feed" in the AddOn list (FRV-198; "Forever Market Feed" until the rename FRV-1)
 5. In the game (`addons/ForeverMarket/scan/Feed.lua`): records newer than the last import go into the item history,
    except records whose interval starts before your latest in-game deep scan (that scan already covers the time);
    the newest snapshot becomes the market state the table works from (your own auctions are recognized like in a
-   deep scan); the table and the picks are recomputed
+   deep scan; the gear variants come along when the feed has them, so the Upgrades tab needs no deep scan of its own);
+   the table and the picks are recomputed
 
 The auction house is found once and remembered in `state/house.json`: the ruleset named PvP and the house of your
 faction whose lowest prices match your last in-game deep scan (WoW: Forever has several Alliance houses), plus the
@@ -103,7 +116,7 @@ role. No service publishes a host port.
 
 | Service | What it is | Networks |
 | ------- | ---------- | -------- |
-| `db` | PostgreSQL 18: tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot, pending stats, variants; the house as the AddOn gets it) | `backend` (no route out) |
+| `db` | PostgreSQL 18: tables `feed_snapshot` (one row per snapshot: records string, counts) and `feed_state` (gzip JSON of the previous snapshot with its gear variants, pending stats, variants; the house as the AddOn gets it) | `backend` (no route out) |
 | `collector` | `python server.py collect`: owns the tables; every `FEED_INTERVAL` (1800 s, the first cycle at start): `feed.fetch_snapshot` → `feed.process_snapshot` → one transaction (session advisory lock, the download happens outside it); a failed cycle retries after 5 minutes; snapshots older than `FEED_KEEP_DAYS` (90) are deleted | `backend`, `egress` |
 | `api` | `python server.py serve`: port 8080, read-only database role `feed_api`, at most two `/v1/feed` builds at once (503 otherwise), `/healthz` cached for 30 s | `backend`, `frontend` (no route out) |
 | `cloudflared` | Tunnel connector, the only way in; runs once the token file exists | `frontend`, `egress` |

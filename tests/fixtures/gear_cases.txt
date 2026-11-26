@@ -1,0 +1,77 @@
+# Gear variants of the latest snapshot (FRV-200, FRV-201): the variant of each auction and the gear map the snapshot
+# keeps (r.last.gear of a deep scan in the game, last.gear of the Battle.net feed). Shared by
+# tests/forevermarket/gearfeed_test.lua (FM.GearVariant on the item link the game shows for the auction,
+# FM.SnapshotAdd and FM.FinalizeSnapshot) and tests/feed/test_feed.py (gear_variant on the API's item, aggregate):
+# both sides must give byte for byte the same strings.
+#
+# An API item auction carries item.id and, when set, item.context, item.bonus_lists and item.modifiers: the same
+# numbers as the item link's fields 12 (itemContext), 13 (numBonusIDs) with the bonus IDs, then numModifiers with the
+# type:value pairs. The link item:15638::::::::44:1485::1:1:12733:1:28:6061 is context 1, bonus list [12733],
+# modifiers [{28, 6061}], variant "1:1:12733:1:28:6061".
+#
+# case <name>                                  a snapshot of the auctions below it
+# auction <item> <buyout> <band> [context=<n>] [bonus=<id>,<id>...] [mods=<type>:<value>,...] [commodity]
+#                                              an auction: buyout = total copper (one unit), band = time left 0-3;
+#                                              the API item's context, bonus_lists and modifiers (left out = the API
+#                                              has none); commodity = from the commodities list (never gear)
+# variant <expected>                           the variant of the auction above ("-" for ""); none for a commodity
+# gear <item> <variant> <min> <n> <band>       one variant of the item's gear entry, in the entry's order ("-" for
+#                                              ""): its cheapest buyout, its auctions and the band of the cheapest
+# nogear <item>                                the item has no gear entry
+# Every item with gear lines has exactly those variants; every other item of the case has no entry.
+
+# The ticket's two auctions and one more of the first variant: the cheapest of each variant, its auctions and band;
+# the bonus IDs keep the API's order, the variants are sorted ("1" before ":").
+case ticket-examples
+auction 15638 13399 2 context=1 bonus=12733 mods=28:6061
+variant 1:1:12733:1:28:6061
+auction 15638 20000 3 bonus=12733,12001
+variant :2:12733:12001
+auction 15638 15000 1 context=1 bonus=12733 mods=28:6061
+variant 1:1:12733:1:28:6061
+gear 15638 1:1:12733:1:28:6061 13399 2 2
+gear 15638 :2:12733:12001 20000 1 3
+
+# An auction without the three fields has the variant "": a key with only "" has no entry (its cheapest buyout is
+# the minimum of its fingerprints already).
+case plain-only
+auction 7542 9000 1
+variant -
+auction 7542 8000 2
+variant -
+nogear 7542
+
+# A plain listing next to a suffixed one: both in the entry, "" first.
+case plain-and-suffix
+auction 7543 9500 2
+variant -
+auction 7543 9000 2 bonus=12733
+variant :1:12733
+gear 7543 - 9500 1 2
+gear 7543 :1:12733 9000 1 2
+
+# Two auctions of one variant at one price: the longer time left; a cheaper one later takes its band.
+case tie-and-cheaper
+auction 9414 10000 1 bonus=12728
+variant :1:12728
+auction 9414 10000 3 bonus=12728
+variant :1:12728
+auction 9415 12000 3 bonus=12728
+variant :1:12728
+auction 9415 11000 0 bonus=12728
+variant :1:12728
+gear 9414 :1:12728 10000 2 3
+gear 9415 :1:12728 11000 2 0
+
+# A context and a modifier without bonus IDs: the empty count of bonus IDs stays as an empty field.
+case modifier-without-bonus
+auction 13128 25000 2 context=1 mods=28:5243
+variant 1::1:28:5243
+gear 13128 1::1:28:5243 25000 1 2
+
+# Commodities never have an entry, also one whose API item carries a bonus list.
+case commodities
+auction 2589 500 2 commodity
+auction 2590 700 2 commodity bonus=12733
+nogear 2589
+nogear 2590

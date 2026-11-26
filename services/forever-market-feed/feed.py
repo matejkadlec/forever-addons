@@ -375,10 +375,64 @@ def build_records(state, snap_t, aggs, record_hours, compact=False):
     return records, sold
 
 
+def api_number(value):
+    """A whole number of the API as a link writes it; ValueError for anything else"""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(value)
+    return str(value)
+
+
+def gear_variant(item):
+    """FM.GearVariant (core/Codec.lua) of an API item auction's item (FRV-201): the fields of its item link from
+    itemContext on, "context:numBonus[:bonusID...]:numModifiers[:type:value...]", from item.context, item.bonus_lists
+    and item.modifiers; empty where the API has nothing (a 0 too: a link leaves a zero field empty), the bonus IDs and
+    the modifiers in the API's order, trailing empty fields trimmed; "" when a value is not a whole number"""
+    try:
+        context = item.get("context")
+        bonus = item.get("bonus_lists") or []
+        mods = item.get("modifiers") or []
+        if not isinstance(bonus, list) or not isinstance(mods, list):
+            return ""
+        out = [api_number(context) if context else "", str(len(bonus)) if bonus else ""]
+        out.extend(api_number(b) for b in bonus)
+        out.append(str(len(mods)) if mods else "")
+        for m in mods:
+            out.extend((api_number(m["type"]), api_number(m["value"])))
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return ""
+    while out and out[-1] == "":
+        out.pop()
+    return ":".join(out)
+
+
+def add_gear(variants, variant, buyout, band):
+    """Snapshot.lua AddGear: per variant the cheapest buyout, the auctions and the band of the cheapest (the longer
+    band on a tie)"""
+    g = variants.get(variant)
+    if g is None:
+        variants[variant] = [buyout, 1, band]
+        return
+    g[1] += 1
+    if buyout < g[0] or (buyout == g[0] and band > g[2]):
+        g[0], g[2] = buyout, band
+
+
+def gear_entries(gear):
+    """{itemKey: {variant: [min, n, band]}} -> the snapshot's gear map like Snapshot.lua GearEntry:
+    {itemKey: "<variant>=<min>:<n>:<band>;..."} sorted by variant, no entry for a key whose only variant is \"\""""
+    out = {}
+    for key, variants in gear.items():
+        if list(variants) == [""]:
+            continue
+        out[key] = ";".join("%s=%s:%s:%d" % (v, enc(g[0]), enc(g[1]), g[2]) for v, g in sorted(variants.items()))
+    return out
+
+
 def aggregate(auction_lists):
-    """API auctions (items: buyout, commodities: unit_price) -> {itemKey: Agg}, {itemKey: bonus list sets}, skipped"""
-    aggs, bonus, skipped = {}, {}, 0
-    for auctions in auction_lists:
+    """API auctions (items: buyout, commodities: unit_price) -> {itemKey: Agg}, {itemKey: bonus list sets},
+    the snapshot's gear map (FRV-201: from the first list, the items list; commodities have none), skipped"""
+    aggs, bonus, gear, skipped = {}, {}, {}, 0
+    for index, auctions in enumerate(auction_lists):
         for a in auctions:
             item = a.get("item") or {}
             item_id = item.get("id")
@@ -394,11 +448,15 @@ def aggregate(auction_lists):
             agg = aggs.get(key)
             if agg is None:
                 agg = aggs[key] = Agg()
-            agg.add(count, buyout, TIME_LEFT_BAND.get(a.get("time_left"), 0))
+            band = TIME_LEFT_BAND.get(a.get("time_left"), 0)
+            agg.add(count, buyout, band)
             # random suffix ("of the Bear"): the bonus list differs per variant of the same item ID
             if item.get("bonus_lists"):
                 bonus.setdefault(key, set()).add(",".join(str(b) for b in sorted(item["bonus_lists"])))
-    return aggs, bonus, skipped
+            # every auction of the items list counts in its variant; the AddOn reads only the keys of gear
+            if index == 0:
+                add_gear(gear.setdefault(key, {}), gear_variant(item), buyout, band)
+    return aggs, bonus, gear_entries(gear), skipped
 
 
 def update_variants(state, bonus):
@@ -618,7 +676,7 @@ def discover_house(api, cfg, wow_dir):
         scores = []
         for h in candidates:
             auctions, _ = api.get(h[2] or f"/data/wow/ruleset/{ruleset}/auctions/{h[0]}")
-            aggs, _, _ = aggregate([auctions.get("auctions") or []])
+            aggs = aggregate([auctions.get("auctions") or []])[0]
             common = [k for k in aggs if k in mine]
             equal = sum(1 for k in common if abs(aggs[k].min - mine[k]) <= 1)
             scores.append((equal / len(common) if common else 0, len(aggs), h))
@@ -705,7 +763,14 @@ def render_feed(house, snapshots, latest, variants, generated):
     out.append(f"    last = {{ t = {int(latest['t'])}, fp = {{")
     for key in sorted(latest["fp"], key=int):
         out.append(f"        [{lua_string(key)}] = {lua_string(latest['fp'][key])},")
-    out.append("    } },")
+    gear = latest.get("gear")
+    if gear is None:
+        out.append("    } },")  # a snapshot from before FRV-201, or an old server: no gear variants
+    else:
+        out.append("    }, gear = {")
+        for key in sorted(gear, key=int):
+            out.append(f"        [{lua_string(key)}] = {lua_string(gear[key])},")
+        out.append("    } },")
     out.append("}")
     return "\n".join(out) + "\n"
 
@@ -757,11 +822,12 @@ def process_snapshot(state, item_auctions, commodities, t_items, snap_t, record_
         log.warning("snapshot skipped: %d item auctions, %d commodity listings (last one had %d in all)",
                     len(item_auctions), len(commodities), previous_n)
         return None
-    aggs, bonus, skipped = aggregate([item_auctions, commodities])
+    aggs, bonus, gear, skipped = aggregate([item_auctions, commodities])
     update_variants(state, bonus)
     state["n"] = total
     gap = snap_t - state["prev"]["t"] if state.get("prev") else None
     records, sold = build_records(state, snap_t, aggs, record_hours)
+    state["prev"]["gear"] = gear  # the latest snapshot's gear variants travel with it (FRV-201)
     state["modified"] = t_items
     snapshot = {"t": snap_t, "gap": int(math.floor(gap / 60 + 0.5)) if gap and gap <= DIFF_MAX_GAP_SECONDS else 0,
                 "n": sum(a.n for a in aggs.values()), "items": len(aggs), "sold": sold,
@@ -848,6 +914,7 @@ def http_json(url, token, timeout=120):
 RECORDS_RE = re.compile(r"^[0-9a-z?@:,;|=./\-]*$")
 FP_RE = re.compile(r"^[0-9a-z?@:,]*$")
 KEY_RE = re.compile(r"^[0-9]+$")
+GEAR_RE = re.compile(r"^[0-9a-z:=;]*$")  # FRV-201: "<variant>=<min>:<n>:<band>;..."
 
 
 def checked_feed(data):
@@ -866,8 +933,19 @@ def checked_feed(data):
         if not (KEY_RE.match(key) and FP_RE.match(value)):
             raise ValueError("unexpected fingerprint of item %r" % key[:20])
         fp[key] = value
+    last = {"t": int(data["last"]["t"]), "fp": fp}
+    # the latest snapshot's gear variants (FRV-201): optional, an older server sends none
+    if data["last"].get("gear") is not None:
+        if not isinstance(data["last"]["gear"], dict):
+            raise ValueError("unexpected gear variants")
+        gear = {}
+        for key, value in data["last"]["gear"].items():
+            if not (isinstance(value, str) and KEY_RE.fullmatch(key) and GEAR_RE.fullmatch(value)):
+                raise ValueError("unexpected gear variants of item %r" % key[:20])
+            gear[key] = value
+        last["gear"] = gear
     variants = [str(int(v)) for v in data.get("variants") or []]
-    return clean_house, snapshots, {"t": int(data["last"]["t"]), "fp": fp}, variants
+    return clean_house, snapshots, last, variants
 
 
 def pull(cfg, wow_dir):

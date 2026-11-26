@@ -7,7 +7,8 @@
 --     FM.GearListings gives it the cheapest of its fingerprints not marked "@"
 --   * your own auctions are in no variant: the ones the scan names as yours and the ones the best fit marks as yours
 --   * only weapons and armor: the deep scan reads the link of a gear auction only, no other item costs a call
---   * r.last.gear goes with r.last: the next snapshot replaces it, a feed import leaves none (FM.GearSnapshot nil)
+--   * r.last.gear goes with r.last: the next snapshot replaces it, a feed import without gear leaves none (FM.GearSnapshot nil; with gear:
+--     gearfeed_test.lua, FRV-201)
 
 local H = require("harness")
 
@@ -120,7 +121,7 @@ H.test("gear variants: your own auctions are in no variant", function()
     H.eq(FM.GearListings("7542"), nil, "and no listing from its fingerprints (all marked @)")
 end)
 
-H.test("gear variants: the next snapshot replaces them, a feed import leaves none", function()
+H.test("gear variants: the next snapshot replaces them, a feed import without gear leaves none", function()
     local FM, env = Load()
     Scan(FM, env, { { "15638", 10000, ":1:12733" }, { "15638", 20000, ":1:12728" } })
     H.eq(FM.R().last.gear["15638"] ~= nil, true, "the first snapshot has the item")
@@ -128,14 +129,14 @@ H.test("gear variants: the next snapshot replaces them, a feed import leaves non
     local last = Scan(FM, env, { { "7542", 9000, ":1:12733" }, { "7542", 9500, "" } })
     H.eq(last.gear["15638"], nil, "gone with the snapshot it was in")
     H.eq(last.gear["7542"], "=" .. FM.Enc(9500) .. ":1:2;:1:12733=" .. FM.Enc(9000) .. ":1:2", "the new one's")
-    -- a scan that read no gear variant at all, and the feed's r.last (scan/Feed.lua writes it without gear)
+    -- a scan that read no gear variant at all, and the r.last of a feed without gear (an older feed or server)
     env.clock = env.clock + 20 * 60
     last = Scan(FM, env, { { "2589", 500 } })
     H.eq(last.gear, nil, "a scan without gear variants writes none")
     H.eq(FM.GearSnapshot(), nil, "no gear data yet")
     H.eq(FM.GearListings("7542"), nil, "and no listings")
     FM.R().last = { t = env.clock, fp = { ["7542"] = "?:1:" .. FM.Enc(100) .. ":2" }, source = "api" }
-    H.eq(FM.GearSnapshot(), nil, "after a feed import: no gear data yet")
+    H.eq(FM.GearSnapshot(), nil, "after a feed import without gear: no gear data yet")
 end)
 
 ---------------------------------------------------------------- the deep scan reads the links of gear only

@@ -594,19 +594,62 @@ end
 -- Whether the client's tooltip of a pattern item says you know its recipe now ("Already known", the client's
 -- ITEM_SPELL_KNOWN), read live every time (review round 1 of PR 80): a recipe built from its pattern is never learned in
 -- ForeverArtisan's sense, and the lines it was built from (Contacts', or the tooltip kept by TooltipLines) may be from
--- before you learned it, so until ForeverArtisan lists it the pattern's own tooltip tells
+-- before you learned it, so until ForeverArtisan lists it the pattern's own tooltip tells. true: it says so; false:
+-- the tooltip is loaded (it has its "Teaches you how to" line) and does not; nil: the client has not loaded the item
+-- yet (FRV-208: then no line says either, and until 1.55 that read as "not known"): it is asked for, and the recipes
+-- are built again when it arrives (awaitedItems, below); three requests at most per item (an item of another game
+-- version never loads)
 local KNOWN = type(ITEM_SPELL_KNOWN) == "string" and ITEM_SPELL_KNOWN or "Already known"
+local knownAsked, awaitedItems = {}, {}
 local function KnownNow(id)
     local api = C_TooltipInfo and C_TooltipInfo.GetItemByID
     id = tonumber(id)
     if not (api and id) then return false end
     local ok, data = pcall(api, id)
-    if not (ok and type(data) == "table" and type(data.lines) == "table") then return false end
-    for _, line in ipairs(data.lines) do
-        local text = type(line) == "table" and line.leftText
-        if type(text) == "string" and not FM.IsSecret(text) and string_find(text, KNOWN, 1, true) then return true end
+    local lines = {}
+    if ok and type(data) == "table" and type(data.lines) == "table" then
+        for i, line in ipairs(data.lines) do
+            local text = type(line) == "table" and line.leftText
+            if type(text) == "string" and not FM.IsSecret(text) then
+                if string_find(text, KNOWN, 1, true) then return true end
+                lines[i] = text
+            else
+                lines[i] = ""
+            end
+        end
     end
-    return false
+    if PatternLines(lines) then return false end
+    if (knownAsked[id] or 0) < 3 then
+        knownAsked[id] = (knownAsked[id] or 0) + 1
+        awaitedItems[id] = true
+        if C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+    end
+    return nil
+end
+
+-- Recipes learned this session (NEW_RECIPE_LEARNED: its spell's name -> its recipe ID): a recipe built from its pattern
+-- of that name is known at once, whatever the pattern's tooltip says yet (FRV-208)
+local learnedNow = {}
+
+-- Recipes your profession window lists as learned that ForeverArtisan does not (FRV-208, after the first in-game test):
+-- Forever's window shows only the recipes you know (Blizzard_ProfessionsTemplates, Camelot: SetShowUnlearned(false)),
+-- so a recipe built from its pattern is known when the window lists its name, whichever item taught it (the client has
+-- two recipes named Turtle Scale Gloves: 10509 from pattern 8385, the one vendors sell, and 439118 from 217271; the
+-- tooltip of the one you did not use never says "Already known"). Per character, saved (R.windowRecipes[char] =
+-- { [name] = recipeID }), so a /reload keeps them; nil while there is none (create: make the table)
+local function WindowRecipes(create)
+    local r = FM.realm or (FM.R and FM.R())
+    if type(r) ~= "table" then return nil end
+    if type(r.windowRecipes) ~= "table" then
+        if not create then return nil end
+        r.windowRecipes = {}
+    end
+    local me = FM.PlayerName()
+    if type(r.windowRecipes[me]) ~= "table" then
+        if not create then return nil end
+        r.windowRecipes[me] = {}
+    end
+    return r.windowRecipes[me]
 end
 
 -- The vendors QuestieDB names for a recipe's pattern (e = { ids, vendors }) as ways to learn it: the skill and level of
@@ -656,6 +699,7 @@ function FM.BuildSources()
     local qdb = FM.QuestiePatterns and FM.QuestiePatterns() or nil
     local sold = type(qdb) == "table" and qdb or {}
     local index -- item names to keys, made when a pattern's lines are read
+    local windowKnown = WindowRecipes(false) or {} -- learned by your profession window's list
 
     local crafts, byKey = {}, {}
     local laterList, laterByKey = {}, {}
@@ -774,18 +818,28 @@ function FM.BuildSources()
             end
         end
         for recipeName, r in pairs(extra) do
-            -- learned since its lines were read: the live tooltip of any of its pattern items says so, the one a vendor
-            -- you opened sells and every one QuestieDB names (review rounds 1 and 2 of PR 80: an item of another game
-            -- version can teach another spell, its tooltip then never says it)
-            local known = false
+            -- learned since its lines were read: learned this session, your profession window lists it as learned, or
+            -- the live tooltip of any of its pattern items says so, the one a vendor you opened sells and every one
+            -- QuestieDB names (review rounds 1 and 2 of PR 80: an item of another game version can teach another
+            -- spell, its tooltip then never says it)
+            local recipeID = learnedNow[recipeName] or windowKnown[recipeName]
+            local known = recipeID ~= nil
             for _, route in ipairs(routes[recipeName] or {}) do
-                if route.pattern and KnownNow(route.pattern) then known = true end
+                if not known and route.pattern and KnownNow(route.pattern) == true then known = true end
             end
             local e = sold[prof.name] and sold[prof.name][recipeName]
             for _, id in ipairs(not known and e and e.ids or {}) do
-                if KnownNow(id) then known = true end
+                if not known and KnownNow(id) == true then known = true end
             end
-            if not known then Consider(prof, data, recipeName, r) end
+            -- a recipe you know is a learned craft, made from the same lines (FRV-208: until 1.55 it was left out, so
+            -- it could never be crafted or picked); one you do not know yet stays a recipe to learn with its vendors
+            if known then
+                r.learned = true
+                -- learned this session or listed by the window: its recipe ID (its spell, for Ctrl+click and the cast
+                -- time) is the one you know
+                if type(recipeID) == "number" then r.id = recipeID end
+            end
+            Consider(prof, data, recipeName, r)
         end
     end
     -- a product you can already make (or learn now) needs no recipe for later
@@ -801,6 +855,143 @@ end
 function FM.Sources()
     return FM.sources or FM.BuildSources()
 end
+
+---------------------------------------------------------------- your recipes changed (FRV-208)
+-- Every pass of the table builds the sources again (FM.ComputeTrade), so learning a recipe needs a pass: a recipe
+-- learned (NEW_RECIPE_LEARNED), a profession window after which ForeverArtisan lists more learned recipes than before
+-- (it reads the window: its lists in memory are what FM.BuildSources reads) or that lists a learned recipe
+-- ForeverArtisan does not (ReadWindow, kept in WindowRecipes), and a pattern item a "known" check waited for
+-- (KnownNow) start one a second later. FM.recipesVersion counts the changes; a locked plan stays and Refresh's tooltip
+-- says a recipe changed (ui/Table.lua), as for your bags (FRV-63, FRV-98)
+FM.recipesVersion = 0
+local RECIPES_SETTLE = 1
+local recipesPending = false
+local learnedSig -- ForeverArtisan's learned recipes as counted at the last look
+
+-- How many recipes ForeverArtisan holds as learned, per profession, in one text
+local function LearnedSignature()
+    local parts = {}
+    for i, prof in ipairs(PROFESSIONS) do
+        local data = CharData(_G[prof.db])
+        local n = 0
+        for _, r in pairs(data and type(data.recipes) == "table" and data.recipes or {}) do
+            if type(r) == "table" and r.learned then n = n + 1 end
+        end
+        parts[i] = n
+    end
+    return table.concat(parts, ",")
+end
+
+-- The open profession window's learned recipes that ForeverArtisan does not list as learned, kept in WindowRecipes;
+-- true when one is new. A name keeps the first recipe ID seen (two learned recipes of one name must not swap it on
+-- every read). Never someone else's list: a linked profession, a guild's, an NPC crafting for you (the window then
+-- shows their recipes)
+local NOT_YOURS = { "IsTradeSkillLinked", "IsTradeSkillGuild", "IsTradeSkillGuildMember", "IsNPCCrafting" }
+local function ReadWindow()
+    local T = C_TradeSkillUI
+    if not (T and T.GetFilteredRecipeIDs and T.GetRecipeInfo) then return false end
+    for _, f in ipairs(NOT_YOURS) do
+        if T[f] then
+            local ok, theirs = pcall(T[f])
+            if not ok or FM.IsSecret(theirs) or theirs then return false end
+        end
+    end
+    local ok, ids = pcall(T.GetFilteredRecipeIDs)
+    if not ok or type(ids) ~= "table" then return false end
+    local listed = {} -- learned in ForeverArtisan's lists: no second record
+    for _, prof in ipairs(PROFESSIONS) do
+        local data = CharData(_G[prof.db])
+        for name, r in pairs(data and type(data.recipes) == "table" and data.recipes or {}) do
+            if type(r) == "table" and r.learned then listed[name] = true end
+        end
+    end
+    local kept, added = nil, false
+    for _, id in ipairs(ids) do
+        if type(id) == "number" and not FM.IsSecret(id) then
+            local okInfo, info = pcall(T.GetRecipeInfo, id)
+            local name = okInfo and type(info) == "table" and not FM.IsSecret(info.learned) and info.learned == true
+                and info.name
+            if type(name) == "string" and not FM.IsSecret(name) and name ~= "" and not listed[name] then
+                kept = kept or WindowRecipes(true)
+                if kept[name] == nil then
+                    kept[name] = id
+                    added = true
+                end
+            end
+        end
+    end
+    return added
+end
+
+-- force: a change for sure (a recipe learned, an awaited item arrived); else only when ForeverArtisan's count moved or
+-- the profession window (window: one of its events came) lists a recipe learned that was not kept yet
+local recipesForce, recipesWindow = false, false
+local function RecipesChangedSoon(force, window)
+    if force then recipesForce = true end
+    if window then recipesWindow = true end
+    if recipesPending then return end
+    recipesPending = true
+    C_Timer.After(RECIPES_SETTLE, function()
+        local forced, readWindow = recipesForce, recipesWindow
+        recipesPending, recipesForce, recipesWindow = false, false, false
+        local ok, sig = pcall(LearnedSignature)
+        local changed = ok and learnedSig ~= nil and sig ~= learnedSig
+        if ok then learnedSig = sig end
+        if readWindow then
+            local okWindow, added = pcall(ReadWindow)
+            if okWindow and added then changed = true end
+        end
+        if not (forced or changed) then return end
+        FM.recipesVersion = FM.recipesVersion + 1
+        FM.sources = nil
+        if FM.trade and not FM.trade.empty and FM.ComputeTrade then FM.ComputeTrade(false) end
+    end)
+end
+
+-- the name of a recipe just learned is its spell's (C_Spell.GetSpellName, nil when the spell is not found)
+FM.On("NEW_RECIPE_LEARNED", function(recipeID)
+    if type(recipeID) == "number" and not FM.IsSecret(recipeID) and C_Spell and C_Spell.GetSpellName then
+        local ok, name = pcall(C_Spell.GetSpellName, recipeID)
+        if ok and type(name) == "string" and not FM.IsSecret(name) then learnedNow[name] = recipeID end
+    end
+    RecipesChangedSoon(true)
+end)
+-- the window's list can fill a moment after it opens (its update event reads it again); read once more a little later
+local WINDOW_AGAIN = 3
+local function WindowShown()
+    RecipesChangedSoon(false, true)
+    C_Timer.After(WINDOW_AGAIN, function() RecipesChangedSoon(false, true) end)
+end
+FM.On("TRADE_SKILL_SHOW", WindowShown)
+FM.On("TRADE_SKILL_LIST_UPDATE", function() RecipesChangedSoon(false, true) end)
+-- Forever's profession window does not send the trade skill events every time (ForeverArtisan reads it as it shows for
+-- the same reason): its OnShow too, hooked once Blizzard_Professions has loaded it
+local windowHooked = false
+local function HookWindow()
+    local frame = not windowHooked and _G.ProfessionsFrame
+    if type(frame) == "table" and frame.HookScript then
+        windowHooked = true
+        frame:HookScript("OnShow", WindowShown)
+    end
+end
+FM.On("ADDON_LOADED", HookWindow)
+-- an item the client does not have (success false: another game version's) is not asked for again
+local function ItemArrived(itemID, success)
+    if type(itemID) ~= "number" or FM.IsSecret(itemID) or not awaitedItems[itemID] then return end
+    awaitedItems[itemID] = nil
+    if success == false then
+        knownAsked[itemID] = math.huge
+        return
+    end
+    RecipesChangedSoon(true)
+end
+FM.On("GET_ITEM_INFO_RECEIVED", ItemArrived)
+FM.On("ITEM_DATA_LOAD_RESULT", ItemArrived)
+FM.On("PLAYER_LOGIN", function()
+    local ok, sig = pcall(LearnedSignature)
+    if ok then learnedSig = sig end
+    HookWindow()
+end)
 
 -- Cheapest vendor price per unit of an item: (unit, offer) or nil. Material costs leave out offers
 -- with limited stock (allowLimited false): those cannot supply a batch of crafts. ForeverArtisan's Trade Contacts
@@ -996,15 +1187,16 @@ end
 local bagIndex          -- [itemID] = { all = units in bags, free = units not bound }
 local bankIndex = {}    -- [itemID] = { all, free } from the last time the bank was open
 
+-- One slot: its item ID, units, whether it is bound and its item link (FRV-206: the gear you own)
 local function ContainerSlot(bag, slot)
     if C_Container and C_Container.GetContainerItemInfo then
         local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
-        if ok and type(info) == "table" then return info.itemID, info.stackCount or 1, info.isBound end
+        if ok and type(info) == "table" then return info.itemID, info.stackCount or 1, info.isBound, info.hyperlink end
         return nil
     end
     if GetContainerItemInfo then
-        local ok, _, count, _, _, _, _, _, _, _, id, bound = pcall(GetContainerItemInfo, bag, slot)
-        if ok and id then return id, count or 1, bound end
+        local ok, _, count, _, _, _, _, link, _, _, id, bound = pcall(GetContainerItemInfo, bag, slot)
+        if ok and id then return id, count or 1, bound, link end
     end
     return nil
 end
@@ -1020,11 +1212,26 @@ local function HasContainerAPI()
     return (C_Container and C_Container.GetContainerItemInfo) or GetContainerItemInfo
 end
 
-local function Scan(bags)
+-- The gear of the containers as "key/variant" -> true (FRV-206): weapons and armor (FM.IsGear), each with the variant
+-- of its link (FM.GearVariant: its suffix); gear = the set to fill, isGear = the answers per item ID so far
+local function AddGear(gear, isGear, id, link)
+    if FM.IsSecret(id) or type(id) ~= "number" then return end
+    local yes = isGear[id]
+    if yes == nil then
+        yes = FM.IsGear(id)
+        isGear[id] = yes
+    end
+    if not yes or FM.IsSecret(link) or type(link) ~= "string" then return end
+    gear[id .. "/" .. FM.GearVariant(link)] = true
+end
+
+-- [itemID] = { all, free } of the containers; with gear (a table) their gear goes into it too (AddGear)
+local function Scan(bags, gear)
     local index = {}
+    local isGear = gear and {}
     for _, bag in ipairs(bags) do
         for slot = 1, SlotCount(bag) do
-            local id, count, bound = ContainerSlot(bag, slot)
+            local id, count, bound, link = ContainerSlot(bag, slot)
             if id then
                 local e = index[id]
                 if not e then
@@ -1033,6 +1240,7 @@ local function Scan(bags)
                 end
                 e.all = e.all + count
                 if not bound then e.free = e.free + count end
+                if gear then AddGear(gear, isGear, id, link) end
             end
         end
     end
@@ -1078,14 +1286,86 @@ FM.ScanContainers = Scan -- [itemID] = { all, free } of the given containers (sc
 local bankOpen = false
 local bankScanned = false
 local apiBank -- whether GetItemCount counts the closed bank: nil = not asked since the last change
+local bankGear, bankGearAt -- the bank's gear as read this session ("key/variant" -> true, a new table at each read)
 local function ScanBank()
     if bankOpen then
-        bankIndex = Scan(BankIDs())
+        local gear = {}
+        bankIndex = Scan(BankIDs(), gear)
         bankScanned = true
+        bankGear, bankGearAt = gear, FM.Now()
     end
 end
 -- [itemID] = { all, free } of the bank, and whether it was scanned this session (scan/Worth.lua keeps it)
 FM.BankIndex = function() return bankIndex, bankScanned end
+
+---------------------------------------------------------------- the gear you own (FRV-206, the Upgrades tab)
+-- Saved as "t|key/variant,key/variant,..." (t = FM.Stamp, the variant FM.GearVariant's, "" for a plain item): the
+-- character's bank in R.gearBank[char], written as the bank closes from its last reading while open, like R.bank
+-- (scan/Worth.lua); the account bank in R.accountGear (scan/Characters.lua, at each read while the bank is open). The
+-- bags are read live and need nothing saved.
+
+-- "key/variant" -> true as one string, sorted (the same reading gives the same text)
+function FM.EncodeGear(gear)
+    local list = {}
+    for entry in pairs(gear or {}) do list[#list + 1] = entry end
+    table.sort(list)
+    return table.concat(list, ",")
+end
+
+-- A saved reading -> { { key, variant }, ... } and its time; nil for none or one that does not parse
+function FM.DecodeGear(text)
+    if type(text) ~= "string" then return nil end
+    local stamp, body = text:match("^([0-9a-z]*)|(.*)$")
+    local at = stamp and FM.Unstamp(stamp)
+    if not at then return nil end
+    local list = {}
+    for key, variant in body:gmatch("(%d+)/([%d:]*)") do list[#list + 1] = { key = key, variant = variant } end
+    return list, at
+end
+
+-- The gear in your bags now: "key/variant" -> true, the same table until a bag changes. A read that finds no item at
+-- all may come before the bags loaded (FRV-73): it is read again next time
+local bagGear
+local NO_GEAR = {} -- the answer while the bags read empty (the same table, so the Upgrades rows stay; never written)
+function FM.BagGear()
+    if bagGear then return bagGear end
+    local gear = {}
+    if next(Scan(BagIDs(), gear)) == nil then return NO_GEAR end
+    bagGear = gear
+    return gear
+end
+
+-- A saved reading as "key/variant" -> true, parsed once per text: the same table while the text stays (kind: "bank"
+-- or "account", the newest text of each is kept)
+local decoded = {}
+local function SavedGear(kind, text)
+    local d = decoded[kind]
+    if not d or d.text ~= text then
+        local list, at = FM.DecodeGear(text)
+        d = { text = text, at = at }
+        if list then
+            d.gear = {}
+            for _, e in ipairs(list) do d.gear[e.key .. "/" .. e.variant] = true end
+        end
+        decoded[kind] = d
+    end
+    return d.gear, d.at
+end
+
+-- The gear in your bank: "key/variant" -> true, when it was read and whether the bank is open now (live while it is
+-- open, else this session's last reading, else the saved one); nil without any reading
+function FM.BankGear()
+    if bankGear then return bankGear, bankGearAt, bankOpen end
+    local r = FM.realm or (FM.R and FM.R())
+    local gear, at = SavedGear("bank", r and type(r.gearBank) == "table" and r.gearBank[FM.PlayerName()] or nil)
+    return gear, at, false
+end
+
+-- The gear in the account bank as last read (scan/Characters.lua) and when; nil without a reading
+function FM.AccountGear()
+    local r = FM.realm or (FM.R and FM.R())
+    return SavedGear("account", r and r.accountGear or nil)
+end
 
 local function GetCount(id, bank)
     if not (C_Item and C_Item.GetItemCount) then return 0 end
@@ -1157,6 +1437,7 @@ end
 
 FM.On("BAG_UPDATE_DELAYED", function()
     bagIndex = nil
+    bagGear = nil
     apiBank = nil
     ScanBank()
 end)
@@ -1168,6 +1449,12 @@ end)
 FM.On("BANKFRAME_CLOSED", function()
     bankOpen = false
     apiBank = nil
+    -- the bank's gear as last read while it was open (never a reading as it closes: its containers may be gone)
+    if bankGear then
+        local r = FM.R()
+        if type(r.gearBank) ~= "table" then r.gearBank = {} end
+        r.gearBank[FM.PlayerName()] = FM.Stamp(bankGearAt) .. "|" .. FM.EncodeGear(bankGear)
+    end
 end)
 FM.On("PLAYERBANKSLOTS_CHANGED", function()
     apiBank = nil

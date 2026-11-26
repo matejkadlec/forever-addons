@@ -66,6 +66,7 @@ FM.DEFAULTS = {
     upgradeRarities = { [0] = false, [1] = false, [2] = true, [3] = true, [4] = true, [5] = true },
     upgradeSlots = {},
     upgradeBestPerSlot = false,
+    upgradeOwned = true, -- Upgrades: "Owned gear", the gear in your bags and bank listed too (FRV-206)
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)

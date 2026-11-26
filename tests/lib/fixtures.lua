@@ -107,4 +107,55 @@ function F.Snapshots(path)
     return scenarios
 end
 
+-- gear_cases.txt -> list of cases { name, auctions = { { item, buyout, band, context, bonus = { ids }, mods =
+-- { { type, value } }, commodity, variant } }, gear = item -> expected entry string, nogear = item -> true }.
+-- context, bonus and mods are nil where the API has none; variant "" for "-", nil for a commodity
+function F.GearCases(path)
+    local cases, case, entries = {}, nil, nil
+    local function Finish()
+        if not case then return end
+        for item, parts in pairs(entries) do case.gear[item] = table.concat(parts, ";") end
+    end
+    for _, w in ipairs(Lines(path)) do
+        if w[1] == "case" then
+            Finish()
+            case = { name = w[2], auctions = {}, gear = {}, nogear = {} }
+            entries = {}
+            cases[#cases + 1] = case
+        elseif w[1] == "auction" then
+            local a = { item = w[2], buyout = tonumber(w[3]), band = tonumber(w[4]) }
+            for i = 5, #w do
+                local name, value = w[i]:match("^(%w+)=(%S+)$")
+                if w[i] == "commodity" then
+                    a.commodity = true
+                elseif name == "context" then
+                    a.context = tonumber(value)
+                elseif name == "bonus" then
+                    a.bonus = {}
+                    for id in value:gmatch("[^,]+") do a.bonus[#a.bonus + 1] = tonumber(id) end
+                elseif name == "mods" then
+                    a.mods = {}
+                    for t, v in value:gmatch("(%d+):(%d+)") do a.mods[#a.mods + 1] = { tonumber(t), tonumber(v) } end
+                else
+                    error("unknown auction word in " .. path .. ": " .. w[i])
+                end
+            end
+            case.auctions[#case.auctions + 1] = a
+        elseif w[1] == "variant" then
+            case.auctions[#case.auctions].variant = w[2] == "-" and "" or w[2]
+        elseif w[1] == "gear" then
+            local list = entries[w[2]] or {}
+            entries[w[2]] = list
+            list[#list + 1] = (w[3] == "-" and "" or w[3]) .. "=" .. F.Base36(tonumber(w[4])) .. ":"
+                .. F.Base36(tonumber(w[5])) .. ":" .. w[6]
+        elseif w[1] == "nogear" then
+            case.nogear[w[2]] = true
+        else
+            error("unknown line in " .. path .. ": " .. table.concat(w, " "))
+        end
+    end
+    Finish()
+    return cases
+end
+
 return F
