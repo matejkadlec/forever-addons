@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Trade_Engineering
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.8.2
+## Version: 1.8.3
 ## X-License: All Rights Reserved
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverTweaksDB, JimsForeverAddOnsDB

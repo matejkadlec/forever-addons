@@ -20,7 +20,7 @@
 local addonName = ...
 
 -- Raise on every change of this file: the newest copy present runs
-local VERSION = 1
+local VERSION = 2
 
 local JFA = _G.JimsForeverAddOns
 if type(JFA) ~= "table" then
