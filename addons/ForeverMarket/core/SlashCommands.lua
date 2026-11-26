@@ -69,6 +69,20 @@ local function Status()
     FM.Print("Items tracked:", FM.FormatCount(items) .. " (" .. watched .. " watched)")
     FM.Print("Scans in the last 24h:", deep24 .. " deep, " .. browse24 .. " Auctionator")
     FM.Print("Last deep scan:", r.last and r.last.t and (FM.FormatAge(now - r.last.t) .. " ago") or "never")
+    -- the gear variants of the latest snapshot (FRV-200): its listings of others and the gear items they belong to
+    local gearText = "none yet"
+    if FM.GearSnapshot() then
+        local variants, gearItems = 0, 0
+        for key in pairs(r.last.fp) do
+            local listings = FM.IsGear and FM.IsGear(key) and FM.GearListings(key)
+            if listings then
+                gearItems = gearItems + 1
+                variants = variants + #listings
+            end
+        end
+        gearText = FM.FormatCount(variants) .. " of " .. FM.FormatCount(gearItems) .. " items"
+    end
+    FM.Print("Gear variants in the latest snapshot:", gearText)
     FM.Print("Your posts / sales logged:", #r.posts .. " / " .. #r.invoices)
     -- what the reads at the mail take-out calls saw (scan/Ledger.lua, FRV-108)
     local takes = FM.MailTakesText and FM.MailTakesText()

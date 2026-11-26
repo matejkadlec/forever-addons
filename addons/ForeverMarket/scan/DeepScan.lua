@@ -194,6 +194,35 @@ local function CheckSuffix(snap, index, key, name)
     end
 end
 
+-- The gear variant of an auction (FRV-200): its link read for weapons and armor only (FM.IsGear once per item and
+-- scan), the variant parsed once per link; nil for an item that is no gear, "" when the link tells nothing
+local function GearVariantOf(snap, index, key)
+    local gear = snap.isGear
+    if not gear then
+        gear = {}
+        snap.isGear = gear
+        snap.variantOf = {}
+        snap.links = 0
+    end
+    local isGear = gear[key]
+    if isGear == nil then
+        isGear = FM.IsGear ~= nil and FM.IsGear(key) and true or false -- trade/Sources.lua
+        gear[key] = isGear
+    end
+    if not isGear then return nil end
+    local getLink = AH().GetReplicateItemLink
+    if not getLink then return "" end
+    local ok, link = pcall(getLink, index)
+    snap.links = snap.links + 1
+    if not ok or FM.IsSecret(link) or type(link) ~= "string" then return "" end
+    local variant = snap.variantOf[link]
+    if not variant then
+        variant = FM.GearVariant(link)
+        snap.variantOf[link] = variant
+    end
+    return variant
+end
+
 -- true when the auction could be read
 local function ReadEntry(snap, index)
     local ah = AH()
@@ -204,7 +233,9 @@ local function ReadEntry(snap, index)
     local key = tostring(itemID)
     local band = ah.GetReplicateItemTimeLeft and ah.GetReplicateItemTimeLeft(index)
     if type(name) == "string" and name ~= "" and not FM.IsSecret(name) then CheckSuffix(snap, index, key, name) end
-    FM.SnapshotAdd(snap, key, type(name) == "string" and name or nil, count, buyout, ownerFull or owner, band)
+    -- a bid-only auction is skipped by the snapshot: no link read for it
+    local variant = type(buyout) == "number" and buyout > 0 and GearVariantOf(snap, index, key) or nil
+    FM.SnapshotAdd(snap, key, type(name) == "string" and name or nil, count, buyout, ownerFull or owner, band, variant)
     return true
 end
 
@@ -256,6 +287,9 @@ local function Walk(cut)
     deep.retries, deep.retryAt, deep.lastNoAnswer = 0, nil, nil
     SetState("walking", 0)
     local index, read = 0, 0
+    -- what the walk costs (FRV-200 reads the link of every gear auction): its time and the time spent reading
+    local walkStart, readMs = GetTime(), 0
+    local clock = debugprofilestop
     local function step()
         if deep.snap ~= snap then return end
         if not FM.ahOpen then
@@ -263,9 +297,11 @@ local function Walk(cut)
             return
         end
         local stop = math_min(total, index + WALK_PER_FRAME)
+        local started = clock and clock()
         for i = index, stop - 1 do
             if ReadEntry(snap, i) then read = read + 1 end
         end
+        if started then readMs = readMs + (clock() - started) end
         index = stop
         deep.progress = index / total
         if FM.UpdateAHButton then FM.UpdateAHButton() end
@@ -273,7 +309,12 @@ local function Walk(cut)
             C_Timer.After(0, step)
             return
         end
-        if a then a.read = read end
+        if a then
+            a.read = read
+            a.walk = math_floor((GetTime() - walkStart) * 10 + 0.5) / 10
+            a.cpu = clock and math_floor(readMs + 0.5) or nil
+            a.links = snap.links or 0
+        end
         -- another AddOn's list is saved only when it could be read completely
         if foreign and (cut or read < total * COMPLETE_SHARE) then
             if a then a.out = "part" end
@@ -689,6 +730,12 @@ function FM.DescribeScanAttempt(a)
     local parts = { Outcome(a) }
     if a.req then parts[#parts + 1] = "to the request of " .. Clock(a.req) end
     if a.first then parts[#parts + 1] = "list after " .. a.first .. " s" end
+    -- the walk's time, its reading time and the gear links it read (FRV-200)
+    if a.walk then
+        local cost = a.cpu and string_format(" (%s ms reading, %s gear links)", FM.FormatCount(a.cpu),
+            FM.FormatCount(a.links or 0)) or ""
+        parts[#parts + 1] = "read in " .. tostring(a.walk) .. " s" .. cost
+    end
     if a.cut then parts[#parts + 1] = "cut off while it still changed" end
     if a.q then parts[#parts + 1] = "queued " .. a.q .. " s" .. (a.busy and (" (" .. a.busy .. ")") or "") end
     if a.thr then parts[#parts + 1] = "throttle " .. a.thr end

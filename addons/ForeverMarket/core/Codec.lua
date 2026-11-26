@@ -92,6 +92,68 @@ function FM.KeyFromLink(link)
     return link:match("item:(%d+)")
 end
 
+-- Gear variants (FRV-200). On Forever a random suffix ("of Power") is a bonus ID of the link, not its suffix ID
+-- (field 7 stays empty). The fields after "item:": 1 itemID, 2 enchant, 3-6 gems, 7 suffixID, 8 uniqueID, 9 linkLevel,
+-- 10 specializationID, 11 modifiersMask, 12 itemContext, 13 numBonusIDs, that many bonus IDs, numModifiers, that many
+-- type:value pairs, then the relic and crafter fields. The variant is the part from itemContext on:
+-- "itemContext:numBonusIDs[:bonusID...]:numModifiers[:type:value...]", trailing empty fields trimmed, "" for none.
+local function Digits(s)
+    return s ~= nil and string_find(s, "^%d+$") ~= nil
+end
+
+-- The variant of an auction's link; "" for a link that is nil, secret, has an empty name or does not parse
+function FM.GearVariant(link)
+    if FM.IsSecret(link) or type(link) ~= "string" then return "" end
+    -- the name of an item whose data is not loaded yet is empty: what the rest holds then is not known
+    if string_find(link, "|h[]|h", 1, true) then return "" end
+    local itemString = link:match("item:([^|]*)")
+    if not itemString then return "" end
+    local fields = FM.Split(itemString, ":")
+    if not Digits(fields[1]) then return "" end
+    -- itemContext and the count of bonus IDs: digits or empty
+    local context, numBonus = fields[12] or "", fields[13] or ""
+    if (context ~= "" and not Digits(context)) or (numBonus ~= "" and not Digits(numBonus)) then return "" end
+    local out = { context, numBonus }
+    local at = 14
+    for _ = 1, tonumber(numBonus) or 0 do
+        if not Digits(fields[at]) then return "" end
+        out[#out + 1] = fields[at]
+        at = at + 1
+    end
+    -- the count of modifiers, then that many type:value pairs
+    local numMods = fields[at] or ""
+    if numMods ~= "" and not Digits(numMods) then return "" end
+    out[#out + 1] = numMods
+    at = at + 1
+    for _ = 1, 2 * (tonumber(numMods) or 0) do
+        if not Digits(fields[at]) then return "" end
+        out[#out + 1] = fields[at]
+        at = at + 1
+    end
+    local count = #out
+    while count > 0 and out[count] == "" do count = count - 1 end
+    return table_concat(out, ":", 1, count)
+end
+
+-- The item string of a gear item's variant, seen by a character of that level (field 9)
+function FM.GearLink(key, variant, level)
+    return "item:" .. tostring(key) .. "::::::::" .. (level and tostring(level) or "") .. ":::" .. (variant or "")
+end
+
+-- The variant's bonus IDs sorted ascending and joined with "." ("" without any): two listings with the same bonus
+-- key are the same item for a player (the context and the modifiers do not count)
+function FM.GearBonusKey(variant)
+    if type(variant) ~= "string" or variant == "" then return "" end
+    local parts = FM.Split(variant, ":")
+    local ids = {}
+    for i = 3, 2 + (tonumber(parts[2]) or 0) do
+        local id = tonumber(parts[i])
+        if id then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    return table_concat(ids, ".")
+end
+
 -- Item key from a C_AuctionHouse itemKey table
 function FM.KeyFromItemKey(itemKey)
     if type(itemKey) ~= "table" or not itemKey.itemID or FM.IsSecret(itemKey.itemID) then return nil end

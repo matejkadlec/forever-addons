@@ -493,6 +493,47 @@ function FM.LatestDeepRecord(item)
     return nil
 end
 
+-- Gear variants of the latest snapshot (FRV-200): the time of r.last when it holds them, else nil (a snapshot saved
+-- before 1.53, or a Battle.net feed import, which brings none yet)
+function FM.GearSnapshot()
+    local last = FM.R().last
+    if type(last) == "table" and type(last.gear) == "table" and type(last.fp) == "table" then return last.t end
+    return nil
+end
+
+-- One gear item's listings of others in the latest snapshot: { { variant, bonus, buyout, n, band }, ... } (buyout =
+-- the cheapest of that variant, n = its auctions, band = the time left of the cheapest). A key without an entry in
+-- r.last.gear has one variant "" with the cheapest of its fingerprints not marked "@". nil without gear data or when
+-- the snapshot has no auction of others of it
+function FM.GearListings(key)
+    if not FM.GearSnapshot() then return nil end
+    local last = FM.R().last
+    local list = {}
+    local entry = last.gear[key]
+    if type(entry) == "string" then
+        for variant, min, n, band in string.gmatch(entry, "([%d:]*)=(%w+):(%w+):(%d)") do
+            list[#list + 1] = { variant = variant, bonus = FM.GearBonusKey(variant), buyout = Dec(min), n = Dec(n),
+                band = tonumber(band) }
+        end
+        return #list > 0 and list or nil
+    end
+    local fps = last.fp[key]
+    if type(fps) ~= "string" then return nil end
+    local best, n
+    for tag, buyout, band in string.gmatch(fps, "([^:,]+):[^:,]*:([^:,]*):(%d*)") do
+        buyout, band = Dec(buyout), tonumber(band) or 0
+        if tag ~= "@" and buyout and buyout > 0 then
+            n = (n or 0) + 1
+            if not best or buyout < best.buyout or (buyout == best.buyout and band > best.band) then
+                best = { variant = "", bonus = "", buyout = buyout, band = band }
+            end
+        end
+    end
+    if not best then return nil end
+    best.n = n
+    return { best }
+end
+
 -- Estimated units sold per 24h from deep scan diffs of the last 48 hours.
 -- Ambiguous disappearances (could have expired) count half. Returns nil without enough coverage.
 function FM.SoldPerDay(key, nowMinutes)
