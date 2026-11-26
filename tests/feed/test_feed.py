@@ -6,6 +6,7 @@ write byte for byte the same records. Standard library only; run from the reposi
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -191,6 +192,31 @@ class GearTest(unittest.TestCase):
         # a snapshot from before FRV-201 (or an old server's): no gear table at all
         old = {"t": 1795000000, "fp": state["prev"]["fp"]}
         self.assertNotIn("gear", feed.render_feed(HOUSE, [], old, [], 1795000100))
+
+    def test_house_discovery_still_reads_the_snapshots(self):
+        # review round 1 of PR 86: discover_house unpacked aggregate's results as three; with no house remembered and
+        # no FEED_HOUSE it reads each house of the faction's snapshot and picks one
+        class FakeApi:
+            region = "eu"
+
+            def get(self, path, since=None):
+                answers = {
+                    "/data/wow/ruleset/index": {"rulesets": [{"id": 1, "name": "PvP"}]},
+                    "/data/wow/ruleset/1": {"name": "PvP"},
+                    "/data/wow/ruleset/1/auctions/": {"auctions": [{"id": 110, "name": "Alliance Auction House"}]},
+                    "/data/wow/ruleset/1/auctions/110": {"auctions": [
+                        {"item": {"id": 15638, "bonus_lists": [12733]}, "quantity": 1, "buyout": 900, "time_left": "LONG"}]},
+                }
+                return answers[path], 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = feed.STATE_DIR
+            feed.STATE_DIR = tmp
+            try:
+                house = feed.discover_house(FakeApi(), {"FEED_FACTION": "Alliance"}, tmp)
+            finally:
+                feed.STATE_DIR = saved
+        self.assertEqual((house["house"], house["ruleset"], house["faction"]), (110, 1, "Alliance"))
 
     def test_checked_feed(self):
         data = {"house": HOUSE, "snapshots": [], "variants": [],

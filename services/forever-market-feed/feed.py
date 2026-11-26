@@ -676,7 +676,7 @@ def discover_house(api, cfg, wow_dir):
         scores = []
         for h in candidates:
             auctions, _ = api.get(h[2] or f"/data/wow/ruleset/{ruleset}/auctions/{h[0]}")
-            aggs, _, _ = aggregate([auctions.get("auctions") or []])
+            aggs = aggregate([auctions.get("auctions") or []])[0]
             common = [k for k in aggs if k in mine]
             equal = sum(1 for k in common if abs(aggs[k].min - mine[k]) <= 1)
             scores.append((equal / len(common) if common else 0, len(aggs), h))
