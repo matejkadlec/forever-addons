@@ -1851,6 +1851,14 @@ H.test("picks: all three exclusions leave no pick and say so, in the set Picks u
     local global = FM.FilterSet("global")
     global.noCraft, global.noVendor, global.noFlip = true, true, true
     H.eq(FM.PicksAllExcluded(), true, "the global set with all three")
+    -- a craft you hold is no Stock pick then either: the plan is empty (review round 5)
+    FM, env = Setup({ ["100"] = 27 })
+    FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
+    set = FM.FilterSet("picks")
+    set.noCraft, set.noVendor, set.noFlip = true, true, true
+    out = { crafts = { Craft("100", 43) } }
+    Compute(FM, env, out)
+    H.eq(#out.picks, 0, "units you hold: still no pick")
 end)
 
 H.test("picks: the global filters count when Picks uses them, never another tab's", function()

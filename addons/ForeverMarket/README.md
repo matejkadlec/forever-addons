@@ -477,7 +477,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
         **Over skill level cap** [10] points above it (was "Max. above current skill")
     * **Exclude crafting** [ ] (Picks, 1.56, FRV-209): the plan crafts nothing: no Craft and sell, no Craft and wait,
       no recipe to learn (nor a "Level for" row); the units of a crafted item you hold stay a Stock pick (listing them
-      crafts nothing); "Also good, but out of scope" follows and the reason names it ("crafting is off (Exclude
+      crafts nothing), except with all three exclusions checked; "Also good, but out of scope" follows and the reason names it ("crafting is off (Exclude
       crafting)"). In Picks' own dialog the options
       that only matter for crafting (Include not learned recipes with its children, Exclude stock for crafting) are
       greyed out while it is checked, their tooltip says why; in Global filters they stay on (the Craft tab uses them)
@@ -960,7 +960,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     confirmed yet)" and its tooltip "Seen in the deep scan of 18:51, not confirmed yet". While the AH is open,
     ForeverMarket searches the first 6 flip picks of the plan shown itself, plan first, one search every 3 seconds at
     most and each again after 2 minutes (`FM.FlipCheckTick` in `scan/Search.lua`, `C_AuctionHouse.SendSearchQuery`
-    as the sniper sends it), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
+    as the sniper sends it; its answers update the live listings every time but go into the item's search log at most
+    once per 10 minutes, so they do not push out older records), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
     its throttle is not ready, Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab, or in combat.
     Units of the item you bought yourself since the snapshot count as the flip's own (a commodity from the purchase log,
     an item sold per auction from your buyouts this session): your purchase is no "gone" (the reason says "you bought 2

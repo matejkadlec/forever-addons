@@ -173,7 +173,8 @@ FM.SearchLive = Live -- for the tests
 local function CaptureCommodity(itemID)
     -- while sniping, a sniped item is searched every few seconds: log it once per 10 minutes only (its live listings
     -- are kept every time)
-    local skip = FM.SnipeSkipCapture and FM.SnipeSkipCapture(tostring(itemID))
+    local skip = (FM.SnipeSkipCapture and FM.SnipeSkipCapture(tostring(itemID)))
+        or (FM.FlipCheckSkipSave and FM.FlipCheckSkipSave(tostring(itemID)))
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumCommoditySearchResults and ah.GetCommoditySearchResultInfo) then return end
     local n = ah.GetNumCommoditySearchResults(itemID)
@@ -208,6 +209,7 @@ local function CaptureCommodity(itemID)
         if skip then return end
         Save(tostring(itemID), "c", rows, full)
         if FM.SnipeCaptured then FM.SnipeCaptured(tostring(itemID)) end
+        if FM.FlipCheckSaved then FM.FlipCheckSaved(tostring(itemID)) end
     end
 end
 
@@ -249,7 +251,11 @@ local function CaptureItem(itemKey)
         end
     end
     for key, rows in pairs(byKey) do
-        Save(key, "i", rows, full)
+        -- the answer to the flip check's own search is logged once per 10 minutes (review round 5)
+        if not (FM.FlipCheckSkipSave and FM.FlipCheckSkipSave(key)) then
+            Save(key, "i", rows, full)
+            if FM.FlipCheckSaved then FM.FlipCheckSaved(key) end
+        end
         Live(key, rows, full, "i")
     end
 end
@@ -289,7 +295,23 @@ local CHECK_GAP = 3      -- seconds between two searches of ours
 local CHECK_WAIT = 5     -- a search of ours without results in time is given up
 local CHECK_AGAIN = 120  -- a flip pick is searched again after this long while the AH stays open
 local CHECK_PICKS = 6    -- the first this many flip picks of the plan shown
-local check = { ticker = nil, lastSent = 0, waiting = nil, asked = {} }
+local CHECK_SAVE_GAP = 600 -- the answer to a search of ours is logged once per 10 minutes per item (review round 5:
+                           -- an item keeps 40 search records, the check's searches every 2 minutes pushed out days)
+local check = { ticker = nil, lastSent = 0, waiting = nil, asked = {}, savedAt = {} }
+
+-- An item's search was logged (Save above): when, for the gap below
+function FM.FlipCheckSaved(key)
+    check.savedAt[key] = FM.Now()
+end
+
+-- The answer to the check's own search of this item, logged less than 10 minutes ago: its live listings are kept, the
+-- log skips it (as the sniper's own searches are logged once per 10 minutes)
+function FM.FlipCheckSkipSave(key)
+    local asked = check.asked[key]
+    if not (check.waiting and asked and FM.Now() - asked <= CHECK_WAIT) then return false end
+    local at = check.savedAt[key]
+    return at ~= nil and FM.Now() - at < CHECK_SAVE_GAP
+end
 local sorts
 
 local function Shown(frame)

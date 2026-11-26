@@ -394,3 +394,49 @@ H.test("flip check: a full commodity answer with no listing at all makes the fli
     H.eq(pick.gone ~= nil, true, "nothing listed: gone")
     H.same(FM.live["105"].ladder, {}, "an empty ladder")
 end)
+
+H.test("flip check: the answers to its own searches are logged once per 10 minutes, their live listings every time", function()
+    local FM, env = Setup()
+    local pick = { key = "105", kind = "flip", seenAt = env.clock - SNAPSHOT_AGE, mainTop = 6000, listUnits = 5, held = 0 }
+    FM.trade = { picks = { pick } }
+    FM.ahOpen = true
+    local answer = { { 4000, 2 }, { 6000, 3 }, { 10000, 55 } }
+    env.C_AuctionHouse = {
+        MakeItemKey = function(id) return { itemID = id } end,
+        SendSearchQuery = function() end,
+        IsThrottledMessageSystemReady = function() return true end,
+        GetNumCommoditySearchResults = function() return #answer end,
+        GetCommoditySearchResultInfo = function(_, i)
+            local level = answer[i]
+            return level and { auctionID = i, unitPrice = level[1], quantity = level[2], numOwnerItems = 0, owners = {} }
+        end,
+        HasFullCommoditySearchResults = function() return true end,
+    }
+    FM.Hash = function() return "abcd" end
+    FM.IsOwnChar = function() return false end
+    FM.AddWatch = function() end
+    FM.FeedAuctionatorItem = function() end
+    FM.dataVersion = FM.dataVersion or 0
+    local function Records() return select(2, (FM.R().items["105"].s or ""):gsub("s%w+,", "")) end
+    local function Answer()
+        env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 105)
+        env.FlushTimers()
+    end
+    H.eq(FM.FlipCheckTick(), "105", "searched")
+    Answer()
+    H.eq(Records(), 1, "the first answer is logged")
+    for _ = 1, 3 do
+        env.clock = env.clock + 121
+        H.eq(FM.FlipCheckTick(), "105", "searched again 2 minutes later")
+        Answer()
+    end
+    H.eq(Records(), 1, "within 10 minutes: not logged again")
+    H.eq(FM.live["105"].t, env.clock, "its live listings are the newest")
+    env.clock = env.clock + 240
+    H.eq(FM.FlipCheckTick(), "105", "10 minutes after the first")
+    Answer()
+    H.eq(Records(), 2, "logged again")
+    -- a search of someone else (Auctionator, your click) is always logged
+    Answer()
+    H.eq(Records(), 3, "not our own: logged")
+end)

@@ -2312,8 +2312,9 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
-        elseif P.filters.noCraft and HeldOf(row.key) <= 0 then
-            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn; units you hold stay a Stock pick (below)
+        elseif P.filters.noCraft and (HeldOf(row.key) <= 0 or (P.filters.noVendor and P.filters.noFlip)) then
+            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn; units you hold stay a Stock pick (below),
+            -- unless every kind is excluded: then the plan is empty (review round 5)
             why[row.key] = "crafting is off (Exclude crafting)"
         elseif row.craft.specNeed then
             -- a recipe of a Leatherworking specialization you have not chosen can't be learned yet (FRV-110)
