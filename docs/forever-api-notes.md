@@ -297,7 +297,7 @@ Verified against wow-ui-source `forever` (1.60.1) for FRV-7. In game ForeverMark
 - your auctions as Blizzard's window asks for them: `OWNED_AUCTIONS_UPDATED`, `GetNumOwnedAuctions`, `GetOwnedAuctionInfo`
 - `CalculateCommodityDeposit`, `IsThrottledMessageSystemReady` with `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`, `AUCTION_HOUSE_AUCTION_CREATED`, and `hooksecurefunc` on `PostItem` / `PostCommodity`
 
-Everything else in this section is verified against the source only (not yet verified in game): posting, confirming, cancelling and bidding from an AddOn's own button, `QueryOwnedAuctions`, `SendSellSearchQuery`, `CalculateItemDeposit`, the item key functions other than `MakeItemKey`, every browse and favorites function, and every call into Blizzard's `AuctionHouseFrame`.
+Everything else in this section is verified against the source only (not yet verified in game): posting, confirming, cancelling and bidding from an AddOn's own button (except `PlaceBid` from ForeverMarket's Upgrades buy window, seen in game below), `QueryOwnedAuctions`, `SendSellSearchQuery` (except that window's search by a bare `MakeItemKey(itemID)`, seen in game below), `CalculateItemDeposit`, the item key functions other than `MakeItemKey`, every browse and favorites function, and every call into Blizzard's `AuctionHouseFrame`.
 
 - The Auction House is Mainline's `Blizzard_AuctionHouseUI` on `C_AuctionHouse` (item keys, commodities, a quote before a commodity purchase); Camelot's only own file is the category list `Blizzard_AuctionHouseUI/Camelot/Blizzard_AuctionData.lua`
   - The Classic Era functions (`QueryAuctionItems`, `GetAuctionItemInfo`, `PostAuction`) are called nowhere in the branch
