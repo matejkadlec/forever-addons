@@ -276,7 +276,8 @@ function FM.UpgradeGone(row)
     return t ~= nil and t ~= false and t == ((FM.GearSnapshot and FM.GearSnapshot()) or 0)
 end
 
--- Best per slot: of each slot the row with the highest Cost-Benefit, of the rings the two best (two ring slots)
+-- Best per slot: of each slot the row with the highest Cost-Benefit, of the rings the two best (two ring slots). A
+-- listing found gone at the AH ranks below every one still there, so it never hides one you can buy (review round 1)
 local function BestPerSlot(rows)
     local bySlot, order = {}, {}
     for _, row in ipairs(rows) do
@@ -292,6 +293,8 @@ local function BestPerSlot(rows)
     for _, name in ipairs(order) do
         local list = bySlot[name]
         table_sort(list, function(a, b)
+            local goneA, goneB = FM.UpgradeGone(a), FM.UpgradeGone(b)
+            if goneA ~= goneB then return goneB end
             if (a.cbRaw or 0) ~= (b.cbRaw or 0) then return (a.cbRaw or 0) > (b.cbRaw or 0) end
             if (a.price or 0) ~= (b.price or 0) then return (a.price or 0) < (b.price or 0) end
             return tostring(a.id) < tostring(b.id)

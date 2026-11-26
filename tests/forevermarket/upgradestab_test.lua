@@ -350,6 +350,16 @@ H.test("upgrades tab: Slots removes rows, Best per slot keeps the best of each a
         if not worst or cb[id] < cb[worst] then worst = id end
     end
     H.eq(Sorted(rows):find(worst, 1, true), nil, "the third ring goes")
+    -- the best greaves found gone at the AH (FRV-204): the other suffix, still there, shows instead (review round 1)
+    local other = best == "7542:12733" and "7542:12724" or "7542:12733"
+    for _, row in ipairs(all) do
+        if row.id == best then FM.UpgradeMarkGone(row) end
+    end
+    feet = {}
+    for _, row in ipairs(FM.TableRowsOf("upgrades")) do
+        if row.equipLoc == "INVTYPE_FEET" then feet[#feet + 1] = row.id end
+    end
+    H.eq(table.concat(feet, " "), other, "a gone listing never hides one you can buy")
 end)
 
 H.test("upgrades tab: the Spec dropdown switches Pawn's scale without a new pass, saved per character", function()
