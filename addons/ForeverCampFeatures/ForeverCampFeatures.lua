@@ -202,14 +202,14 @@ local function InitializeSavedData()
         end
     end
     -- known objects: drop broken and expired entries (a /reload keeps the live ones and whether they alerted,
-    -- unless "Reset on reload" lets each of them alert once more)
+    -- unless "Reset on reload" lets each of them alert once more; your own placements stay quiet, as when placed)
     local resetAlerts = db.alertOnce and db.alertOnceReset
     local known = {}
     if type(db.known) == "table" then
         local now = time()
         for _, entry in ipairs(db.known) do
             if ns.IsValidEntry(entry, ns.OBJECT_BY_KEY) and entry.expires > now then
-                entry.alerted = entry.alerted == true and not resetAlerts
+                entry.alerted = entry.alerted == true and (entry.placedByYou == true or not resetAlerts)
                 known[#known + 1] = entry
             end
         end

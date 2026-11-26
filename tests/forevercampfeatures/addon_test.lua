@@ -611,6 +611,19 @@ H.test("once: a /reload keeps what alerted, \"Reset on reload\" lets each known 
     H.eq(ns.Known()[1].alerted, true, "mark kept")
 end)
 
+H.test("once: \"Reset on reload\" leaves your own placement quiet, as when you placed it (FRV-182)", function()
+    local clock = 1795400000
+    local saved = SavedLoom(clock, { alertOnceReset = true })
+    saved.known[1].source = "placed"
+    saved.known[1].placedByYou = true
+    local ns, env, seen = Load({ saved = saved })
+    H.eq(#seen.sounds, 0, "your own loom does not alert after the reload")
+    H.eq(#seen.waypoints, 0, "and gets no waypoint")
+    H.eq(ns.Known()[1].alerted, true, "its mark is kept")
+    env.tick()
+    H.eq(#seen.sounds, 0, "quiet a second later")
+end)
+
 H.test("waypoints: a repeated alert keeps the waypoint TomTom holds and sets one TomTom removed again, never the chat line (FRV-183)", function()
     local ns, env, seen = Load()
     -- alerts repeat when you come back to the zone
