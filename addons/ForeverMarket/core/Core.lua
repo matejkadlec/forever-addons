@@ -23,7 +23,8 @@ local COLOR = {
 
 FM.COLOR = COLOR
 FM.ADDON_PREFIX = "FM"
-FM.ADDON_FULL_NAME = "ForeverMarket"
+FM.ADDON_FULL_NAME = "ForeverMarket" -- the folder: what the game names in its events (ADDON_ACTION_BLOCKED)
+FM.DISPLAY_NAME = "Forever Marketplace" -- the name players read (FRV-1; the AddOn list adds the blue "[Core]")
 FM.SLASH_COMMAND = "/fm"
 
 -- All stored timestamps are minutes since this moment (2026-01-01 00:00 UTC), base36 encoded
@@ -56,7 +57,15 @@ FM.DEFAULTS = {
     tableCircPct = 25, -- picks: the most of an item's C/24h one pick may add to the AH (your listings count), in percent
     tableFirstPct = 2, -- picks: a commodity without sales of yours plans a first batch of at most this share of C/24h, in percent
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
+    tableMatRefHours = 8, -- craft materials: one bought on the AH costs at least the average cheapest price of others of
+                          -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
+    tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
+    -- Upgrades tab (FRV-203, FRV-205): the rarities listed (item quality -> checked), the slots (an equipLoc set to false
+    -- is not listed: every slot by default), "Best per slot"
+    upgradeRarities = { [0] = false, [1] = false, [2] = true, [3] = true, [4] = true, [5] = true },
+    upgradeSlots = {},
+    upgradeBestPerSlot = false,
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
@@ -174,6 +183,7 @@ FM.SETTING_RANGE = {
     tableCircPct = { 1, 100 },
     tableFirstPct = { 1, 10 },
     tableTimePct = { 0, 20 }, -- 0 = always the cheaper route
+    tableMatRefHours = { 0, 24 }, -- 0 = no reference price, the latest scan alone (FRV-196)
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
     -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
     -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
@@ -237,7 +247,14 @@ function FM.InitializeSavedData()
         db.settings.tableInvestPctOn = db.settings.tableInvestManual ~= true
     end
     for key, value in pairs(FM.DEFAULTS) do
-        if db.settings[key] == nil then
+        -- a setting of the wrong kind (a table default saved as something else) gets the default too
+        if db.settings[key] == nil or (type(value) == "table" and type(db.settings[key]) ~= "table") then
+            -- a table default is copied: the saved table must never be the default itself
+            if type(value) == "table" then
+                local copy = {}
+                for k, v in pairs(value) do copy[k] = v end
+                value = copy
+            end
             db.settings[key] = value
         end
     end
@@ -660,6 +677,8 @@ function FM.R()
     if FM.RepairMailLog then FM.RepairMailLog(r) end -- AH mails logged twice go once (FRV-106, scan/Ledger.lua)
     if FM.RepairBuys then FM.RepairBuys(r) end -- the purchase log mended once from your AH mail (FRV-102, FRV-113, trade/Cost.lua)
     if FM.RepairCrafts then FM.RepairCrafts(r) end -- the craft log's material cost worked out again (FRV-112, trade/Crafts.lua)
+    if FM.RepairVariants then FM.RepairVariants(r) end -- the random suffix marks an empty name set go (FRV-138, core/Store.lua)
+    if FM.PruneHiddenFlips then FM.PruneHiddenFlips(r) end -- flip picks hidden 24 hours ago count no more (FRV-193, trade/Picks.lua)
     return r
 end
 

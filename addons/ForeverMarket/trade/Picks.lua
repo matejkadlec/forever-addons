@@ -54,6 +54,9 @@ local _, FM = ...
 --     C/24h, default 25%); what you already list on all your characters (FM.OwnListings: the auction lists and the
 --     posts since) comes off the batch. No room for one craft or one unit = no pick. Your bags and bank do not touch it
 --   * pick.steps: what to do, in order (learn > use > buy > make > wait > list), shown under the pick
+--   * what you crafted counts toward a craft pick's target (1.45, FRV-104, FM.PickProgress below): "Make: 20 / 51",
+--     "make 31 more"; an automatic plan (the lock off) keeps the target of a pick in progress and makes only the rest,
+--     whatever the batch says now (it was about that target)
 --   * every plan is logged (R.plans, LogPlan), so the order can be measured against what sold later
 
 local Dec = FM.Dec
@@ -591,6 +594,17 @@ local function OwnedOf(key)
     if not o then
         local all, sellable, bagSellable, bagAll = FM.Owned(key)
         o = { all or 0, sellable or 0, bagSellable, bagAll }
+        -- a pick made again (FM.RemakePick, P.asOf = its plan's time) reads an item its plan never asked about: as of
+        -- the plan too, so without what was bought of it since (those purchases count as the picks' progress, review
+        -- round 4); the read stays with the plan (P.owned is the plan's pickOwned then), the same at every later edit
+        if P.asOf then
+            local bought = FM.BoughtSince and FM.BoughtSince(key, P.asOf) or 0
+            if bought > 0 then
+                for i = 1, 4 do
+                    if o[i] then o[i] = math_max(0, o[i] - bought) end
+                end
+            end
+        end
         P.owned[key] = o
     end
     return o
@@ -715,10 +729,14 @@ local function StockValue(key, buyUnit)
 end
 
 -- Buy n units of a material: the AH ladder unit by unit while it is cheaper than the vendor, the rest at the
--- vendor. Returns what it costs, or nil when the AH runs out and no vendor sells it
+-- vendor. A unit under the material's reference price counts at the reference (FRV-196, FM.MaterialRef), at most at
+-- the vendor's price (the vendor is there when the cheap units are gone): the plan buys one scan's cheap units but
+-- does not count on them; top keeps what the ladder asks (the buy step's "up to").
+-- Returns what it costs, or nil when the AH runs out and no vendor sells it
 local function Buy(key, n, trial)
     local cost = 0
     local vendorUnit = FM.VendorUnit(key, false)
+    local ref = FM.MaterialRef and FM.MaterialRef(key, P.view.t)
     -- never buy what you are selling yourself
     local ladder = Yours(key) > 0 and EMPTY or Ladder(key)
     local skip = (P.used[key] or 0) + Sum(trial, "used", key)
@@ -731,8 +749,10 @@ local function Buy(key, n, trial)
             q = q - skip
             skip = 0
             if vendorUnit and vendorUnit <= level[1] then break end
+            local counted = (ref and ref > level[1]) and ref or level[1]
+            if vendorUnit and counted > vendorUnit then counted = vendorUnit end
             local take = math_min(q, n)
-            cost = cost + take * level[1]
+            cost = cost + take * counted
             trial.used[key] = (trial.used[key] or 0) + take
             if not trial.top[key] or level[1] > trial.top[key] then trial.top[key] = level[1] end
             n = n - take
@@ -1445,11 +1465,39 @@ local function EvaluateCraft(c)
     for _, part in ipairs(row.parts) do
         if part.src ~= "vendor" then vendorOnly = false end
     end
-    if vendorOnly then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
-    if batch < 1 then return nil, BatchShort(b, room, makes) end
+    -- a pick of the plan before that stays in it (an automatic plan, FRV-104): its target stays, and what you crafted of
+    -- it since that plan counts toward it, never again as units you hold; the room, the gold share and the batch size
+    -- were about that target, so the rest of it is made whatever the batch says now (your listings of its crafts take
+    -- room from it)
+    local carry = c.kind ~= "level" and P.carry and P.carry[row.key] or nil
+    -- an amount you set for this pick in the table (FRV-154, FM.RemakePick): it makes that many, whatever the batch,
+    -- the room and its share of the gold say (your choice); the materials and your minimum profit still stop it
+    local want = c.kind ~= "level" and P.amount and P.amount.key == row.key and P.amount.n or nil
+    if vendorOnly and not carry and not want then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
+    if batch < 1 and not carry and not want then return nil, BatchShort(b, room, makes) end
     -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
     local heldAll = c.kind ~= "level" and HeldOf(row.key) or 0
     local held = math_min(heldAll, batch)
+    -- a carried pick: the units crafted for it that you still hold go to the AH with it, and of the rest what you held
+    -- when its plan was made (heldOwn)
+    local crafted, craftedHeld = 0, 0
+    if carry then
+        crafted = carry.done
+        craftedHeld = math_min(crafted, heldAll)
+        held = math_min(heldAll - craftedHeld, carry.held) + craftedHeld
+    end
+    -- its target and progress (FRV-104): a new pick's target is what it makes now, from now on; a carried one keeps its
+    -- own (FM.PickProgress reads them)
+    local function Track(pick, made)
+        if carry then
+            pick.target, pick.since, pick.base = carry.target, carry.since, crafted
+        else
+            pick.target, pick.since, pick.base = made, P.now, 0
+        end
+        pick.made, pick.makes, pick.heldOwn, pick.craftedHeld = made, makes, held - craftedHeld, craftedHeld
+        pick.planAt = P.now -- this evaluation: its purchases are counted from here (FM.PickBuyStep)
+        return pick
+    end
     local reasons = {}
     local cap = math_min(P.perPick, P.budgetLeft)
     local learnCost = 0
@@ -1459,15 +1507,30 @@ local function EvaluateCraft(c)
     end
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
-    if c.kind == "level" then cap = math.huge end
-    -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip)
+    if c.kind == "level" or want then cap = math.huge end
+    -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip); a carried
+    -- pick keeps its progress there: the make step comes first, done once its target is reached (FRV-104)
     local function OnlyHeld(why)
-        if held <= 0 then return nil, why end
+        if held <= 0 then
+            if carry and crafted >= carry.target then
+                return nil, string_format("the %s of its plan are made, none left in your bags or bank to list", Count(carry.target))
+            end
+            return nil, why
+        end
         local notes = {}
         local conf = Confidence(row, d, b, saturation, notes)
-        return StockPick(c, row, held, heldAll, d, room, b, tableCost, conf, notes, waiting)
+        local pick, reason = StockPick(c, row, held, heldAll, d, room, b, tableCost, conf, notes, waiting)
+        if pick and carry then
+            Track(pick, 0)
+            table.insert(pick.steps, 1, "make") -- written by FM.PickMakeStep
+            pick.makeStep = 1
+            table.insert(pick.reasons, 2, { "p", "Make" }) -- written by FM.PickMakeText
+        end
+        return pick, reason
     end
     local runsMax = math_floor((batch - held) / makes)
+    if carry then runsMax = math_ceil(math_max(0, carry.target - crafted) / makes) end
+    if want then runsMax = math_ceil(want / makes) end
     if runsMax < 1 then return OnlyHeld(BatchShort(b, room, makes)) end
     if cap <= 0 then return OnlyHeld(NoGold()) end
     local plan = PlanCraft(row, cap, runsMax * makes, waiting and waiting.T or nil)
@@ -1523,7 +1586,7 @@ local function EvaluateCraft(c)
         if learnCost / m > LEARN_DAYS * made then return nil, "the recipe would not pay back within 3 days of sales" end
         score = (LEARN_DAYS * expected * conf - learnCost) / LEARN_DAYS
     end
-    if score < P.minScore then return nil, TooSmall(score, conf) end
+    if score < P.minScore and not want then return nil, TooSmall(score, conf) end
 
     local pick = { key = row.key, kind = waiting and "wait" or c.kind, wait = waiting, score = score, conf = conf,
         listAt = waiting and waiting.T or row.sell,
@@ -1540,8 +1603,14 @@ local function EvaluateCraft(c)
         steps[#steps + 1] = use
         pick.useStep = #steps -- marked later when the pick is out of scope and plan picks use those units (FRV-133)
     end
+    local beforeBuy = #steps
     steps[#steps + 1] = BuyStep(plan.trial, toolsToBuy)
+    -- the buy step follows your AH purchases since this plan (FRV-104, review round 1: FM.PickBuyStep; Evaluate keeps
+    -- the plan's purchases for it)
+    if c.kind ~= "level" and #steps > beforeBuy then pick.buyStep, pick.toolsToBuy = #steps, toolsToBuy end
     steps[#steps + 1] = string_format("make %s", Count(made))
+    -- the make step follows your crafts (FRV-104: "make 31 more", "made 51"), a recipe to level for has none
+    if c.kind ~= "level" then pick.makeStep = #steps end
     if waiting then steps[#steps + 1] = WaitStep(waiting) end
     pick.steps = steps
     -- Shift-click and the row menu snipe every AH purchase of the plan with its units (pick.buys); the sniper
@@ -1567,9 +1636,14 @@ local function EvaluateCraft(c)
         list[#list + 1] = { "l", "Pays back after", string_format("%d items", math_ceil((c.learnCost or 0) / m)) }
     end
     list[#list + 1] = { "h", c.kind == "level" and "Once learned, one listing could look like" or "One listing" }
-    list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    if c.kind == "level" then
+        list[#list + 1] = { "l", "Make", Count(made) .. (makes > 1 and string_format(" (%d crafts)", plan.runs) or "") }
+    else
+        list[#list + 1] = { "p", "Make" } -- "20 / 51": crafted since the plan / its target (FM.PickMakeText, FRV-104)
+    end
     if held > 0 then
-        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them", Count(held), StockWhere(held, OwnedOf(row.key)[3])) }
+        list[#list + 1] = { "l", "You hold", string_format("%s in %s, listed with them%s", Count(held), StockWhere(held, OwnedOf(row.key)[3]),
+            craftedHeld > 0 and string_format(" (%s crafted for this pick)", Count(craftedHeld)) or "") }
     end
     list[#list + 1] = { "l", "Gold needed", M(pick.invest) }
     list[#list + 1] = { "l", "Expected profit", M(expected) }
@@ -1617,6 +1691,17 @@ local function EvaluateCraft(c)
         pick.shopping = shopping
     end
     pick.toolCost = toolCost
+    if c.kind ~= "level" then Track(pick, made) end
+    -- fewer than the amount you set: the steps line says what is short in a few words, the input's tooltip in full
+    -- (FRV-154, FRV-187). Your minimum profit is no limit of the market (the maintainer's decision on FRV-187): a warning
+    -- (amountWarn, orange, the input light blue), not "cannot be done" (red); FRV-188 lets an amount pass it
+    if want and made < want then
+        local margin = plan.stop == "margin"
+        pick.amountWarn = margin or nil
+        pick.amountNote = margin and "more would earn under your min. profit" or "no more materials on the AH at a usable price"
+        pick.amountWhy = string_format("Only %s can be made now: %s", Count(made), margin
+            and "more would earn less than your minimum profit" or "the AH has no more materials at a usable price")
+    end
     return pick
 end
 
@@ -1656,11 +1741,15 @@ local function EvaluateVendor(c)
     -- the units the pick sells: what you hold first, the vendor's for the rest; vendor goods at most 20% of what
     -- others list
     local units = math_min(b.batch, math_max(1, math_floor(VENDOR_LISTED_SHARE * others)))
-    if units < 1 then return nil, BatchShort(b, room, 1) end
+    -- an amount you set for this pick in the table (FRV-154): it buys that many, whatever the batch, the room and its
+    -- share of the gold say; a vendor's limited stock still holds
+    local want = P.amount and P.amount.key == row.key and P.amount.n or nil
+    if units < 1 and not want then return nil, BatchShort(b, room, 1) end
     local cap = math_min(P.perPick, P.budgetLeft)
     local heldAll = HeldOf(row.key)
-    local held = math_min(heldAll, units)
+    local held = math_min(heldAll, math_max(0, units))
     local n = math_floor(math_min(units - held, row.offer.limited or math.huge, cap / unit))
+    if want then n = math_floor(math_min(want, row.offer.limited or math.huge)) end
     if c.noBuy then n = 0 end -- no vendor of it in the place (FRV-99): only what you hold, as a Stock pick
     if n < 1 then
         if held <= 0 then return nil, NoGold() end
@@ -1684,12 +1773,16 @@ local function EvaluateVendor(c)
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
     local score = expected * conf
-    if score < P.minScore then return nil, TooSmall(score, conf) end
+    if score < P.minScore and not want then return nil, TooSmall(score, conf) end
     local where = row.offer.where
     -- offer: the vendor the pick buys at; Track goes there, or with a place to trackOffer, the vendor there (FRV-99)
     local pick = { key = row.key, kind = "vendor", score = score, conf = conf, listAt = row.sell, invest = n * unit,
         unitProfit = m, cand = c, trial = NewTrial(), held = held, listUnits = items, batch = items, offer = row.offer,
         trackOffer = row.trackOffer, placeOf = row.placeOf, expected = expected * conf }
+    if want and n < want then
+        pick.amountNote = "the vendor has no more"
+        pick.amountWhy = string_format("Only %s can be bought now: the vendor sells %s at a time", Count(n), Count(row.offer.limited or n))
+    end
     pick.steps = { string_format("buy %s at %s (%s each)", Count(n), ShortWhere(where), M(unit)) }
     local list = {
         { "h", "One listing" },
@@ -1721,6 +1814,117 @@ local function EvaluateVendor(c)
     return pick
 end
 
+-- The levels of a ladder without its `skip` cheapest units (what earlier picks of the plan buy of the item)
+local function LadderAfter(ladder, skip)
+    if skip <= 0 then return ladder end
+    local out = {}
+    for _, level in ipairs(ladder) do
+        local q = level[2]
+        if skip >= q then
+            skip = skip - q
+        else
+            out[#out + 1] = { level[1], q - skip }
+            skip = 0
+        end
+    end
+    return out
+end
+
+---------------------------------------------------------------- flip picks you hid (FRV-193)
+-- "Hide this pick" (the row menu of a Flip pick, for a flip someone else bought first): the item gets no Flip pick while
+-- its flip buys only at prices the hidden one bought (those cheap listings still in the data, until a later scan or the
+-- feed shows them gone); a flip that buys at another price (a new cheaper listing, a level above) is a pick again. Per
+-- realm and faction: R.hiddenPicks[key] = { t = when hidden (FM.Now), top = its "up to" price, levels = the prices it
+-- bought, cheapest first }. 24 hours after it was hidden an entry no longer counts and is dropped at the next load
+
+local HIDE_FLIP_SECONDS = 24 * 3600
+
+-- The prices of the levels a flip buys: every level of the ladder left for it up to its "up to" price (it buys the
+-- cheapest levels in full, FM.FlipPlan)
+local function FlipLevels(left, top)
+    local levels = {}
+    for _, level in ipairs(left) do
+        if level[1] > top then break end
+        levels[#levels + 1] = level[1]
+    end
+    return levels
+end
+
+-- The hidden flips that still count, [key] = entry: hidden less than 24 hours before now (a malformed entry never counts)
+function FM.HiddenFlips(now)
+    local r = FM.R()
+    local out = {}
+    if not (r and type(r.hiddenPicks) == "table") then return out end
+    now = now or FM.Now()
+    for key, e in pairs(r.hiddenPicks) do
+        if type(key) == "string" and type(e) == "table" and type(e.t) == "number" and now - e.t < HIDE_FLIP_SECONDS
+            and type(e.levels) == "table" and type(e.levels[1]) == "number" then
+            out[key] = e
+        end
+    end
+    return out
+end
+
+-- Drops the entries hidden 24 hours ago or longer, and malformed ones (at load, FM.R)
+function FM.PruneHiddenFlips(r, now)
+    if type(r) ~= "table" or r.hiddenPicks == nil then return end
+    if type(r.hiddenPicks) ~= "table" then
+        r.hiddenPicks = nil
+        return
+    end
+    now = now or FM.Now()
+    for key, e in pairs(r.hiddenPicks) do
+        if type(e) ~= "table" or type(e.t) ~= "number" or now - e.t >= HIDE_FLIP_SECONDS or type(e.levels) ~= "table" then
+            r.hiddenPicks[key] = nil
+        end
+    end
+    if next(r.hiddenPicks) == nil then r.hiddenPicks = nil end
+end
+
+-- Hides a Flip pick of the plan shown: true, or nil and why
+function FM.HideFlipPick(pick)
+    if type(pick) ~= "table" or pick.kind ~= "flip" or type(pick.key) ~= "string" then
+        return nil, "only an AH flip pick can be hidden"
+    end
+    local levels = pick.flipLevels
+    if type(levels) ~= "table" or type(levels[1]) ~= "number" then return nil, "the pick names no listings to buy" end
+    local r = FM.R()
+    if not r then return nil, "no data for this realm yet" end
+    if type(r.hiddenPicks) ~= "table" then r.hiddenPicks = {} end
+    local copy = {}
+    for i, price in ipairs(levels) do copy[i] = price end
+    r.hiddenPicks[pick.key] = { t = FM.Now(), top = copy[#copy], levels = copy }
+    return true
+end
+
+-- Shows every hidden flip pick again (a click on the Picks footer's "n hidden"): how many still counted
+function FM.ShowHiddenFlips()
+    local n = 0
+    for _ in pairs(FM.HiddenFlips()) do n = n + 1 end
+    local r = FM.R()
+    if r then r.hiddenPicks = nil end
+    return n
+end
+
+-- A flip you hid: true while every level the flip buys now is at a price the hidden one bought; the plan keeps the
+-- items it held back so (out.pickHidden: what the Picks footer counts, review round 1 of PR 79)
+local function FlipHidden(key, levels)
+    local e = P.hidden and P.hidden[key]
+    if not (e and levels[1]) then return false end
+    local known = {}
+    for _, price in ipairs(e.levels) do known[price] = true end
+    for _, price in ipairs(levels) do
+        if not known[price] then return false end
+    end
+    P.heldBack[key] = true
+    return true
+end
+
+-- A flip pick: the Flip tab's rule (FM.FlipPlan, FRV-172) within what this pick may buy, its batch (less what you hold)
+-- and its gold. The flip row buys every cheap level and lists under the cheapest listing that stays; a pick that can
+-- buy fewer units takes fewer whole levels and lists under the level above those, and when no such buy earns the
+-- margin it is no pick: the units it cannot buy would stay under its list price (until 1.45 it bought what it could
+-- and kept the row's list price)
 local function EvaluateFlip(c)
     local row = c.row
     if Yours(row.key) > 0 then return nil, "you list it yourself" end
@@ -1732,27 +1936,44 @@ local function EvaluateFlip(c)
     if not room then return nil, noRoom end
     local ladder = Ladder(row.key)
     local cheapest = ladder[1] and ladder[1][1] or row.top
-    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, row.sell), room)
-    if not b then return nil, noBatch end
-    if b.batch < 1 then return nil, BatchShort(b, room, 1) end
+    local heldAll = HeldOf(row.key)
+    local cap = math_min(P.perPick, P.budgetLeft)
+    -- the listings left for this pick: without the units earlier picks of the plan buy
+    local left = LadderAfter(ladder, P.used[row.key] or 0)
+    local floor = FM.MinListPrice and FM.MinListPrice(row.key, P.view.Get(row.key)) or 1
+    -- the batch depends on the margin at the list price, and the list price on how many units the batch allows: a
+    -- smaller buy lists lower, which can halve the batch again (its eco factor has three values, so this settles)
+    -- an amount you set for this pick in the table (FRV-154): it buys up to that many, whatever the batch, the room
+    -- and its share of the gold say; the flip rule still holds (whole price levels, listed under what stays)
+    local want = P.amount and P.amount.key == row.key and P.amount.n or nil
+    local sell = row.sell
+    local b, noBatch, held, f
+    for _ = 1, 4 do
+        b, noBatch = Batch(row, d, sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, sell), room)
+        if not b then return nil, noBatch end
+        if b.batch < 1 and not want then return nil, BatchShort(b, room, 1) end
+        -- what you hold first: the flip buys only the rest of the batch
+        held = math_min(heldAll, b.batch)
+        f = FM.FlipPlan(left, row.qty, row.usual, floor, want or (b.batch - held), not want and cap or nil)
+        if not f or f.sell == sell then break end
+        sell = f.sell
+    end
+    -- a flip you hid (FRV-193): no pick while it buys the listings the hidden one bought
+    local levels = f and FlipLevels(left, f.top) or nil
+    if levels and FlipHidden(row.key, levels) then return nil, "hidden by you (Hide this pick) until its listings change" end
     local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and (row.qty - (row.own or 0)) / buyers or 99
-    -- what you hold first: the flip buys only the rest of the batch
-    local heldAll = HeldOf(row.key)
-    local held = math_min(heldAll, b.batch)
-    local cap = math_min(P.perPick, P.budgetLeft)
     local trial = NewTrial()
-    local skip = P.used[row.key] or 0
     local n, cost = 0, 0
-    for _, level in ipairs(ladder) do
-        if level[1] > row.top then break end
-        local q = level[2]
-        if skip >= q then
-            skip = skip - q
-        else
-            q = q - skip
-            skip = 0
-            local take = math_min(q, row.units - n, b.batch - held - n, math_floor((cap - cost) / level[1]))
+    if f then
+        n, cost = f.units, f.cost
+        trial.used[row.key], trial.top[row.key] = n, f.top
+    else
+        -- no buy within the batch and the gold lists under every listing that stays: what it could buy of the row's
+        -- cheap units, for the reason
+        for _, level in ipairs(left) do
+            if level[1] > row.top then break end
+            local take = math_min(level[2], (want or (b.batch - held)) - n, want and level[2] or math_floor((cap - cost) / level[1]))
             if take <= 0 then break end
             n = n + take
             cost = cost + take * level[1]
@@ -1763,20 +1984,37 @@ local function EvaluateFlip(c)
     P.tried = trial -- what the flip would buy, for the reason of a later drop (FRV-133)
     local notes = {}
     local conf = TradeConfidence(d, b, saturation, notes)
-    if n < 1 then
-        if held <= 0 then return nil, NoGold() end
-        -- what you hold at the cheapest price on the AH now, which a flip would pay for one more
-        return StockPick(c, row, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(row, d))
+    if n < 1 or not f then
+        if held > 0 then
+            -- what you hold at the cheapest price on the AH now, which a flip would pay for one more. Nothing is
+            -- bought, so every listing of others stays: your units list under the cheapest of them, not at the
+            -- flip's price above it (FRV-172)
+            local under = row
+            if left[1] and left[1][1] <= row.sell then
+                under = setmetatable({ sell = math_max(floor, left[1][1] - 1) }, { __index = row })
+            end
+            return StockPick(c, under, held, heldAll, d, room, b, cheapest, conf, notes, HeldWait(under, d))
+        end
+        if n < 1 then return nil, NoGold() end
+        -- the units of others under the row's list price that this pick cannot buy
+        local stay = -n
+        for _, level in ipairs(left) do
+            if level[1] >= row.sell then break end
+            stay = stay + level[2]
+        end
+        if stay < 1 then return nil, "no profit left under the cheapest listing that stays" end
+        return nil, string_format("%s cheaper listing%s would stay under %s: this pick can buy %s of the %s", Count(stay),
+            stay == 1 and "" or "s", M(row.sell), Count(n), Count(stay + n))
     end
     local items = n + held
     local unitCost = cost / n
-    local m = row.sell * (1 - AH_CUT) - unitCost
+    local m = sell * (1 - AH_CUT) - unitCost
     -- what you hold at what it cost you (FRV-134), else at what the flip pays per unit now
     local heldUnit, heldKnown = HeldUnit(row.key, held, unitCost)
     local expected, sold = ListingExpected(items, m, b.dep, d.commodity)
     local heldPart = (d.commodity and SELLS_COMMODITY or SELLS_ITEM) * held * (unitCost - heldUnit)
     expected = expected + heldPart
-    if (row.sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) or (expected <= 0 and expected - heldPart <= 0) then
+    if (sell * (1 - AH_CUT)) <= (trial.top[row.key] or 0) or (expected <= 0 and expected - heldPart <= 0) then
         return nil, "no profit left after the cut and deposits"
     end
     -- what you hold at what you paid makes it none (FRV-134): that is the reason
@@ -1784,12 +2022,18 @@ local function EvaluateFlip(c)
     -- the Profit of the Picks row (FRV-126) holds for flips too
     if m < MinUnit(unitCost) then return nil, UnderProfit(unitCost) end
     local score = expected * conf
-    if score < P.minScore then return nil, TooSmall(score, conf) end
-    local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = row.sell, invest = cost,
+    if score < P.minScore and not want then return nil, TooSmall(score, conf) end
+    local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
         unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf }
+    if want and n < want then
+        pick.amountNote = "no more available for flipping"
+        pick.amountWhy = string_format("Only %s can be bought now: more would leave cheaper listings under the list price or "
+            .. "earn no margin", Count(n))
+    end
     pick.steps = { string_format("buy %s up to %s", Count(n), M(trial.top[row.key])) }
     pick.mainKey = row.key -- Shift-click and the row menu snipe its units at the plan's highest price
     pick.mainTop = trial.top[row.key]
+    pick.flipLevels = levels -- the prices it buys at, what "Hide this pick" saves (FRV-193)
     pick.buys = AHBuys(trial)
     pick.reasons = {
         { "h", "One listing" },
@@ -1800,10 +2044,11 @@ local function EvaluateFlip(c)
             StockWhere(held, OwnedOf(row.key)[3])) }
     end
     HeldLine(pick.reasons, held, heldKnown, heldUnit, m + unitCost - heldUnit)
-    SellAtLeastNote(pick.reasons, row.key, held, heldUnit, heldKnown, row.sell)
+    SellAtLeastNote(pick.reasons, row.key, held, heldUnit, heldKnown, sell)
     for _, line in ipairs({
         { "l", "Gold needed", M(cost) },
-        { "l", "List at", M(row.sell) .. GREY .. string_format("  %s others wait at %s", Count(row.support), M(row.wall)) .. "|r" },
+        -- the cheapest listing of others that stays after the buy, and the units up to the next real price level
+        { "l", "List at", M(sell) .. GREY .. "  " .. FM.FlipNextText(f) .. "|r" },
         { "l", "Expected profit", M(expected) },
         { "l", "Sells", string_format("about %s of %s in 8h", Units(sold), Count(items)) },
         { "h", "Market" },
@@ -1993,6 +2238,18 @@ local function Evaluate(c)
         pick, reason = EvaluateCraft(c)
     end
     if not pick then return pick, reason end
+    -- what the buy step's purchases are, for FM.PickBuyStep (review round 1)
+    if pick.buyStep and pick.trial then pick.purchases = Purchases(pick.trial) end
+    -- the Amount column (FRV-154): what a craft makes ("make N") and what a vendor resell or a flip buys, both yours to
+    -- set (amountEdit; FM.RemakePick makes the pick again for your number); a Stock pick's units are what you hold; a
+    -- recipe to learn or to level for has none. amountStep: the step a note on a short amount goes behind
+    if pick.kind == "craft" or pick.kind == "wait" then
+        pick.amount, pick.amountEdit, pick.amountStep = pick.made, true, pick.makeStep
+    elseif pick.kind == "vendor" or pick.kind == "flip" then
+        pick.amount, pick.amountEdit, pick.amountStep = (pick.listUnits or 0) - (pick.held or 0), true, 1
+    elseif pick.kind == "stock" then
+        pick.amount = pick.listUnits
+    end
     pick.listHours = LISTING_HOURS
     pick.steps = pick.steps or {}
     if pick.listAt then
@@ -2062,33 +2319,67 @@ local function LogPlan(picks)
     FM.CapList(r.plans, PLAN_MAX)
 end
 
+-- What a pick takes from the pass, applied: took = { used = AH units by item, stock = your units used as material,
+-- made = spare units its crafts make, held = the units of its own item it lists, invest, tools = the tools it buys }.
 -- rank: the pick's place in the plan (what it takes of your units is named in later picks' material lines)
-local function Commit(pick, rank)
-    local trial = pick.trial
+local function Apply(took, key, rank)
     local before = {}
-    local function Left(key)
-        local left = P.stockLeft[key] or StockOf(key)
-        if before[key] == nil then before[key] = left end
+    local function Left(k)
+        local left = P.stockLeft[k] or StockOf(k)
+        if before[k] == nil then before[k] = left end
         return left
     end
-    for key, n in pairs(trial.used) do P.used[key] = (P.used[key] or 0) + n end
-    for key, n in pairs(trial.stock) do P.stockLeft[key] = Left(key) - n end
-    for key, n in pairs(trial.made) do P.stockLeft[key] = Left(key) + n end
+    for k, n in pairs(took.used) do P.used[k] = (P.used[k] or 0) + n end
+    for k, n in pairs(took.stock) do P.stockLeft[k] = Left(k) - n end
+    for k, n in pairs(took.made) do P.stockLeft[k] = Left(k) + n end
     -- what you hold of its item goes to the AH with it: no later pick uses it as material
-    if (pick.held or 0) > 0 and not P.noStock then
-        P.stockLeft[pick.key] = math_max(0, Left(pick.key) - pick.held)
-    end
-    for key, was in pairs(before) do
-        local n = was - (P.stockLeft[key] or was)
+    if took.held > 0 then P.stockLeft[key] = math_max(0, Left(key) - took.held) end
+    for k, was in pairs(before) do
+        local n = was - (P.stockLeft[k] or was)
         if n > 0 then
-            P.taken[key] = P.taken[key] or {}
-            P.taken[key][#P.taken[key] + 1] = { rank = rank, n = n }
+            P.taken[k] = P.taken[k] or {}
+            P.taken[k][#P.taken[k] + 1] = { rank = rank, n = n }
         end
     end
-    P.budgetLeft = P.budgetLeft - pick.invest
-    if (pick.toolCost or 0) > 0 then
-        for _, name in ipairs(pick.tools or EMPTY) do P.toolsBought[name] = true end
+    P.budgetLeft = P.budgetLeft - took.invest
+    for _, name in ipairs(took.tools or EMPTY) do P.toolsBought[name] = true end
+end
+
+-- A pick joins the plan: what it takes is applied to the pass and kept on it (pick.took), so a pick after it can be
+-- made again later in the same place without planning them all again (FRV-154, FM.RemakePick)
+local function Commit(pick, rank)
+    local trial = pick.trial
+    local took = { used = {}, stock = {}, made = {}, invest = pick.invest or 0,
+        held = ((pick.held or 0) > 0 and not P.noStock) and pick.held or 0,
+        tools = (pick.toolCost or 0) > 0 and pick.tools or nil }
+    for key, n in pairs(trial.used) do took.used[key] = n end
+    for key, n in pairs(trial.stock) do took.stock[key] = n end
+    for key, n in pairs(trial.made) do took.made[key] = n end
+    pick.took = took
+    Apply(took, pick.key, rank)
+end
+
+-- A pick as the table keeps it: the market numbers of the row it was made from (FRV-67: On AH with yours, C/8h, C/24h:
+-- the product of a craft or a recipe to learn, the item of a vendor resell or a flip), the kind of its candidate
+-- (from: what FM.RemakePick looks it up by), and the pass's own tables gone
+local function Finish(p)
+    local c = p.cand
+    local row = c and c.row
+    if row then p.qty, p.own, p.sold12, p.soldWide = row.qty, row.own, row.sold12, row.soldWide end
+    p.from = c and c.kind or p.from
+    p.trial, p.cand = nil, nil
+end
+
+-- The plan's totals for the summary line: the gold its picks need and the sum of their Expected
+local function Totals(out)
+    local need, expected = 0, 0
+    for _, p in ipairs(out.picks or EMPTY) do
+        if not p.extra then
+            need = need + (p.invest or 0)
+            expected = expected + (p.expected or 0)
+        end
     end
+    out.pickNeed, out.pickExpected = need, expected
 end
 
 ---------------------------------------------------------------- why a pick is out of scope (FRV-133)
@@ -2273,7 +2564,124 @@ function FM.PicksBudget(gold, s)
     return b
 end
 
-function FM.ComputePicks(out, ctx, done)
+---------------------------------------------------------------- what you crafted of a pick (FRV-104)
+-- A craft pick has a target (the units its plan makes) and the time its plan was made (since). What you crafted of
+-- its item since then (FM.CraftedSince, the craft log) counts toward the target: the tooltip's Make reads "20 / 51",
+-- the make step "make 31 more", and "made 51" once the target is reached. A locked plan is held as it was made, so
+-- only these lines follow your crafts; an automatic plan (the lock off) carries the target, the time and what you
+-- held over for every craft pick that is in it again (FM.PickCarry, passed back as ctx.carry): it makes only the rest
+-- and lists the crafted units with it. A plan you ask for (Refresh, a change of a Picks input) starts new targets,
+-- and what you crafted is then units you hold.
+
+-- What an automatic plan carries over from the plan shown: { [key] = { target, since, held } } of its craft picks
+function FM.PickCarry(picks)
+    local carry
+    for _, shown in ipairs(type(picks) == "table" and picks or EMPTY) do
+        -- a pick made again for an amount you set carries the plan's own target (FRV-154, review round 1: a new plan
+        -- starts from its own numbers; carried, your number came back as the plan's, unmarked)
+        local p = type(shown) == "table" and shown.original or shown
+        if type(p) == "table" and type(p.key) == "string" and type(p.target) == "number" and type(p.since) == "number" then
+            carry = carry or {}
+            carry[p.key] = { target = p.target, since = p.since, held = p.heldOwn or 0 }
+        end
+    end
+    return carry
+end
+
+-- A pick's progress: units crafted since its plan was made, its target and what is left; nil for a pick without one
+function FM.PickProgress(pick)
+    if type(pick) ~= "table" or type(pick.target) ~= "number" or type(pick.since) ~= "number" then return nil end
+    local crafted = FM.CraftedSince and FM.CraftedSince(pick.key, pick.since) or 0
+    return crafted, pick.target, math_max(0, pick.target - crafted)
+end
+
+-- The tooltip's Make line: "20 / 51" (crafted / target, "0 / 51" before the first craft), "(9 crafts left)" for a
+-- recipe that makes several
+function FM.PickMakeText(pick)
+    local crafted, target, left = FM.PickProgress(pick)
+    if not crafted then return "?" end
+    local text = Count(crafted) .. " / " .. Count(target)
+    local makes = pick.makes or 1
+    if left <= 0 then return text .. ", done" end
+    if makes > 1 then
+        text = text .. string_format(" (%d crafts%s)", math_ceil(left / makes), crafted > 0 and " left" or "")
+    end
+    return text
+end
+
+-- The make step: "make 51", "make 31 more", "made 51" once the target is reached (then true: it and the steps
+-- before it are done, the next step is the listing)
+function FM.PickMakeStep(pick)
+    local crafted, target, left = FM.PickProgress(pick)
+    if not crafted then return nil, false end
+    if left <= 0 then return "made " .. Count(crafted), true end
+    if crafted > 0 then return "make " .. Count(left) .. " more", false end
+    return "make " .. Count(target), false
+end
+
+-- Of the AH purchases of an item since a plan was made, the part a pick's purchase of it gets: the picks of the plan
+-- shown take them in their order, each up to what it buys (review round 2: two picks needing one material count each
+-- unit once, pick #1 first, as the plan hands out your stock); a pick not in it (an older plan) all of them
+local function BoughtFor(pick, key, planAt)
+    local total = FM.BoughtSince and FM.BoughtSince(key, planAt) or 0
+    local picks = FM.trade and FM.trade.picks
+    if total <= 0 or type(picks) ~= "table" then return total end
+    local left = total
+    for _, p in ipairs(picks) do
+        if type(p) == "table" and p.planAt == planAt and type(p.purchases) == "table" then
+            for _, e in ipairs(p.purchases) do
+                if e.key == key and (e.ah or 0) > 0 then
+                    local take = math_min(left, e.ah)
+                    if p == pick then return take end
+                    left = left - take
+                end
+            end
+        end
+    end
+    return total
+end
+
+-- The buy step of a craft pick as it is now (review round 1): the plan's AH purchases less what this character bought of
+-- each on the AH since the plan was made (FM.BoughtSince, the purchase log, shared out over the plan's picks in their
+-- order: BoughtFor), "buy 31 more Heavy Leather up to 2s 75c"; vendor purchases and tools as planned. nil while nothing
+-- was bought since (the step as planned); "bought the materials" and true when nothing is left to buy at the AH or a
+-- vendor. A purchase is in your mail until you take it out: a plan made again counts it only then, this step at once
+function FM.PickBuyStep(pick)
+    if type(pick) ~= "table" or type(pick.purchases) ~= "table" or type(pick.planAt) ~= "number" then return nil end
+    local list, changed = {}, false
+    for _, e in ipairs(pick.purchases) do
+        local bought = (e.ah or 0) > 0 and BoughtFor(pick, e.key, pick.planAt) or 0
+        local ah = math_max(0, (e.ah or 0) - bought)
+        if ah ~= (e.ah or 0) then changed = true end
+        if ah + (e.vendor or 0) > 0 then
+            list[#list + 1] = { key = e.key, ah = ah, vendor = e.vendor or 0, top = e.top, more = ah ~= (e.ah or 0) }
+        end
+    end
+    if not changed then return nil end
+    local tools = pick.toolsToBuy or EMPTY
+    if not list[1] then
+        if tools[1] then return "buy " .. table_concat(tools, ", "), false end
+        return "bought the materials", true
+    end
+    local first = list[1]
+    local text = BuyText(first)
+    if first.more then text = text:gsub("^buy (%S+)", "buy %1 more", 1) end
+    local more = #list - 1 + #tools
+    return text .. (more > 0 and string_format(" (+%d more)", more) or ""), false
+end
+
+-- The crafts left of a craft pick (Ctrl+click's count box, FRV-132): what its target still needs, else its plan's runs
+function FM.PickRunsLeft(pick)
+    local crafted, _, left = FM.PickProgress(pick)
+    if not crafted then return pick and pick.runs end
+    if left <= 0 then return nil end
+    return math_ceil(left / (pick.makes or 1))
+end
+
+-- The state of one pass (P) from its context: the view, the sources, your listings, the Picks filters and the budget
+-- over the picks the plan has at most. Returns the budget (funds, with whose gold) and the gold. FM.ComputePicks and
+-- FM.RemakePick (one pick made again, FRV-154) start here
+local function StartPass(ctx)
     nameToKey = nil
     local s = FM.GetSettings()
     -- your auctions seen before the latest snapshot are checked against it (Yours)
@@ -2289,7 +2697,17 @@ function FM.ComputePicks(out, ctx, done)
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
         paid = {}, -- what your units of an item cost you, by key and units (HeldUnit, FRV-134)
+        hidden = FM.HiddenFlips(ctx.now), -- the flip picks you hid (FlipHidden, FRV-193)
+        heldBack = {}, -- the items FlipHidden held back in this pass
         least = {} } -- the item tooltip's cost info of an item you hold (SellAtLeastNote, FRV-134)
+    -- the craft picks an automatic plan carries over (FRV-104, FM.PickCarry), with what you crafted of each since
+    if type(ctx.carry) == "table" then
+        P.carry = {}
+        for key, c in pairs(ctx.carry) do
+            P.carry[key] = { target = c.target, since = c.since, held = c.held or 0,
+                done = FM.CraftedSince and FM.CraftedSince(key, c.since) or 0 }
+        end
+    end
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
     -- is left
     local funds = FM.PicksBudget(gold, s)
@@ -2306,6 +2724,11 @@ function FM.ComputePicks(out, ctx, done)
     -- "first batch" (settings panel, FRV-71): the most of a commodity's C/24h a pick plans without sales of yours
     local firstPct = tonumber(s.tableFirstPct)
     P.firstShare = (firstPct and math_max(1, math_min(100, firstPct)) or FIRST_PCT) / 100
+    return funds, gold
+end
+
+function FM.ComputePicks(out, ctx, done)
+    local funds, gold = StartPass(ctx)
     out.pickGold = gold
     out.pickFunds = funds -- the summary line and its tooltip: which budget, whose gold
     out.pickProfit = P.profit -- and the minimum profit per item it planned with (FRV-126)
@@ -2390,6 +2813,7 @@ function FM.ComputePicks(out, ctx, done)
                 if ok and note then table.insert(p.reasons, 1, { "n", note, ORANGE }) end
                 table.insert(p.reasons, ok and note and 2 or 1, { "n", "Out of scope: judged on its own with one pick's share "
                     .. "of the gold, as if the plan did not exist; it can take the place of a plan pick.", GREY })
+                p.outNotes = ok and note and 2 or 1 -- these first lines stay when the pick is made again (FRV-154)
                 if p.useStep and p.trial and p.steps then p.steps[p.useStep] = UseStep(p.trial, true) or p.steps[p.useStep] end
             end
         end
@@ -2412,30 +2836,28 @@ function FM.ComputePicks(out, ctx, done)
                 end
             end
         end
-        -- the plan's totals for the summary line: the gold it needs and the sum of its Expected
-        local need, expected = 0, 0
-        for _, p in ipairs(chosen) do
-            need = need + (p.invest or 0)
-            expected = expected + (p.expected or 0)
-        end
-        out.pickPlan, out.pickNeed, out.pickExpected = #chosen, need, expected
-        -- the market numbers of the row the pick was made from (FRV-67: On AH with yours, C/8h, C/24h): the product of a
-        -- craft or a recipe to learn, the item of a vendor resell or a flip
-        local function Done(p)
-            local row = p.cand and p.cand.row
-            if row then p.qty, p.own, p.sold12, p.soldWide = row.qty, row.own, row.sold12, row.soldWide end
-            p.trial, p.cand = nil, nil
-        end
         for i, p in ipairs(picks) do
             p.rank = i
-            Done(p)
+            Finish(p)
         end
-        for _, p in ipairs(levels) do Done(p) end
+        for _, p in ipairs(levels) do Finish(p) end
         out.picks = picks
+        -- your bags and bank as this plan read them, for a pick made again later (FRV-154, FM.RemakePick)
+        out.pickOwned = P.owned
+        -- the plan's totals for the summary line: the gold it needs and the sum of its Expected
+        out.pickPlan = #chosen
+        Totals(out)
         out.pickLevels = levels
         out.pickBudget = P.budget
         out.pickSlots = P.slots
         out.pickWhy = why
+        -- the flips you hid that this plan held back (FRV-193): each step judges every candidate again, with the gold and
+        -- the units earlier picks take gone, so a flip held back in one step can be a pick in another (review round 2 of
+        -- PR 79): one the plan shows is none
+        for _, p in ipairs(picks) do
+            if p.kind == "flip" then P.heldBack[p.key] = nil end
+        end
+        out.pickHidden = P.heldBack
         out.pickRank, out.pickExtra = {}, {}
         for _, p in ipairs(picks) do
             out.pickRank[p.key] = p.rank
@@ -2447,4 +2869,131 @@ function FM.ComputePicks(out, ctx, done)
         done()
     end
     Step()
+end
+
+---------------------------------------------------------------- an amount you set (FRV-154)
+-- The Picks tab's Amount column is an input: a craft's "make N", the units a vendor resell or a flip buys. A number you
+-- type makes that one pick again for it, by the plan's own rules (the AH ladder, buy or craft, your stock, the price to
+-- list at), in the place it has in the plan and as of the plan's own moment (review round 3): with the latest scan's
+-- prices, but with your bags and bank as the plan saw them (out.pickOwned, the pass's stock reads) and the plan picks
+-- before it taking what they took then (Apply of their took); the picks after it stay as they are. It keeps the
+-- plan's time (planAt, and since for its crafts), so what you bought and crafted since the plan counts toward it as
+-- progress, shared out with the other picks in the plan's order, exactly as for a pick you did not touch
+-- (FM.PickBuyStep, FM.PickProgress). Rounds 1 and 2 planned it against your stock at the edit and counted its
+-- purchases from then, next to picks counting from the plan: the materials bought for one pick showed up as free
+-- stock or as bought for another, whichever way the claims were shared out. The amount may be over the room on the AH and the pick's share of the gold (your
+-- choice); the materials, a vendor's limited stock, your minimum profit and the flip rule still stop it, and then the
+-- pick makes or buys what they allow: its steps line says so in red and in a few words (amountNote), the input shows
+-- your number in red (amountWant) and its tooltip the full reason (amountWhy, FRV-187); your minimum profit is a
+-- warning instead (amountWarn: the note orange, the input the number reached in light blue). The pick it replaces stays as
+-- pick.original: emptying the input brings the plan's own pick back (FM.RestorePick). A new plan starts from its own
+-- numbers. The plan log keeps the plan's lines and gets one more for the pick with "e" in its last field.
+
+local function LogAmount(pick, now)
+    local r = FM.R()
+    if type(r.plans) ~= "table" then r.plans = {} end
+    r.plans[#r.plans + 1] = table_concat({ FM.Stamp(now), FM.PlayerName(), pick.key, PlanKind(pick),
+        tostring(math_floor(pick.batch or 0)), tostring(math_floor((pick.invest or 0) + 0.5)),
+        tostring(math_floor((pick.expected or 0) + 0.5)), tostring(Pct(pick.conf or 0)), tostring(pick.rank or 0),
+        pick.extra and "xe" or "e" }, ",")
+    FM.CapList(r.plans, PLAN_MAX)
+end
+
+-- out = the pass shown (FM.trade) with its plan, ctx = { view, sources, now, nowMinutes } as FM.ComputePicks takes it.
+-- Returns the new pick (already in out.picks, the totals of the summary line with it), or nil and why not
+function FM.RemakePick(out, ctx, key, amount)
+    amount = tonumber(amount)
+    local index, old
+    for i, p in ipairs(type(out) == "table" and out.picks or EMPTY) do
+        if p.key == key then index, old = i, p end
+    end
+    if not old then return nil, "it is not in the plan shown" end
+    if not (old.amountEdit and old.from) then return nil, "its amount cannot be set" end
+    if not amount or amount ~= amount or amount < 1 then return nil, "the amount is a whole number from 1" end
+    amount = math_floor(amount)
+    StartPass(ctx)
+    local ok, pick, reason = pcall(function()
+        -- your bags and bank as the plan read them; an item the plan never asked about is read now, less what was
+        -- bought of it since the plan, and kept with the plan's reads (OwnedOf)
+        if type(out.pickOwned) == "table" then P.owned = out.pickOwned end
+        P.asOf = old.planAt
+        -- the plan's picks before it take what they took (a pick out of scope is judged on its own, as the plan
+        -- judged it)
+        if not old.extra then
+            for _, p in ipairs(out.picks) do
+                if p ~= old and not p.extra and p.took and (p.rank or 0) < (old.rank or 0) then Apply(p.took, p.key, p.rank) end
+            end
+        end
+        P.amount = { key = key, n = amount }
+        local cand
+        for _, c in ipairs(Candidates(out, {})) do
+            if c.row.key == key and c.kind == old.from then
+                cand = c
+                break
+            end
+        end
+        if not cand then return nil, "the numbers shown no longer have it: Refresh makes a new plan" end
+        local new, why = Evaluate(cand)
+        if not new then return nil, why end
+        -- nothing can be made or bought for it now: it would only list what you hold
+        if not new.amountEdit then return nil, "nothing more of it can be made or bought now" end
+        Commit(new, old.rank) -- what it takes, for the picks after it when one of them is made again
+        return new
+    end)
+    P = nil
+    if not ok then
+        if geterrorhandler then geterrorhandler()(pick) end
+        return nil, "an error stopped it"
+    end
+    if not pick then return nil, reason or "it is no pick for that amount" end
+    Finish(pick)
+    pick.rank, pick.extra, pick.rate, pick.listPos = old.rank, old.extra, old.rate, old.listPos
+    -- it stays a pick of its plan: its purchases and crafts count from the plan's time, as the other picks' do
+    -- (a craft's new number is what it makes from its plan on: a pick carried by an automatic plan counted from the plan
+    -- before, review round 4)
+    pick.planAt = old.planAt or pick.planAt
+    if pick.target then pick.since, pick.base = old.planAt or old.since or pick.since, 0 end
+    -- the plan's own pick and its number: what emptying the input brings back
+    pick.original = old.original or old
+    pick.amountSet, pick.amountPlan = true, pick.original.amount
+    pick.amountWant = amount -- the number you set: the input shows it, in red while the pick has fewer (amountNote)
+    -- a pick out of scope keeps the lines that say why it is not in the plan
+    if old.extra and old.outNotes and old.reasons then
+        for i = old.outNotes, 1, -1 do
+            if old.reasons[i] then table.insert(pick.reasons, 1, old.reasons[i]) end
+        end
+        pick.outNotes = old.outNotes
+    end
+    out.picks[index] = pick
+    Totals(out)
+    local logged, err = pcall(LogAmount, pick, ctx.now)
+    if not logged and geterrorhandler then geterrorhandler()(err) end
+    return pick
+end
+
+-- A pick's AH purchases with what is still to buy of each: its plan's units less what was bought for it since the plan
+-- (BoughtFor, as FM.PickBuyStep counts it). A flip or a vendor resell has no plan time and no progress in its steps
+-- line: its units stay whole, its number counts from the edit (review round 6: counted in BoughtFor's sharing without
+-- a step that shows it, a flip took purchases from a craft buying the same item). The sniper follows a pick made again with these (review round 4: a pick
+-- made again is planned as of the plan, so its own units no longer shrink by what was bought; given those, the sniper
+-- went on buying for a pick lowered under what it had)
+function FM.PickBuysLeft(pick)
+    local list = {}
+    for _, b in ipairs(type(pick) == "table" and pick.buys or EMPTY) do
+        local bought = type(pick.planAt) == "number" and BoughtFor(pick, b.key, pick.planAt) or 0
+        list[#list + 1] = { key = b.key, ah = math_max(0, (b.ah or 0) - bought), top = b.top }
+    end
+    return list
+end
+
+-- The plan's own pick back in place of one made again for your amount; nil when the pick has the plan's number
+function FM.RestorePick(out, key)
+    for i, p in ipairs(type(out) == "table" and out.picks or EMPTY) do
+        if p.key == key and p.original then
+            out.picks[i] = p.original
+            Totals(out)
+            return p.original
+        end
+    end
+    return nil
 end

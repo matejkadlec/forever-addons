@@ -40,7 +40,7 @@ local function LoadFeed()
     local data = _G.ForeverMarketFeedData
     _G.ForeverMarketFeedData = nil
     if not data and ok and not loaded and reason and reason ~= "MISSING" then
-        FM.PrintError(string.format("load the Battle.net feed ('Forever Market Feed' in the AddOn list: %s)", tostring(reason)))
+        FM.PrintError(string.format("load the Battle.net feed ('Forever Marketplace Feed' in the AddOn list: %s)", tostring(reason)))
     end
     return type(data) == "table" and data or nil
 end
@@ -99,6 +99,9 @@ local function Import(data)
     local faction = UnitFactionGroup and UnitFactionGroup("player")
     if data.faction and faction and data.faction ~= faction then return end
     if data.bucket and data.bucket ~= "" and data.bucket ~= FM.RealmKey() then return end
+    -- the feed's list of items seen with two bonus lists (random suffix variants), at every load: the marks follow it
+    -- also when the feed brings no new snapshot (FRV-138: the repair of the marks an empty name set drops them all)
+    for key in string.gmatch(data.variants or "", "[^,]+") do FM.MarkVariants(key) end
 
     local imported = r.feedT or 0
     local snapshots = {}
@@ -119,7 +122,6 @@ local function Import(data)
     local index, pos = 1, 1
 
     local function Finish()
-        for key in string.gmatch(data.variants or "", "[^,]+") do FM.MarkVariants(key) end
         -- checked again: a deep scan may have finished in the meantime
         if last and last.t > ((r.last and r.last.t) or 0) then
             r.last = { t = last.t, fp = TagOwn(last.fp), source = "api" }

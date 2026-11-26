@@ -189,7 +189,7 @@ local function CaptureItem(itemKey)
             if key then
                 -- different names under one item ID: random suffix variants
                 local name = type(r.itemLink) == "string" and not FM.IsSecret(r.itemLink) and r.itemLink:match("%[(.-)%]")
-                if name then
+                if name and name ~= "" then -- an empty name (item data not loaded) is no name (FRV-138)
                     if not names[key] then
                         names[key] = name
                     elseif names[key] ~= name then

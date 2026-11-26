@@ -4,7 +4,8 @@ local _, FM = ...
 --   crafts  profit per 1g invested, max price of the main material, min sell price, listed, sold ~12h
 --   past    the same craft numbers averaged over the scans of the last 3 days
 --   vendor  items a vendor sells for clearly less than they go for on the AH (with buyers)
---   flips   AH listings cheap enough to relist under the next real price level (15%+ profit after the cut)
+--   flips   AH listings cheap enough to relist under the cheapest listing that stays (15%+ profit after the cut;
+--           FM.FlipPlan, FRV-172)
 --   learn   every recipe still to learn, now or at a higher skill
 -- Prices come from the exact ladders of the latest deep scan (r.last.fp, your own auctions left out).
 -- One compact line of craft numbers per deep scan is kept for 72h in r.track.h; "Past 3 days"
@@ -25,6 +26,7 @@ local math_min = math.min
 local string_sub = string.sub
 local string_byte = string.byte
 local string_gmatch = string.gmatch
+local string_format = string.format
 local table_concat = table.concat
 local table_sort = table.sort
 
@@ -212,6 +214,78 @@ end
 
 FM.BatchUnit = BatchUnit
 
+---------------------------------------------------------------- the reference price of a material (FRV-196)
+
+local REF_MIN_PRICES = 3      -- prices of others the window needs, else it reaches further back
+local REF_MAX_HOURS = 24      -- ... at most this far
+local REF_STEP_MAX = 4 * 3600 -- a record's price stands until the next record, at most 4 hours (the feed writes an
+                              -- unchanged item every 4 hours)
+
+-- The cheapest prices of others in an item's records up to endT, oldest first: { t, price, index } (price nil: no
+-- auction of others listed); a record that cannot tell (FM.OthersMin's nil, nil) is left out, the price before it
+-- stands on
+local function OthersSteps(key, endT)
+    local steps = {}
+    for i, f in ipairs(FM.DetailRecords(FM.R().items[key])) do
+        local t = FM.Unstamp(string_sub(f[1] or "", 2))
+        if t and t <= endT then
+            local p, known = FM.OthersMin(f, key)
+            if known ~= nil then steps[#steps + 1] = { t, p, i } end
+        end
+    end
+    table_sort(steps, function(a, b) return a[1] < b[1] or (a[1] == b[1] and a[3] < b[3]) end)
+    return steps
+end
+
+-- The average of the steps' prices from the window's start to endT, each weighted by the time until the next record
+-- (an hour of 15-minute scans weighs as much as one hourly feed snapshot): { average, the window's hours }, or nil
+-- with fewer than 3 prices in 24 hours. A window of `hours` holding fewer than 3 reaches back to the third newest
+local function RefOf(key, endT, hours)
+    local steps = OthersSteps(key, endT)
+    local third
+    local priced = 0
+    for i = #steps, 1, -1 do
+        if steps[i][2] then
+            priced = priced + 1
+            if priced == REF_MIN_PRICES then
+                third = steps[i][1]
+                break
+            end
+        end
+    end
+    if not third or third < endT - REF_MAX_HOURS * 3600 then return nil end
+    local since = math_min(endT - hours * 3600, third)
+    local sum, weight = 0, 0
+    for i, step in ipairs(steps) do
+        if step[1] >= since and step[2] then
+            local nextT = steps[i + 1] and steps[i + 1][1] or endT
+            local w = math_min(nextT - step[1], REF_STEP_MAX)
+            if w > 0 then sum, weight = sum + step[2] * w, weight + w end
+        end
+    end
+    if weight <= 0 then return nil end
+    return { sum / weight, (endT - since) / 3600 }
+end
+
+-- A material's reference price (FRV-196): the time-weighted average of its cheapest price of others over the last
+-- tableMatRefHours hours of records before endT (the latest snapshot's time); second value the hours it covers. nil
+-- when the setting is 0 or the records are too few. A material bought on the AH costs at least this much
+-- (MaterialUnit, Picks' Buy). Cached until the data, the setting or the snapshot changes
+local refCache, refSig = {}, nil
+function FM.MaterialRef(key, endT)
+    local hours = tonumber(FM.GetSettings().tableMatRefHours) or 0
+    if hours <= 0 or type(endT) ~= "number" or type(key) ~= "string" then return nil end
+    local sig = (FM.dataVersion or 0) .. "|" .. hours .. "|" .. endT
+    if refSig ~= sig then refCache, refSig = {}, sig end
+    local c = refCache[key]
+    if c == nil then
+        c = RefOf(key, endT, hours) or false
+        refCache[key] = c
+    end
+    if not c then return nil end
+    return c[1], c[2]
+end
+
 -- The cheapest price of one record or rollup: others' when it knows them, else its minimum (only yours, or a record
 -- that cannot tell yours apart); nil without any
 local function RecordPrice(f, key)
@@ -353,13 +427,27 @@ local function MaterialUnit(key, need, view, depth, crafts)
     depth = depth or 0
     crafts = crafts or passCrafts
     local best
+    local refUsed = false -- a reference price raised this material or one of its own (refUsed on the result)
     local vendorUnit, offer = FM.VendorUnit(key, false)
     if vendorUnit then best = { unit = vendorUnit, src = "vendor", where = offer and offer.where } end
     local p = view.Get(key)
     if p and p.ladder[1] then
         local ahUnit, short = BatchUnit(p.ladder, need)
-        if ahUnit and (not best or ahUnit < best.unit) then
-            best = { unit = ahUnit, src = "ah", short = short, approx = p.approx, listed = p.qty - (p.own or 0) }
+        if ahUnit then
+            -- never under its reference price (FRV-196): one scan's cheap units do not price the batch. The latest
+            -- scan only (an older scan's view is estimated); now = what the ladder asks, refHours = the window
+            local unit, now, ref, refHours = ahUnit, nil, nil, nil
+            if not view.estimated and not view.noRef then
+                local last = FM.R().last
+                ref, refHours = FM.MaterialRef(key, view.t or (last and last.t))
+            end
+            if ref and ref > ahUnit then
+                unit, now, refUsed = ref, ahUnit, true
+            end
+            if not best or unit < best.unit then
+                best = { unit = unit, src = "ah", short = short, approx = p.approx, listed = p.qty - (p.own or 0),
+                    now = now, refHours = now and refHours or nil }
+            end
         end
     end
     local craft = depth < MAX_DEPTH and crafts[key]
@@ -380,6 +468,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
             parts[i] = m
             cost = cost + m.unit * g.n
             if m.approx or m.short then approx = true end
+            if m.refUsed then refUsed = true end
         end
         if cost then
             local unit = cost / makes
@@ -396,6 +485,7 @@ local function MaterialUnit(key, need, view, depth, crafts)
     end
     if best then
         best.craftAlt, best.noCraft = alt, noCraft
+        best.refUsed = refUsed or nil
         return best
     end
     if not view.estimated then
@@ -429,6 +519,7 @@ local function CraftRow(craft, view)
         parts[i] = m
         cost = cost + m.unit * g.n
         if m.approx or m.short then row.approx = true end
+        if m.refUsed then row.refUsed = true end
     end
     row.parts = parts
     row.cost = cost
@@ -676,75 +767,95 @@ local function UsualPrice(key, now)
 end
 FM.UsualPrice = UsualPrice
 
--- The wall above the k cheapest price levels: the price where `need` units of others wait
+-- The wall above the k cheapest price levels: the price where `need` units of others wait, and the units of others
+-- listed above those k levels up to it (the level right above them first)
 local function WallAbove(ladder, k, need)
     local acc = 0
     for j = k + 1, #ladder do
         acc = acc + ladder[j][2]
-        if acc >= need then return ladder[j][1] end
+        if acc >= need then return ladder[j][1], acc end
     end
     return nil
 end
 
--- Quick test on the ladder alone: are there cheap units under a wall they could be relisted below?
+-- Quick test on the ladder alone: is there a level cheap enough to be relisted under the level above it?
 local function MaybeFlip(ladder, qty)
     local need = math_max(3, 0.1 * qty)
     local cum = 0
     for k = 1, #ladder - 1 do
         cum = cum + ladder[k][2]
         if cum > FLIP_MAX_SHARE * qty then return false end
-        local wall = WallAbove(ladder, k, need)
-        if not wall then return false end
-        if ladder[1][1] <= wall * (1 - AH_CUT) / (1 + FLIP_MARGIN) then return true end
+        if not WallAbove(ladder, k, need) then return false end
+        if ladder[k][1] <= ladder[k + 1][1] * (1 - AH_CUT) / (1 + FLIP_MARGIN) then return true end
     end
     return false
 end
 
--- Buy the cheapest units, relist them just under the next real price level (the wall), never above 110% of
--- the usual price (median daily low, last week). Every split of the ladder into cheap levels and the rest is
--- tried; the most profitable one wins. The market above must be real: the wall at least 85% of the usual price.
-local function FlipRow(key, p, now)
-    local usual, recent = UsualPrice(key, now)
-    if not usual or usual < FLIP_MIN_USUAL then return nil end
-    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
-    local ladder = p.ladder
-    local need = math_max(3, 0.1 * p.qty)
-    local floor = FM.MinListPrice(key, p)
+-- The flip rule, one for the Flip tab (FlipRow below) and for Flip picks (EvaluateFlip in trade/Picks.lua), FRV-172: a
+-- flip never lists above a listing of others that stays on the AH after its buy. It buys the k cheapest price levels
+-- of others in full and lists just under the level above them, the cheapest listing that stays (never above 110% of
+-- the usual price). Until 1.45 it listed just under the wall, the first price where 3 units or 10% of the listed
+-- wait: thin levels in between stayed under the list price, and so did the rest of a level a pick could buy only
+-- part of. Every k is tried and the most profitable one wins; a k counts when
+--   * its units are at most FLIP_MAX_SHARE of all listed (else they are the market), at most maxUnits and cost at
+--     most maxCost (a pick's batch and gold; nil = no such limit)
+--   * the market above is real: the wall at least 85% of the usual price
+--   * the list price is one the AH allows (floor, FM.MinListPrice) and leaves FLIP_MARGIN on the dearest unit bought
+--   * no more units than others list from there up to the wall, at least 5 (the queue to sell through)
+--   * the whole flip earns FLIP_MIN_PROFIT after the cut
+-- So a thin level is bought with the cheap ones when all of that still holds, else the list price drops under it, else
+-- there is no flip. ladder = the levels of others, cheapest first ({ unit, qty }), qty = all units listed.
+-- Returns { units, cost, top (the dearest unit bought), sell, next and nextQty (the cheapest listing that stays and
+-- its units), wall, support (units of others from next up to the wall: none under the list price), profit }, or nil
+function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost)
+    if type(ladder) ~= "table" or not (usual and qty) then return nil end
+    local need = math_max(3, 0.1 * qty)
     local best
-    local cheapQty = 0
+    local units, cost = 0, 0
     for k = 1, #ladder - 1 do
-        cheapQty = cheapQty + ladder[k][2]
-        if cheapQty > FLIP_MAX_SHARE * p.qty then break end
-        local wall = WallAbove(ladder, k, need)
+        units = units + ladder[k][2]
+        cost = cost + ladder[k][2] * ladder[k][1]
+        if units > FLIP_MAX_SHARE * qty then break end
+        if (maxUnits and units > maxUnits) or (maxCost and cost > maxCost) then break end
+        local wall, support = WallAbove(ladder, k, need)
         if not wall then break end
-        if wall >= 0.85 * usual then
-            local sell = math_max(floor, math_min(math_floor(usual * 1.1), wall) - 1)
-            local maxBuy = sell * (1 - AH_CUT) / (1 + FLIP_MARGIN)
-            if ladder[k][1] <= maxBuy then
-                -- units waiting at or under the wall: the queue to sell through, also how many to buy at most
-                local support = 0
-                for j = k + 1, #ladder do
-                    if ladder[j][1] <= wall then support = support + ladder[j][2] end
-                end
-                local cap = math_max(support, 5)
-                local units, cost, top = 0, 0, 0
-                for j = 1, k do
-                    local n = math_min(ladder[j][2], cap - units)
-                    if n <= 0 then break end
-                    units = units + n
-                    cost = cost + n * ladder[j][1]
-                    top = ladder[j][1]
-                end
-                local profit = units * sell * (1 - AH_CUT) - cost
-                if units > 0 and profit >= FLIP_MIN_PROFIT and (not best or profit > best.profit) then
-                    best = { key = key, top = top, units = units, cheapQty = cheapQty, cost = cost, sell = sell, profit = profit,
-                        p1g = profit / cost * 10000, usual = usual, recent = recent, wall = wall, support = support,
-                        qty = p.qty, own = p.own, minSell = math_floor(cost / units / (1 - AH_CUT) + 0.99) }
-                end
+        local nextPrice = ladder[k + 1][1]
+        local sell = math_min(math_floor(usual * 1.1), nextPrice - 1)
+        if wall >= 0.85 * usual and sell >= (floor or 1) and ladder[k][1] <= sell * (1 - AH_CUT) / (1 + FLIP_MARGIN)
+            and units <= math_max(support, 5) then
+            local profit = units * sell * (1 - AH_CUT) - cost
+            if profit >= FLIP_MIN_PROFIT and (not best or profit > best.profit) then
+                best = { units = units, cost = cost, top = ladder[k][1], sell = sell, next = nextPrice,
+                    nextQty = ladder[k + 1][2], wall = wall, support = support, profit = profit }
             end
         end
     end
     return best
+end
+
+-- "next: 4 at 9g 29s" when the cheapest listing that stays is the wall's level, else "next: 1 at 1g 05s 09c, 2 more up
+-- to 1g 30s 99c": what waits right above a flip's list price (the Flip tab's and a Flip pick's "List at" line)
+function FM.FlipNextText(f)
+    if not (f and f.next and f.wall) then return "" end
+    if f.next >= f.wall or (f.support or 0) <= (f.nextQty or 0) then
+        return string_format("next: %s at %s", FM.FormatCount(f.support or f.nextQty or 0), FM.FormatMoney(f.wall))
+    end
+    return string_format("next: %s at %s, %s more up to %s", FM.FormatCount(f.nextQty), FM.FormatMoney(f.next),
+        FM.FormatCount(f.support - f.nextQty), FM.FormatMoney(f.wall))
+end
+
+-- A row of the Flip tab: FM.FlipPlan on the item's whole ladder, when its usual price is known (median daily low, last
+-- week) and has not moved to a new level in the last 2 days
+local function FlipRow(key, p, now)
+    local usual, recent = UsualPrice(key, now)
+    if not usual or usual < FLIP_MIN_USUAL then return nil end
+    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
+    local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p))
+    if not f then return nil end
+    return { key = key, top = f.top, units = f.units, cheapQty = f.units, cost = f.cost, sell = f.sell, profit = f.profit,
+        p1g = f.profit / f.cost * 10000, usual = usual, recent = recent, wall = f.wall, support = f.support,
+        next = f.next, nextQty = f.nextQty, qty = p.qty, own = p.own,
+        minSell = math_floor(f.cost / f.units / (1 - AH_CUT) + 0.99) }
 end
 
 ---------------------------------------------------------------- the pass
@@ -938,14 +1049,49 @@ FM.trade = nil
 local running = false
 local queued = false
 local planRequested = false
+local planKeep = false -- the plan asked for keeps the craft picks' progress (FRV-104: the lock switched off)
 
 -- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked. Every field
 -- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
 -- FRV-126, FRV-133), then when and with what it was made
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock" }
+    "pickStock", "pickEdit", "pickOwned", "pickHidden" }
 FM.PICK_FIELDS = PICK_FIELDS
+
+-- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference
+-- price raised is priced again without references for the history line (the same sell price cap)
+local function LadderRows(rows, view)
+    local ladderView
+    local out = {}
+    for i, row in ipairs(rows) do
+        if row.refUsed and row.craft then
+            ladderView = ladderView or setmetatable({ noRef = true }, { __index = view })
+            local again = CraftRow(row.craft, ladderView)
+            CapSell(again)
+            out[i] = again
+        else
+            out[i] = row
+        end
+    end
+    return out
+end
+
+-- The materials of this pass's recipes listed in the latest snapshot: their reference prices are read sliced
+-- before the rows (each one parses the item's records)
+local function ListedMaterials(sources, view)
+    local keys, seen = {}, {}
+    for _, list in ipairs({ sources.crafts or {}, sources.later or {} }) do
+        for _, craft in ipairs(list) do
+            for _, g in ipairs(craft.reagents or {}) do
+                local p = not seen[g.key] and view.Get(g.key)
+                if p and p.ladder[1] then keys[#keys + 1] = g.key end
+                seen[g.key] = true
+            end
+        end
+    end
+    return keys
+end
 
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
 function FM.PicksLocked()
@@ -953,9 +1099,11 @@ function FM.PicksLocked()
 end
 
 -- A new Picks plan, asked for by you: the refresh button, a change of a Picks input, the first view of Picks in a
--- session. The other tabs are computed again in the same pass
-function FM.PlanPicks()
+-- session. The other tabs are computed again in the same pass. keep: the craft picks that stay in it keep their target
+-- and what you crafted of them (FRV-104; switching the lock off), else what you crafted is units you hold
+function FM.PlanPicks(keep)
     planRequested = true
+    planKeep = planKeep or (keep and true or false)
     FM.ComputeTrade(false)
 end
 
@@ -979,7 +1127,10 @@ function FM.ComputeTrade(record, onDone)
     local hasPlan = held and held.picks and true or false
     local plan = planRequested or not FM.PicksLocked()
         or (not hasPlan and FM.PicksShown ~= nil and FM.PicksShown())
-    planRequested = false
+    -- an automatic plan (the lock off) carries the craft picks' targets and progress over (FRV-104); one you asked for
+    -- starts them anew
+    local carry = plan and hasPlan and (not planRequested or planKeep) and FM.PickCarry and FM.PickCarry(held.picks) or nil
+    planRequested, planKeep = false, false
     local now = FM.Now()
     local nowMinutes = Minutes(now)
     local latestMinutes = Minutes(r.last.t)
@@ -1017,6 +1168,12 @@ function FM.ComputeTrade(record, onDone)
         function(done)
             sources = FM.BuildSources()
             passCrafts = sources.byKey
+            -- the materials' reference prices (FRV-196), cached for the rows, Picks and the item tooltips
+            FM.RunSliced(ListedMaterials(sources, view), 40, Safe(function(key)
+                FM.MaterialRef(key, view.t)
+            end), done)
+        end,
+        function(done)
             local rows = {}
             for _, craft in ipairs(sources.crafts) do
                 rows[#rows + 1] = CraftRow(craft, view)
@@ -1029,7 +1186,7 @@ function FM.ComputeTrade(record, onDone)
             -- list at the usual price then (median daily low of the last week)
             usualCache, usualNow = {}, now
             FM.RunSliced(out.crafts, 30, Safe(CapSell), function()
-                AddHistory(latestMinutes, "", out.crafts)
+                AddHistory(latestMinutes, "", LadderRows(out.crafts, view))
                 done()
             end)
         end,
@@ -1203,10 +1360,13 @@ function FM.ComputeTrade(record, onDone)
                 end
                 return done()
             end
-            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes }, function()
+            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes, carry = carry }, function()
                 -- when, and with which snapshot, listings and stock, this plan was made (the summary line, Refresh's
                 -- tooltip); the snapshot of the pass's start, not one a deep scan saved while it ran
-                out.pickAt, out.pickT, out.pickListings, out.pickStock = now, out.t, out.listingsVersion, out.stockVersion
+                -- pickAt also tells plans apart (the sniper's trace, FRV-143, review round 6): always later than the plan
+                -- before, also for two plans of the same second
+                local at = math_max(now, ((held and held.pickAt) or 0) + 1)
+                out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
                 done()
             end)
         end
@@ -1216,6 +1376,11 @@ function FM.ComputeTrade(record, onDone)
         out.err = err
         out.at = FM.Now()
         FM.trade = out
+        -- a new plan: the sniped items traced for its picks follow it (FRV-143, scan/Sniper.lua)
+        if plan and not err and out.pickAt and FM.SnipeFollowPlan then
+            local ok, e = pcall(FM.SnipeFollowPlan, out.picks, out.pickAt)
+            if not ok and geterrorhandler then geterrorhandler()(e) end
+        end
         if FM.RefreshTable then FM.RefreshTable() end
         if onDone then onDone() end
         if queued then
@@ -1246,3 +1411,35 @@ function FM.EnsureTrade()
 end
 
 FM.TradeBusy = function() return running end
+
+-- An amount you set in the Picks tab's Amount column (FRV-154): that pick of the plan shown is made again for it
+-- (FM.RemakePick in trade/Picks.lua, with the latest scan's prices and as of the plan's own moment: your stock as the
+-- plan read it, pickOwned), the other picks stay; amount nil puts the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
+-- picks are held), pickEdit counts its edits so a sticky tooltip of the row follows, and the items the sniper buys
+-- for this pick follow what it still has to buy (FM.PickBuysLeft) as they follow a new plan (FRV-143). Returns true
+-- and the pick, or false and why
+function FM.SetPickAmount(key, amount)
+    local trade = FM.trade
+    if running then return false, "the table is computing, try again in a moment" end
+    if not (trade and trade.picks and FM.RemakePick) then return false, "there is no plan" end
+    local r = FM.R()
+    if not (r.last and r.last.t and type(r.last.fp) == "table") then return false, "there is no scan" end
+    local pick, why
+    if amount == nil then
+        pick = FM.RestorePick(trade, key)
+        if not pick then return false, "it has the plan's number" end
+    else
+        local now = FM.Now()
+        pick, why = FM.RemakePick(trade, { view = FpView(r.last), sources = FM.sources or FM.BuildSources(), now = now,
+            nowMinutes = Minutes(now) }, key, amount)
+        if not pick then return false, why end
+    end
+    trade.pickEdit = (trade.pickEdit or 0) + 1
+    if trade.pickAt and FM.SnipeFollowPlan then
+        -- with what is still to buy for it: its units less what was bought since the plan (review round 4)
+        local ok, e = pcall(FM.SnipeFollowPlan, { { key = pick.key, buys = FM.PickBuysLeft(pick) } }, trade.pickAt, key)
+        if not ok and geterrorhandler then geterrorhandler()(e) end
+    end
+    if FM.RefreshTable then FM.RefreshTable() end
+    return true, pick
+end

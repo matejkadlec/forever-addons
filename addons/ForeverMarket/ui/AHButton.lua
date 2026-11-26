@@ -109,7 +109,7 @@ end
 
 local function ShowTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market Sniper")
+    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Marketplace Sniper")
     local key = GetBindingKey("FOREVERMARKET_SNIPE")
     GameTooltip:AddLine("Opens the snipe window. While it is open here, your sniped items are searched and every mouse wheel step anywhere on screen buys the newest offer at or under their price. Also /fm snipe"
         .. (key and (" or the key " .. GetBindingText(key)) or "") .. ".", 1, 1, 1, true)
@@ -123,8 +123,8 @@ local SNAPSHOT_SOURCE = { fm = "deep scan", aucr = "Auctionator's full scan", ap
 -- What a deep scan is, how old the latest snapshot is and what made it, and why the button is disabled now
 local function ShowScanTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market deep scan")
-    GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the market table, the picks and the item tooltips (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
+    GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Marketplace deep scan")
+    GameTooltip:AddLine("Reads every auction of the AH at once and saves it for the marketplace, the picks and the item tooltips (and Auctionator's prices when that option is on). The server allows one every 15 minutes. Also /fm scan.", 1, 1, 1, true)
     local r = FM.R()
     local last = r and r.last
     local source = last and SNAPSHOT_SOURCE[last.source]
@@ -174,7 +174,7 @@ local function CreateButton()
         if GameTooltip:IsOwned(self) then ShowScanTooltip(self) end
     end)
 
-    -- market table, left of the scan button
+    -- the marketplace, left of the scan button
     tableButton = CreateFrame("Button", "ForeverMarketAHTableButton", frame, "UIPanelButtonTemplate")
     tableButton:SetSize(76, 20)
     tableButton:SetPoint("RIGHT", scanButton, "LEFT", -4, 0)
@@ -183,12 +183,12 @@ local function CreateButton()
     tableButton:SetScript("OnClick", function() FM.ToggleTable() end)
     tableButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOMRIGHT")
-        GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Market table")
+        GameTooltip:AddLine(FM.COLOR.ORANGE .. "Forever|r Marketplace")
         local key = GetBindingKey("FOREVERMARKET_TABLE")
         GameTooltip:AddLine("Picks, favorites, crafts, vendor and flip resell, materials and farming spots. Also /fm"
             .. (key and (" or the key " .. GetBindingText(key)) or "") .. ".", 1, 1, 1, true)
         GameTooltip:AddLine("Click a row (AH open): search what it buys on the AH, in Auctionator's Shopping tab when Auctionator is loaded, else in Blizzard's Buy list.", 0.6, 0.8, 1, true)
-        GameTooltip:AddLine("Shift-click a row (AH open) or Snipe in its right-click menu: snipe what it buys at the AH at the table's prices (a pick: every AH purchase of its plan, with its units).", 0.6, 0.8, 1, true)
+        GameTooltip:AddLine("Shift-click a row (AH open) or Snipe in its right-click menu: snipe what it buys at the AH at the table's prices (a pick: what is still to buy of every AH purchase of its plan).", 0.6, 0.8, 1, true)
         GameTooltip:Show()
     end)
     tableButton:SetScript("OnLeave", function() GameTooltip:Hide() end)

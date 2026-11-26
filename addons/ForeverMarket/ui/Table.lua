@@ -2,7 +2,8 @@ local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
 -- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
--- result, ui/Performance.lua), Learn, Farm (green).
+-- result, ui/Performance.lua), Learn, Farm, Upgrades (green; Upgrades' columns, filters and texts in ui/Upgrades.lua,
+-- FRV-203: this file's main chunk is at Lua 5.1's 200 locals, so it gets no new top-level local).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search its shopping list at the AH, in Auctionator's Shopping
 -- tab when Auctionator is loaded, else in Blizzard's Buy list (only what you would buy there: a craft's AH
@@ -34,7 +35,7 @@ local TOP = -134 -- first row
 local FILTER_Y = -74
 local LINE_Y = TOP + 24 - ROW_H / 2 -- the line above the header: Picks' budget row (FRV-95), Flip's age line
 local SUMMARY_Y = LINE_Y - ROW_H -- Picks: the plan's summary, under its budget row
-local MAX_COLUMNS = 9 -- per tab, in W - 28 = 932 px (Picks has 9 since FRV-67, the other tabs up to 8)
+local MAX_COLUMNS = 10 -- per tab, in W - 28 = 932 px (Picks has 10 since FRV-154, the other tabs up to 8)
 local H = -TOP + ROWS * ROW_H + 44
 local FLIP_STALE = 3600 -- Flip: from this age of the latest snapshot on, a line above the rows warns
 
@@ -390,6 +391,7 @@ end
 local RANK_TIP = "#: the pick's place in the plan, by its expected profit per gold it needs (a pick needing less than a quarter of one pick's share counts as needing that quarter)."
 local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH and at vendors, plus a recipe or tool it still needs."
 local EXPECTED_TIP = "Expected: the profit of one 8h listing of the pick's units at its confidence: about 75% of an item's listing sells (40% of a commodity's), what doesn't sell loses its deposit. A Craft and wait or Stock, wait pick lists later, once the price is back."
+local AMOUNT_TIP = "Amount: what the pick makes (a craft's \"make N\") or buys (a vendor resell, a flip). Click the number, type yours and press Enter: that pick is made again for it by the plan's rules, its steps, Invest and Expected follow, the other picks stay. It may be more than the room on the AH or the pick's share of the gold. Empty it and press Enter for the plan's number; a new plan (Refresh) starts from its own numbers. A Stock pick shows the units you list, a recipe to learn none."
 local CONF_TIP = "Conf.: how far the numbers can be trusted: buyer counts estimated from older records, little price history, listings far above the usual price, days of stock listed by others, estimated prices, few units of a material at its price. The row tooltip says what lowered it."
 
 -- A pick's icon and name in its quality color; the favorite mark as everywhere
@@ -422,28 +424,33 @@ local function MarketRow(p)
     return marketRows[p.key] or p
 end
 
--- 9 columns in 932 px (FRV-67): the steps line under a pick spans the whole row, so the Pick column gave up its width
--- to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow); Conf. last (FRV-100); Type 110 for "Craft and
--- sell" and "Craft and wait" (FRV-103)
+-- 10 columns in 932 px (FRV-67, FRV-154): the steps line under a pick spans the whole row, so the Pick column gave up
+-- its width to On AH, C/8h and C/24h, the numbers of the pick's item (MarketRow); Conf. last (FRV-100); Type for
+-- "Craft and sell" and "Craft and wait" (FRV-103); Amount between Type and Invest (FRV-154: 70 px, 6 of them from
+-- Pick, the rest from the number columns, which had room to spare). Its `edit` makes the cell an input on a pick whose
+-- amount can be set (pick.amountEdit: a craft, a vendor resell, a flip); the other picks show their text
 local PICK_COLUMNS = {
-    { title = "#", tip = RANK_TIP, width = 40, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
+    { title = "#", tip = RANK_TIP, width = 34, asc = true, text = function(p) return GREY .. (p.rank or "?") .. "|r" end,
         sort = function(p) return p.rank end },
-    { title = "Pick", width = 248, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
-    { title = "Type", width = 110, align = "LEFT", text = function(p) return KIND_LABEL[PickKind(p)] or p.kind end,
+    { title = "Pick", width = 242, align = "LEFT", text = PickName, sort = function(p) return Name(p.key) end },
+    { title = "Type", width = 104, align = "LEFT", text = function(p) return KIND_LABEL[PickKind(p)] or p.kind end,
         sort = function(p) return KIND_NAME[PickKind(p)] or p.kind end },
-    { title = "Invest", tip = INVEST_TIP, width = 110, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
-    { title = "Expected", tip = EXPECTED_TIP, width = 140, text = ExpectedCell, sort = function(p) return p.expected end },
-    { title = "On AH", tip = PICK_ON_AH_TIP, width = 90, text = function(p) return OnAH(MarketRow(p)) end,
+    { title = "Amount", tip = AMOUNT_TIP, width = 70, edit = true, text = function(p)
+        return type(p.amount) == "number" and Count(p.amount) or (GREY .. "-|r")
+    end, sort = function(p) return p.amount end },
+    { title = "Invest", tip = INVEST_TIP, width = 96, text = function(p) return Money(p.invest) end, sort = function(p) return p.invest end },
+    { title = "Expected", tip = EXPECTED_TIP, width = 126, text = ExpectedCell, sort = function(p) return p.expected end },
+    { title = "On AH", tip = PICK_ON_AH_TIP, width = 84, text = function(p) return OnAH(MarketRow(p)) end,
         sort = function(p) return MarketRow(p).qty end },
-    { title = "C/8h", tip = C8_TIP, width = 62, text = function(p)
+    { title = "C/8h", tip = C8_TIP, width = 58, text = function(p)
         local r = MarketRow(p)
         return Sold(r.sold12, r.soldWide, 8)
     end, sort = function(p) return MarketRow(p).sold12 end },
-    { title = "C/24h", tip = C24_TIP, width = 62, text = function(p)
+    { title = "C/24h", tip = C24_TIP, width = 58, text = function(p)
         local r = MarketRow(p)
         return Sold(r.sold12, r.soldWide, 24)
     end, sort = function(p) return MarketRow(p).sold12 end },
-    { title = "Conf.", tip = CONF_TIP, width = 70, text = function(p)
+    { title = "Conf.", tip = CONF_TIP, width = 60, text = function(p)
         return type(p.conf) == "number" and string_format("%d%%", math_floor(p.conf * 100 + 0.5)) or (GREY .. "-|r")
     end, sort = function(p) return p.conf end }
 }
@@ -479,7 +486,8 @@ local function WhereCell(r)
     local route = r.route
     if not route then return GREY .. "-|r" end
     if route.kind == "ah" then return GREY .. "Pattern on the AH|r" end
-    return GREY .. NoCoords(route.where) .. "|r"
+    -- a vendor QuestieDB names that you have not opened yet (FRV-199): its price comes with your visit
+    return GREY .. NoCoords(route.where) .. (route.unvisited and ", not visited yet" or "") .. "|r"
 end
 
 -- Crafts until the recipe has paid for itself at the profit per craft now (row.payback; from the last seen price of a
@@ -521,7 +529,7 @@ local LEARN_COLUMNS = {
 }
 
 -- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
--- (Profit) and group 3 green (Learn, Farm)
+-- (Profit) and group 3 green (Learn, Farm, Upgrades)
 local TABS = {}
 if FM.PICKS_READY then
     -- the icon is part of the Pick cell (after the rank), the default sort is the rank
@@ -540,12 +548,22 @@ TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, g
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
     profColumn = true, defaultSort = { { 5, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
+-- gear on the AH that beats what you wear, scored by Pawn (FRV-203; the last tab at the right end)
+TABS[#TABS + 1] = { id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_COLUMNS, upgrades = true, group = 3 }
 local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
 
 local function Settings()
     return FM.GetSettings()
+end
+
+-- Tooltips on hover or only while Shift is held (FRV-155, FRV-186): every tooltip of this window is set with
+-- FM.TableTip / FM.TableTipHook (ui/Filters.lua, which holds the rule) and its kind ("hover": rows, headers, tabs,
+-- buttons, the summary; "shift": inputs, dropdowns, checkboxes), never with an OnEnter script of its own. True while
+-- the setting is off and all of them show on plain hover
+local function TipsOnHover()
+    return FM.TableTipsOnHover ~= nil and FM.TableTipsOnHover()
 end
 
 local function CurrentTab()
@@ -574,12 +592,12 @@ local function SortState(tab)
         state = { list = { { col = state.col, desc = state.desc } } } -- saved before 1.11
     end
     local sig = ColumnSig(tab)
-    -- the same columns in another order (Picks' Conf. moved last, FRV-100): the saved sort follows its columns
+    -- the same columns in another order (Picks' Conf. moved last, FRV-100) or with new ones between them (Picks' Amount,
+    -- FRV-154): the saved sort follows its columns, as long as every column it was saved with is still there
     if type(state) == "table" and type(state.list) == "table" and type(state.sig) == "string" and state.sig ~= sig then
         local old, at, same = {}, {}, true
         for title in string.gmatch(state.sig, "[^|]+") do old[#old + 1] = title end
         for i, col in ipairs(tab.columns) do at[col.title] = i end
-        if #old ~= #tab.columns then same = false end
         for _, title in ipairs(old) do
             if not at[title] then same = false end
         end
@@ -613,6 +631,12 @@ local function SortState(tab)
 end
 
 -- Header click: one level, or with Shift a further level
+-- The sort of a tab by its id, for the tests (the columns a saved sort follows)
+function FM.TableSortOf(tabId)
+    local tab = TAB_BY_ID[tabId]
+    return tab and SortState(tab) or nil
+end
+
 local function SortBy(tab, i, addLevel)
     local state = SortState(tab)
     local list = state.list
@@ -723,6 +747,8 @@ local function BuildRows(tab, lookup)
     tab = tab or CurrentTab()
     local trade = FM.trade
     local s = Settings()
+    local text = not lookup and (view.search[tab.id] or "") or ""
+    local needle = text ~= "" and string_lower(text) or nil
     local source
     if tab.farm then
         source = FM.farm and FM.farm.rows or {}
@@ -730,16 +756,18 @@ local function BuildRows(tab, lookup)
         source = KeptRows(trade, s.excluded) -- nil before the first item is ignored: no rows
     elseif tab.favs then
         source = KeptRows(trade, s.favorites)
+    elseif tab.upgrades then
+        -- the scored upgrades with their Cost-Benefit, the slots, the search and Best per slot applied (ui/Upgrades.lua)
+        source = FM.UpgradesTabRows and FM.UpgradesTabRows(needle) or {}
     else
         source = trade and trade[tab.data] or {}
     end
-    local text = not lookup and (view.search[tab.id] or "") or ""
-    local needle = text ~= "" and string_lower(text) or nil
     -- Vendor: the place filter (FRV-99) keeps the items one of whose vendors is there, at the cheapest one there
     local place = tab.id == "vendor" and FM.PlaceResolve(FM.PlaceOf("vendor")) or nil
     local prof = ProfFilter()
     local out = {}
     local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
+        and not tab.upgrades -- an upgrade has no profit per 1g
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     if not lookup then view.outliers = 0 end
@@ -777,13 +805,19 @@ local function BuildRows(tab, lookup)
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             -- the settings panel's minimum profit per item; 0g 0s 0c is no minimum (FRV-86, the old "Any")
             local minProfit = s.tableMinProfit
-            if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks then
+            if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks
+                and not tab.upgrades then
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
             -- ignored items show only in the Ignored tab (FRV-83), a favorite too
             if keep and not tab.ignored and FM.IsExcluded(row.key) then keep = false end
-            if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
+            -- a flip pick hidden just now (FRV-193): gone at once, before the plan made again without it is shown
+            if keep and tab.picks and row.hiddenNow then keep = false end
+            -- Upgrades: the name with its suffix ("... of the Monkey"), not the item ID's base name
+            if keep and needle and not string_find(string_lower(tab.upgrades and (row.name or "") or Name(row.key)), needle, 1, true) then
+                keep = false
+            end
         end
         if keep then out[#out + 1] = row end
     end
@@ -810,6 +844,8 @@ local function BuildRows(tab, lookup)
                 end
             end
         end
+        -- Upgrades: two suffixes of one item keep their order from render to render
+        if tab.upgrades and a.id ~= b.id and Name(a.key) == Name(b.key) then return tostring(a.id) < tostring(b.id) end
         return Name(a.key) < Name(b.key)
     end)
     if tab.picks then
@@ -838,8 +874,30 @@ local function BuildRows(tab, lookup)
 end
 
 ---------------------------------------------------------------- tooltips
--- Sections with a gold heading and a blank line before, "label: value" lines that never wrap
--- (wrapped double lines overlap on this client), grey notes that wrap.
+-- Sections with a gold heading and a blank line before, "label: value" lines and material lines that wrap (one string
+-- each: double lines are not used, wrapped ones overlap on this client), grey notes that wrap. A row tooltip is about
+-- FM.ROW_TIP_WIDTH wide in every tab (FRV-195, the maintainer's "max-width" after a tooltip as wide as half the
+-- screen): its lines wrap at that width (FM.RowTipWidth), a sticky window uses the same width.
+
+FM.ROW_TIP_WIDTH = 340 -- about a third of the 1.48 tooltip of the maintainer's screenshot (no local: Lua 5.1's 200)
+
+-- The hover tooltip's width (FRV-195): the client has no maximum width, so its minimum is set to FM.ROW_TIP_WIDTH and
+-- every line of a row tooltip wraps at it; set back to 0 when the tooltip hides, so tooltips that share GameTooltip
+-- (the bags, Blizzard's own) keep their width. A hook on OnHide, no field on the tooltip (docs/forever-api-notes.md)
+function FM.RowTipWidth(tip)
+    if not (tip and tip.SetMinimumWidth) then return end
+    if not FM.rowTipHooked and tip.HookScript then
+        FM.rowTipHooked = true
+        tip:HookScript("OnHide", function(self)
+            if FM.rowTipWide then
+                FM.rowTipWide = nil
+                self:SetMinimumWidth(0)
+            end
+        end)
+    end
+    FM.rowTipWide = true
+    tip:SetMinimumWidth(FM.ROW_TIP_WIDTH)
+end
 
 local LABEL = "|cFFB0B0B0"
 local HEAD = "|cFFFFD100"
@@ -854,7 +912,7 @@ local function Header(text)
 end
 
 local function Line(label, value)
-    TT:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, false)
+    TT:AddLine(LABEL .. label .. ":|r  " .. (value or ""), 1, 1, 1, true)
 end
 
 local function Note(text, color)
@@ -863,10 +921,16 @@ end
 
 local function Item(indent, key, n, value, note)
     TT:AddLine(string_format("%s%s%s%dx %s|r  %s%s", indent, IconText(key), WHITE, n, Name(key), value or "",
-        note and (" " .. GREY .. note .. "|r") or ""), 1, 1, 1, false)
+        note and (" " .. GREY .. note .. "|r") or ""), 1, 1, 1, true)
 end
 
 local SRC_LABEL = { vendor = "vendor", ah = "AH", last = "last seen" }
+
+-- A material priced at its reference (FRV-196): " (8h average of the cheapest; now 78c)", else ""
+function FM.RefNote(m)
+    if not (m and m.now and m.refHours) then return "" end
+    return string_format(" (%dh average of the cheapest; now %s%s)", math.ceil(m.refHours - 0.01), Money(m.now), GREY)
+end
 
 local function SellText(row)
     if not row.sell then return RED .. "no price yet|r" .. GREY .. " (nobody lists it)|r" end
@@ -900,8 +964,12 @@ local function LearnLines(craft)
                 .. RouteLevel(route))
         else
             local high = (route.req or 0) > (craft.skillNow or 0)
-            local text = Money(route.price) .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
-                .. (high and RED or GREY) .. string_format("skill %d", route.req or 0) .. "|r" .. RouteLevel(route) .. GREY
+            -- a vendor not visited yet (FRV-199): no price until you open it, its skill maybe estimated
+            local text = (route.price and Money(route.price) or (GREY .. "price not known yet|r"))
+                .. GREY .. string_format("  %s, ", route.where or "?") .. "|r"
+                .. (high and RED or GREY) .. string_format("skill %d%s", route.req or 0, route.est and " (estimated)" or "") .. "|r"
+                .. RouteLevel(route) .. GREY
+            if route.unvisited then text = text .. ", not visited yet (QuestieDB)" end
             if route.limited then text = text .. ", limited stock" end
             if route.rep then text = text .. ", needs reputation" end
             Line(route.kind == "trainer" and "Trainer" or "Vendor", text .. "|r")
@@ -988,6 +1056,7 @@ local function CraftTooltip(row, past)
     for _, m in ipairs(row.parts or {}) do
         local note = SRC_LABEL[m.src] or m.src
         if m.src == "ah" and m.approx then note = note .. " *" end
+        note = note .. FM.RefNote(m)
         if m.src == "craft" then
             -- why it is crafted (FRV-69): how much dearer buying is, or too few on the AH for the batch
             local why = m.buy and (m.buy.short and "too few on the AH" or FM.BuyPremiumText(m.unit, m.buy.unit))
@@ -1003,7 +1072,7 @@ local function CraftTooltip(row, past)
         if m.src == "ah" and m.short then Note("    too few listed for a batch", RED) end
         if m.src == "craft" then
             for _, sub in ipairs(m.parts or {}) do
-                Item("        ", sub.key, sub.n, Money(sub.unit), SRC_LABEL[sub.src] or sub.src)
+                Item("        ", sub.key, sub.n, Money(sub.unit), (SRC_LABEL[sub.src] or sub.src) .. FM.RefNote(sub))
             end
         end
     end
@@ -1078,7 +1147,8 @@ local function FlipTooltip(row)
     Line("Buy", string_format("%s up to %s", FM.FormatCount(row.units), Money(row.top)))
     Line("Total cost", Money(row.cost))
     Header("Sell")
-    Line("List at", Money(row.sell) .. GREY .. string_format("  %s wait at %s", FM.FormatCount(row.support), Money(row.wall)) .. "|r")
+    -- the cheapest listing of others that stays after the buy (FRV-172: the list price is just under it)
+    Line("List at", Money(row.sell) .. GREY .. "  " .. FM.FlipNextText(row) .. "|r")
     Line("Expected profit", P1g(row.profit))
     Line("PPG", P1g(row.p1g) .. GREY .. "  profit per 1g of the buy|r")
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
@@ -1087,7 +1157,8 @@ local function FlipTooltip(row)
     Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
 end
 
--- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note
+-- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note, { "p", label } the Make
+-- line of a craft pick, written now from what you crafted since its plan (FRV-104: "20 / 51")
 local function PickTooltip(pick)
     Note((KIND_LABEL[PickKind(pick)] or pick.kind) .. GREY .. string_format("  pick #%d", pick.rank or 0) .. "|r", WHITE)
     for _, r in ipairs(pick.reasons or {}) do
@@ -1095,6 +1166,8 @@ local function PickTooltip(pick)
             Header(r[2])
         elseif r[1] == "l" then
             Line(r[2], r[3])
+        elseif r[1] == "p" then
+            Line(r[2], FM.PickMakeText and FM.PickMakeText(pick) or "?")
         elseif r[1] == "i" then
             Item("  ", r[2], r[3], r[4], r[5])
         else
@@ -1122,7 +1195,7 @@ local function FarmTooltip(r)
         for i, p in ipairs(r.parts) do
             if i > 10 then break end
             TT:AddLine(string_format("  %s%s|r  %s%.1f%%|r  %s  %s", IconText(p.key), WHITE .. Name(p.key), GREY, p.rate * 100,
-                Money(p.value), GREY .. "= " .. Money(p.per) .. " per kill|r"), 1, 1, 1, false)
+                Money(p.value), GREY .. "= " .. Money(p.per) .. " per kill|r"), 1, 1, 1, true)
         end
     end
     if (r.kills or 0) > 0 then
@@ -1166,23 +1239,114 @@ local function RowSource(row, tab)
     return tab, row
 end
 
+-- What the plan shown still gives a pick of one item (FM.PickBuysLeft; a material listed twice summed up)
+local function LeftOf(pick, key)
+    local n = 0
+    for _, b in ipairs(FM.PickBuysLeft and FM.PickBuysLeft(pick) or {}) do
+        if b.key == key then n = n + (b.ah or 0) end
+    end
+    return n
+end
+
+-- An item the sniper already buys for other picks of the plan shown (review round 1 of PR 73): its count holds the
+-- sniper's purchases for them, and FM.PickBuysLeft hands every purchase since the plan out over the plan's picks in
+-- their order, not to the pick the sniper bought it for. So a pick added to such an item gets back what the plan gave
+-- it of the sniper's purchases for the traced picks: the least of what the plan gave it (bought: its plan's units
+-- less FM.PickBuysLeft), what the sniper bought for the traced picks of this plan (FM.SnipeTrace's sent less left)
+-- and what the plan still gives those picks beyond what the sniper holds for them, in sum (LeftOf less left of each,
+-- review round 3: a traced pick that holds more than it needs, one that got units back by an earlier click or whose
+-- material was bought by hand, lowers the sum, else a third pick got the same units back again). Picks 1 and 2 of 11
+-- each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8 (3 left), pick 2 its 11; pick 1
+-- adds 3 + min(8, 8, 11 - 3) = 11, 14 left to buy for the two, as their steps lines say. Review round 2: never below
+-- the pick's own units (a traced pick that holds more than it needs keeps it, until a new plan follows: FRV-189), and
+-- a trace kept under its plan's units by purchases still in the mail (Capped) gives nothing, since the sniper bought
+-- nothing for it under this plan. 0 for an item without a traced pick of this plan of this character, and when this pick is traced
+-- already (the sniper's own rules then: nothing added, or its units replaced)
+local function TracedBought(pick, key, at, bought)
+    if bought <= 0 or not (at and FM.SnipeTrace and FM.IsSniped and FM.IsSniped(key)) then return 0 end
+    local trace = FM.SnipeTrace(key)
+    if not trace then return 0 end
+    for _, e in ipairs(trace) do
+        if e.mine and e.pick == pick.key then return 0 end
+    end
+    local byKey = {}
+    for _, p in ipairs(FM.trade and FM.trade.picks or {}) do
+        if type(p) == "table" and p.key and not byKey[p.key] then byKey[p.key] = p end
+    end
+    local sniper, beyond = 0, 0
+    for _, e in ipairs(trace) do
+        local q = e.mine and e.at == at and byKey[e.pick]
+        if q then
+            local left = tonumber(e.left) or 0
+            sniper = sniper + math_max(0, (tonumber(e.sent) or left) - left)
+            beyond = beyond + LeftOf(q, key) - left
+        end
+    end
+    return math_max(0, math_min(bought, sniper, beyond))
+end
+
 -- What Shift-click and the menu's Snipe entry send to the sniper (FRV-44): a pick every AH purchase of its plan,
--- each at its "up to" price with its units (vendor purchases stay out), a craft's or recipe's main material at its
--- max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the biggest
--- spend first) and the row it is for, or nil where there is nothing to snipe
-local function SnipeTargets(row)
+-- each at its "up to" price with what is still to buy of it (FRV-185, FM.PickBuysLeft: its plan's units less what was
+-- bought for the pick since the plan, by hand or by the sniper, shared with the other picks in plan order as the buy
+-- step counts it; a purchase bought in full is left out; vendor purchases stay out), a craft's or recipe's main
+-- material at its max buy price, a flip its units at its buy-up-to price. Returns { { key, price, units }, ... } (the
+-- biggest spend first), the row it is for, for a pick its trace { pick, at } (FRV-143: the sniper remembers the pick
+-- and its plan), and "left" when a pick sends less than its plan's units; nil where there is nothing to snipe, with
+-- the row and "bought" for a pick whose AH purchases were all bought since the plan, with the row and "auction" when
+-- all it would snipe is sold per auction (FRV-192: the sniper takes stackable items only, so such an item is never
+-- offered; a pick with both kinds sends its stackable ones). mode: "add" (the default; an item
+-- already sniped for other picks of the plan: TracedBought) or "restart" (Shift+right-click: the item's count starts
+-- again with this pick alone, so only its own units count)
+local function SnipeTargets(row, mode)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
     tab, row = RowSource(row)
-    if not tab then return nil end
-    local list = {}
+    -- an Upgrades row is one gear listing: never the commodity sniper (FRV-203; its own buy window, FRV-204)
+    if not tab or tab.upgrades then return nil end
+    local list, status, perAuction = {}, nil, false
+    -- an item sold per auction (stack size 1); one the client has not loaded yet ("unknown", its data asked for) stays
+    -- in, the sniper still refuses it safely
+    local function auctioned(key)
+        return type(key) == "string" and FM.SnipeKind ~= nil and FM.SnipeKind(key) == "item"
+    end
     local function add(key, price, units)
         if type(key) ~= "string" or type(price) ~= "number" or price < 1 then return end
+        if auctioned(key) then
+            perAuction = true
+            return
+        end
         list[#list + 1] = { key = key, price = math_floor(price), units = type(units) == "number" and units >= 1 and units or nil }
     end
     if tab.picks then
         if row.buys then
-            for _, b in ipairs(row.buys) do add(b.key, b.top, b.ah) end
+            local at = FM.trade and FM.trade.pickAt
+            local buysLeft = FM.PickBuysLeft and FM.PickBuysLeft(row) or row.buys
+            -- what the plan gave this pick of the purchases since the plan, per item (a material listed twice summed)
+            local boughtOf = {}
+            for i, b in ipairs(buysLeft) do
+                local planned = row.buys[i] and row.buys[i].ah or b.ah or 0
+                boughtOf[b.key] = (boughtOf[b.key] or 0) + math_max(0, planned - (b.ah or 0))
+            end
+            local adjusted = {}
+            -- never a purchase with nothing left: without units the sniper would buy it without a limit; never more
+            -- than the plan's units of an item (TracedBought gives back at most what the plan took off it)
+            for i, b in ipairs(buysLeft) do
+                local planned = row.buys[i] and row.buys[i].ah or b.ah or 0
+                local units = b.ah or 0
+                if mode ~= "restart" and not adjusted[b.key] then
+                    adjusted[b.key] = true
+                    units = units + TracedBought(row, b.key, at, boughtOf[b.key] or 0)
+                end
+                if auctioned(b.key) then
+                    -- never sent (FRV-192): it counts neither as still to buy nor as bought
+                    if units >= 1 then perAuction = true end
+                else
+                    if units < planned then status = "left" end
+                    if units >= 1 then add(b.key, b.top, units) end
+                end
+            end
+            if perAuction and not list[1] then return nil, row, nil, "auction" end
+            if row.buys[1] and not list[1] then return nil, row, nil, "bought" end
         else
             add(row.mainKey, row.mainTop)
         end
@@ -1191,22 +1355,80 @@ local function SnipeTargets(row)
     elseif tab.id == "flips" then
         add(row.key, row.top, row.units)
     end
-    if not list[1] then return nil end
-    return list, row
+    if not list[1] then
+        if perAuction then return nil, row, nil, "auction" end
+        return nil
+    end
+    local trace = tab.picks and FM.trade and FM.trade.pickAt and { pick = row.key, at = FM.trade.pickAt } or nil
+    return list, row, trace, status
 end
 
--- "its 3 AH purchases", "144 Heavy Leather up to 2s 75c"
-local function SnipeLabel(targets)
-    if #targets > 1 then return string_format("its %d AH purchases", #targets) end
+-- Whether every purchase of a pick is already sniped for it with the plan shown (FRV-143): a Shift+click adds nothing;
+-- the second value: some of them are sniped at another price than this plan's, which the click sets (review round 4)
+local function SnipedForPlan(targets, trace)
+    if not (trace and FM.SnipeTrace) then return false end
+    local repriced = false
+    for _, t in ipairs(targets) do
+        if not t.units then return false end
+        local found = false
+        for _, e in ipairs(FM.SnipeTrace(t.key) or {}) do
+            -- only this character's entry of the pick (FRV-169): another character's is a pick of its own
+            if e.mine and e.pick == trace.pick and e.at == trace.at then found = true end
+        end
+        if not found or not FM.IsSniped(t.key) then return false end
+        local saved = FM.SnipeSaved(t.key)
+        if saved and tonumber(saved.p) ~= t.price then repriced = true end
+    end
+    return true, repriced
+end
+
+-- A pick's tooltip, the sniper part (FRV-143): what of its AH purchases the sniper buys for it, still to buy; the same
+-- pick sent by another character is its own line with that character's name (FRV-169)
+local function PickSnipeLines(pick)
+    if not (FM.SnipeTrace and pick.buys) then return end
+    local at = FM.trade and FM.trade.pickAt
+    local lines = {}
+    for _, b in ipairs(pick.buys) do
+        for _, e in ipairs(FM.IsSniped(b.key) and FM.SnipeTrace(b.key) or {}) do
+            if e.pick == pick.key then
+                lines[#lines + 1] = { b.key, e.left, e.mine and e.at ~= at, not e.mine and e.char or nil }
+            end
+        end
+    end
+    if not lines[1] then return end
+    Header("Sniped for this pick")
+    for _, l in ipairs(lines) do
+        Line(Name(l[1]), (l[2] > 0 and (FM.FormatCount(l[2]) .. " still to buy") or "all bought")
+            .. (l[3] and (GREY .. "  for an older plan|r") or "") .. (l[4] and (GREY .. "  sent by " .. l[4] .. "|r") or ""))
+    end
+end
+
+-- "its 3 AH purchases", "144 Heavy Leather up to 2s 75c"; long (the row tooltip's hint, FRV-185): with the units of
+-- each, "its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt"
+local function SnipeLabel(targets, long)
+    if #targets > 1 then
+        local label = string_format("its %d AH purchases", #targets)
+        if not long then return label end
+        local parts = {}
+        for i, t in ipairs(targets) do parts[i] = (t.units and (FM.FormatCount(t.units) .. " ") or "") .. Name(t.key) end
+        return label .. ": " .. table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+    end
     local t = targets[1]
     return (t.units and (FM.FormatCount(t.units) .. " ") or "") .. Name(t.key) .. " up to " .. FM.FormatMoney(t.price)
 end
 
+-- A pick whose AH purchases were all bought since the plan (FRV-185): the click adds nothing and says so
+local function NothingLeft(row)
+    FM.Print("Nothing left to buy at the AH for " .. Name(row.key) .. ": its plan's AH purchases were bought since the plan, nothing added.")
+end
+FM.TableSnipeTargets, FM.TableSnipeLabel = SnipeTargets, SnipeLabel -- for the tests
+
 -- mode (FRV-128): "add" (Shift+click, the menu's Snipe) adds the units to what each item already snipes and keeps
--- what was bought; "restart" (Shift+right-click) sets the limits to the units and starts the counts at 0
-local function SnipeRow(targets, row, mode)
-    if #targets > 1 then
-        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey, mode)
+-- what was bought; "restart" (Shift+right-click) sets the limits to the units and starts the counts at 0. trace: a
+-- pick and its plan (FRV-143): the sniper remembers it, the same pick of the same plan adds nothing
+local function SnipeRow(targets, row, mode, trace)
+    if #targets > 1 or trace then
+        FM.SnipeFromPlan(Name(row.key), targets, row.mainKey, mode, trace)
     else
         FM.SnipeFromTable(targets[1].key, targets[1].price, targets[1].units, mode)
     end
@@ -1218,6 +1440,13 @@ local function RowTooltipLines(tip, tab, row)
     TT = tip
     if tab.farm then
         FarmTooltip(row)
+        TT = GameTooltip
+        return
+    end
+    if tab.upgrades then
+        -- the tab's own lines (ui/Upgrades.lua); a sticky window gets the name first, the hover tooltip the item's own
+        -- tooltip above them (ShowRowTooltip)
+        FM.UpgradeTooltipLines(tip, row, tip ~= GameTooltip)
         TT = GameTooltip
         return
     end
@@ -1233,6 +1462,7 @@ local function RowTooltipLines(tip, tab, row)
         Line("On AH", OnAH(row))
     elseif use.id == "picks" then
         PickTooltip(src)
+        PickSnipeLines(src)
     elseif use.id == "latest" then
         CraftTooltip(src, false)
     elseif use.id == "learn" then
@@ -1264,33 +1494,75 @@ end
 local function RowHints(tab, row)
     GameTooltip:AddLine(" ")
     if tab.farm then
-        GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B)
-        GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B)
-        GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
         return
     end
-    GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B)
+    if tab.upgrades then
+        FM.UpgradeHints(GameTooltip) -- no snipe (FRV-203): buy at the AH (FRV-204), try it on (FRV-205)
+        return
+    end
+    GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
     -- at the AH, Shift+click snipes what the row buys there (a pick: every AH purchase of its plan)
-    local targets = FM.ahOpen and SnipeTargets(row)
-    if targets then
-        GameTooltip:AddLine("Shift+click: snipe " .. SnipeLabel(targets) .. " (adds to what it already snipes)",
-            HINT_R, HINT_G, HINT_B, true)
+    local targets, _, trace, status
+    if FM.ahOpen then targets, _, trace, status = SnipeTargets(row) end
+    local sniped, repriced
+    if targets then sniped, repriced = SnipedForPlan(targets, trace) end
+    if status == "bought" then
+        GameTooltip:AddLine("Shift+click: nothing left to buy at the AH for this pick, adds nothing", HINT_R, HINT_G, HINT_B, true)
+    elseif status == "auction" then
+        -- all it buys at the AH is sold per auction (FRV-192): the click says so in the chat, grey as a hint that does nothing
+        GameTooltip:AddLine("Shift+click: cannot snipe, sold per auction", 0.62, 0.62, 0.62, true)
+    elseif sniped then
+        GameTooltip:AddLine(repriced and "Shift+click: sniped for this plan, sets this plan's prices (adds no units)"
+            or "Shift+click: already sniped for this plan, adds nothing", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
+    elseif targets then
+        -- the units it sends (FRV-185): a pick what is still to buy
+        GameTooltip:AddLine("Shift+click: snipe " .. (status == "left" and "what is still to buy, " or "") .. SnipeLabel(targets, true)
+            .. " (adds to what it already snipes)", HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Shift+right-click: snipe it with Bought now from 0", HINT_R, HINT_G, HINT_B, true)
     else
-        GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B)
+        GameTooltip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B, true)
     end
     -- a row whose recipe you know: Ctrl+click opens its profession window on it (FRV-132)
     local craftHint = FM.CraftHint and FM.CraftHint(RowSource(row.stepsOf or row, tab))
-    if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B) end
-    GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B)
-    GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B)
+    if craftHint then GameTooltip:AddLine(craftHint, HINT_R, HINT_G, HINT_B, true) end
+    GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
+    GameTooltip:AddLine("Right-click for more options", HINT_R, HINT_G, HINT_B, true)
+end
+FM.TableRowHints = function(row) RowHints(CurrentTab(), row) end -- for the tests (FRV-192)
+
+-- The flip picks you hid that the plan shown holds back (FRV-193, review round 1 of PR 79): the saved entries that still
+-- count of the items its pass left out for them (FM.trade.pickHidden) or hidden since it was shown (a pick's hiddenNow);
+-- an entry whose flip is a pick again (it buys at another price) is none. { { key, e = entry }, ... } by when hidden.
+-- An FM field, not a local: the main chunk is at Lua 5.1's 200 locals
+FM.TableHiddenFlips = function()
+    local trade = FM.trade or {}
+    local since = {}
+    for _, p in ipairs(trade.picks or {}) do
+        if type(p) == "table" and p.hiddenNow then since[p.key] = true end
+    end
+    local list = {}
+    for key, e in pairs(FM.HiddenFlips and FM.HiddenFlips() or {}) do
+        if (type(trade.pickHidden) == "table" and trade.pickHidden[key]) or since[key] then list[#list + 1] = { key = key, e = e } end
+    end
+    table_sort(list, function(a, b) return a.e.t < b.e.t end)
+    return list
 end
 
 local function ShowRowTooltip(button)
     local row = button.row
     if not row then return end
     local tab = CurrentTab()
+    if tab.upgrades then
+        -- the item's own tooltip (Pawn's lines in it), the tab's lines, the hints; the worn item beside it with Shift
+        FM.UpgradeRowTooltip(button, row, function() RowHints(tab, row) end)
+        return
+    end
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    FM.RowTipWidth(GameTooltip) -- about a third of what it was (FRV-195)
     RowTooltipLines(GameTooltip, tab, row)
     RowHints(tab, row)
     GameTooltip:Show()
@@ -1321,6 +1593,7 @@ end
 -- One sticky window per item (a mob on Farm)
 local function RowId(tab, row)
     if tab.farm then return "farm:" .. tostring(row.npc or row.mobName) end
+    if tab.upgrades then return row.id end -- one per item and suffix
     return row.key
 end
 
@@ -1375,13 +1648,35 @@ end
 
 -- Right-click menu of a row: plain actions; Snipe where Shift-click snipes (also away from the AH: the items wait
 -- in the sniper); Track only where there is an NPC to go to (a vendor that sells it, a trainer or vendor that
--- teaches it), disabled without TomTom; last, Show history (its own window: FRV-76's price graph, FRV-52's history)
+-- teaches it), disabled without TomTom; on a pick with an Amount input Reset amount (FRV-194, disabled while it has
+-- the plan's number); last, Show history (its own window: FRV-76's price graph, FRV-52's history)
 local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
-    local targets, of = SnipeTargets(row)
+    local targets, of, trace, status = SnipeTargets(row)
+    local gear = CurrentTab().upgrades and true or false -- an Upgrades row: one gear listing (FRV-203)
     MenuUtil.CreateContextMenu(button, function(_, root)
-        root:CreateTitle(Name(key))
+        root:CreateTitle(gear and (row.name or Name(key)) or Name(key))
+        -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204)
+        if gear and FM.ahOpen and FM.UpgradeBuyOpen then
+            root:CreateButton("Buy this listing", function() FM.UpgradeBuyOpen(row) end)
+        end
+        -- an AH flip pick, also from its steps line (FRV-193): first, for a flip someone else bought first; it hides
+        -- this flip only (trade/Picks.lua FM.HideFlipPick), the item is not ignored
+        local flip = CurrentTab().picks and (row.stepsOf or row) or nil
+        if flip and flip.kind == "flip" and FM.HideFlipPick then
+            root:CreateButton("Hide this pick", function()
+                local ok, why = FM.HideFlipPick(flip)
+                if not ok then
+                    FM.PrintError("Failed to hide the pick of " .. Name(flip.key) .. ": " .. tostring(why) .. ".")
+                    return
+                end
+                FM.Print(Name(flip.key) .. ": flip pick hidden until its listings change.")
+                flip.hiddenNow = true -- BuildRows leaves it out until the new plan is shown
+                FM.PlanPicks() -- its gold goes to the next pick, as after Ignore
+                FM.RefreshTable()
+            end)
+        end
         local favorite = FM.IsFavorite(key)
         root:CreateButton(favorite and "Unfavorize this item" or "Favorize this item", function()
             FM.SetFavorite(key, not favorite)
@@ -1391,18 +1686,33 @@ local function ShowRowMenu(button, row)
         local ignored = FM.IsExcluded(key)
         root:CreateButton(ignored and "Stop ignoring this item" or "Ignore this item", function()
             FM.SetExcluded(key, not ignored)
-            FM.Print(ignored and (Name(key) .. " is back in the market table.")
+            FM.Print(ignored and (Name(key) .. " is back in the marketplace.")
                 or (Name(key) .. " ignored: hidden from the other tabs and the picks. The Ignored tab lists it."))
             FM.PlanPicks() -- picks plan the gold again without it
             FM.RefreshTable()
         end)
         if targets and FM.SnipeFromTable then
-            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add") end)
+            root:CreateButton("Snipe " .. SnipeLabel(targets), function() SnipeRow(targets, of, "add", trace) end)
+        elseif status == "bought" and FM.SnipeFromTable then
+            -- a pick with everything bought (FRV-185): nothing to send
+            local entry = root:CreateButton("Snipe: nothing left to buy", function() end)
+            if entry.SetEnabled then entry:SetEnabled(false) end
+        elseif status == "auction" and FM.SnipeFromTable then
+            -- all it buys at the AH is sold per auction (FRV-192): the sniper would refuse it
+            local entry = root:CreateButton("Snipe: sold per auction", function() end)
+            if entry.SetEnabled then entry:SetEnabled(false) end
+            if entry.SetTooltip then
+                entry:SetTooltip(function(tooltip)
+                    GameTooltip_SetTitle(tooltip, "Only stackable items (commodities) can be sniped. This one is sold per auction.")
+                end)
+            end
         end
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
         local place, why
-        if row.placeOf then
+        if gear then
+            -- gear from the AH: no vendor or trainer to walk to
+        elseif row.placeOf then
             own = row.trackOffer
             if own then place, why = own, "buy" end
         else
@@ -1420,9 +1730,26 @@ local function ShowRowMenu(button, row)
                     end)
                 end
             end
-        elseif FM.RecipeOnAH and FM.RecipeOnAH(key) then
+        elseif not gear and FM.RecipeOnAH and FM.RecipeOnAH(key) then
             -- a pattern on the AH has no NPC to walk to: say where the recipe comes from instead
             root:CreateTitle("Recipe on AH", INFO_COLOR)
+        end
+        -- a pick whose amount can be set, also from its steps line (FRV-194): the plan's number back, as emptying the
+        -- Amount input and pressing Enter does (ui/Table.lua is at Lua 5.1's 200 locals: no top-level helper)
+        local pick = CurrentTab().picks and (row.stepsOf or row) or nil
+        if pick and pick.amountEdit and FM.SetPickAmount then
+            local reset = root:CreateButton("Reset amount", function()
+                local ok, why = FM.SetPickAmount(pick.key, nil)
+                if not ok then FM.PrintError("Failed to reset the amount of " .. Name(pick.key) .. ": " .. tostring(why) .. ".") end
+            end)
+            if not pick.amountSet then
+                if reset.SetEnabled then reset:SetEnabled(false) end
+                if reset.SetTooltip then
+                    reset:SetTooltip(function(tooltip)
+                        GameTooltip_SetTitle(tooltip, "It has the plan's number already")
+                    end)
+                end
+            end
         end
         if FM.ShowPriceGraph then
             root:CreateButton("Show history", function() FM.ShowPriceGraph(key) end)
@@ -1445,6 +1772,11 @@ local function OnRowClick(button, mouseButton)
     -- Ctrl+click: the row's recipe in its profession window, a pick's crafts in the count box (FRV-132, ui/OpenRecipe.lua);
     -- a row without a craft you know says why
     if mouseButton ~= "RightButton" and IsControlKeyDown and IsControlKeyDown() then
+        -- Upgrades: the item in the Dressing Room (FRV-205), no chat line
+        if CurrentTab().upgrades then
+            if FM.UpgradeTryOn then FM.UpgradeTryOn(row) end
+            return
+        end
         if FM.CraftTarget then
             local target, why = FM.CraftTarget(RowSource(row.stepsOf or row))
             if target then
@@ -1466,15 +1798,46 @@ local function OnRowClick(button, mouseButton)
         end
         return
     end
+    if CurrentTab().upgrades then
+        -- a gear listing (FRV-203): never the sniper; at the AH Shift+click finds it and offers it to buy (FRV-204),
+        -- away from it links the item with its suffix in the chat
+        if mouseButton == "RightButton" then
+            GameTooltip:Hide()
+            ShowRowMenu(button, row)
+        elseif IsShiftKeyDown and IsShiftKeyDown() then
+            if FM.ahOpen and FM.UpgradeBuyOpen then
+                GameTooltip:Hide()
+                FM.UpgradeBuyOpen(row)
+            elseif type(row.link) == "string" and ChatEdit_InsertLink then
+                ChatEdit_InsertLink(row.link)
+            end
+        else
+            SearchAtAH(row)
+        end
+        return
+    end
     local shift = IsShiftKeyDown and IsShiftKeyDown()
     -- AH open: Shift+click snipes what the row buys at the AH at the table's prices (a pick: all its AH purchases),
     -- adding to what each item already snipes; Shift+right-click the same with the counts from 0 (FRV-128)
-    local targets, of
-    if shift and FM.ahOpen and FM.SnipeFromTable then targets, of = SnipeTargets(row) end
+    local targets, of, trace, status
+    if shift and FM.ahOpen and FM.SnipeFromTable then
+        targets, of, trace, status = SnipeTargets(row, mouseButton == "RightButton" and "restart" or "add")
+    end
+    -- a pick with everything bought since the plan (FRV-185): both clicks add nothing and say so
+    if status == "bought" then
+        NothingLeft(of)
+        return
+    end
+    -- all it buys at the AH is sold per auction (FRV-192): both clicks add nothing and say why
+    if status == "auction" then
+        FM.Print("Nothing to snipe for " .. Name(of.key) .. ": what it buys at the AH is sold per auction, only stackable"
+            .. " items (commodities) can be sniped. Nothing added.")
+        return
+    end
     if mouseButton == "RightButton" then
         GameTooltip:Hide()
         if targets then
-            SnipeRow(targets, of, "restart")
+            SnipeRow(targets, of, "restart", trace)
         else
             ShowRowMenu(button, row)
         end
@@ -1482,7 +1845,7 @@ local function OnRowClick(button, mouseButton)
     end
     if shift then
         if targets then
-            SnipeRow(targets, of, "add")
+            SnipeRow(targets, of, "add", trace)
             return
         end
         local link = ItemLink(row.key)
@@ -1491,6 +1854,7 @@ local function OnRowClick(button, mouseButton)
     end
     SearchAtAH(row)
 end
+FM.TableRowClick = OnRowClick -- for the tests
 
 ---------------------------------------------------------------- frame
 
@@ -1563,6 +1927,8 @@ local function LayoutFilters(f)
         f.prof:ClearAllPoints()
         f.prof:SetPoint("RIGHT", f.refresh, "LEFT", -10, 0)
     end
+    -- Upgrades: Level, Rarities, Slots, Spec, Best per slot right of the search box (ui/Upgrades.lua)
+    if FM.UpgradesLayoutFilters then FM.UpgradesLayoutFilters(f) end
 end
 
 local Render
@@ -1574,14 +1940,16 @@ local function ColumnX(columns, index)
 end
 
 -- Picks: its budget row (FRV-95) and its summary line take the header's place, the header and the list move down two
--- rows (Flip: its age line when the prices are old, view.stale: one row)
+-- rows (Flip and Upgrades: their age line when the listings are old, view.stale: one row)
 local function ListShift(tab)
     if tab.picks then return 2 * ROW_H end
-    return (tab.id == "flips" and view.stale) and ROW_H or 0
+    return ((tab.id == "flips" or tab.upgrades) and view.stale) and ROW_H or 0
 end
 
--- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes
+-- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes.
+-- Upgrades: the same from an hour on, in its own words (ui/Upgrades.lua)
 local function FlipStaleText(tab)
+    if tab.upgrades then return FM.UpgradesStaleText and FM.UpgradesStaleText() or nil end
     if tab.id ~= "flips" then return nil end
     local r = FM.R()
     local last = r and r.last and r.last.t
@@ -1673,6 +2041,11 @@ local function LayoutColumns()
                 end
                 cell:SetJustifyH(align)
                 cell:Show()
+                -- the column's input (Picks' Amount, FRV-154) ends where its numbers do
+                if col.edit then
+                    button.amount:ClearAllPoints()
+                    button.amount:SetPoint("RIGHT", button, "LEFT", x + width - 4, 0)
+                end
             else
                 cell:Hide()
             end
@@ -1691,12 +2064,33 @@ local function StatusText()
     else
         parts[#parts + 1] = "No snapshot yet"
     end
-    if FM.TradeBusy and FM.TradeBusy() or (trade and trade.busy) or (FM.FarmBusy and FM.FarmBusy()) then parts[#parts + 1] = YELLOW .. "computing...|r" end
+    -- Pawn scoring gear for the Upgrades tab (FRV-203) counts too
+    if FM.TradeBusy and FM.TradeBusy() or (trade and trade.busy) or (FM.FarmBusy and FM.FarmBusy())
+        or (FM.UpgradesBusy and FM.UpgradesBusy()) then
+        parts[#parts + 1] = YELLOW .. "computing...|r"
+    end
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
 end
 
-local function FooterText(total)
-    local tab = CurrentTab()
+-- What of a tab waits for Shift (FRV-186): the elements of the "shift" kind it shows (the search box on every tab,
+-- Picks' budget row, Amount inputs and lock, the Use global filters checkbox of Picks, Craft and Learn, the place
+-- dropdowns of Vendor and Picks)
+local function ShiftHint(tab)
+    -- Upgrades: the search box and the Level boxes, Rarities, Slots and Spec, Best per slot (FRV-203, FRV-205)
+    if tab.picks or tab.upgrades then return "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips" end
+    if tab.crafts or tab.learn then return "  ·  hold Shift over inputs and checkboxes for their tips" end
+    if tab.id == "vendor" then return "  ·  hold Shift over inputs and dropdowns for their tips" end
+    return "  ·  hold Shift over the search box for its tip"
+end
+
+-- The line at the bottom: what is shown, a tab's own note, and last the hint how tooltips show (FRV-155, FRV-186:
+-- "hold Shift over ... for their tips", always the end of the line; Picks says "hover for why" before it, and only that
+-- with the setting off). short: the shorter form of a tab's note, for a line that would not fit the window (Render
+-- measures it); the hint stays whole. tab: the tab shown unless another is given (the tests)
+local function FooterText(total, short, tab)
+    tab = tab or CurrentTab()
+    local hover = TipsOnHover()
+    local hint = hover and "" or ShiftHint(tab)
     local trade = FM.trade
     local first = total > 0 and view.offset + 1 or 0
     local last = math_min(total, view.offset + VisibleRows(tab))
@@ -1724,29 +2118,44 @@ local function FooterText(total)
     end
     if tab.farm then
         local f = FM.farm or {}
-        return GREY .. text .. string_format("  ·  your level %s%s, mobs %s  ·  %s kills/h (%s)", tostring(f.level or "?"),
+        return GREY .. text .. string_format("  ·  your level %s%s, mobs %s  ·  %s kills/h%s", tostring(f.level or "?"),
             (f.skinSkill or 0) > 0 and (", skinning " .. f.skinSkill) or "", f.level and string_format("%d-%d", f.level - 5, f.level + 2) or "?",
-            f.kph and string_format("%.0f", f.kph) or "?", f.kphOwn and "yours" or "default until 30 min of your farming") .. "|r"
+            f.kph and string_format("%.0f", f.kph) or "?",
+            short and "" or (" (" .. (f.kphOwn and "yours" or "default until 30 min of your farming") .. ")")) .. hint .. "|r"
     end
     if tab.picks then
-        text = text .. "  ·  # = a day's profit, Expected = one listing of all of it  ·  hover for why"
+        -- the shorter form drops the note on the columns, never the hints
+        if not short then text = text .. "  ·  # = a day's profit, Expected = one listing of all of it" end
+        hint = "  ·  hover for why" .. hint
     elseif tab.ignored then
-        text = text .. "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item brings it back"
+        text = text .. (short and "  ·  right-click a row > Stop ignoring this item brings it back"
+            or "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item brings it back")
     elseif tab.favs then
-        text = text .. "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs"
+        text = text .. (short and "  ·  right-click any row > Favorize this item adds it here"
+            or "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs")
     elseif tab.crafts then
-        text = text .. string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, PPH = profit per craft / (cast time + 0.5s)", FM.TRADE.BATCH)
+        text = text .. (short and "  ·  5% AH cut, max mat buy keeps 10% profit"
+            or string_format("  ·  materials for %d crafts, 5%% AH cut, max mat buy keeps 10%% profit, PPH = profit per craft / (cast time + 0.5s)", FM.TRADE.BATCH))
     elseif tab.id == "vendor" then
         -- the place filter (FRV-99): "1-20 of 34  ·  in Darnassus"
         local where = FM.PlaceText(FM.PlaceResolve(FM.PlaceOf("vendor")))
         if where then text = text .. "  ·  " .. where end
-        text = text .. "  ·  only items that circulated in the last 3 days, sold at most at the usual price"
+        text = text .. (short and "  ·  circulated in the last 3 days, sold at most at the usual price"
+            or "  ·  only items that circulated in the last 3 days, sold at most at the usual price")
     elseif tab.id == "flips" then
-        text = text .. "  ·  cheap listings to relist under the next price level, 15%+ profit after the cut, Profit = the whole flip"
+        text = text .. (short and "  ·  relist under the cheapest listing that stays, 15%+ profit after the cut"
+            or "  ·  cheap listings to relist under the cheapest listing that stays, 15%+ profit after the cut, Profit = the whole flip")
     elseif tab.learn then
         text = text .. "  ·  every recipe you can still learn, losing ones too  ·  7 days = usual prices"
+    elseif tab.upgrades then
+        -- "1-20 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship" (FRV-203)
+        text = text .. (total == 1 and " upgrade" or " upgrades") .. (FM.UpgradesFooterNote and FM.UpgradesFooterNote(short) or "")
     end
-    return GREY .. text .. "|r"
+    return GREY .. text .. hint .. "|r"
+end
+-- the footer of the tab shown, or of the tab with that id
+function FM.TableFooterText(total, short, tabId)
+    return FooterText(total, short, tabId and TAB_BY_ID[tabId] or nil)
 end
 
 -- The plan's budget (FRV-95): "75% of your gold = 12g 40s", "20g (set manually)", "14g 88s (20g set manually, capped
@@ -1876,17 +2285,102 @@ local function SincePlan()
     return string.upper(text:sub(1, 1)) .. text:sub(2)
 end
 
--- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h"
+-- A pick's steps in one line: "Buy 144 Heavy Leather up to 2s 75c (+3 more)  >  make 12  >  list at 1g 09s for 24h";
+-- the make step follows your crafts (FRV-104: "make 31 more"), and once the target is made ("made 51") it and the
+-- steps before it are grey: the listing is next
 local function StepsText(p)
     local steps = p.steps or {}
     local parts = {}
+    local makeText, made, buyText, bought
+    if p.makeStep and FM.PickMakeStep then makeText, made = FM.PickMakeStep(p) end
+    -- the buy step follows your AH purchases since the plan (review round 1: "buy 31 more ...")
+    if p.buyStep and FM.PickBuyStep then buyText, bought = FM.PickBuyStep(p) end
     for i, step in ipairs(steps) do
-        parts[i] = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
+        if i == p.makeStep and makeText then step = makeText end
+        if i == p.buyStep and buyText then step = buyText end
+        -- fewer than the amount you set (FRV-154): what is short, in red behind the step it is about (FRV-187: the
+        -- market cannot give it, an error); your minimum profit in orange (amountWarn: a warning, the maintainer's rule)
+        if i == p.amountStep and p.amountNote then
+            step = step .. (p.amountWarn and ORANGE or RED) .. " (" .. p.amountNote .. ")|r"
+        end
+        step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
+        local done = (made and i <= p.makeStep) or (bought and i == p.buyStep)
+        parts[i] = done and (GREY .. step .. "|r") or step
     end
     return table.concat(parts, GREY .. "  >  |r")
 end
+FM.PickStepsText = StepsText -- for the tests
 
 local SECTION_TEXT = { plan = "Plan, fitting parameters", extra = "Also good, but out of scope" }
+
+---------------------------------------------------------------- the Amount input of a pick (FRV-154)
+
+-- What a pick's Amount input shows (FRV-187) and how: the plan's number ("plan", white), a number you set that the
+-- pick makes or buys ("set", light blue), or a number you set that the market cannot give ("unmet", red: your number,
+-- while Invest, Expected, the steps, Ctrl+click and the sniper go by what it really makes or buys, pick.amount). A
+-- number cut by your minimum profit is no "unmet" (amountWarn): the number reached in light blue, as before
+function FM.AmountShown(pick)
+    if type(pick) ~= "table" or type(pick.amount) ~= "number" then return nil end
+    if pick.amountSet and pick.amountNote and not pick.amountWarn and type(pick.amountWant) == "number" then
+        return pick.amountWant, "unmet"
+    end
+    return pick.amount, pick.amountSet and "set" or "plan"
+end
+
+-- What a text left in a pick's Amount input asks for: "set" and the whole number (1 or more, another than the input
+-- shows), "plan" (emptied on a pick whose amount you set: the plan's number back), or nil: the number shown stays
+function FM.AmountAsked(pick, text)
+    if type(pick) ~= "table" or not pick.amountEdit then return nil end
+    text = tostring(text or ""):match("^%s*(.-)%s*$")
+    if text == "" then return pick.amountSet and "plan" or nil end
+    local n = tonumber(text)
+    if not n or n ~= n or n < 1 or n ~= math_floor(n) then return nil end
+    if n == FM.AmountShown(pick) then return nil end
+    return "set", n
+end
+
+local AMOUNT_COLOR = { plan = { 1, 1, 1 }, set = { 0.4, 0.75, 1 }, unmet = { 1, 0.33, 0.33 } } -- RED's color for unmet
+
+-- The input shows its pick's amount (not while you type in it): the plan's number in white, one you set in light blue,
+-- one you set that cannot be met in red (FM.AmountShown)
+local function AmountText(box)
+    local n, how = FM.AmountShown(box.pick)
+    box:SetText(n and tostring(n) or "")
+    box:SetCursorPosition(0)
+    local color = AMOUNT_COLOR[how or "plan"]
+    box:SetTextColor(color[1], color[2], color[3])
+end
+
+-- A line's input for the pick it shows now (nil: none on this line). An input you are typing in keeps its text while
+-- its pick stays; when another pick moves under it (scrolling, a new plan) what was typed is dropped. box.editing is
+-- its own mark of being typed in, set and cleared by its focus scripts: the client's HasFocus() is not asked, since the
+-- table is drawn again from inside those scripts (an applied number, a click from one input into the next), where
+-- what it answers depends on the client's order of events
+local function AmountShow(box, pick)
+    if box.editing and not (pick and box.key == pick.key) then
+        box.restore = true
+        box:ClearFocus()
+    end
+    box.pick = pick
+    box:SetShown(pick ~= nil)
+    if pick and not box.editing then AmountText(box) end
+end
+
+-- Enter or a click elsewhere: the pick is made again for the number typed (FM.SetPickAmount draws the table again),
+-- an emptied input brings the plan's number back, Escape or anything else the number it had
+local function AmountApply(box)
+    local pick, restore = box.pick, box.restore
+    local key = box.key
+    box.restore, box.key = nil, nil
+    if restore or not (pick and key == pick.key) then return AmountText(box) end
+    local what, n = FM.AmountAsked(pick, box:GetText())
+    if not what then return AmountText(box) end
+    local ok, why = FM.SetPickAmount(key, what == "set" and n or nil)
+    if not ok then
+        FM.PrintError("Failed to set the amount of " .. Name(key) .. ": " .. tostring(why) .. ".")
+        AmountText(box)
+    end
+end
 
 -- Where the Profit graph sits: from under the filter row to above the footer
 local GRAPH_GEO = { x = 14, y = FILTER_Y - 30, w = W - 28, h = H + FILTER_Y - 30 - 34, filterY = FILTER_Y }
@@ -1897,9 +2391,10 @@ local function RenderGraph(tab)
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
         frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.searchAll,
-        frame.continent, frame.zone }) do
+        frame.continent, frame.zone, frame.hiddenPicks }) do
         w:Hide()
     end
+    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, false) end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
@@ -1959,6 +2454,7 @@ Render = function()
     local stepsX = tab.picks and (ColumnX(tab.columns, 2) - 14 + 22) or 24
     for i, button in ipairs(frame.rows) do
         local row = i <= visible and rowsCache[view.offset + i] or nil
+        local amountRow -- the pick whose amount this line's input sets, when it has one
         -- a section line is no row: no tooltip, no click, no highlight
         button.row = row and not row.section and (row.stepsOf or row) or nil
         local highlight = button:GetHighlightTexture()
@@ -1983,12 +2479,18 @@ Render = function()
                 if col then
                     local ok, text = pcall(col.text, row)
                     cell:SetText(ok and text or (RED .. "err|r"))
+                    -- an amount that can be set is an input in place of the text (FRV-154)
+                    if col.edit and row.amountEdit then
+                        cell:Hide()
+                        amountRow = row
+                    end
                 end
             end
             button:Show()
         else
             button:Hide()
         end
+        AmountShow(button.amount, amountRow)
     end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     -- the filters of Picks, Craft and Learn (FRV-89): its own ("Filters") or the global ones ("Global filters"),
@@ -2037,12 +2539,31 @@ Render = function()
         end
     end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
+    -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (ui/Upgrades.lua), only on that tab
+    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, tab.upgrades and true or false) end
     LayoutFilters(frame)
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
-    if total == 0 and not (FM.trade and FM.trade.empty) then
+    -- Picks: the flip picks you hid (FRV-193), "  ·  2 hidden" right after the line; a click shows them again
+    local hidden = frame.hiddenPicks
+    local hiddenN = tab.picks and #FM.TableHiddenFlips() or 0
+    local hiddenW = 0
+    if hiddenN > 0 then
+        hidden.text:SetText(string_format("  ·  %d hidden", hiddenN))
+        hiddenW = hidden.text.GetUnboundedStringWidth and hidden.text:GetUnboundedStringWidth() or 60
+        hidden:SetWidth(hiddenW)
+        hidden:Show()
+    else
+        hidden:Hide()
+    end
+    -- a line too long for the window takes the shorter form of its note, so the Shift hint at its end is never cut
+    local footerWidth = frame.footer.GetUnboundedStringWidth and frame.footer:GetUnboundedStringWidth()
+    if type(footerWidth) == "number" and footerWidth + hiddenW > W - 32 then frame.footer:SetText(FooterText(total, true)) end
+    -- Upgrades says why its list is empty also before the first deep scan (no Pawn, no scale, no gear data, ...)
+    if total == 0 and (tab.upgrades or not (FM.trade and FM.trade.empty)) then
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
+        if tab.upgrades and FM.UpgradesEmptyText then text = FM.UpgradesEmptyText() end
         if tab.ignored and not busy and FM.ExcludedCount() == 0 then
             text = "No ignored items: right-click a row in any tab > Ignore this item."
         elseif tab.favs and not tab.ignored and not busy then
@@ -2122,6 +2643,21 @@ local function SelectTab(id)
     rowsCache = nil
     Render()
 end
+FM.TableSelectTab = SelectTab -- for the tests (the stubs cannot build the window)
+
+-- The id of the tab shown, nil while the window is closed (ui/Upgrades.lua: its gold and Pawn follow it)
+function FM.TableTabShown()
+    return frame ~= nil and frame:IsShown() and view.tab or nil
+end
+
+-- The rows of a tab as the table shows them (its search, filters and sort), for the tests; search: a text as if typed
+-- into the tab's search box ("" empties it)
+function FM.TableRowsOf(tabId, search)
+    local tab = TAB_BY_ID[tabId]
+    if not tab then return nil end
+    if search ~= nil then view.search[tabId] = search ~= "" and search or nil end
+    return BuildRows(tab)
+end
 
 local function Scroll(delta)
     view.offset = view.offset - delta * (CurrentTab().picks and 4 or 3)
@@ -2159,7 +2695,7 @@ local function PlaceDropdowns(f)
         return FM.PlaceOptions(FM.PlaceOffers(FM.trade and FM.trade.vendor))
     end
     local function Tip(dd, title, text)
-        dd:HookScript("OnEnter", function(self)
+        FM.TableTipHook(dd, function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(title)
             GameTooltip:AddLine(text, 1, 1, 1, true)
@@ -2167,8 +2703,7 @@ local function PlaceDropdowns(f)
                 GameTooltip:AddLine("Off while vendor flips are excluded (Exclude vendor flips in the filters this tab uses): Picks plans no vendor flip, so there is no vendor to place.", 1, 0.82, 0, true)
             end
             GameTooltip:Show()
-        end)
-        dd:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        end, "shift") -- a dropdown
         if dd.SetMotionScriptsWhileDisabled then dd:SetMotionScriptsWhileDisabled(true) end
     end
     local continent = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
@@ -2272,7 +2807,7 @@ local function CreateTable()
     tinsert(UISpecialFrames, FRAME_NAME)
 
     local title = Text(f, "GameFontNormal", "TOP", 0, -6)
-    title:SetText("|cFFFF8000Forever|r Market")
+    title:SetText("|cFFFF8000Forever|r Marketplace")
     if type(f.TitleText) == "table" and f.TitleText.SetText then f.TitleText:SetText("") end
     local version = Text(f, "GameFontDisableSmall", "TOPLEFT", 12, -9)
     version:SetText("v" .. FM.GetVersion())
@@ -2285,7 +2820,8 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Profit, Learn and Farm at the right end of the row
+    -- tabs in groups with a gap between; Profit, Learn, Farm and Upgrades at the right end of the row. Ten tabs: 84 px
+    -- each, 88 apart (94 and 98 before FRV-203), the left block ends at x 562, the right one starts at 596
     f.tabs = {}
     local x, group = 14, nil
     local rightCount = 0
@@ -2294,15 +2830,15 @@ local function CreateTable()
     end
     local rightIndex = 0
     for _, t in ipairs(TABS) do
-        local b = Button(f, t.label, 94, function() SelectTab(t.id) end)
+        local b = Button(f, t.label, 84, function() SelectTab(t.id) end)
         if t.group >= 3 then
-            -- the gold and green groups sit at the right end of the row, Farm last
+            -- the gold and green groups sit at the right end of the row, Upgrades last
             rightIndex = rightIndex + 1
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 88, -30)
         else
             if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
-            x = x + 98
+            x = x + 88
         end
         group = t.group
         local color = GROUP_COLOR[t.group]
@@ -2320,13 +2856,12 @@ local function CreateTable()
     -- what the Ignored tab is (FRV-83), also over the selected (disabled) tab
     local ignoredTab = f.tabs.ignored
     ignoredTab:SetMotionScriptsWhileDisabled(true)
-    ignoredTab:SetScript("OnEnter", function(self)
+    FM.TableTip(ignoredTab, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")
         GameTooltip:AddLine("Every item you ignored, a table like Favorites. Ignored items show in no other tab and never become picks. Right-click a row in any tab > Ignore this item adds it here; here, Stop ignoring this item brings it back. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
         GameTooltip:Show()
-    end)
-    ignoredTab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "hover")
 
     -- filter row: Blizzard's search box (FRV-26: magnifier, "Search" until you type, its clear button; its own scripts
     -- stay, ours are hooked). Its text belongs to the tab it was typed on (view.search; Render shows the tab's own)
@@ -2341,20 +2876,19 @@ local function CreateTable()
         view.offset = 0
         FM.RefreshTable()
     end)
-    search:HookScript("OnEnter", function(self)
+    FM.TableTipHook(search, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("Search")
         GameTooltip:AddLine(CurrentTab().farm and "Shows the mobs whose name or zone has this text. Each tab keeps its own search."
             or "Shows the items whose name has this text. Each tab keeps its own search.", 1, 1, 1, true)
         GameTooltip:Show()
-    end)
-    search:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "shift") -- an input
     f.search = search
 
     -- the filters of Picks, Craft and Learn (FRV-89): the tab's own, or the global ones while "Use global filters" is
     -- checked; each button opens the one dialog (ui/Filters.lua) on the set the tab uses, a click again closes it
-    local function FilterTip(button, title, text)
-        button:SetScript("OnEnter", function(self)
+    local function FilterTip(button, title, text, kind)
+        FM.TableTip(button, function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(title)
             GameTooltip:AddLine(text, 1, 1, 1, true)
@@ -2363,8 +2897,7 @@ local function CreateTable()
                     or "This tab uses its own filters: check Use global filters to use these.", 1, 0.82, 0, true)
             end
             GameTooltip:Show()
-        end)
-        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end, kind)
         -- the tooltip also over a disabled button
         if button.SetMotionScriptsWhileDisabled then button:SetMotionScriptsWhileDisabled(true) end
     end
@@ -2372,12 +2905,12 @@ local function CreateTable()
         view.filtersOpen = not (view.filtersOpen and FM.FiltersDialogShown and FM.FiltersDialogShown())
         Render()
     end)
-    FilterTip(f.filtersButton, "Filters", "This tab's own filters: recipes to learn and how far above your skill and level, and on Picks what the plan leaves out. They change only this tab.")
+    FilterTip(f.filtersButton, "Filters", "This tab's own filters: recipes to learn and how far above your skill and level, and on Picks what the plan leaves out. They change only this tab.", "hover")
     f.globalButton = Button(f, "Global filters", 100, function()
         view.filtersOpen = not (view.filtersOpen and FM.FiltersDialogShown and FM.FiltersDialogShown())
         Render()
     end)
-    FilterTip(f.globalButton, "Global filters", "One set of filters for every tab with Use global filters checked (Picks, Craft, Learn); an option a tab does not have does not apply there.")
+    FilterTip(f.globalButton, "Global filters", "One set of filters for every tab with Use global filters checked (Picks, Craft, Learn); an option a tab does not have does not apply there.", "hover")
     f.useGlobal = Check(f, "Use global filters", 0)
     f.useGlobal:SetScript("OnClick", function(self)
         local s = Settings()
@@ -2386,19 +2919,18 @@ local function CreateTable()
         -- the tab's filters switch sets: the plan follows on Picks, the open dialog shows the other set
         FM.TableFiltersChanged(view.tab)
     end)
-    FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.")
+    FilterTip(f.useGlobal, "Use global filters", "Checked: this tab uses the global filters (Global filters). Unchecked: its own (Filters). Each tab decides for itself.", "shift")
     -- Vendor and Picks: where the vendors are (FRV-99, trade/Places.lua): Continent and Zone, each tab its own, saved
     f.continent, f.zone = PlaceDropdowns(f)
     -- Favorites: "Search all at the AH" (FRV-47), every favorite in one search (Auctionator's shopping list, else
     -- Blizzard's Buy list)
     f.searchAll = Button(f, "Search all at the AH", 150, SearchFavorites)
-    f.searchAll:SetScript("OnEnter", function(self)
+    FM.TableTip(f.searchAll, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:AddLine("Search all at the AH")
         GameTooltip:AddLine("Searches every favorite at once (the Auction House must be open): with Auctionator in its Shopping tab, where the list stays while you buy, else in Blizzard's Buy list, where a click on one opens its Buy page. Or snipe them (Shift+click a row here).", 1, 1, 1, true)
         GameTooltip:Show()
-    end)
-    f.searchAll:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "hover")
     -- Picks' budget row (FRV-95, FRV-126), on the line above the summary: "Picks [Y] Invest [X] % [x] | [g] [s] [c] [ ]
     -- Profit [P] % [x] | [g] [s] [c] [ ]"; Y = the picks the plan has at most, the budget X % of your gold and / or the
     -- amount set, the minimum profit per item P % of a unit's cost and / or the amount set. The two checkboxes of a pair:
@@ -2413,15 +2945,14 @@ local function CreateTable()
     f.budget = budget
     -- a widget's tooltip: its title and text, then what the plan shown (or a plan now) uses
     local function RowTip(widget, title, text, Details)
-        widget:SetScript("OnEnter", function(self)
+        FM.TableTip(widget, function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             GameTooltip:AddLine(title)
             GameTooltip:AddLine(text, 1, 1, 1, true)
             GameTooltip:AddLine(" ")
             Details()
             GameTooltip:Show()
-        end)
-        widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end, "shift") -- the budget row holds only inputs and checkboxes
         if widget.SetMotionScriptsWhileDisabled then widget:SetMotionScriptsWhileDisabled(true) end
     end
     local function BudgetTip(widget, title, text)
@@ -2594,7 +3125,9 @@ local function CreateTable()
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, FILTER_Y + 2)
     refresh:SetScript("OnClick", FM.TableRefresh)
     f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
-    refresh:HookScript("OnEnter", function(self)
+    -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (FRV-203, FRV-205; ui/Upgrades.lua)
+    if FM.UpgradesCreateFilters then FM.UpgradesCreateFilters(f) end
+    FM.TableTipHook(refresh, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Refresh")
         GameTooltip:AddLine("Reads your recipes and vendors again (after learning a recipe) and plans Picks again from the data now.", 1, 1, 1, true)
@@ -2606,8 +3139,7 @@ local function CreateTable()
             GameTooltip:AddLine("The numbers, Picks too, also refresh by themselves after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
         end
         GameTooltip:Show()
-    end)
-    refresh:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "hover")
 
     -- header
     f.headers = {}
@@ -2621,7 +3153,7 @@ local function CreateTable()
             rowsCache = nil
             Render()
         end)
-        header:SetScript("OnEnter", function(self)
+        FM.TableTip(header, function(self)
             GameTooltip:SetOwner(self, "ANCHOR_TOP")
             local col = CurrentTab().columns[i]
             if col and col.tip then
@@ -2632,8 +3164,7 @@ local function CreateTable()
             GameTooltip:AddLine("Click: sort by this column")
             GameTooltip:AddLine("Shift+click: sort by it next (after the columns already sorted); again to flip it", 1, 1, 1, true)
             GameTooltip:Show()
-        end)
-        header:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end, "hover")
         f.headers[i] = header
     end
     local line = f:CreateTexture(nil, "ARTWORK")
@@ -2654,7 +3185,7 @@ local function CreateTable()
     summaryZone:SetPoint("RIGHT", f, "TOPRIGHT", -14, SUMMARY_Y)
     summaryZone:SetHeight(ROW_H)
     summaryZone:EnableMouse(true)
-    summaryZone:SetScript("OnEnter", function(self)
+    FM.TableTip(summaryZone, function(self)
         local funds = FM.trade and FM.trade.pickFunds
         if not funds then return end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -2677,8 +3208,7 @@ local function CreateTable()
             GameTooltip:AddLine(string_format("Locked at %s: the plan keeps this gold and budget until you refresh it.", date("%H:%M", FM.trade.pickAt)), 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
-    end)
-    summaryZone:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "hover")
     summaryZone:Hide()
     f.summaryZone = summaryZone
     -- Picks: "Lock plan after refresh" at the right of its budget row (FRV-63; the summary's line before FRV-95), its
@@ -2687,17 +3217,17 @@ local function CreateTable()
     f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, LINE_Y)
     f.lock:SetScript("OnClick", function(self)
         Settings().tablePicksLock = self:GetChecked() and true or false
-        -- off: Picks plans by itself again, from now on; on: the plan shown now is held
-        if not Settings().tablePicksLock then FM.PlanPicks() end
+        -- off: Picks plans by itself again, from now on, keeping what you crafted of its picks (FRV-104); on: the plan
+        -- shown now is held
+        if not Settings().tablePicksLock then FM.PlanPicks(true) end
         FM.RefreshTable()
     end)
-    f.lock:SetScript("OnEnter", function(self)
+    FM.TableTip(f.lock, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Lock plan after refresh")
         GameTooltip:AddLine("On (default): Picks keeps its plan while you buy, craft and post it. Only Refresh or a change of a Picks setting makes a new plan; deep scans, posts, your auction lists and changes of your bags or bank leave it as it was (Refresh's tooltip says what came since). The other tabs keep refreshing. Off: Picks plans again by itself after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
         GameTooltip:Show()
-    end)
-    f.lock:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end, "shift") -- a checkbox
     f.lock:Hide()
     f.lock.label:Hide()
 
@@ -2729,19 +3259,98 @@ local function CreateTable()
             cell:SetWordWrap(false)
             b.cells[c] = cell
         end
-        b:SetScript("OnEnter", ShowRowTooltip)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        FM.TableTip(b, ShowRowTooltip, "hover") -- a row: on hover (FRV-186), its Amount input below only with Shift
         b:SetScript("OnClick", OnRowClick)
         b:EnableMouseWheel(true)
         b:SetScript("OnMouseWheel", function(_, delta) Scroll(delta) end)
+        -- the Amount input of a pick (FRV-154): the budget row's number box, right-aligned, shown by Render on the
+        -- picks whose amount can be set. It takes its own clicks (the row's click, Shift+click and Ctrl+click stay
+        -- with the rest of the row); the wheel over it still scrolls the list
+        local amount = FM.NumberBox(b, 5)
+        amount:SetSize(52, 18)
+        amount:SetJustifyH("RIGHT")
+        amount:SetTextInsets(0, 4, 0, 0)
+        amount:SetPoint("RIGHT", b, "LEFT", 0, 0)
+        amount:Hide()
+        amount:HookScript("OnEditFocusGained", function(self)
+            self.editing = true
+            self.key = self.pick and self.pick.key
+            self:HighlightText()
+        end)
+        amount:HookScript("OnEditFocusLost", function(self)
+            self.editing = nil
+            self:HighlightText(0, 0)
+            AmountApply(self)
+        end)
+        amount:SetScript("OnEscapePressed", function(self)
+            self.restore = true
+            self:ClearFocus()
+        end)
+        amount:EnableMouseWheel(true)
+        amount:SetScript("OnMouseWheel", function(_, delta) Scroll(delta) end)
+        FM.TableTip(amount, function(self)
+            local pick = self.pick
+            if not pick then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Amount")
+            local shown, how = FM.AmountShown(pick)
+            if pick.amountSet and pick.amountNote then
+                -- fewer than your number (FRV-187): the full reason, in red like the number when the market cannot
+                -- give it, in orange when your minimum profit cut it (amountWarn: the input shows the number reached)
+                local warn = pick.amountWarn
+                GameTooltip:AddLine(string_format("Set by you: %s. %s.", Count(pick.amountWant or shown), pick.amountWhy
+                    or ("Only " .. Count(pick.amount) .. " now: " .. tostring(pick.amountNote))), 1, warn and 0.6 or 0.33,
+                    warn and 0.2 or 0.33, true)
+                GameTooltip:AddLine(string_format("Empty it and press Enter for the plan's number (%s).",
+                    Count(pick.amountPlan or 0)), 0.4, 0.75, 1, true)
+            elseif how == "set" then
+                GameTooltip:AddLine(string_format("Set by you. Empty it and press Enter for the plan's number (%s).",
+                    Count(pick.amountPlan or 0)), 0.4, 0.75, 1, true)
+            else
+                GameTooltip:AddLine("The plan's number. Type yours and press Enter: the pick is made again for it.", 1, 1, 1, true)
+            end
+            GameTooltip:AddLine("Enter or click elsewhere to apply, Escape puts the old number back.", 0.6, 0.6, 0.6, true)
+            GameTooltip:Show()
+        end, "shift") -- an input: hovering it shows nothing, so the row's tooltip does not open over it (FRV-186)
+        b.amount = amount
         f.rows[i] = b
     end
     f:EnableMouseWheel(true)
     f:SetScript("OnMouseWheel", function(_, delta) Scroll(delta) end)
 
     f.empty = Text(f, "GameFontHighlight", "TOP", 0, TOP - 60)
+    f.empty:SetWidth(W - 160) -- Upgrades' texts about Pawn wrap inside the window
+    f.empty:SetWordWrap(true)
     f.footer = Text(f, "GameFontHighlightSmall", "BOTTOMLEFT", 16, 14)
     f.footer:SetJustifyH("LEFT")
+    -- Picks: "  ·  2 hidden" after the footer's line (FRV-193): the flip picks you hid; a click shows them all again
+    -- and plans again, its tooltip lists them
+    local hiddenPicks = CreateFrame("Button", nil, f)
+    hiddenPicks:SetHeight(14)
+    hiddenPicks:SetPoint("LEFT", f.footer, "RIGHT", 0, 0)
+    hiddenPicks.text = Text(hiddenPicks, "GameFontHighlightSmall", "LEFT", 0, 0)
+    hiddenPicks.text:SetTextColor(HINT_R, HINT_G, HINT_B) -- the light blue of the click hints: it can be clicked
+    hiddenPicks:SetScript("OnClick", function()
+        local n = #FM.TableHiddenFlips()
+        FM.ShowHiddenFlips()
+        FM.Print(n == 1 and "1 hidden flip pick shown again." or string_format("%d hidden flip picks shown again.", n))
+        FM.PlanPicks()
+        FM.RefreshTable()
+    end)
+    FM.TableTip(hiddenPicks, function(self)
+        local list = FM.TableHiddenFlips()
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(#list == 1 and "1 flip pick hidden" or string_format("%d flip picks hidden", #list))
+        for _, h in ipairs(list) do
+            GameTooltip:AddDoubleLine(Name(h.key), "up to " .. Money(h.e.top or h.e.levels[#h.e.levels]) .. GREY .. "  hidden " .. date("%H:%M", h.e.t) .. "|r",
+                1, 1, 1, 1, 1, 1)
+        end
+        GameTooltip:AddLine("Each comes back by itself once its flip buys at another price (a new cheaper listing), or 24 hours after you hid it.", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Click: show them all again", HINT_R, HINT_G, HINT_B, true)
+        GameTooltip:Show()
+    end, "hover") -- a button, as Refresh: its tooltip on plain hover (FRV-186)
+    hiddenPicks:Hide()
+    f.hiddenPicks = hiddenPicks
 
     -- "x min ago" stays fresh, and the picks plan again while the table stays open
     local elapsed = 0
@@ -2752,9 +3361,9 @@ local function CreateTable()
             -- a post or a newly read auction list since the plan: plan again (returns at once when nothing changed)
             FM.EnsureTrade()
             f.status:SetText(StatusText())
-            -- Flip: the age line comes, goes and counts up with the latest snapshot
+            -- Flip and Upgrades: the age line comes, goes and counts up with the latest snapshot
             local tab = CurrentTab()
-            if tab.id == "flips" and FlipStaleText(tab) ~= view.stale then Render() end
+            if (tab.id == "flips" or tab.upgrades) and FlipStaleText(tab) ~= view.stale then Render() end
         end
     end)
     -- closing the table closes the filters dialog; opening it again opens only the table (not on Alt+Z: the table is
@@ -2778,7 +3387,7 @@ function FM.OpenTable(tab)
     if not frame then
         local ok, err = pcall(CreateTable)
         if not ok then
-            FM.PrintError("Market table could not be created: " .. tostring(err))
+            FM.PrintError("Failed to create the marketplace window: " .. tostring(err))
             return
         end
     end

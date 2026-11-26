@@ -17,8 +17,9 @@ end
 
 local function PrintHelp()
     FM.Print("Available commands:")
-    PrintHelpLine("", "Open or close the market table")
+    PrintHelpLine("", "Open or close the marketplace")
     PrintHelpLine("snipe", "Open or close the snipe window (sniping runs while it is open at the AH)")
+    PrintHelpLine("upgrades", "Open the marketplace on Upgrades: gear on the AH that beats what you wear (needs Pawn)")
     PrintHelpLine("help", "This list")
     PrintHelpLine("status", "What is stored, last scans")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
@@ -26,7 +27,7 @@ local function PrintHelp()
     PrintHelpLine("watch <item links or IDs>", "Keep full market depth for these items")
     PrintHelpLine("unwatch <item links or IDs>", "Stop watching items")
     PrintHelpLine("watchlist", "List watched items")
-    PrintHelpLine("exclude / include <item links or IDs>", "Ignore items in the market table and picks (or right-click a row > Ignore this item)")
+    PrintHelpLine("exclude / include <item links or IDs>", "Ignore items in the marketplace and its picks (or right-click a row > Ignore this item)")
     PrintHelpLine("excluded", "List ignored items")
     PrintHelpLine("chars", "Your characters on this realm and faction: gold, last seen, saved bags, bank and mailbox")
     PrintHelpLine("forget <name>", "Forget a deleted, renamed or moved character (its logs stay)")
@@ -69,6 +70,20 @@ local function Status()
     FM.Print("Items tracked:", FM.FormatCount(items) .. " (" .. watched .. " watched)")
     FM.Print("Scans in the last 24h:", deep24 .. " deep, " .. browse24 .. " Auctionator")
     FM.Print("Last deep scan:", r.last and r.last.t and (FM.FormatAge(now - r.last.t) .. " ago") or "never")
+    -- the gear variants of the latest snapshot (FRV-200): its listings of others and the gear items they belong to
+    local gearText = "none yet"
+    if FM.GearSnapshot() then
+        local variants, gearItems = 0, 0
+        for key in pairs(r.last.fp) do
+            local listings = FM.IsGear and FM.IsGear(key) and FM.GearListings(key)
+            if listings then
+                gearItems = gearItems + 1
+                variants = variants + #listings
+            end
+        end
+        gearText = FM.FormatCount(variants) .. " of " .. FM.FormatCount(gearItems) .. " items"
+    end
+    FM.Print("Gear variants in the latest snapshot:", gearText)
     FM.Print("Your posts / sales logged:", #r.posts .. " / " .. #r.invoices)
     -- what the reads at the mail take-out calls saw (scan/Ledger.lua, FRV-108)
     local takes = FM.MailTakesText and FM.MailTakesText()
@@ -161,6 +176,9 @@ local function HandleSlash(msg)
         FM.ToggleTable()
     elseif command == "snipe" then
         FM.ToggleSnipe()
+    elseif command == "upgrades" then
+        -- the marketplace on its Upgrades tab (FRV-203): gear on the AH that beats what you wear
+        FM.OpenTable("upgrades")
     elseif command == "help" then
         PrintHelp()
     elseif command == "status" then
@@ -186,11 +204,11 @@ local function HandleSlash(msg)
             return
         end
         for _, key in ipairs(keys) do FM.SetExcluded(key, command == "exclude") end
-        FM.Print(command == "exclude" and "Ignored in the market table:" or "Back in the market table:", #keys .. " item(s)")
+        FM.Print(command == "exclude" and "Ignored in the marketplace:" or "Back in the marketplace:", #keys .. " item(s)")
         FM.PlanPicks() -- the picks plan again without (or with) them
     elseif command == "excluded" then
         local excluded = FM.GetSettings().excluded or {}
-        FM.Print("Ignored in the market table:")
+        FM.Print("Ignored in the marketplace:")
         for key in pairs(excluded) do print("  " .. ORANGE .. FM.GetName(key) .. "|r") end
     elseif command == "watchlist" then
         local r = FM.R()

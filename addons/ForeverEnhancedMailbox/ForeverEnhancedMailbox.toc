@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Enhanced Mailbox
+## Notes: More ways to collect mail: Collect gold and Collect items (keeps bag slots free) in a menu on Open All, and the Shift+click hint on mail rows.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\INV_Letter_15
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.1
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverEnhancedMailboxSettings, JimsForeverAddOnsDB
+
+JimsForeverAddOns.lua
+Locale.lua
+Core.lua
+ForeverEnhancedMailbox.lua
+MailButton.lua
+SettingsPanel.lua

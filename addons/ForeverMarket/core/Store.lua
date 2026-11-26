@@ -36,8 +36,15 @@ function FM.Item(key)
 end
 
 -- Items with random suffixes ("Sorcerer Hat of Spirit", "... of the Whale") share one key, so their prices mix
--- variants of different value: items[key].v = 1 once two different names were seen for the key
+-- variants of different value: items[key].v = 1 once two different names were seen for the key. An item that stacks
+-- (a commodity: Heavy Leather, Silk Cloth) never has a suffix: it is never marked and never counts as marked (FRV-138:
+-- an empty name of an item not loaded yet had marked 94% of all items, commodities included)
+local function Stacks(key)
+    return FM.ItemStacks ~= nil and FM.ItemStacks(key) == true
+end
+
 function FM.MarkVariants(key)
+    if Stacks(key) then return end
     local item = FM.Item(key)
     if item.v ~= 1 then
         item.v = 1
@@ -47,7 +54,28 @@ end
 
 function FM.HasVariants(key)
     local item = FM.R().items[key]
-    return item ~= nil and item.v == 1
+    return item ~= nil and item.v == 1 and not Stacks(key)
+end
+
+-- The marks of FRV-138 mended once per bucket (r.variantsRepair = 1): every v = 1 goes, since nearly all of them came
+-- from an empty name. The feed's list of variant items marks its items again at its next load (scan/Feed.lua), the
+-- deep scan's link check looks at gear again (until then gear counts as not checked, which Flip and Picks skip);
+-- v = 0 (checked, no variants) stays. Bump the mark when this logic changes after a build with it was synced
+local VARIANTS_REPAIR = 1
+FM.VARIANTS_REPAIR = VARIANTS_REPAIR
+
+function FM.RepairVariants(r)
+    if type(r) ~= "table" or r.variantsRepair == VARIANTS_REPAIR then return end
+    local dropped = 0
+    for _, item in pairs(type(r.items) == "table" and r.items or {}) do
+        if type(item) == "table" and item.v == 1 then
+            item.v = nil
+            dropped = dropped + 1
+        end
+    end
+    r.variantsRepair = VARIANTS_REPAIR
+    r.variantsRepaired = { t = FM.Now(), dropped = dropped }
+    if dropped > 0 then FM.dataVersion = (FM.dataVersion or 0) + 1 end -- scan/Snapshot.lua starts it, it loads later
 end
 
 -- Time (minutes since EPOCH) of a record string, it starts with one type letter
@@ -463,6 +491,47 @@ function FM.LatestDeepRecord(item)
         end
     end
     return nil
+end
+
+-- Gear variants of the latest snapshot (FRV-200): the time of r.last when it holds them, else nil (a snapshot saved
+-- before 1.53, or a Battle.net feed import, which brings none yet)
+function FM.GearSnapshot()
+    local last = FM.R().last
+    if type(last) == "table" and type(last.gear) == "table" and type(last.fp) == "table" then return last.t end
+    return nil
+end
+
+-- One gear item's listings of others in the latest snapshot: { { variant, bonus, buyout, n, band }, ... } (buyout =
+-- the cheapest of that variant, n = its auctions, band = the time left of the cheapest). A key without an entry in
+-- r.last.gear has one variant "" with the cheapest of its fingerprints not marked "@". nil without gear data or when
+-- the snapshot has no auction of others of it
+function FM.GearListings(key)
+    if not FM.GearSnapshot() then return nil end
+    local last = FM.R().last
+    local list = {}
+    local entry = last.gear[key]
+    if type(entry) == "string" then
+        for variant, min, n, band in string.gmatch(entry, "([%d:]*)=(%w+):(%w+):(%d)") do
+            list[#list + 1] = { variant = variant, bonus = FM.GearBonusKey(variant), buyout = Dec(min), n = Dec(n),
+                band = tonumber(band) }
+        end
+        return #list > 0 and list or nil
+    end
+    local fps = last.fp[key]
+    if type(fps) ~= "string" then return nil end
+    local best, n
+    for tag, buyout, band in string.gmatch(fps, "([^:,]+):[^:,]*:([^:,]*):(%d*)") do
+        buyout, band = Dec(buyout), tonumber(band) or 0
+        if tag ~= "@" and buyout and buyout > 0 then
+            n = (n or 0) + 1
+            if not best or buyout < best.buyout or (buyout == best.buyout and band > best.band) then
+                best = { variant = "", bonus = "", buyout = buyout, band = band }
+            end
+        end
+    end
+    if not best then return nil end
+    best.n = n
+    return { best }
 end
 
 -- Estimated units sold per 24h from deep scan diffs of the last 48 hours.

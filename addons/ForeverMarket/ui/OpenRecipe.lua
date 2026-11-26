@@ -77,7 +77,10 @@ function FM.CraftTarget(tab, row)
     if type(craft) ~= "table" then return nil, "not a craft" end
     if not craft.learned then return nil, "you don't know this recipe yet" end
     if not IsNumber(craft.spell) then return nil, "its recipe is not known yet: open " .. tostring(craft.profName or "the profession") .. " once" end
-    local runs = tab.picks and IsNumber(row.runs) and row.runs >= 1 and math_floor(row.runs) or nil
+    -- a pick's crafts left of its target (FRV-104: what you crafted since its plan is off), else its plan's
+    local left = row.runs
+    if tab.picks and FM.PickRunsLeft then left = FM.PickRunsLeft(row) end -- nil: its target is made
+    local runs = tab.picks and IsNumber(left) and left >= 1 and math_floor(left) or nil
     return { craft = craft, runs = runs, profName = craft.profName }
 end
 
@@ -210,7 +213,7 @@ function FM.OpenRecipe(target)
     end
     local skillLine = SkillLineOf(profName)
     if not skillLine then
-        FM.PrintError("Failed to open " .. profName .. ": ForeverMarket does not know that profession's window.")
+        FM.PrintError("Failed to open " .. profName .. ": " .. FM.DISPLAY_NAME .. " does not know that profession's window.")
         return false
     end
     StopWaiting()

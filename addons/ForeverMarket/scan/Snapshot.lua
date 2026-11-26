@@ -179,6 +179,41 @@ function FM.TagOwnFingerprints(entries, fps)
     return table_concat(list, ",")
 end
 
+-- Gear variants of the latest snapshot (FRV-200): agg.gear[variant] = { min, n, band }, an auction of someone else
+-- counted in its variant: min = the cheapest buyout, n = its auctions, band = the time left of the cheapest (the
+-- longer one on a tie)
+local function AddGear(agg, variant, buyout, band)
+    local gear = agg.gear
+    if not gear then
+        gear = {}
+        agg.gear = gear
+    end
+    local g = gear[variant]
+    if not g then
+        gear[variant] = { min = buyout, n = 1, band = band }
+        return
+    end
+    g.n = g.n + 1
+    if buyout < g.min or (buyout == g.min and band > g.band) then
+        g.min, g.band = buyout, band
+    end
+end
+
+-- r.last.gear[key] = "<variant>=<min>:<n>:<band>;..." sorted by variant; nil for a key whose only variant is ""
+-- (its cheapest buyout is the minimum of r.last.fp[key] already)
+local function GearEntry(gear)
+    local variants = {}
+    for variant in pairs(gear) do variants[#variants + 1] = variant end
+    if #variants == 1 and variants[1] == "" then return nil end
+    table_sort(variants)
+    local parts = {}
+    for i, variant in ipairs(variants) do
+        local g = gear[variant]
+        parts[i] = variant .. "=" .. Enc(g.min) .. ":" .. Enc(g.n) .. ":" .. g.band
+    end
+    return table_concat(parts, ";")
+end
+
 -- The auctions of unknown sellers that may be yours, once all of the item's auctions are read: marks yours "@"
 -- and counts them as yours, the others as someone else's
 local function ResolveOwn(snap, key, agg)
@@ -194,14 +229,17 @@ local function ResolveOwn(snap, key, agg)
             agg.fps[a.fp] = "@" .. string_sub(agg.fps[a.fp], 2)
             agg.own = agg.own + a.count
             if not agg.ownMin or a.unit < agg.ownMin then agg.ownMin = a.unit end
-        elseif not agg.minOther or a.unit < agg.minOther then
-            agg.minOther = a.unit
+        else
+            if not agg.minOther or a.unit < agg.minOther then agg.minOther = a.unit end
+            -- someone else's: its gear variant counts now (FRV-200)
+            if a.variant then AddGear(agg, a.variant, a.buyout, a.band) end
         end
     end
 end
 
--- count: stack size, buyout: total buyout copper of the auction, band: time left band 0-3
-function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
+-- count: stack size, buyout: total buyout copper of the auction, band: time left band 0-3; variant: the gear
+-- variant of the auction's link (FM.GearVariant, "" for none), nil for an item that is no gear (FRV-200)
+function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band, variant)
     if not key or type(count) ~= "number" or type(buyout) ~= "number" or count <= 0 or buyout <= 0 then
         snap.nSkipped = snap.nSkipped + 1
         return
@@ -212,7 +250,8 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
         snap.keys[key] = agg
         snap.order[#snap.order + 1] = key
     end
-    if name then
+    -- an empty name (the item's data not loaded yet) is no name: it never makes two names of one key (FRV-138)
+    if type(name) == "string" and name ~= "" and not FM.IsSecret(name) then
         if not agg.name then
             agg.name = name
         elseif name ~= agg.name then
@@ -227,6 +266,11 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
 
     if type(band) ~= "number" or band < 0 or band > 3 then band = 0 end
     band = math_floor(band)
+    if type(variant) ~= "string" then
+        variant = nil
+    else
+        snap.gear = true -- the scan read gear variants: r.last.gear is written
+    end
     local tag
     local unknownOwner = type(owner) ~= "string" or owner == ""
     if FM.IsOwnChar(owner) then
@@ -246,7 +290,8 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
             pending = {}
             agg.pending = pending
         end
-        pending[#pending + 1] = { count = count, unit = unit, band = band, fp = #agg.fps + 1 }
+        pending[#pending + 1] = { count = count, unit = unit, band = band, fp = #agg.fps + 1, variant = variant,
+            buyout = buyout }
     else
         if type(owner) == "string" and owner ~= "" then
             tag = snap.hashes[owner]
@@ -258,6 +303,7 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band)
             tag = "?"
         end
         if not agg.minOther or unit < agg.minOther then agg.minOther = unit end
+        if variant then AddGear(agg, variant, buyout, band) end
     end
     agg.fps[#agg.fps + 1] = tag .. ":" .. Enc(count) .. ":" .. Enc(buyout) .. ":" .. band
     snap.nAuctions = snap.nAuctions + 1
@@ -301,6 +347,7 @@ function FM.FinalizeSnapshot(snap, onDone)
     end
 
     local newFp = {}
+    local newGear = {} -- gear variants of the snapshot (FRV-200)
     local stamp = "r" .. Enc(nowMinutes)
     local totals = { sold = 0, soldItems = 0, own = 0 }
     local started = debugprofilestop and debugprofilestop() or 0
@@ -328,6 +375,7 @@ function FM.FinalizeSnapshot(snap, onDone)
                 totals.own = totals.own + agg.own
             end
             newFp[key] = table_concat(agg.fps, ",")
+            if agg.gear then newGear[key] = GearEntry(agg.gear) end
             FM.LearnName(key, agg.name)
         else
             f[2], f[3], f[4] = "", "0", "0"
@@ -365,7 +413,8 @@ function FM.FinalizeSnapshot(snap, onDone)
         end
         FM.AppendDetail(key, record or TrimFields(f, 22), nowMinutes)
     end, function()
-        r.last = { t = now, fp = newFp, source = snap.source }
+        -- gear: only a scan that read gear variants has it (a feed import has none until FRV-201)
+        r.last = { t = now, fp = newFp, source = snap.source, gear = snap.gear and newGear or nil }
         local ms = debugprofilestop and (debugprofilestop() - started) or 0
         FM.Log("scans", table_concat({ stamp, snap.source or "?", Enc(snap.nAuctions), Enc(#snap.order),
             Enc(ms), Enc(totals.own), Enc(GetMoney and GetMoney() or 0), FM.PlayerName(),

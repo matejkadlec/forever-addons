@@ -21,6 +21,7 @@ The CurseForge file has:
 
 - **Display name:** the `.toc` Title without its color codes and the version, `Forever Camp Features 1.1.3`
 - **Release type:** `release`. A tag ending in `-beta` or `-alpha` (also `-beta2`, `-beta.2`) sets that type, and its GitHub release is a pre-release. Its `.toc` may hold the full version (`1.2.0-beta`) or only the version it leads to (`1.2.0`)
+- **Relations** (FRV-175): the other CurseForge projects the AddOn needs, from its `.toc`: `## X-Curse-Required-Dependencies:` (Required Dependency: the CurseForge app installs it with the AddOn) and `## X-Curse-Optional-Dependencies:` (Optional Dependency), each a comma separated list of project slugs, the end of the project's URL (`curseforge.com/wow/addons/<slug>`, lower case). They go with every upload as the API's `relations` (`{"projects": [{"slug": ..., "type": "requiredDependency"}]}`, the shape the BigWigs packager sends for `.pkgmeta`'s `required-dependencies`); a value that is no slug stops the run at its first step. ForeverMarket declares `## X-Curse-Required-Dependencies: foreverartisan` (it does not load without ForeverArtisan_Core, its `## Dependencies:`), so its project's files carry ForeverArtisan as a Required Dependency. A `## Dependencies:` line names folders, not projects: the relation is declared apart
 - **Changelog:** the section for this version in the AddOn's own `CHANGELOG.md`, when the folder has one (a heading that names the version, such as `## 1.1.3`; a missing section stops the run). Otherwise it is the message of the annotated tag (`git tag -a ... -m "..."`). With neither, it is just the display name. No AddOn has a `CHANGELOG.md` today, so write the changes into the tag's message
 
 The workflow is the same for every AddOn: an AddOn takes part through its tag and its `.toc` alone.
@@ -43,7 +44,7 @@ The token can upload to every project of the account. Keep it only in that secre
 
 1. **Create the project** in the authors console: game World of Warcraft, the AddOn's name, license MIT, and a description (ForeverCampFeatures' `README.md` is written for it). CurseForge reviews a new project before it goes public
 2. **Copy its Project ID**, shown in the project's "About Project" box
-3. **Put it into the AddOn's `.toc`** next to `## X-Repository:`, as `## X-Curse-Project-ID: 123456`. This changes an AddOn file, so it comes with a version bump, through a pull request like any change (an agent may make it when you give it the ID)
+3. **Put it into the AddOn's `.toc`** next to `## X-Repository:`, as `## X-Curse-Project-ID: 123456`. This changes an AddOn file, so it comes with a version bump, through a pull request like any change (an agent may make it when you give it the ID). An AddOn that needs another CurseForge project declares it there too (Relations above; ForeverMarket already does), and after the first upload the project's Relations tab shows it
 4. **The first file:** the workflow can upload it once the project exists. If you would rather put the first file up by hand, run a dry run (below) and download its artifact, `<AddOn>-<version>-dry-run.zip`. GitHub wraps every artifact in a zip of its own: extract it once and upload the `<AddOn>-<version>.zip` inside it, the same zip the workflow would send (never the wrapper itself, whose top holds a zip instead of the AddOn's folder)
 
 ## Releasing a version
