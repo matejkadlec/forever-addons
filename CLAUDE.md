@@ -16,7 +16,7 @@ The skills live in [`.claude/skills/`](.claude/skills/) and take their rules fro
 | `flow2` [`local`\|`cloud`] | Turns Matěj's task description into FRV tickets and delivers them the same way |
 | `qa1` | Matěj's in-game test passed: the waiting pull request is merged |
 | `qa2` | Matěj's in-game test found problems: the same branch is revised and handed back |
-| `finalize-pr <n>` | Independent review, fixes, merge, and the feed deploy check when one follows |
+| `finalize-pr <n>` | Independent review, fixes, merge, the feed deploy check when one follows, and the cleanup of the branch and worktree |
 
 After publishing or updating a pull request as your own task work, run `finalize-pr <n>` on it straight after, in the same run. A pull request for a major change stops there before the merge and waits for his `qa1` or `qa2` ([In-Game QA](AGENTS.md#in-game-qa)).
 

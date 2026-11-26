@@ -1,6 +1,6 @@
 ---
 name: finalize-pr
-description: Carry one of your own pull requests in matejkadlec/forever-addons through its independent review to its merge. Each round uses a fresh, read-only pr-reviewer subagent; this session verifies and fixes the findings, re-reviews, waits for the checks, and merges with a merge commit once a review of the exact head is clean and the checks are green - unless the pull request waits for the maintainer (his in-game test of a major change, a step on the host, his decision), in which case it hands over and stops. After a merge that touches the feed's paths it follows the deploy run. Keeps the FRV tickets in step. Runs after every pull request a session publishes or updates. Use when the user types "finalize-pr 12", and right after publishing or updating a pull request.
+description: Carry one of your own pull requests in matejkadlec/forever-addons through its independent review to its merge. Each round uses a fresh, read-only pr-reviewer subagent; this session verifies and fixes the findings, re-reviews, waits for the checks, and merges with a merge commit once a review of the exact head is clean and the checks are green - unless the pull request waits for the maintainer (his in-game test of a major change, a step on the host, his decision), in which case it hands over and stops. After a merge that touches the feed's paths it follows the deploy run. After the merge (or a close without one) it deletes the batch's remote and local branch and removes its worktree. Keeps the FRV tickets in step. Runs after every pull request a session publishes or updates. Use when the user types "finalize-pr 12", and right after publishing or updating a pull request.
 ---
 
 # finalize-pr: independent review, then the merge
@@ -64,15 +64,19 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 
 1. **Tickets:** each one gets a `🤖 Claude QA` line with the merge commit and moves to Done; the label `in-game-qa` is gone. A GitHub issue a ticket names is closed by the merge (`Closes #<n>`); one still open is closed with a `🤖` comment naming the merge (`AGENTS.md`, GitHub Issues).
 2. **Feed deploy:** when the merge touched the feed's paths, find the `Market feed` run for the merge commit (`gh run list --workflow market-feed.yml --branch master`), follow it to its end and report the result. A failed run is reported to the maintainer at once with the failing step; nothing is re-run and the host is not touched.
-3. **Cleanup:** remove the batch's worktree and local branch when they hold no uncommitted changes (`AGENTS.md`, Branches and Worktrees: your own, or the batch you merged).
+3. **Cleanup, always** (`AGENTS.md`, Branches and Worktrees: your own branch, or the batch you merged), in this order:
+   1. Remote branch: `git ls-remote --exit-code --heads origin <branch>`; GitHub deletes head branches on merge, so it is usually gone already; when it is still there and no other open pull request uses it as its base or head, `git push origin --delete <branch>`
+   2. Worktree: `git worktree remove <path>` when it holds no uncommitted changes (never `--force`); with changes you did not make, leave it and tell the maintainer
+   3. Local branch: `git fetch origin`; when `git merge-base --is-ancestor <branch> origin/master` confirms the merge, `git branch -D <branch>` (`-d` can refuse because the main checkout's `master` lags behind)
+   4. `git worktree prune` and `git fetch --prune`; report what was removed in Verification
 
 ## Stops
 
-- **Merged** (and a feed deploy finished): report and stop.
+- **Merged** and cleaned up (and a feed deploy finished): report and stop.
 - **Handed over** for the in-game test: report in the What to test shape and stop until `qa1` or `qa2`.
 - **User needed:** a maintainer hold, a rejected P1 or P2 finding, a finding that needs his decision, five rounds without a pass, a failing check that needs something only he can change, a failed deploy. Say exactly what he has to do and where; the pull request stays open.
 - **Not your own pull request:** report the review, change nothing.
-- **Closed unmerged, or merged by someone else:** report; after a foreign merge still do After the merge.
+- **Closed unmerged, or merged by someone else:** report; after a foreign merge still do After the merge. Your own pull request closed without a merge is withdrawn work (flow document, _Withdrawn work_): record the branch's tip SHA on each ticket first, then the Cleanup steps above with the merge check of step 3 left out.
 
 ## Report
 

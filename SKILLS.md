@@ -9,7 +9,7 @@ The delivery skills live in [`.claude/skills/`](.claude/skills/) and take every 
 - `flow1` [`local`|`cloud`]: take a batch of To Do tickets from `FRV` and deliver it
 - `flow2` [`local`|`cloud`]: turn a task description into `FRV` tickets and deliver them
 - `qa1` / `qa2`: the maintainer's answer to an in-game test of a major change: merge it, or revise it
-- `finalize-pr <n>`: the independent review by the read-only [`pr-reviewer`](.claude/agents/pr-reviewer.md), the fixes, the merge, and the feed deploy check
+- `finalize-pr <n>`: the independent review by the read-only [`pr-reviewer`](.claude/agents/pr-reviewer.md), the fixes, the merge, the feed deploy check, and the cleanup of the branch and worktree
 
 The steps below are what those skills do, for work done without them.
 
@@ -21,8 +21,9 @@ The steps below are what those skills do, for work done without them.
 4. **Check:** `luac5.1 -p` on every changed Lua file, `tests/run.sh` ([tests/README.md](tests/README.md)), the version bump of every changed AddOn, the documentation
 5. **Sync** the changed AddOns into the game ([Communication Rules](AGENTS.md#communication-rules)) and classify the change: his test before the merge, an optional test, or nothing to test ([In-Game QA](AGENTS.md#in-game-qa))
 6. **Pull request:** title starts with the ticket key and links the ticket; move the ticket to In Review
-7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); a change that needs the maintainer's in-game test waits for his answer first; move the ticket to Done and remove your worktree
-8. **End the response** with What changed, What to test, Verification and Tickets ([Communication Rules](AGENTS.md#ending-a-response))
+7. **Independent review**, fixes, then merge your own pull request once the review and the checks pass ([Pull Requests and Code Review](AGENTS.md#pull-requests-and-code-review)); a change that needs the maintainer's in-game test waits for his answer first; move the ticket to Done
+8. **Clean up:** delete the remote branch unless GitHub already did, remove your worktree, delete the local branch, `git fetch --prune`; withdrawn work records the branch's tip SHA on the ticket first ([Branches and Worktrees](AGENTS.md#branches-and-worktrees))
+9. **End the response** with What changed, What to test, Verification and Tickets ([Communication Rules](AGENTS.md#ending-a-response))
 
 ## Take in a GitHub issue
 
