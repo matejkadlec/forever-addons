@@ -22,12 +22,29 @@ local function ProcessReplicateData(scanData)
     FM.deep.snap = snap
     FM.deep.state = "saving"
     if FM.UpdateAHButton then FM.UpdateAHButton() end
+    local isGear, variantOf = {}, {} -- per item and per link, for this scan
     FM.RunSliced(scanData, 2000, function(entry)
         local info = type(entry) == "table" and entry.replicateInfo
         if type(info) ~= "table" then return end
         local itemID = info[17]
         if not itemID or FM.IsSecret(itemID) then return end
-        FM.SnapshotAdd(snap, tostring(itemID), info[1], info[3], info[10], info[15] or info[14], entry.timeLeft)
+        local key = tostring(itemID)
+        -- gear: the variant of the auction's link (FRV-200; Auctionator keeps it in entry.itemLink)
+        local variant
+        if isGear[key] == nil then isGear[key] = FM.IsGear ~= nil and FM.IsGear(key) and true or false end
+        if isGear[key] then
+            local link = entry.itemLink
+            if type(link) == "string" and not FM.IsSecret(link) then
+                variant = variantOf[link]
+                if not variant then
+                    variant = FM.GearVariant(link)
+                    variantOf[link] = variant
+                end
+            else
+                variant = ""
+            end
+        end
+        FM.SnapshotAdd(snap, key, info[1], info[3], info[10], info[15] or info[14], entry.timeLeft, variant)
     end, function()
         FM.FinalizeSnapshot(snap, function()
             FM.deep.snap = nil

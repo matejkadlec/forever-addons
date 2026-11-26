@@ -20,6 +20,10 @@ as before. Copy the `ForeverMarket` folder into `Interface/AddOns` next to Forev
 (`## X-Curse-Required-Dependencies: foreverartisan`, sent with every upload, [`docs/releasing.md`](../../docs/releasing.md)),
 so the CurseForge app installs it with ForeverMarket.
 
+**[Pawn](https://www.curseforge.com/wow/addons/pawn) is optional** (1.53, FRV-202): it scores the gear of the coming
+Upgrades tab (below). `## OptionalDeps: Pawn` loads it first when it is installed, `## X-Curse-Optional-Dependencies:
+pawn` names it as an Optional Dependency on CurseForge; without it ForeverMarket works as before.
+
 ## What it records
 
 | Source | When | What |
@@ -33,6 +37,22 @@ so the CurseForge app installs it with ForeverMarket.
 | Your auctions | when the AH lists them: ForeverMarket asks once per AH visit and after your posts (1.23), Blizzard's Auctions tab asks too | sold, partly sold, cancelled, gone while away (sold or expired, the mail tells) |
 | Chat + mailbox | AH system messages, sale invoices, expired mail; the inbox again at every call that takes a mail out (1.39.1) | real sales with buyer, price, AH cut (every mail once, also identical ones, also one taken out at once) |
 | Gold | scans, AH/mail close, logout | per character |
+
+Gear variants (1.53, FRV-200): an item is keyed by its item ID, so "Formidable Shoulder Pads of Power" and "... of the
+Monkey" share one key. For weapons and armor only, a deep scan (and Auctionator's replicate scan, from its entries'
+links) also keeps which variants of the item are listed in the latest snapshot and the cheapest buyout of each
+(`last.gear`, Data format). On Forever a random suffix is a bonus ID of the auction's link, not its suffix ID (the
+maintainer's links: `item:15638::::::::44:1485::1:1:12733:1:28:6061`, 12733 = "of Power"): `FM.GearVariant` (core/Codec.lua)
+reads the link field by field from itemContext on (context, the count of bonus IDs, the bonus IDs, the count of
+modifiers, the modifiers), `FM.GearBonusKey` sorts the bonus IDs (two listings with the same ones are the same item for a
+player), `FM.GearLink` builds the item string back. Your own auctions are in no variant (the ones the scan names as yours
+and the ones the best fit below marks). Only the latest snapshot has them: the next deep scan replaces them with
+`last`, and the item's price history stays per item ID. A Battle.net feed import brings none yet (FRV-201): after one,
+`FM.GearSnapshot()` is nil until the next deep scan. The extra link read costs one `GetReplicateItemLink` per gear
+auction (about 108,000 of the maintainer's 282,000 on 2026-11-25), the walk still reads 2,000 auctions per frame: `/fm
+scanlog` shows how long reading the list took, the time spent reading and the gear links read. `/fm status` counts the
+variants of the latest snapshot ("Gear variants in the latest snapshot: 18,412 of 3,950 items": the listings of others,
+one per variant, and the gear items they belong to).
 
 Two deep scans in a row are diffed per item: vanished auctions that could not have expired are sold,
 smaller stacks at the same price are partial buys, and the same quantity listed again a bit cheaper
@@ -99,8 +119,10 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   (automatic, manual, retry, another AddOn's, Auctionator's, a list nobody asked for, a late answer), the try, the
   outcome, how long it was queued and why, the throttle at the request, the requests of the 10 s before it, the
   requests, throttle events (`AUCTION_HOUSE_THROTTLED_MESSAGE_SENT` / `QUEUED` / `DROPPED` / `RESPONSE_RECEIVED`,
-  `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`) and AH errors (`AUCTION_HOUSE_SHOW_ERROR`) while it waited, and how long
-  the list took. The last 50 are kept (`scanLog`, below), so the next failure shows its cause
+  `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`) and AH errors (`AUCTION_HOUSE_SHOW_ERROR`) while it waited, how long
+  the list took, and for a list it read (1.53, FRV-200) "read in 14.2 s (812 ms reading, 107,776 gear links)": the
+  walk's time, the time spent in its reads and the gear links it read. The last 50 are kept (`scanLog`, below), so
+  the next failure shows its cause
 
 ## In game
 
@@ -1111,6 +1133,46 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
 
+## Upgrades (1.53, FRV-202: trade/Upgrades.lua; the tab comes with FRV-203)
+
+The logic of the coming Upgrades tab (Epic FRV-190): the gear of the latest snapshot that the logged-in character can
+wear and that beats what it wears, scored live by [Pawn](https://www.curseforge.com/wow/addons/pawn) (optional; every
+Pawn call of ForeverMarket is in this file, each in `pcall`, Pawn's globals read only when called). Nothing shows yet
+and nothing is saved: a score depends on the character, its gear, its level and Pawn's scales, and Pawn needs the
+item's data, which a scan of 100,000 gear auctions cannot wait for. The results are kept for the session.
+
+* **Rows** (`FM.UpgradeCandidates()`): one per gear item and bonus key of the latest snapshot's gear variants (Gear
+  variants, above), at its cheapest listing that can still run (snapshot age up to 30 min / 2 h / 12 h / 48 h for the
+  time left short / medium / long / very long) and its auctions summed; never trinkets (Pawn scores none), shirts,
+  tabards, bags, quivers or ammo. None while the latest snapshot has no gear data. Once its item is loaded
+  (`C_Item.GetItemInfo` of `FM.GearLink` at the character's level) a row has its link and name (with the suffix),
+  rarity and required level
+* **Wearable:** dropped when Pawn says the class can never use the item type (`CanEquip == false`: for a hunter wands,
+  maces, plate, shields), when the game says it cannot use it at or under its level (`C_PlayerInfo.CanUseItem`: a
+  class-only item, a weapon skill not trained), or when it is unique and the character wears it. An item above the
+  character's level stays (`tooHigh`), the tab's level range decides
+* **Score** (`FM.UpgradeScore`): `PawnGetItemData`, then one `PawnIsItemAnUpgrade` for every visible scale: per scale
+  the upgrade % (a fraction; Pawn handles rings against the weaker one, one- and two-handers, the ranged slot, the
+  armor type by class and level, and calls under 0.5% no upgrade), "empty slot" for an upgrade without a number, the
+  item it replaces, the item's value on that scale (unenchanted, the one the % is made of) and the gain: the value
+  above the replaced item's, `value * pct / (1 + pct)`, or the whole value for an empty slot. No upgrade for any visible
+  scale = no row; no item data from Pawn yet = again a second later, up to 5 times
+* **The scale** (`FM.UpgradeScale(name)`): the one asked for when Pawn shows it, else Pawn's first visible scale (Forever
+  has no spec detection in Pawn: the player ticks the scales to show); none without Pawn, before Pawn is ready or
+  without a visible scale. Every visible scale's result is kept, so switching the scale (the Spec dropdown, FRV-205)
+  scores nothing again
+* **Work in slices** (`FM.EnsureUpgrades(filter)`): only the rows inside the filter (required level range, rarities) are
+  scored, at most 6 ms of work per frame and 25 item data requests; the table follows every 0.5 s. `FM.UpgradeRows(filter)`
+  returns the scored upgrades for the filter's scale, also while more are being scored
+* **Stale:** an equipment change, a level-up and Pawn's own reset (`PawnResetTooltips`, called when a scale or option
+  changes) throw the results away (a second later); a new snapshot keeps the scores of the rows it still lists
+* **Cost-Benefit** (`FM.CostBenefit(rows)`): typical = the median price of the rows; gain / (price + typical), as a whole
+  % of the best row (100; a row above 0 at least 1). The benefit is the value gained, not the %: 40% of a ring worth 12
+  is +4.8, 30% of a chest worth 40 is +12. The typical price added keeps a 3% upgrade listed for 2s from being the best
+  deal by far and pushing every other row under 15%: a row far cheaper than usual is ranked by what it gives, a row far
+  dearer by what it gives per gold. It is worked out over the rows after the level and rarity filters and before the
+  name search, so typing a name changes no number
+
 ## Profit tab (1.15, named Performance until 1.15.11: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
 
 Your **AH result** as a line from 0 with one dot per day, week or month (**Daily** / **Weekly** /
@@ -1698,6 +1760,15 @@ Picks skip).
 * `items[key].s` searches `s<t>,kind,full,auctions,ladder,gap,sold,soldVal,reposted,new,othersMin` (the diff's
   fields empty without a diff; othersMin = the cheapest unit price of others, 1.26 on)
 * `last.fp[key]` fingerprints `owner:count:buyout:band` of the last deep scan
+* `last.gear[key]` (1.53, FRV-200) a weapon's or armor's variants listed by others in the latest snapshot,
+  `<variant>=<min>:<n>:<band>;...` sorted by variant: variant = `itemContext:numBonusIDs[:bonusID...]:numModifiers
+  [:type:value...]` of the auction's link (trailing empty fields trimmed, `""` for none or a link that does not
+  parse, `FM.GearVariant`), min = the cheapest buyout (base36), n = its auctions (base36), band = the time left of the
+  cheapest (the longer one on a tie). A key whose only variant is `""` has no entry: its cheapest buyout is the
+  cheapest fingerprint not marked `@`. `FM.GearListings(key)` (core/Store.lua) reads both as `{ variant, bonus,
+  buyout, n, band }`. `last.gear` exists only after a deep scan or Auctionator replicate scan of 1.53 or later that
+  read gear (`FM.GearSnapshot()`, nil otherwise: a snapshot from before, or a Battle.net feed import); no migration,
+  `last` is replaced as a whole by the next snapshot
 * `lastReplicateT` (seconds, `time()`) when the server's 15 minutes of full scans last started; `lastReplicateBy`
   (1.41) whose list started them: `fm` the deep scan (also when its retries ran out: the last request), `rep` another
   AddOn's full scan, `aucr` Auctionator's
@@ -1706,7 +1777,8 @@ Picks skip).
   here asked for, `late` a late answer, then `req` = its request), `try`, `q` seconds queued and `busy` why, `thr` the
   throttle at the request (`ready` / `busy` / `?`), `before` the requests of the 10 s before it, `during` / `tev` /
   `err` the requests, throttle events and AH errors while it waited, `first` seconds to the list, `n` auctions in it,
-  `read` auctions read, `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
+  `read` auctions read, `walk` seconds the walk took, `cpu` ms spent in its reads and `links` gear links read (1.53,
+  FRV-200), `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
   a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
   not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
   not finished), `next` the next try (seconds)
