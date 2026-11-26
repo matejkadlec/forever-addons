@@ -67,7 +67,7 @@ All of these hold: a passing round covers the exact head and the whole diff; the
 3. **Cleanup, always** (`AGENTS.md`, Branches and Worktrees: your own branch, or the batch you merged), in this order:
    1. Remote branch: `git ls-remote --exit-code --heads origin <branch>`; GitHub deletes head branches on merge, so it is usually gone already; when it is still there and no other open pull request uses it as its base or head, `git push origin --delete <branch>`
    2. Worktree: `git worktree remove <path>` when it holds no uncommitted changes (never `--force`); with changes you did not make, leave it and tell the maintainer
-   3. Local branch: `git fetch origin`; when `git merge-base --is-ancestor <branch> origin/master` confirms the merge, `git branch -D <branch>` (`-d` can refuse because the main checkout's `master` lags behind)
+   3. Local branch: `git fetch origin`; when `git merge-base --is-ancestor <branch> origin/master` confirms the merge, or (a squash or rebase merge by someone else) `gh pr view <n> --json state,headRefOid` reads `MERGED` with `headRefOid` equal to the local tip, `git branch -D <branch>` (`-d` can refuse because the main checkout's `master` lags behind)
    4. `git worktree prune` and `git fetch --prune`; report what was removed in Verification
 
 ## Stops
