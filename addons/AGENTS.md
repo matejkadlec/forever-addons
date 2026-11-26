@@ -98,7 +98,7 @@ The AddOn inventory is in the root guide. ForeverMarket, ForeverCraftQueue and F
   - `/fcq` (the bare command opening the queue panel was asked for in FRV-131): bare command shows or hides the queue panel; `on`, `off`, `clear` (empties the queue, asking first in the panel while that option is on), `options` (the settings panel), `debug` (the profession window's state, the next step, the last call to the game, the last successful casts and the queue), `help`
   - `/fem`: bare command behaves like `help`; `on`, `off`, `gold` (Collect gold), `items` (Collect items), `stop` (stops the collection that runs), `keep <n>` (Keep free bag slots, 0 to 20), `options` (the settings panel), `debug` (the state, the last step and the inbox as the collection sees it), `help`
   - `/jfa` (the shared file, not an AddOn: no `on` / `off`): bare command lists the loaded Jim's Forever AddOns with their versions (asked for in FRV-180), `help`
-  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the marketplace; `help`, `snipe`, `status`, `scan`, `scanlog`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `item`, `held`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `options`, `wipe confirm`
+  - `/fm` (also `/forevermarket`, predates these rules): bare command opens/closes the marketplace; `help`, `snipe`, `upgrades`, `status`, `scan`, `scanlog`, `watch`, `unwatch`, `watchlist`, `exclude`, `include`, `excluded`, `chars`, `forget <name>`, `item`, `held`, `tooltip`, `autoscan`, `rescan`, `auctionator`, `options`, `wipe confirm`
 
 ---
 

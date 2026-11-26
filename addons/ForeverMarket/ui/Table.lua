@@ -2,7 +2,8 @@ local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
 -- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
--- result, ui/Performance.lua), Learn, Farm (green).
+-- result, ui/Performance.lua), Learn, Farm, Upgrades (green; Upgrades' columns, filters and texts in ui/Upgrades.lua,
+-- FRV-203: this file's main chunk is at Lua 5.1's 200 locals, so it gets no new top-level local).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search its shopping list at the AH, in Auctionator's Shopping
 -- tab when Auctionator is loaded, else in Blizzard's Buy list (only what you would buy there: a craft's AH
@@ -528,7 +529,7 @@ local LEARN_COLUMNS = {
 }
 
 -- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
--- (Profit) and group 3 green (Learn, Farm)
+-- (Profit) and group 3 green (Learn, Farm, Upgrades)
 local TABS = {}
 if FM.PICKS_READY then
     -- the icon is part of the Pick cell (after the rank), the default sort is the rank
@@ -547,6 +548,8 @@ TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, g
 TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
     profColumn = true, defaultSort = { { 5, true }, { 2, false } } } -- profit now, then the lowest skill
 TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
+-- gear on the AH that beats what you wear, scored by Pawn (FRV-203; the last tab at the right end)
+TABS[#TABS + 1] = { id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_COLUMNS, upgrades = true, group = 3 }
 local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
@@ -744,6 +747,8 @@ local function BuildRows(tab, lookup)
     tab = tab or CurrentTab()
     local trade = FM.trade
     local s = Settings()
+    local text = not lookup and (view.search[tab.id] or "") or ""
+    local needle = text ~= "" and string_lower(text) or nil
     local source
     if tab.farm then
         source = FM.farm and FM.farm.rows or {}
@@ -751,16 +756,18 @@ local function BuildRows(tab, lookup)
         source = KeptRows(trade, s.excluded) -- nil before the first item is ignored: no rows
     elseif tab.favs then
         source = KeptRows(trade, s.favorites)
+    elseif tab.upgrades then
+        -- the scored upgrades with their Cost-Benefit, the slots, the search and Best per slot applied (ui/Upgrades.lua)
+        source = FM.UpgradesTabRows and FM.UpgradesTabRows(needle) or {}
     else
         source = trade and trade[tab.data] or {}
     end
-    local text = not lookup and (view.search[tab.id] or "") or ""
-    local needle = text ~= "" and string_lower(text) or nil
     -- Vendor: the place filter (FRV-99) keeps the items one of whose vendors is there, at the cheapest one there
     local place = tab.id == "vendor" and FM.PlaceResolve(FM.PlaceOf("vendor")) or nil
     local prof = ProfFilter()
     local out = {}
     local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
+        and not tab.upgrades -- an upgrade has no profit per 1g
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     if not lookup then view.outliers = 0 end
@@ -798,7 +805,8 @@ local function BuildRows(tab, lookup)
             -- only crafts can lose money: vendor and AH resell rows are profitable by design
             -- the settings panel's minimum profit per item; 0g 0s 0c is no minimum (FRV-86, the old "Any")
             local minProfit = s.tableMinProfit
-            if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks then
+            if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks
+                and not tab.upgrades then
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
@@ -806,7 +814,10 @@ local function BuildRows(tab, lookup)
             if keep and not tab.ignored and FM.IsExcluded(row.key) then keep = false end
             -- a flip pick hidden just now (FRV-193): gone at once, before the plan made again without it is shown
             if keep and tab.picks and row.hiddenNow then keep = false end
-            if keep and needle and not string_find(string_lower(Name(row.key)), needle, 1, true) then keep = false end
+            -- Upgrades: the name with its suffix ("... of the Monkey"), not the item ID's base name
+            if keep and needle and not string_find(string_lower(tab.upgrades and (row.name or "") or Name(row.key)), needle, 1, true) then
+                keep = false
+            end
         end
         if keep then out[#out + 1] = row end
     end
@@ -833,6 +844,8 @@ local function BuildRows(tab, lookup)
                 end
             end
         end
+        -- Upgrades: two suffixes of one item keep their order from render to render
+        if tab.upgrades and a.id ~= b.id and Name(a.key) == Name(b.key) then return tostring(a.id) < tostring(b.id) end
         return Name(a.key) < Name(b.key)
     end)
     if tab.picks then
@@ -1288,7 +1301,8 @@ local function SnipeTargets(row, mode)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
     tab, row = RowSource(row)
-    if not tab then return nil end
+    -- an Upgrades row is one gear listing: never the commodity sniper (FRV-203; its own buy window, FRV-204)
+    if not tab or tab.upgrades then return nil end
     local list, status, perAuction = {}, nil, false
     -- an item sold per auction (stack size 1); one the client has not loaded yet ("unknown", its data asked for) stays
     -- in, the sniper still refuses it safely
@@ -1429,6 +1443,13 @@ local function RowTooltipLines(tip, tab, row)
         TT = GameTooltip
         return
     end
+    if tab.upgrades then
+        -- the tab's own lines (ui/Upgrades.lua); a sticky window gets the name first, the hover tooltip the item's own
+        -- tooltip above them (ShowRowTooltip)
+        FM.UpgradeTooltipLines(tip, row, tip ~= GameTooltip)
+        TT = GameTooltip
+        return
+    end
     TT:AddLine(IconText(row.key) .. QualityColor(row.key) .. Name(row.key) .. "|r")
     local use, src = RowSource(row, tab)
     if tab.favs then
@@ -1476,6 +1497,10 @@ local function RowHints(tab, row)
         GameTooltip:AddLine("Click: TomTom arrow to the spawns", HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Shift+click: link the best drop to chat", HINT_R, HINT_G, HINT_B, true)
         GameTooltip:AddLine("Alt+click: make this tooltip sticky", HINT_R, HINT_G, HINT_B, true)
+        return
+    end
+    if tab.upgrades then
+        FM.UpgradeHints(GameTooltip) -- no snipe (FRV-203): buy at the AH (FRV-204), try it on (FRV-205)
         return
     end
     GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
@@ -1531,6 +1556,11 @@ local function ShowRowTooltip(button)
     local row = button.row
     if not row then return end
     local tab = CurrentTab()
+    if tab.upgrades then
+        -- the item's own tooltip (Pawn's lines in it), the tab's lines, the hints; the worn item beside it with Shift
+        FM.UpgradeRowTooltip(button, row, function() RowHints(tab, row) end)
+        return
+    end
     GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
     FM.RowTipWidth(GameTooltip) -- about a third of what it was (FRV-195)
     RowTooltipLines(GameTooltip, tab, row)
@@ -1563,6 +1593,7 @@ end
 -- One sticky window per item (a mob on Farm)
 local function RowId(tab, row)
     if tab.farm then return "farm:" .. tostring(row.npc or row.mobName) end
+    if tab.upgrades then return row.id end -- one per item and suffix
     return row.key
 end
 
@@ -1623,8 +1654,13 @@ local function ShowRowMenu(button, row)
     if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
     local key = row.key
     local targets, of, trace, status = SnipeTargets(row)
+    local gear = CurrentTab().upgrades and true or false -- an Upgrades row: one gear listing (FRV-203)
     MenuUtil.CreateContextMenu(button, function(_, root)
-        root:CreateTitle(Name(key))
+        root:CreateTitle(gear and (row.name or Name(key)) or Name(key))
+        -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204)
+        if gear and FM.ahOpen and FM.UpgradeBuyOpen then
+            root:CreateButton("Buy this listing", function() FM.UpgradeBuyOpen(row) end)
+        end
         -- an AH flip pick, also from its steps line (FRV-193): first, for a flip someone else bought first; it hides
         -- this flip only (trade/Picks.lua FM.HideFlipPick), the item is not ignored
         local flip = CurrentTab().picks and (row.stepsOf or row) or nil
@@ -1674,7 +1710,9 @@ local function ShowRowMenu(button, row)
         -- a Vendor row or a vendor pick goes to its own vendor; in a place (FRV-99) only to a vendor there
         local own = row.offer
         local place, why
-        if row.placeOf then
+        if gear then
+            -- gear from the AH: no vendor or trainer to walk to
+        elseif row.placeOf then
             own = row.trackOffer
             if own then place, why = own, "buy" end
         else
@@ -1692,7 +1730,7 @@ local function ShowRowMenu(button, row)
                     end)
                 end
             end
-        elseif FM.RecipeOnAH and FM.RecipeOnAH(key) then
+        elseif not gear and FM.RecipeOnAH and FM.RecipeOnAH(key) then
             -- a pattern on the AH has no NPC to walk to: say where the recipe comes from instead
             root:CreateTitle("Recipe on AH", INFO_COLOR)
         end
@@ -1734,6 +1772,11 @@ local function OnRowClick(button, mouseButton)
     -- Ctrl+click: the row's recipe in its profession window, a pick's crafts in the count box (FRV-132, ui/OpenRecipe.lua);
     -- a row without a craft you know says why
     if mouseButton ~= "RightButton" and IsControlKeyDown and IsControlKeyDown() then
+        -- Upgrades: the item in the Dressing Room (FRV-205), no chat line
+        if CurrentTab().upgrades then
+            if FM.UpgradeTryOn then FM.UpgradeTryOn(row) end
+            return
+        end
         if FM.CraftTarget then
             local target, why = FM.CraftTarget(RowSource(row.stepsOf or row))
             if target then
@@ -1752,6 +1795,24 @@ local function OnRowClick(button, mouseButton)
             if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
         elseif mouseButton ~= "RightButton" then
             FM.FarmWaypoint(row)
+        end
+        return
+    end
+    if CurrentTab().upgrades then
+        -- a gear listing (FRV-203): never the sniper; at the AH Shift+click finds it and offers it to buy (FRV-204),
+        -- away from it links the item with its suffix in the chat
+        if mouseButton == "RightButton" then
+            GameTooltip:Hide()
+            ShowRowMenu(button, row)
+        elseif IsShiftKeyDown and IsShiftKeyDown() then
+            if FM.ahOpen and FM.UpgradeBuyOpen then
+                GameTooltip:Hide()
+                FM.UpgradeBuyOpen(row)
+            elseif type(row.link) == "string" and ChatEdit_InsertLink then
+                ChatEdit_InsertLink(row.link)
+            end
+        else
+            SearchAtAH(row)
         end
         return
     end
@@ -1866,6 +1927,8 @@ local function LayoutFilters(f)
         f.prof:ClearAllPoints()
         f.prof:SetPoint("RIGHT", f.refresh, "LEFT", -10, 0)
     end
+    -- Upgrades: Level, Rarities, Slots, Spec, Best per slot right of the search box (ui/Upgrades.lua)
+    if FM.UpgradesLayoutFilters then FM.UpgradesLayoutFilters(f) end
 end
 
 local Render
@@ -1877,14 +1940,16 @@ local function ColumnX(columns, index)
 end
 
 -- Picks: its budget row (FRV-95) and its summary line take the header's place, the header and the list move down two
--- rows (Flip: its age line when the prices are old, view.stale: one row)
+-- rows (Flip and Upgrades: their age line when the listings are old, view.stale: one row)
 local function ListShift(tab)
     if tab.picks then return 2 * ROW_H end
-    return (tab.id == "flips" and view.stale) and ROW_H or 0
+    return ((tab.id == "flips" or tab.upgrades) and view.stale) and ROW_H or 0
 end
 
--- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes
+-- Flip: how old the prices are once that matters (nil while they are fresh): cheap listings go within minutes.
+-- Upgrades: the same from an hour on, in its own words (ui/Upgrades.lua)
 local function FlipStaleText(tab)
+    if tab.upgrades then return FM.UpgradesStaleText and FM.UpgradesStaleText() or nil end
     if tab.id ~= "flips" then return nil end
     local r = FM.R()
     local last = r and r.last and r.last.t
@@ -1999,7 +2064,11 @@ local function StatusText()
     else
         parts[#parts + 1] = "No snapshot yet"
     end
-    if FM.TradeBusy and FM.TradeBusy() or (trade and trade.busy) or (FM.FarmBusy and FM.FarmBusy()) then parts[#parts + 1] = YELLOW .. "computing...|r" end
+    -- Pawn scoring gear for the Upgrades tab (FRV-203) counts too
+    if FM.TradeBusy and FM.TradeBusy() or (trade and trade.busy) or (FM.FarmBusy and FM.FarmBusy())
+        or (FM.UpgradesBusy and FM.UpgradesBusy()) then
+        parts[#parts + 1] = YELLOW .. "computing...|r"
+    end
     return GREY .. table.concat(parts, "  ·  ") .. "|r"
 end
 
@@ -2007,7 +2076,8 @@ end
 -- Picks' budget row, Amount inputs and lock, the Use global filters checkbox of Picks, Craft and Learn, the place
 -- dropdowns of Vendor and Picks)
 local function ShiftHint(tab)
-    if tab.picks then return "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips" end
+    -- Upgrades: the search box and the Level boxes, Rarities, Slots and Spec, Best per slot (FRV-203, FRV-205)
+    if tab.picks or tab.upgrades then return "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips" end
     if tab.crafts or tab.learn then return "  ·  hold Shift over inputs and checkboxes for their tips" end
     if tab.id == "vendor" then return "  ·  hold Shift over inputs and dropdowns for their tips" end
     return "  ·  hold Shift over the search box for its tip"
@@ -2077,6 +2147,9 @@ local function FooterText(total, short, tab)
             or "  ·  cheap listings to relist under the cheapest listing that stays, 15%+ profit after the cut, Profit = the whole flip")
     elseif tab.learn then
         text = text .. "  ·  every recipe you can still learn, losing ones too  ·  7 days = usual prices"
+    elseif tab.upgrades then
+        -- "1-20 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship" (FRV-203)
+        text = text .. (total == 1 and " upgrade" or " upgrades") .. (FM.UpgradesFooterNote and FM.UpgradesFooterNote(short) or "")
     end
     return GREY .. text .. hint .. "|r"
 end
@@ -2321,6 +2394,7 @@ local function RenderGraph(tab)
         frame.continent, frame.zone, frame.hiddenPicks }) do
         w:Hide()
     end
+    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, false) end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
@@ -2465,6 +2539,8 @@ Render = function()
         end
     end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
+    -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (ui/Upgrades.lua), only on that tab
+    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, tab.upgrades and true or false) end
     LayoutFilters(frame)
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
@@ -2483,9 +2559,11 @@ Render = function()
     -- a line too long for the window takes the shorter form of its note, so the Shift hint at its end is never cut
     local footerWidth = frame.footer.GetUnboundedStringWidth and frame.footer:GetUnboundedStringWidth()
     if type(footerWidth) == "number" and footerWidth + hiddenW > W - 32 then frame.footer:SetText(FooterText(total, true)) end
-    if total == 0 and not (FM.trade and FM.trade.empty) then
+    -- Upgrades says why its list is empty also before the first deep scan (no Pawn, no scale, no gear data, ...)
+    if total == 0 and (tab.upgrades or not (FM.trade and FM.trade.empty)) then
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
+        if tab.upgrades and FM.UpgradesEmptyText then text = FM.UpgradesEmptyText() end
         if tab.ignored and not busy and FM.ExcludedCount() == 0 then
             text = "No ignored items: right-click a row in any tab > Ignore this item."
         elseif tab.favs and not tab.ignored and not busy then
@@ -2564,6 +2642,21 @@ local function SelectTab(id)
     Settings().tableTab = id
     rowsCache = nil
     Render()
+end
+FM.TableSelectTab = SelectTab -- for the tests (the stubs cannot build the window)
+
+-- The id of the tab shown, nil while the window is closed (ui/Upgrades.lua: its gold and Pawn follow it)
+function FM.TableTabShown()
+    return frame ~= nil and frame:IsShown() and view.tab or nil
+end
+
+-- The rows of a tab as the table shows them (its search, filters and sort), for the tests; search: a text as if typed
+-- into the tab's search box ("" empties it)
+function FM.TableRowsOf(tabId, search)
+    local tab = TAB_BY_ID[tabId]
+    if not tab then return nil end
+    if search ~= nil then view.search[tabId] = search ~= "" and search or nil end
+    return BuildRows(tab)
 end
 
 local function Scroll(delta)
@@ -2727,7 +2820,8 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Profit, Learn and Farm at the right end of the row
+    -- tabs in groups with a gap between; Profit, Learn, Farm and Upgrades at the right end of the row. Ten tabs: 84 px
+    -- each, 88 apart (94 and 98 before FRV-203), the left block ends at x 562, the right one starts at 596
     f.tabs = {}
     local x, group = 14, nil
     local rightCount = 0
@@ -2736,15 +2830,15 @@ local function CreateTable()
     end
     local rightIndex = 0
     for _, t in ipairs(TABS) do
-        local b = Button(f, t.label, 94, function() SelectTab(t.id) end)
+        local b = Button(f, t.label, 84, function() SelectTab(t.id) end)
         if t.group >= 3 then
-            -- the gold and green groups sit at the right end of the row, Farm last
+            -- the gold and green groups sit at the right end of the row, Upgrades last
             rightIndex = rightIndex + 1
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 98, -30)
+            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 88, -30)
         else
             if group and t.group ~= group then x = x + 24 end
             b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
-            x = x + 98
+            x = x + 88
         end
         group = t.group
         local color = GROUP_COLOR[t.group]
@@ -3031,6 +3125,8 @@ local function CreateTable()
     refresh:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, FILTER_Y + 2)
     refresh:SetScript("OnClick", FM.TableRefresh)
     f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
+    -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (FRV-203, FRV-205; ui/Upgrades.lua)
+    if FM.UpgradesCreateFilters then FM.UpgradesCreateFilters(f) end
     FM.TableTipHook(refresh, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Refresh")
@@ -3223,6 +3319,8 @@ local function CreateTable()
     f:SetScript("OnMouseWheel", function(_, delta) Scroll(delta) end)
 
     f.empty = Text(f, "GameFontHighlight", "TOP", 0, TOP - 60)
+    f.empty:SetWidth(W - 160) -- Upgrades' texts about Pawn wrap inside the window
+    f.empty:SetWordWrap(true)
     f.footer = Text(f, "GameFontHighlightSmall", "BOTTOMLEFT", 16, 14)
     f.footer:SetJustifyH("LEFT")
     -- Picks: "  ·  2 hidden" after the footer's line (FRV-193): the flip picks you hid; a click shows them all again
@@ -3263,9 +3361,9 @@ local function CreateTable()
             -- a post or a newly read auction list since the plan: plan again (returns at once when nothing changed)
             FM.EnsureTrade()
             f.status:SetText(StatusText())
-            -- Flip: the age line comes, goes and counts up with the latest snapshot
+            -- Flip and Upgrades: the age line comes, goes and counts up with the latest snapshot
             local tab = CurrentTab()
-            if tab.id == "flips" and FlipStaleText(tab) ~= view.stale then Render() end
+            if (tab.id == "flips" or tab.upgrades) and FlipStaleText(tab) ~= view.stale then Render() end
         end
     end)
     -- closing the table closes the filters dialog; opening it again opens only the table (not on Alt+Z: the table is

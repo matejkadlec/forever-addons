@@ -325,7 +325,7 @@ end
 H.test("shift tooltips: the window's elements have the kinds of FRV-186", function()
     local base = "addons/ForeverMarket/ui/"
     local seen = {}
-    for _, file in ipairs({ "Table.lua", "Filters.lua", "Performance.lua" }) do
+    for _, file in ipairs({ "Table.lua", "Filters.lua", "Performance.lua", "Upgrades.lua" }) do
         for _, call in ipairs(TipCalls(base .. file)) do
             seen[#seen + 1] = file .. " " .. call[1] .. " " .. call[2]
         end
@@ -346,6 +346,7 @@ H.test("shift tooltips: the window's elements have the kinds of FRV-186", functi
         "Table.lua hiddenPicks \"hover\"",       -- Picks' footer: the flip picks you hid (FRV-193)
         "Filters.lua frame \"shift\"",           -- the dialog's boxes and checkboxes (Tip)
         "Performance.lua b \"hover\"",           -- This character / All characters
+        "Upgrades.lua widget \"shift\"",         -- Upgrades: the Level boxes, Rarities, Slots, Spec, Best per slot (Tip)
     }, "every helper call and its kind")
     local src = assert(io.open(base .. "Table.lua", "r")):read("*a")
     for _, case in ipairs({ { "f.filtersButton", "hover" }, { "f.globalButton", "hover" }, { "f.useGlobal", "shift" } }) do
