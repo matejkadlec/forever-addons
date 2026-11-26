@@ -20,7 +20,7 @@
 local addonName = ...
 
 -- Raise on every change of this file: the newest copy present runs
-local VERSION = 1
+local VERSION = 2
 
 local JFA = _G.JimsForeverAddOns
 if type(JFA) ~= "table" then
@@ -47,30 +47,34 @@ local BUTTON_NAME = "JimsForeverAddOnsMinimapButton" -- a Minimap child named ".
 local CHECKBOX_NAME = "JimsForeverAddOnsShowMinimapButton"
 local ICON = "Interface\\Icons\\INV_Misc_Book_09" -- a Blizzard icon until the AddOns get their own
 local VERSIONS_LINK = "addon:JimsForeverAddOns:versions" -- LinkTypes.AddOn: Blizzard hands its clicks to "SetItemRef"
-local DEFAULT_ANGLE = 200 -- degrees around the minimap, counterclockwise from its right (LibDBIcon's way)
-local BUTTON_RADIUS = 5 -- how far outside the minimap's edge the button sits (LibDBIcon's default)
+local DEFAULT_ANGLE = 200 -- degrees around the minimap, counterclockwise from its right
+local BUTTON_RADIUS = 5 -- how far outside the minimap's edge the button sits
 
 local ORANGE = "|cFFFF8000"
 local YELLOW = "|cFFFFFF00"
 local RED = "|cFFFF0000"
 
--- Which quadrants of a minimap shape are round (LibDBIcon-1.0's table; GetMinimapShape is set by minimap AddOns)
-local MINIMAP_SHAPES = {
-    ["ROUND"] = { true, true, true, true },
-    ["SQUARE"] = { false, false, false, false },
-    ["CORNER-TOPLEFT"] = { false, false, false, true },
-    ["CORNER-TOPRIGHT"] = { false, false, true, false },
-    ["CORNER-BOTTOMLEFT"] = { false, true, false, false },
-    ["CORNER-BOTTOMRIGHT"] = { true, false, false, false },
-    ["SIDE-LEFT"] = { false, true, false, true },
-    ["SIDE-RIGHT"] = { true, false, true, false },
-    ["SIDE-TOP"] = { false, false, true, true },
-    ["SIDE-BOTTOM"] = { true, true, false, false },
-    ["TRICORNER-TOPLEFT"] = { false, true, true, true },
-    ["TRICORNER-TOPRIGHT"] = { true, false, true, true },
-    ["TRICORNER-BOTTOMLEFT"] = { true, true, false, true },
-    ["TRICORNER-BOTTOMRIGHT"] = { true, true, true, false }
-}
+-- The side across from each side; the two across from a corner's sides name the corner diagonally across from it
+local OPPOSITE = { TOP = "BOTTOM", BOTTOM = "TOP", LEFT = "RIGHT", RIGHT = "LEFT" }
+
+-- Whether the minimap is round at one corner (vertical "TOP" or "BOTTOM", horizontal "LEFT" or "RIGHT"), read from
+-- the shape name minimap AddOns return from GetMinimapShape(): "SQUARE" has no round corner, "CORNER-TOPLEFT" only
+-- that one, "SIDE-LEFT" the two of that side, "TRICORNER-TOPLEFT" every corner but the one across from it; "ROUND",
+-- no shape and any name this code does not know count as round
+local function IsRoundCorner(shape, vertical, horizontal)
+    if shape == "SQUARE" then
+        return false
+    end
+    local kind, where = string.match(shape, "^(%a+)%-(%a+)$")
+    if kind == "CORNER" then
+        return where == vertical .. horizontal
+    elseif kind == "SIDE" then
+        return where == vertical or where == horizontal
+    elseif kind == "TRICORNER" then
+        return where ~= OPPOSITE[vertical] .. OPPOSITE[horizontal]
+    end
+    return true
+end
 
 --------------------------------------------------------------------------------
 -- Chat
@@ -353,24 +357,24 @@ end
 -- Minimap button
 --------------------------------------------------------------------------------
 
--- Put the button on the minimap's edge at the saved angle (LibDBIcon-1.0's placement, round and square minimaps;
--- MinimapButtonButton makes SetPoint do nothing on the buttons it collected)
+-- Put the button just outside the minimap's edge at the saved angle: on the circle where the minimap is round, out
+-- along the same direction to the edge of the square where its corner is square (MinimapButtonButton makes SetPoint
+-- do nothing on the buttons it collected)
 function JFA:PlaceButton()
     local angle = math.rad(self.db.minimapPos)
-    local x, y, quadrant = math.cos(angle), math.sin(angle), 1
-    if x < 0 then quadrant = quadrant + 1 end
-    if y > 0 then quadrant = quadrant + 2 end
-    local shape = GetMinimapShape and GetMinimapShape() or "ROUND"
-    local round = (MINIMAP_SHAPES[shape] or MINIMAP_SHAPES.ROUND)[quadrant]
-    local w = Minimap:GetWidth() / 2 + BUTTON_RADIUS
-    local h = Minimap:GetHeight() / 2 + BUTTON_RADIUS
-    if round then
-        x, y = x * w, y * h
+    local dx, dy = math.cos(angle), math.sin(angle)
+    local halfWidth = Minimap:GetWidth() / 2 + BUTTON_RADIUS
+    local halfHeight = Minimap:GetHeight() / 2 + BUTTON_RADIUS
+    local shape = GetMinimapShape and GetMinimapShape()
+    local vertical = dy > 0 and "TOP" or "BOTTOM"
+    local horizontal = dx < 0 and "LEFT" or "RIGHT"
+    local x, y
+    if type(shape) ~= "string" or IsRoundCorner(shape, vertical, horizontal) then
+        x, y = dx * halfWidth, dy * halfHeight
     else
-        local diagonalW = math.sqrt(2 * w * w) - 10
-        local diagonalH = math.sqrt(2 * h * h) - 10
-        x = math.max(-w, math.min(x * diagonalW, w))
-        y = math.max(-h, math.min(y * diagonalH, h))
+        -- the larger of the two parts reaches the square's edge, the other one follows in proportion
+        local stretch = 1 / math.max(math.abs(dx), math.abs(dy))
+        x, y = dx * stretch * halfWidth, dy * stretch * halfHeight
     end
     self.button:ClearAllPoints()
     self.button:SetPoint("CENTER", Minimap, "CENTER", x, y)
@@ -403,7 +407,7 @@ function JFA:OnButtonClick(owner, mouseButton)
     end
 end
 
--- The button: built like LibDBIcon-1.0's minimap buttons on Forever (31 x 31, tracking border, round background)
+-- The button, in the usual look of minimap buttons on Forever (31 x 31, tracking border, round background)
 function JFA:CreateMinimapButton()
     if self.button or not Minimap then
         return

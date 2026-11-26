@@ -43,7 +43,7 @@ Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](
 
 ## Add a first-party AddOn
 
-Name, shortname, required `.toc` fields, icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`, and give it its label in Jira and on GitHub, its option in both issue forms and in the labeler ([AddOn Labels](AGENTS.md#addon-labels)); `tests/run.sh` checks the forms and the labeler. A new AddOn needs a game restart, not `/reload`, and the maintainer's in-game test before the merge.
+Name, shortname, required `.toc` fields (`## X-License: All Rights Reserved` among them; a copy of the root `LICENSE` in its folder once it is released on its own), icon, settings panel and slash command as in [addons/AGENTS.md](addons/AGENTS.md). Add it to the inventory in [AGENTS.md](AGENTS.md), to the icon and slash command lists in the nested guide and to `README.md`, and give it its label in Jira and on GitHub, its option in both issue forms and in the labeler ([AddOn Labels](AGENTS.md#addon-labels)); `tests/run.sh` checks the forms and the labeler. A new AddOn needs a game restart, not `/reload`, and the maintainer's in-game test before the merge.
 
 ## Fix or add a backported AddOn
 

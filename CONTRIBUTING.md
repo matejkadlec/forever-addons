@@ -10,6 +10,10 @@ Thanks for wanting to help! This page is for people who want to change the code.
 - The maintainer reviews every pull request and tests bigger changes in the game before the merge. He tracks the work internally, so an issue may get a comment with a tracking key first
 - Branch names are up to you; commit messages should say what changed
 
+## Your contribution
+
+This repository is All Rights Reserved ([`LICENSE`](LICENSE), [README, Licenses](README.md#-licenses)); its backported AddOns and embedded libraries keep their own licenses. Contributions are still welcome: by opening a pull request you agree that the maintainer may use, change and relicense your contribution as part of this repository and its AddOns. A change to a backported AddOn or an embedded library stays under that part's own license as well.
+
 ## How the code is written
 
 The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of the folder you change ([`addons/AGENTS.md`](addons/AGENTS.md), [`backports/AGENTS.md`](backports/AGENTS.md), ...). It is written for the AI agents that develop most of this repository ([README, For developers](README.md#-for-developers)), but its rules for code apply to everyone. The short version:
@@ -37,6 +41,7 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
    ## IconTexture: Interface\Icons\{IconName}
    ## Author: Matej Kadlec (https://github.com/matejkadlec)
    ## Version: 1.0.0
+   ## X-License: All Rights Reserved
    ## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
    ## X-Repository: https://github.com/matejkadlec/forever-addons
    ## SavedVariables: Forever{AddonName}Settings, JimsForeverAddOnsDB

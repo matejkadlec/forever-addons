@@ -1,6 +1,8 @@
 <!--
 Thanks for the pull request! Please open an issue first for anything bigger than a small fix,
 so we can agree on it before you spend time on the code (CONTRIBUTING.md).
+By opening a pull request you agree that the maintainer may use, change and relicense
+your contribution (CONTRIBUTING.md, Your contribution).
 -->
 
 ## What changed

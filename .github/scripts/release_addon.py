@@ -315,13 +315,13 @@ def build(root, info, message):
             archive.write(os.path.join(folder, path), "%s/%s" % (addon, path))
             entries.append("%s/%s" % (addon, path))
         if "LICENSE" not in files:
-            # Every AddOn of addons/ is MIT under the repository's LICENSE (README, Licenses): it travels with the zip
+            # Every AddOn of addons/ is All Rights Reserved under the repository's LICENSE (README, Licenses): it travels with the zip
             root_license = os.path.join(root, "LICENSE")
             if not os.path.isfile(root_license):
                 raise ReleaseError("addons/%s/ has no LICENSE and the repository has none either" % addon)
             archive.write(root_license, addon + "/LICENSE")
             entries.append(addon + "/LICENSE")
-            notice("addons/%s/ has no LICENSE of its own: the zip carries the repository's LICENSE (MIT)" % addon)
+            notice("addons/%s/ has no LICENSE of its own: the zip carries the repository's LICENSE (All Rights Reserved)" % addon)
     if "README.md" not in files:
         notice("addons/%s/ has no README.md: the zip has none" % addon)
 

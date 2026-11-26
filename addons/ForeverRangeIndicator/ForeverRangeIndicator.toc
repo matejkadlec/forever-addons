@@ -4,7 +4,8 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Ability_Hunter_EagleEye
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.2.0
+## Version: 1.2.3
+## X-License: All Rights Reserved
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverRangeIndicatorSettings, JimsForeverAddOnsDB
 

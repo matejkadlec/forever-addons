@@ -12,7 +12,7 @@ When you push a tag `<AddOnFolder>-v<version>`, for example `ForeverCampFeatures
 
 1. **The tag against the `.toc`:** `addons/<AddOnFolder>/<AddOnFolder>.toc` must exist (the folder name exactly as it is spelled), and its `## Version:` must be the tag's version. Backports (`backports/`) are not released this way
 2. **The checks:** `luac5.1 -p` on every Lua file of the AddOn, then its Lua tests in `tests/<addonfolder>/` (lower case, for example `tests/forevercampfeatures/`) when it has any
-3. **The zip** `<AddOnFolder>-<version>.zip`, with only `<AddOnFolder>/` at its top: the AddOn's files as Git tracks them, its `LICENSE` (or the repository's MIT `LICENSE` when its folder has none) and its `README.md`. Nothing else of the repository, and not the agent guide files (`AGENTS.md`, `CLAUDE.md`) at the AddOn's top level
+3. **The zip** `<AddOnFolder>-<version>.zip`, with only `<AddOnFolder>/` at its top: the AddOn's files as Git tracks them, its `LICENSE` (or the repository's All Rights Reserved `LICENSE` when its folder has none) and its `README.md`. Nothing else of the repository, and not the agent guide files (`AGENTS.md`, `CLAUDE.md`) at the AddOn's top level
 4. **The CurseForge game version:** the WoW: Forever game version of the `.toc`'s `## Interface:` (`16001` = `1.60.1`), looked up through the CurseForge API. When CurseForge has no such version, or the token is missing, the run stops here
 5. **The GitHub release** of the tag, with the zip and the changelog. When the job runs again, the zip on it is replaced
 6. **The CurseForge upload** to the project in the `.toc`'s `## X-Curse-Project-ID:`. An AddOn without that line gets only the GitHub release, with a notice in the run
@@ -42,7 +42,7 @@ The token can upload to every project of the account. Keep it only in that secre
 
 ### Adding an AddOn to CurseForge
 
-1. **Create the project** in the authors console: game World of Warcraft, the AddOn's name, license MIT, and a description (ForeverCampFeatures' `README.md` is written for it). CurseForge reviews a new project before it goes public
+1. **Create the project** in the authors console: game World of Warcraft, the AddOn's name, license All Rights Reserved (like its `## X-License:` and the `LICENSE` in its folder), and a description (ForeverCampFeatures' `README.md` is written for it). CurseForge reviews a new project before it goes public
 2. **Copy its Project ID**, shown in the project's "About Project" box
 3. **Put it into the AddOn's `.toc`** next to `## X-Repository:`, as `## X-Curse-Project-ID: 123456`. This changes an AddOn file, so it comes with a version bump, through a pull request like any change (an agent may make it when you give it the ID). An AddOn that needs another CurseForge project declares it there too (Relations above; ForeverMarket already does), and after the first upload the project's Relations tab shows it
 4. **The first file:** the workflow can upload it once the project exists. If you would rather put the first file up by hand, run a dry run (below) and download its artifact, `<AddOn>-<version>-dry-run.zip`. GitHub wraps every artifact in a zip of its own: extract it once and upload the `<AddOn>-<version>.zip` inside it, the same zip the workflow would send (never the wrapper itself, whose top holds a zip instead of the AddOn's folder)
@@ -72,7 +72,7 @@ The token can upload to every project of the account. Keep it only in that secre
 
 - **Files:** the project's Files tab lists the new file with its display name, the game version `1.60.1` (WoW: Forever) and its release type. a new file can wait for CurseForge's review before it can be downloaded: wait until it shows as approved
 - **The zip:** download it once. It must hold one folder, `ForeverCampFeatures/`, with the `.toc`, the Lua files, `LICENSE` and `README.md`
-- **The project page:** the description and the license are right, and the source link points to this repository
+- **The project page:** the description and the license (All Rights Reserved) are right, and the source link points to this repository
 - **GitHub:** the release of the tag (this repository's Releases page) carries the same zip
 - **After the first release:** in `README.md`, Get the AddOns, replace the "coming soon" lines with the Releases page and the project's CurseForge link
 

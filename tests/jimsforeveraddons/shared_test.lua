@@ -289,6 +289,53 @@ H.test("click opens the overview, right-click lists the AddOns' settings by name
     H.same(clicks, { "Market" }, "no settings page clicked")
 end)
 
+-- Where the button lands for a saved angle and a minimap shape (the stub minimap is 140 x 140: 75 from the center
+-- with the button's 5 outside the edge)
+local function ButtonAt(angle, shape)
+    local env = NewClient({ { name = "ForeverTweaks", version = "1.8.0" } })
+    env.GetMinimapShape = shape ~= nil and function() return shape end or nil
+    local CreateWithPoints = env.CreateFrame
+    local placed
+    env.CreateFrame = function(kind, name, parent, template)
+        local frame = CreateWithPoints(kind, name, parent, template)
+        if name == "JimsForeverAddOnsMinimapButton" then
+            function frame:SetPoint(_, _, _, x, y) placed = { x, y } end
+        end
+        return frame
+    end
+    LoadAll(env, { { name = "ForeverTweaks", saved = { showButton = true, minimapPos = angle, updated = 1795000000 } } })
+    return math.floor(placed[1] * 100 + 0.5) / 100, math.floor(placed[2] * 100 + 0.5) / 100
+end
+
+H.test("minimap button: on the circle where the minimap is round, on the square's edge where its corner is square", function()
+    local function At(angle, shape, x, y, label)
+        local px, py = ButtonAt(angle, shape)
+        H.same({ px, py }, { x, y }, label)
+    end
+    -- round: no shape, "ROUND" and a name nobody knows
+    At(0, nil, 75, 0, "no shape, right")
+    At(45, "ROUND", 53.03, 53.03, "round, top right")
+    At(225, "STAR", -53.03, -53.03, "unknown shape counts as round")
+    -- square: out to the edge, the corner itself at 45 degrees
+    At(45, "SQUARE", 75, 75, "square, top right corner")
+    At(30, "SQUARE", 75, 43.3, "square, right edge")
+    At(0, "SQUARE", 75, 0, "square, right")
+    -- one round corner
+    At(45, "CORNER-TOPRIGHT", 53.03, 53.03, "corner: its own corner round")
+    At(135, "CORNER-TOPRIGHT", -75, 75, "corner: another corner square")
+    -- one round side
+    At(225, "SIDE-LEFT", -53.03, -53.03, "side: bottom left round")
+    At(135, "SIDE-LEFT", -53.03, 53.03, "side: top left round")
+    At(315, "SIDE-LEFT", 75, -75, "side: bottom right square")
+    At(315, "SIDE-BOTTOM", 53.03, -53.03, "side bottom: bottom right round")
+    At(45, "SIDE-BOTTOM", 75, 75, "side bottom: top right square")
+    -- three round corners, the one across square
+    At(315, "TRICORNER-TOPLEFT", 75, -75, "tricorner: the corner across square")
+    At(45, "TRICORNER-TOPLEFT", 53.03, 53.03, "tricorner: top right round")
+    At(225, "TRICORNER-TOPLEFT", -53.03, -53.03, "tricorner: bottom left round")
+    At(135, "TRICORNER-BOTTOMRIGHT", -75, 75, "tricorner bottom right: top left square")
+end)
+
 H.test("/jfa help and wrong input", function()
     local env = NewClient({ { name = "ForeverTweaks", version = "1.8.0" } })
     LoadAll(env, { { name = "ForeverTweaks" } })
