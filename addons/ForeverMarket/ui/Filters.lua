@@ -43,7 +43,7 @@ local OPTIONS = {
     { key = "overSkillCap", parent = "overSkill", label = "Over skill level cap", box = 3, craftOnly = true,
         tip = "How many skill points above yours a recipe may need (default 10)." },
     { key = "noCraft", label = "Exclude crafting",
-        tip = "The plan crafts nothing: no Craft and sell, no Craft and wait, no recipe to learn, and the crafts you hold are no Stock pick either; their gold goes to the other picks (default off). While it is checked, the options for crafting in these filters are off." },
+        tip = "The plan crafts nothing: no Craft and sell, no Craft and wait, no recipe to learn; their gold goes to the other picks (default off). Crafted items you hold can still be a Stock pick: listing them crafts nothing. While it is checked, the options for crafting are off in Picks' own filters (Global filters keep them for the Craft tab)." },
     { key = "noVendor", label = "Exclude vendor flips",
         tip = "The plan buys nothing from vendors to resell on the AH; their gold goes to the other picks (default off)." },
     { key = "noFlip", label = "Exclude AH flips",

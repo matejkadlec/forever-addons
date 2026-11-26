@@ -476,8 +476,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       * **Over skill level** [x] (Picks, Craft, Learn; was "Above current skill"): recipes above your skill, up to
         **Over skill level cap** [10] points above it (was "Max. above current skill")
     * **Exclude crafting** [ ] (Picks, 1.56, FRV-209): the plan crafts nothing: no Craft and sell, no Craft and wait,
-      no recipe to learn (nor a "Level for" row), and the crafts you hold are no Stock pick either; "Also good, but out
-      of scope" follows and the reason names it ("crafting is off (Exclude crafting)"). In Picks' own dialog the options
+      no recipe to learn (nor a "Level for" row); the units of a crafted item you hold stay a Stock pick (listing them
+      crafts nothing); "Also good, but out of scope" follows and the reason names it ("crafting is off (Exclude
+      crafting)"). In Picks' own dialog the options
       that only matter for crafting (Include not learned recipes with its children, Exclude stock for crafting) are
       greyed out while it is checked, their tooltip says why; in Global filters they stay on (the Craft tab uses them)
     * **Exclude vendor flips** [ ] (Picks; was "Ignore vendor"): the plan buys nothing from vendors to resell
@@ -559,7 +560,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   latest snapshot, an item not listed one row with grey "not listed" as its price; a trinket, shirt or tabard (Pawn
   scores none) one row per listed variant with its price and Upgrade "-". Upgrade is Pawn's % for the Spec
   chosen on Upgrades, "-" when it is no upgrade (the row stays); Cost-Benefit the number the Upgrades tab shows for that
-  row now, "-" where it has none (outside its Level and Rarities, no upgrade, or ignored: on Ignored every row). Row
+  row now, "-" where it lists none (its Level, Rarities, Slots or Best per slot, no upgrade, or ignored: on Ignored
+  every row). Row
   tooltip, clicks and menu as on Upgrades; the menu keeps "Unfavorize this item" / "Stop ignoring this item", and an
   item not listed has nothing to buy (Shift+click links it). Favorize and Ignore stay per item ID: all variants go
   together. The search box is the tab's own in both views; the footer says "1-4 of 4  ·  3 gear items  ·  scored with

@@ -1469,10 +1469,10 @@ local function EvaluateCraft(c)
     -- it since that plan counts toward it, never again as units you hold; the room, the gold share and the batch size
     -- were about that target, so the rest of it is made whatever the batch says now (your listings of its crafts take
     -- room from it)
-    local carry = c.kind ~= "level" and P.carry and P.carry[row.key] or nil
+    local carry = c.kind ~= "level" and not c.stockOnly and P.carry and P.carry[row.key] or nil
     -- an amount you set for this pick in the table (FRV-154, FM.RemakePick): it makes that many, whatever the batch,
     -- the room and its share of the gold say (your choice); the materials and your minimum profit still stop it
-    local want = c.kind ~= "level" and P.amount and P.amount.key == row.key and P.amount.n or nil
+    local want = c.kind ~= "level" and not c.stockOnly and P.amount and P.amount.key == row.key and P.amount.n or nil
     if vendorOnly and not carry and not want then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
     if batch < 1 and not carry and not want then return nil, BatchShort(b, room, makes) end
     -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
@@ -1528,6 +1528,8 @@ local function EvaluateCraft(c)
         end
         return pick, reason
     end
+    -- Exclude crafting (FRV-209, review round 3): only the units you hold, as a Stock pick
+    if c.stockOnly then return OnlyHeld("crafting is off (Exclude crafting)") end
     local runsMax = math_floor((batch - held) / makes)
     if carry then runsMax = math_ceil(math_max(0, carry.target - crafted) / makes) end
     if want then runsMax = math_ceil(want / makes) end
@@ -2310,8 +2312,8 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
-        elseif P.filters.noCraft then
-            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn, nor a Stock pick of a craft you hold
+        elseif P.filters.noCraft and HeldOf(row.key) <= 0 then
+            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn; units you hold stay a Stock pick (below)
             why[row.key] = "crafting is off (Exclude crafting)"
         elseif row.craft.specNeed then
             -- a recipe of a Leatherworking specialization you have not chosen can't be learned yet (FRV-110)
@@ -2327,6 +2329,9 @@ local function Candidates(out, why)
         elseif P.prof and row.craft.prof ~= P.prof then
             -- the profession dropdown limits crafts and recipes only, vendor resells and flips stay
             why[row.key] = "another profession is chosen in the table"
+        elseif P.filters.noCraft then
+            -- Exclude crafting keeps what you hold of it (review round 3): a Stock pick lists it, nothing is made or learned
+            list[#list + 1] = { kind = "craft", row = row, stockOnly = true }
         elseif row.learned then
             -- too little now, but listed later at 95% of its usual price it would earn: only a wait can make it a pick
             list[#list + 1] = { kind = "craft", row = row, dipOnly = TooLittle(row) or nil }

@@ -1750,8 +1750,9 @@ H.test("picks: Include not learned recipes off leaves recipes to learn out", fun
 end)
 
 -- FRV-209: "Exclude crafting" and "Exclude AH flips" (Picks only, both off by default) next to "Exclude vendor flips".
--- Rule: Exclude crafting takes no candidate of the crafts (Craft and sell, Craft and wait, a recipe to learn or to level
--- for, a Stock pick of a craft you hold), Exclude AH flips no flip of the Flip tab; the other kinds stay, and an
+-- Rule: Exclude crafting takes no pick that crafts (Craft and sell, Craft and wait, a recipe to learn or to level for);
+-- the units of a craft you hold stay a Stock pick (review round 3: listing them crafts nothing); Exclude AH flips no
+-- flip of the Flip tab; the other kinds stay, and an
 -- excluded item's reason names the option. With all three checked the set excludes every kind (FM.PicksAllExcluded).
 local function AllKinds()
     local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 200,
@@ -1803,7 +1804,7 @@ H.test("picks: Exclude crafting leaves out crafts and recipes, vendor and AH fli
     H.eq(out.pickWhy["136"], "crafting is off (Exclude crafting)", "its reason")
 end)
 
-H.test("picks: Exclude crafting also leaves out the Stock pick of a craft you hold", function()
+H.test("picks: Exclude crafting keeps the Stock pick of a craft you hold, it makes nothing", function()
     local FM, env = Setup({ ["100"] = 27 })
     FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
     local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
@@ -1811,9 +1812,15 @@ H.test("picks: Exclude crafting also leaves out the Stock pick of a craft you ho
     FM, env = Setup({ ["100"] = 27 })
     FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
     FM.FilterSet("picks").noCraft = true
+    picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
+    H.eq(picks["100"] and picks["100"].kind, "stock", "still a Stock pick: listing what you hold crafts nothing")
+    H.eq(picks["100"].makeStep, nil, "no make step")
+    -- what you do not hold is no pick
+    FM, env = Setup({ ["100"] = 27 })
+    FM.FilterSet("picks").noCraft = true
     local out = { crafts = { Craft("100", 43) } }
     picks = Compute(FM, env, out)
-    H.eq(picks["100"], nil, "no Stock pick with crafting excluded")
+    H.eq(picks["100"], nil, "nothing held: no pick")
     H.eq(out.pickWhy["100"], "crafting is off (Exclude crafting)", "the reason")
 end)
 

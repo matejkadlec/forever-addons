@@ -524,7 +524,7 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
             row.gain or 0, FM.MoneyFull(row.price), GREY, FM.MoneyFull(shown.typical), GREY))
     elseif row.gearView and (type(row.pct) == "number" or row.empty) then
         -- an upgrade the Upgrades tab does not list now (FRV-207): its Level or Rarities, or an ignored item
-        Note(tip, "No Cost-Benefit: the Upgrades tab does not list it now (outside its Level and Rarities, or ignored).")
+        Note(tip, "No Cost-Benefit: the Upgrades tab does not list it now (its Level, Rarities, Slots or Best per slot, or ignored).")
     end
     local snapshot = not row.owned and FM.GearSnapshot and FM.GearSnapshot()
     if BAND_TEXT[row.band] and snapshot then
@@ -815,8 +815,8 @@ end)
 -- with this tab's columns), saved per tab (settings.favoritesView, settings.ignoredView). The Gear view lists of each
 -- favorite (or ignored) item that is gear (FM.IsGear) one row per variant listed in the latest snapshot, as this tab
 -- does, whatever its Level, Rarities, Slots and Best per slot say: you picked these items. Upgrade is Pawn's % for the
--- chosen spec, "-" when it is none; Cost-Benefit the number this tab works out for that row now, "-" where it has none
--- (outside its Level and Rarities, no upgrade, or ignored); an item not listed is one row with "not listed" as its
+-- chosen spec, "-" when it is none; Cost-Benefit the number this tab shows for that row now, "-" where it lists none
+-- (its Level, Rarities, Slots or Best per slot, no upgrade, or ignored); an item not listed is one row with "not listed" as its
 -- price. The rows are copies: this tab's own rows keep their numbers. Favorize and Ignore stay per item ID
 
 local VIEW_SETTING = { favs = "favoritesView", ignored = "ignoredView" }
@@ -931,11 +931,11 @@ function FM.GearViewRows(set)
     if not scale or not (FM.GearSnapshot and FM.GearSnapshot()) then return out end
     local _, why = FM.EnsureUpgrades(filter)
     if why == "notready" then RetrySoon() end
-    -- the Cost-Benefit this tab shows now: its AH rows inside Level and Rarities, not ignored
+    -- the Cost-Benefit this tab shows now: the AH rows it lists (Level, Rarities, Slots, Best per slot, not ignored;
+    -- review round 3: a row its Slots or Best per slot hide has none here either)
     local cbOf = {}
-    local _, listed = ScoredRows(filter)
-    for _, row in ipairs(listed) do
-        if not (FM.IsExcluded and FM.IsExcluded(row.key)) then cbOf[row.id] = row.cb end
+    for _, row in ipairs(FM.UpgradesTabRows(nil)) do
+        if not row.owned then cbOf[row.id] = row.cb end
     end
     local seen = {}
     for _, row in ipairs(FM.UpgradeRowsOf(keys) or {}) do

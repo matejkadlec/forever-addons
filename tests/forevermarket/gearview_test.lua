@@ -251,6 +251,11 @@ H.test("gear view: one row per listed variant, a not listed item, no gear left o
     for _, row in ipairs(FM.TableRowsOf("upgrades")) do listed[row.id] = row.cb end
     H.same(listed, cb, "the Upgrades tab's numbers did not change")
     H.eq(Plain(FM.GearViewFooter(rows)), "  ·  6 gear items  ·  scored with Pawn's scale Hunter: Marksmanship", "the footer")
+    -- the Upgrades tab's Slots hide the shoulders: no Cost-Benefit here either (review round 3)
+    FM.GetSettings().upgradeSlots = { INVTYPE_SHOULDER = false }
+    local _, again = GearRows(FM, env, "favsGear")
+    H.eq(Cell(FM, 6, again["15638:"]), "-", "hidden by Slots: no Cost-Benefit")
+    H.eq(Cell(FM, 5, again["15638:"]), "30%", "its Upgrade stays")
 end)
 
 H.test("gear view: Ignored lists its gear without Cost-Benefit, a favorite that is ignored leaves Favorites' view", function()
