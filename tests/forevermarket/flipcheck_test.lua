@@ -371,3 +371,26 @@ H.test("flip check: your buyout of an item sold per auction counts as the flip's
     H.eq(pick.gone, nil, "not gone")
     H.eq(FM.FlipLiveState(pick), "confirmed", "your buyouts confirm it")
 end)
+
+H.test("flip check: a full commodity answer with no listing at all makes the flip gone", function()
+    local FM, env = Setup()
+    local pick = PlanOn(FM, env)
+    FM.trade = { picks = { pick } }
+    local n, full = 0, true
+    env.C_AuctionHouse = {
+        GetNumCommoditySearchResults = function() return n end,
+        GetCommoditySearchResultInfo = function() return nil end,
+        HasFullCommoditySearchResults = function() return full end,
+    }
+    env.clock = env.clock + 10
+    -- a partial answer of none says nothing
+    full = false
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 105)
+    env.FlushTimers()
+    H.eq(pick.gone, nil, "a partial empty answer: nothing")
+    full = true
+    env.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 105)
+    env.FlushTimers()
+    H.eq(pick.gone ~= nil, true, "nothing listed: gone")
+    H.same(FM.live["105"].ladder, {}, "an empty ladder")
+end)

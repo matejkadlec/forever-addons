@@ -177,8 +177,15 @@ local function CaptureCommodity(itemID)
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumCommoditySearchResults and ah.GetCommoditySearchResultInfo) then return end
     local n = ah.GetNumCommoditySearchResults(itemID)
-    if type(n) ~= "number" or n <= 0 or FM.IsSecret(n) then return end
+    if type(n) ~= "number" or FM.IsSecret(n) then return end
     local full = ah.HasFullCommoditySearchResults and ah.HasFullCommoditySearchResults(itemID) or false
+    if FM.IsSecret(full) then full = false end
+    if n <= 0 then
+        -- none listed at all (review round 4): a full answer is an empty ladder for the live check of a flip pick. Not
+        -- for an item sold per auction: its search by a bare item ID's key is not yet verified in game
+        if full then Live(tostring(itemID), {}, true) end
+        return
+    end
     local rows = {}
     for i = 1, n do
         local r = ah.GetCommoditySearchResultInfo(itemID, i)
