@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\INV_Letter_15
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.0.2
+## Version: 1.0.3
 ## X-License: All Rights Reserved
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverEnhancedMailboxSettings, JimsForeverAddOnsDB
