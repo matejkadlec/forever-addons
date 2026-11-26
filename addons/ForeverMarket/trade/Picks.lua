@@ -2159,6 +2159,9 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif P.filters.noCraft then
+            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn, nor a Stock pick of a craft you hold
+            why[row.key] = "crafting is off (Exclude crafting)"
         elseif row.craft.specNeed then
             -- a recipe of a Leatherworking specialization you have not chosen can't be learned yet (FRV-110)
             why[row.key] = string_format("needs the %s Leatherworking specialization", row.craft.specNeed)
@@ -2213,6 +2216,9 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif P.filters.noFlip then
+            -- Exclude AH flips (FRV-209)
+            why[row.key] = "AH flips are off (Exclude AH flips)"
         elseif listedWhy then
             why[row.key] = listedWhy
         elseif FM.HasVariants(row.key) or FM.SuffixUnknown(row.key) then

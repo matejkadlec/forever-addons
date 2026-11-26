@@ -387,12 +387,20 @@ local function InFilter(row, filter)
     return true
 end
 
+-- A row the worker scores: inside the filter, or a listing of an item the filter names (filter.keys: the favorites
+-- and ignored items, which the Gear view of Favorites and Ignored shows whatever Level and Rarities say, FRV-207).
+-- Only InFilter picks the Upgrades tab's rows
+local function Wanted(row, filter)
+    if filter and type(filter.keys) == "table" and not row.owned and filter.keys[row.key] then return true end
+    return InFilter(row, filter)
+end
+
 -- Nothing more to do for this row under this filter
 local function Resolved(row, filter)
     if row.dropped then return true end
     if row.owned and filter and filter.owned == false then return true end -- not even loaded while unchecked
     if not row.link then return false end
-    return row.scored == true or not InFilter(row, filter)
+    return row.scored == true or not Wanted(row, filter)
 end
 
 -- One step of a row: "wait" when it waits for the client or Pawn (row.retryAt), else "done"; asked = a load was asked
@@ -424,7 +432,7 @@ local function Process(row, filter, now, level, mayAsk, inUse)
             return "wait"
         end
     end
-    if row.scored or not InFilter(row, filter) then return "done" end
+    if row.scored or not Wanted(row, filter) then return "done" end
     if (row.retryAt or 0) > now then return "wait" end
     local result = FM.UpgradeScore(row, inUse)
     if result == nil then
@@ -440,11 +448,24 @@ local function Process(row, filter, now, level, mayAsk, inUse)
     return "done"
 end
 
+-- The same set of keys (nil counts as none)
+local function SameKeys(a, b)
+    a, b = type(a) == "table" and a or {}, type(b) == "table" and b or {}
+    for k in pairs(a) do
+        if not b[k] then return false end
+    end
+    for k in pairs(b) do
+        if not a[k] then return false end
+    end
+    return true
+end
+
 local function SameFilter(a, b)
     if a == b then return true end
     if not a or not b then return false end
     if a.minLevel ~= b.minLevel or a.maxLevel ~= b.maxLevel then return false end
     if (a.owned == false) ~= (b.owned == false) then return false end
+    if not SameKeys(a.keys, b.keys) then return false end
     local qa, qb = type(a.quality) == "table" and a.quality or nil, type(b.quality) == "table" and b.quality or nil
     if (qa == nil) ~= (qb == nil) then return false end
     for q, on in pairs(qa or {}) do
@@ -512,9 +533,9 @@ local function Slice(token)
     RefreshShownTable()
 end
 
--- Loads and scores the rows inside filter = { minLevel, maxLevel, quality = { [n] = true } } (the item's required
--- level and rarity), at most SLICE_MS of work per frame; the rows outside it are only loaded (their level and rarity
--- need the item's data). Returns true while it works, else false and why (FM.UpgradeScale's reason, "nosnapshot", or
+-- Loads and scores the rows inside filter = { minLevel, maxLevel, quality = { [n] = true }, keys = { [key] = true } }
+-- (the item's required level and rarity; keys: items scored whatever their level and rarity, FRV-207), at most
+-- SLICE_MS of work per frame; the rows outside it are only loaded (their level and rarity need the item's data). Returns true while it works, else false and why (FM.UpgradeScale's reason, "nosnapshot", or
 -- nil when everything inside the filter is done)
 function FM.EnsureUpgrades(filter)
     local scale, why = FM.UpgradeScale(filter and filter.scale)
@@ -566,6 +587,19 @@ function FM.UpgradeRows(filter)
         if row.scored and not row.dropped and InFilter(row, filter) and Current(row, age) and ApplyScale(row, scale) then
             rows[#rows + 1] = row
         end
+    end
+    return rows
+end
+
+-- The AH rows of these items (keys = { [key] = true }; FRV-207, the Gear view of Favorites and Ignored): every
+-- listing of the latest snapshot that can still run, whatever the filter, scored or not (row.scored, row.dropped: no
+-- upgrade, not wearable or not loaded, row.scores per scale). nil while there is nothing to list
+function FM.UpgradeRowsOf(keys)
+    if type(keys) ~= "table" or not Sync() then return nil end
+    local age = SnapshotAge()
+    local rows = {}
+    for _, row in ipairs(U.list) do
+        if not row.owned and keys[row.key] and Current(row, age) then rows[#rows + 1] = row end
     end
     return rows
 end

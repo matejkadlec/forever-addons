@@ -29,27 +29,32 @@ local BOX_W = { [2] = 20, [3] = 28 } -- a number box as wide as its digits
 local COIN = { "|cFFFFD700g|r", "|cFFC7C7CFs|r", "|cFFEDA55Fc|r" }
 
 -- The options in order; parent = the option that greys it out; box = the digits of its number box; money = a value in
--- gold, silver and copper boxes
+-- gold, silver and copper boxes; craftOnly = it only matters for crafting: greyed out in Picks' own dialog while
+-- Exclude crafting is checked there (FRV-209; the global set keeps it, the Craft tab uses it)
 local OPTIONS = {
-    { key = "learn", label = "Include not learned recipes",
+    { key = "learn", label = "Include not learned recipes", craftOnly = true,
         tip = "Recipes you have not learned yet: the ones you can learn now, and with the options below also those above your level or skill (default on)." },
-    { key = "overLevel", parent = "learn", label = "Over character level",
+    { key = "overLevel", parent = "learn", label = "Over character level", craftOnly = true,
         tip = "Also recipes that need a higher character level than yours, up to the cap below (a recipe can need a level to learn: Lobster Stew needs 45). Unchecked: only what your level can learn (default off). On Picks they are information only (\"Level for\"): nothing in the plan learns them." },
-    { key = "overLevelCap", parent = "overLevel", label = "Over character level cap", box = 2,
+    { key = "overLevelCap", parent = "overLevel", label = "Over character level cap", box = 2, craftOnly = true,
         tip = "How many levels above yours a recipe may need (default 5)." },
-    { key = "overSkill", parent = "learn", label = "Over skill level",
+    { key = "overSkill", parent = "learn", label = "Over skill level", craftOnly = true,
         tip = "Also recipes that need more skill than you have now, up to the cap below (their skill is red). Unchecked: only what your skill can learn now (default on). On Picks they are information only (\"Level for\")." },
-    { key = "overSkillCap", parent = "overSkill", label = "Over skill level cap", box = 3,
+    { key = "overSkillCap", parent = "overSkill", label = "Over skill level cap", box = 3, craftOnly = true,
         tip = "How many skill points above yours a recipe may need (default 10)." },
+    { key = "noCraft", label = "Exclude crafting",
+        tip = "The plan crafts nothing: no Craft and sell, no Craft and wait, no recipe to learn, and the crafts you hold are no Stock pick either; their gold goes to the other picks (default off). While it is checked, the options for crafting in these filters are off." },
     { key = "noVendor", label = "Exclude vendor flips",
         tip = "The plan buys nothing from vendors to resell on the AH; their gold goes to the other picks (default off)." },
+    { key = "noFlip", label = "Exclude AH flips",
+        tip = "The plan buys nothing on the AH to list again (the flips of the Flip tab); their gold goes to the other picks (default off)." },
     { key = "noListed", label = "Exclude already listed items",
         tip = "An item you list already (all your characters, as the room on the AH counts them) is no pick once your listings reach both thresholds below. With the defaults, any listing excludes it (default off)." },
     { key = "listedCount", parent = "noListed", label = "Listed items count threshold", box = 3,
         tip = "At least this many units listed (default 1; 0 or empty becomes 1)." },
     { key = "listedValue", parent = "noListed", label = "Listed items value threshold", money = true,
         tip = "Listed for at least this much in all, at your listing prices (default 1c; 0g 0s 0c becomes 1c)." },
-    { key = "noStock", label = "Exclude stock for crafting",
+    { key = "noStock", label = "Exclude stock for crafting", craftOnly = true,
         tip = "Checked: the plan buys every material, as if your bags and bank were empty (tools you own still count). Unchecked (default): the materials you hold are used first and only the rest is bought; the steps say what comes from your bags. Units of the pick's own item that you hold count either way: the pick makes that many fewer." },
     { key = "allGold", label = "Gold of all characters",
         tip = "Checked: your gold for the budget is that of all your characters of this realm and faction, this one's now and the others' as last recorded (/fm chars); the % of the Picks row applies to that sum, the cap of 90% too. Their gold has to be mailed to this character before you can spend it: hover the plan's summary for each character's gold. Unchecked (default): this character's gold only. The sniper always spends this character's gold." },
@@ -185,6 +190,9 @@ local function Tip(frame, opt)
         GameTooltip:AddLine(opt.label)
         GameTooltip:AddLine(opt.tip, 1, 1, 1, true)
         if opt.box or opt.money then GameTooltip:AddLine("Enter or click elsewhere to apply.", 0.6, 0.6, 0.6, true) end
+        if opt.craftOnly and dialog and dialog.setName == "picks" and FM.FilterSet("picks").noCraft == true then
+            GameTooltip:AddLine("Off while Exclude crafting is checked: the plan crafts nothing.", 1, 0.82, 0, true)
+        end
         GameTooltip:Show()
     end, "shift") -- the dialog holds only inputs and checkboxes
 end
@@ -279,6 +287,8 @@ local function CreateRow(w, opt)
         row.label = row.check.label
         row.check:SetScript("OnClick", function(self) Apply(opt.key, self:GetChecked() and true or false) end)
         Tip(row.check, opt)
+        -- greyed out by Exclude crafting, its tooltip still says why (FRV-209)
+        if opt.craftOnly and row.check.SetMotionScriptsWhileDisabled then row.check:SetMotionScriptsWhileDisabled(true) end
         row.width = 2 + 22
     end
     return row
@@ -419,13 +429,16 @@ local function Layout(w, tabId, setName)
     w:SetSize(math_floor(width + 0.5), y + PAD - 4)
 end
 
--- The values of the set shown, children greyed out while a parent is unchecked; a box you type in keeps its text
+-- The values of the set shown, children greyed out while a parent is unchecked (and in Picks' own set the options for
+-- crafting while Exclude crafting is checked); a box you type in keeps its text
 local function Refresh(w)
     local set = FM.FilterSet(w.setName)
     local enabled = {}
+    -- Picks' own set with Exclude crafting checked: the options for crafting are off (FRV-209)
+    local craftOff = w.setName == "picks" and set.noCraft == true
     for _, row in ipairs(w.rows) do
         local key = row.opt.key
-        local on = not row.parent or (enabled[row.parent] and set[row.parent] == true)
+        local on = (not row.parent or (enabled[row.parent] and set[row.parent] == true)) and not (craftOff and row.opt.craftOnly)
         enabled[key] = on
         if row.check then
             row.check:SetChecked(set[key] == true)

@@ -475,7 +475,17 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
         yours, up to **Over character level cap** [5] levels above it; unchecked, a recipe above your level is hidden
       * **Over skill level** [x] (Picks, Craft, Learn; was "Above current skill"): recipes above your skill, up to
         **Over skill level cap** [10] points above it (was "Max. above current skill")
+    * **Exclude crafting** [ ] (Picks, 1.56, FRV-209): the plan crafts nothing: no Craft and sell, no Craft and wait,
+      no recipe to learn (nor a "Level for" row), and the crafts you hold are no Stock pick either; "Also good, but out
+      of scope" follows and the reason names it ("crafting is off (Exclude crafting)"). In Picks' own dialog the options
+      that only matter for crafting (Include not learned recipes with its children, Exclude stock for crafting) are
+      greyed out while it is checked, their tooltip says why; in Global filters they stay on (the Craft tab uses them)
     * **Exclude vendor flips** [ ] (Picks; was "Ignore vendor"): the plan buys nothing from vendors to resell
+    * **Exclude AH flips** [ ] (Picks, 1.56, FRV-209): the plan buys nothing on the AH to list again (the Flip tab's
+      kind); "Also good, but out of scope" follows, the reason says "AH flips are off (Exclude AH flips)"
+    * With all three of them checked in the set Picks uses, Picks shows no rows and no sections, only "You've excluded
+      all kinds of profits. Include them again in filter settings to see picks." where the rows would be, also while a
+      pass runs (no "Computing...") (`FM.PicksAllExcluded` in core/Core.lua)
     * **Exclude already listed items** [ ] (Picks): an item is no pick once your listings of it (all characters, as
       the room on the AH counts them) reach both **Listed items count threshold** [1] units and **Listed items value
       threshold** [0g 0s 1c] at your listing prices (`FM.OwnListings`'s `value`: a post at its unit price, an
@@ -540,6 +550,21 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
   its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
+* **Marketplace / Gear** (1.56, FRV-207): a dropdown left of Refresh on Favorites and Ignored only switches the tab
+  between **Marketplace** (the default: the table above, every item, gear included) and **Gear**; each tab keeps its
+  own choice over a `/reload` (`settings.favoritesView`, `settings.ignoredView`), its tooltip (with Shift): "Marketplace:
+  your items with the market columns. Gear: your gear with the Upgrades tab's columns." **Gear** lists the favorite (or
+  ignored) items that are gear with the Upgrades tab's columns (Item, Slot, Lvl, Price, Upgrade, Cost-Benefit), whatever
+  that tab's Level, Rarities, Slots and Best per slot say (you picked these items): one row per variant listed in the
+  latest snapshot, an item not listed one row with grey "not listed" as its price. Upgrade is Pawn's % for the Spec
+  chosen on Upgrades, "-" when it is no upgrade (the row stays); Cost-Benefit the number the Upgrades tab shows for that
+  row now, "-" where it has none (outside its Level and Rarities, no upgrade, or ignored: on Ignored every row). Row
+  tooltip, clicks and menu as on Upgrades; the menu keeps "Unfavorize this item" / "Stop ignoring this item", and an
+  item not listed has nothing to buy (Shift+click links it). Favorize and Ignore stay per item ID: all variants go
+  together. The search box is the tab's own in both views; the footer says "1-4 of 4  ·  3 gear items  ·  scored with
+  Pawn's scale ..."; without Pawn or gear data the Upgrades tab's texts, without gear among the items "None of your
+  favorites is gear. Marketplace (the dropdown left of Refresh) lists them all." (ui/Upgrades.lua `FM.GearViewRows`,
+  trade/Upgrades.lua scores the items of `filter.keys` whatever the filter)
 * **Picks** (trade/Picks.lua) = what to do now, one 8h listing per pick, ranked by expected profit per gold put
   in (1.40, FRV-103; by a day's expected profit before), with the reasons in the tooltip. The formula is on the
   Confluence page [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)
