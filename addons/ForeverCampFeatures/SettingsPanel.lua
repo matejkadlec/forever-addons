@@ -391,17 +391,29 @@ end
 -- Refresh
 --------------------------------------------------------------------------------
 
--- The boolean settings with their checkbox (y on the scrolled page)
+-- The boolean settings with their checkbox (y on the scrolled page); parent = the option it is indented under
+-- and greyed out with
 local OPTIONS = {
     { key = "alertText", label = "OPTION_ALERT_TEXT", x = 32, y = -86 },
     { key = "alertSound", label = "OPTION_ALERT_SOUND", x = 300, y = -86 },
     { key = "waypoint", label = "OPTION_WAYPOINT", tooltip = L.OPTION_WAYPOINT_TOOLTIP, x = 32, y = -222 },
-    { key = "share", label = "OPTION_SHARE", x = 32, y = -276 },
-    { key = "showShared", label = "OPTION_SHOW_SHARED", x = 32, y = -298 }
+    { key = "waypointArrow", parent = "waypoint", label = "OPTION_WAYPOINT_ARROW",
+        tooltip = L.OPTION_WAYPOINT_ARROW_TOOLTIP, x = 56, y = -244 },
+    { key = "alertOnce", label = "OPTION_ALERT_ONCE", tooltip = L.OPTION_ALERT_ONCE_TOOLTIP, x = 32, y = -266 },
+    { key = "alertOnceReset", parent = "alertOnce", label = "OPTION_ALERT_ONCE_RESET",
+        tooltip = L.OPTION_ALERT_ONCE_RESET_TOOLTIP, x = 56, y = -288 },
+    { key = "share", label = "OPTION_SHARE", x = 32, y = -342 },
+    { key = "showShared", label = "OPTION_SHOW_SHARED", x = 32, y = -364 }
 }
--- Below them (y on the scrolled page): the note on what sharing sends, then the features' header row
-local SHARING_NOTE_Y = -324
-local FEATURES_Y = -374
+-- Around them (y on the scrolled page): the two section headers, the note on what sharing sends, then the
+-- features' header row
+local ALERTS_Y = -66
+local SHARING_Y = -322
+local SHARING_NOTE_Y = -390
+local FEATURES_Y = -440
+-- The warning sign before "You have TomTom arrows disabled": the dialogs' alert icon (the fonts have no emoji),
+-- written as CreateSimpleTextureMarkup writes a texture into a text (height, width, x and y offset)
+local WARNING_ICON = "|TInterface\\DialogFrame\\UI-Dialog-Icon-AlertNew:16:16:0:0|t"
 
 -- Fade every feature the search does not match (by its name or its profession's), and a profession none of whose
 -- features match. A faded checkbox still works: the search only helps to find one
@@ -429,10 +441,15 @@ local function RefreshSettingsPanel()
     local textOn = enabled and db.alertText
     local soundOn = enabled and db.alertSound
     controls.enabled:SetChecked(enabled)
-    for key, checkbox in pairs(controls.options) do
-        checkbox:SetChecked(db[key])
-        SetControlEnabled(checkbox, enabled)
+    for _, option in ipairs(OPTIONS) do
+        local checkbox = controls.options[option.key]
+        checkbox:SetChecked(db[option.key])
+        -- an indented option is greyed out with the one above it
+        SetControlEnabled(checkbox, enabled and (not option.parent or db[option.parent]) and true or false)
     end
+    -- the arrow is asked for but switched off in TomTom itself (read again each time: it is TomTom's setting)
+    controls.arrowWarning:SetShown((enabled and db.waypoint and db.waypointArrow
+        and ns.TomTomArrowEnabled() == false) and true or false)
 
     -- the sound: its dropdown and the play button follow "Sound"
     SetDropdownText(controls.sound, ns.SoundName(ns.GetStyle("alertSoundKit")))
@@ -629,8 +646,8 @@ local function RegisterSettingsPanel()
     controls.enabled = CreateCheckbox("ForeverCampFeaturesSettingsEnabled", 14, -32, L.OPTION_ENABLED, false,
         ns.SetAddonEnabled)
 
-    CreateHeader(L.PANEL_ALERTS, -66)
-    CreateHeader(L.PANEL_SHARING, -256)
+    CreateHeader(L.PANEL_ALERTS, ALERTS_Y)
+    CreateHeader(L.PANEL_SHARING, SHARING_Y)
     controls.options = {}
     for _, option in ipairs(OPTIONS) do
         local key = option.key
@@ -642,6 +659,12 @@ local function RegisterSettingsPanel()
             AddTooltip(controls.options[key], option.tooltip)
         end
     end
+    -- in red right next to "TomTom waypoint arrows", shown while TomTom's own arrow is switched off
+    controls.arrowWarning = content:CreateFontString("ForeverCampFeaturesSettingsArrowWarning", "ARTWORK",
+        "GameFontRedSmall")
+    controls.arrowWarning:SetPoint("LEFT", controls.options.waypointArrow.Text, "RIGHT", 10, 0)
+    controls.arrowWarning:SetText(WARNING_ICON .. " " .. L.PANEL_ARROW_WARNING)
+    controls.arrowWarning:Hide()
     CreateAlertControls()
     -- what sharing sends and who can see that you run the AddOn, right under the two options
     CreateNote(L.PANEL_SHARING_NOTE, 58, SHARING_NOTE_Y)

@@ -3,8 +3,9 @@ local _, ns = ...
 -- The alert for a found object: a text on a rounded background, by default a quarter of the screen above the
 -- center (font, size, colors and place come from the settings), and a sound picked from the game's sounds (each
 -- can be switched off), then a TomTom waypoint when TomTom is loaded, else the coordinates in the chat (a hover
--- find always gets the chat line: the game only gives your own position then). Only the AddOn's own frames are
--- drawn on; TomTom is called through its public AddWaypoint / RemoveWaypoint.
+-- find's waypoint is where you stood: the game only gives your own position then). Only the AddOn's own frames
+-- are drawn on; TomTom is called through its public AddWaypoint / IsValidWaypoint / RemoveWaypoint, and its own
+-- arrow switch is only read.
 
 local L = ns.L
 
@@ -18,6 +19,7 @@ local string_lower = string.lower
 local table_insert = table.insert
 local table_remove = table.remove
 local table_sort = table.sort
+local tostring = tostring
 local type = type
 local GetTime = GetTime
 local time = time
@@ -484,40 +486,161 @@ local function HasTomTom()
 end
 ns.HasTomTom = HasTomTom
 
--- Waypoint per entry (TomTom's own handle; gone after a /reload like the waypoint itself)
-local waypoints = {}
+-- TomTom's own arrow switch ("Enable floating waypoint arrow"): true or false as the player set it there, nil
+-- when TomTom is not loaded or keeps its settings elsewhere. With it off TomTom shows no arrow, whatever a
+-- waypoint asks for
+function ns.TomTomArrowEnabled()
+    if not HasTomTom() then
+        return nil
+    end
+    local profile = TomTom.profile
+    if type(profile) ~= "table" and type(TomTom.db) == "table" then
+        profile = TomTom.db.profile
+    end
+    local arrow = type(profile) == "table" and profile.arrow
+    if type(arrow) == "table" and type(arrow.enable) == "boolean" then
+        return arrow.enable
+    end
+    return nil
+end
 
--- Put a TomTom waypoint on an entry, as /way does; true when TomTom took it
-local function AddWaypoint(entry)
+-- Waypoint per entry: { uid (TomTom's own handle), x, y, title (as it was set) }; gone after a /reload like the
+-- waypoint itself (RestoreWaypoints sets them again)
+local waypoints = {}
+-- The last time a waypoint was asked for: { at, name, result } (/fcf debug)
+local lastWaypoint
+
+-- Keep what the last waypoint request came to
+local function NoteWaypoint(entry, result)
+    lastWaypoint = { at = GetTime(), name = ns.ObjectName(ns.OBJECT_BY_KEY[entry.key]), result = result }
+end
+
+-- True while TomTom still holds a waypoint (it removes one itself when you arrive at it, and the player can)
+local function IsHeld(uid)
+    if type(TomTom.IsValidWaypoint) ~= "function" then
+        return true
+    end
+    local ok, valid = pcall(TomTom.IsValidWaypoint, TomTom, uid)
+    return ok and valid == true
+end
+
+-- Remove an entry's waypoint (it expired, or it is set again in another place)
+function ns.RemoveWaypoint(entry)
+    local waypoint = waypoints[entry]
+    waypoints[entry] = nil
+    if waypoint and TomTom and type(TomTom.RemoveWaypoint) == "function" then
+        pcall(TomTom.RemoveWaypoint, TomTom, waypoint.uid)
+    end
+end
+
+-- The title of an entry's waypoint: the object's name; a hover find's says that it marks where you stood, not
+-- where the object is
+local function WaypointTitle(entry)
+    local name = ns.ObjectName(ns.OBJECT_BY_KEY[entry.key])
+    if entry.source == ns.SOURCE_HOVER then
+        return string_format(L.WAYPOINT_HOVER, name)
+    end
+    return name
+end
+
+-- True when a waypoint is still what its entry asks for (a hover find later found in range has its exact place
+-- and its plain name)
+local function IsCurrent(waypoint, entry)
+    return waypoint.x == entry.x and waypoint.y == entry.y and waypoint.title == WaypointTitle(entry)
+end
+
+-- Make sure an entry has its TomTom waypoint, set as /way does; true when TomTom holds one for it afterwards.
+-- The one set before counts while TomTom still has it; one TomTom removed, or one whose entry got its exact
+-- place since, is set again. With "TomTom waypoint arrows" on it also takes TomTom's arrow, else (and when
+-- quiet: a waypoint set again after a /reload) the arrow is left alone
+local function EnsureWaypoint(entry, quiet)
     if not HasTomTom() then
         return false
     end
-    local object = ns.OBJECT_BY_KEY[entry.key]
+    local waypoint = waypoints[entry]
+    if waypoint then
+        if IsCurrent(waypoint, entry) and IsHeld(waypoint.uid) then
+            NoteWaypoint(entry, L.DEBUG_WAYPOINT_KEPT)
+            return true
+        end
+        ns.RemoveWaypoint(entry)
+    end
+    local title = WaypointTitle(entry)
     local ok, uid = pcall(TomTom.AddWaypoint, TomTom, entry.map, entry.x, entry.y, {
-        title = ns.ObjectName(object),
+        title = title,
         persistent = false,
         minimap = true,
         world = true,
+        crazy = not quiet and ns.GetDB().waypointArrow == true,
         from = ns.ADDON_FULL_NAME
     })
-    if ok and uid then
-        waypoints[entry] = uid
+    if ok and type(uid) == "table" then
+        waypoints[entry] = { uid = uid, x = entry.x, y = entry.y, title = title }
+        NoteWaypoint(entry, L.DEBUG_WAYPOINT_SET)
         return true
     end
+    NoteWaypoint(entry, ok and L.DEBUG_WAYPOINT_REFUSED or string_format(L.DEBUG_WAYPOINT_ERROR, tostring(uid)))
     return false
 end
 
--- Remove an entry's waypoint (it expired)
-function ns.RemoveWaypoint(entry)
-    local uid = waypoints[entry]
-    waypoints[entry] = nil
-    if uid and TomTom and type(TomTom.RemoveWaypoint) == "function" then
-        pcall(TomTom.RemoveWaypoint, TomTom, uid)
+-- An entry got its exact place (a hover find later found in range, which does not alert again): its waypoint
+-- moves there. One that TomTom or the player removed meanwhile comes back only with an alert
+function ns.MoveWaypoint(entry)
+    local waypoint = waypoints[entry]
+    if not waypoint or IsCurrent(waypoint, entry) then
+        return
+    end
+    if not (HasTomTom() and IsHeld(waypoint.uid)) then
+        waypoints[entry] = nil
+    elseif ns.GetDB().waypoint then
+        EnsureWaypoint(entry)
     end
 end
 
--- Alert one entry: text, sound, then a waypoint (not for a hover: the client only gives your own position then)
--- or the coordinates in the chat
+-- After a login or /reload: TomTom has dropped the waypoints (they are never saved there), so the objects that
+-- alerted before and are still known get theirs again, without an alert and without taking the arrow. Your own
+-- placement that never alerted had none; isShown(entry) leaves out what the settings hide
+function ns.RestoreWaypoints(entries, isShown)
+    if not (ns.GetDB().waypoint and HasTomTom()) then
+        return
+    end
+    for _, entry in ipairs(entries) do
+        if entry.alerted and not entry.placedByYou and not waypoints[entry] and isShown(entry) then
+            EnsureWaypoint(entry, true)
+        end
+    end
+end
+
+-- Debug lines of the waypoints: is TomTom there, the two options, TomTom's own arrow switch, the waypoints the
+-- AddOn set and how many of them TomTom still holds, and what the last request came to
+function ns.DebugWaypointLines()
+    local db = ns.GetDB()
+    local function OnOff(value)
+        return value and L.ON or L.OFF
+    end
+    local arrow = ns.TomTomArrowEnabled()
+    local set, held = 0, 0
+    for _, waypoint in pairs(waypoints) do
+        set = set + 1
+        if HasTomTom() and IsHeld(waypoint.uid) then
+            held = held + 1
+        end
+    end
+    local lines = {}
+    lines[#lines + 1] = string_format(L.DEBUG_TOMTOM, HasTomTom() and L.DEBUG_LOADED or L.DEBUG_NOT_LOADED,
+        OnOff(db.waypoint), OnOff(db.waypointArrow), arrow == nil and L.DEBUG_UNKNOWN or OnOff(arrow))
+    lines[#lines + 1] = string_format(L.DEBUG_WAYPOINTS_HELD, set, held)
+    if lastWaypoint then
+        lines[#lines + 1] = string_format(L.DEBUG_WAYPOINT_LAST, ns.FormatAge(GetTime() - lastWaypoint.at),
+            lastWaypoint.name, lastWaypoint.result)
+    else
+        lines[#lines + 1] = L.DEBUG_WAYPOINT_NONE
+    end
+    return lines
+end
+
+-- Alert one entry: text, sound, then its waypoint, or the coordinates in the chat when the option is off, TomTom
+-- is not loaded or TomTom did not take it
 function ns.ShowAlert(entry)
     local db = ns.GetDB()
     local text = AlertText(entry)
@@ -527,11 +650,7 @@ function ns.ShowAlert(entry)
     if db.alertSound then
         PlayAlertSound()
     end
-    local hasWaypoint = false
-    if db.waypoint and entry.source ~= ns.SOURCE_HOVER and not waypoints[entry] then
-        hasWaypoint = AddWaypoint(entry)
-    end
-    if not hasWaypoint then
+    if not (db.waypoint and EnsureWaypoint(entry)) then
         ns.Print(text)
     end
 end

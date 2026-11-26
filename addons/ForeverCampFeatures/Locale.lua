@@ -22,6 +22,8 @@ local L = {
     ALERT_AT = "%s at %s",
     ALERT_RANGE = "%s in range at %s",
     ALERT_HOVER = "%s in sight near %s",
+    -- the TomTom waypoint of a hover find: it marks where you stood
+    WAYPOINT_HOVER = "%s (seen from here)",
     PLACED_AGO = "placed %s ago",
     AGE_SECONDS = "%d s",
     AGE_MINUTES = "%d min",
@@ -40,7 +42,6 @@ local L = {
     -- /fcf
     LIST_HEADER = "Camp objects in %s:",
     LIST_EMPTY = "No known camp objects in %s.",
-    LIST_HINT = "%s help for the commands, %s options for the settings.",
     HELP_HEADER = "Available commands:",
     HELP_LIST = "List the known camp objects of your zone",
     HELP_ON = "Enable Forever Camp Features",
@@ -102,6 +103,18 @@ local L = {
     DEBUG_SENT = "Sent: %s; not sent: %d in chat lockdown, %d without channel, guild or group",
     DEBUG_RECEIVED = "Received: %s; dropped: %d invalid (last: %s), %d rate-limited, %d ignored",
     DEBUG_SHARED_KNOWN = "Shared objects known: %d",
+    DEBUG_WAYPOINTS = "TomTom waypoints:",
+    DEBUG_TOMTOM = "TomTom: %s; waypoint option: %s; arrow option: %s; TomTom's own arrow: %s",
+    DEBUG_LOADED = "loaded",
+    DEBUG_NOT_LOADED = "not loaded",
+    DEBUG_UNKNOWN = "unknown",
+    DEBUG_WAYPOINTS_HELD = "Waypoints set: %d, still in TomTom: %d",
+    DEBUG_WAYPOINT_LAST = "Last request %s ago: %s -> %s",
+    DEBUG_WAYPOINT_NONE = "No waypoint asked for since login",
+    DEBUG_WAYPOINT_SET = "set",
+    DEBUG_WAYPOINT_KEPT = "kept, TomTom still holds it",
+    DEBUG_WAYPOINT_REFUSED = "TomTom returned no waypoint",
+    DEBUG_WAYPOINT_ERROR = "TomTom failed: %s",
 
     -- settings panel
     PANEL_NAME = "Camp Features",
@@ -138,8 +151,17 @@ local L = {
     FONT_DEFAULT = "Game default",
     FONT_SHARED = "LibSharedMedia",
     OPTION_WAYPOINT = "TomTom waypoint instead of the coordinates in the chat",
-    OPTION_WAYPOINT_TOOLTIP = "Needs the TomTom AddOn. Without it, and for a camp feature found by hovering, the "
-        .. "coordinates go to the chat",
+    OPTION_WAYPOINT_TOOLTIP = "Needs the TomTom AddOn. Without it the coordinates go to the chat. A camp feature "
+        .. "found by hovering gets its waypoint where you stood",
+    OPTION_WAYPOINT_ARROW = "TomTom waypoint arrows",
+    OPTION_WAYPOINT_ARROW_TOOLTIP = "Also points TomTom's arrow at the camp feature. Off: only the pins on the "
+        .. "minimap and the world map, and the arrow keeps its target",
+    PANEL_ARROW_WARNING = "You have TomTom arrows disabled",
+    OPTION_ALERT_ONCE = "Alert me only once per feature",
+    OPTION_ALERT_ONCE_TOOLTIP = "A camp feature that alerted stays quiet for as long as it is known, also when you "
+        .. "leave its zone and come back. Off: it alerts again every time you come back to its zone",
+    OPTION_ALERT_ONCE_RESET = "Reset on reload",
+    OPTION_ALERT_ONCE_RESET_TOOLTIP = "After a /reload or a login every known camp feature may alert once more",
     OPTION_SHARE = "Share the camp features I place or find",
     OPTION_SHOW_SHARED = "Show camp features others found",
 

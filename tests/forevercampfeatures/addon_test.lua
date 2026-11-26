@@ -15,8 +15,10 @@ local LOBSTER_STEW = 18245
 local function Load(options)
     options = options or {}
     local ns, env = H.LoadAddon("addons/ForeverCampFeatures", FILES)
-    local seen = { sent = {}, waypoints = {}, removed = {}, sounds = {}, joined = {} }
+    local seen = { sent = {}, waypoints = {}, crazy = {}, removed = {}, sounds = {}, joined = {} }
     env.clock = 1795400000
+    -- what a /reload finds in SavedVariables
+    env.ForeverCampFeaturesSettings = options.saved
     env.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
     env.C_Timer.NewTicker = function(_, fn) env.tick = fn return { Cancel = function() env.tick = nil end } end
     env.Enum = {
@@ -93,14 +95,40 @@ local function Load(options)
     env.SOUNDKIT = { RAID_WARNING = 8959, READY_CHECK = 8960 }
     env.PlaySound = function(kit) seen.sounds[#seen.sounds + 1] = kit end
     if not options.noTomTom then
+        -- TomTom as far as the AddOn uses it (read from TomTom 4.4.1): the same map, place and title give the
+        -- waypoint it already holds, a removed one is no longer valid, and its own arrow switch is in its profile.
+        -- seen.Drop removes a waypoint the way TomTom does by itself when you arrive at it
+        local held = {}
+        local function Forget(uid)
+            for key, waypoint in pairs(held) do
+                if waypoint == uid then held[key] = nil end
+            end
+        end
         env.TomTom = {
+            profile = { arrow = { enable = true } },
             AddWaypoint = function(_, map, x, y, opts)
-                local uid = { map, x, y, title = opts.title }
-                seen.waypoints[#seen.waypoints + 1] = uid
-                return uid
+                if env.tomTomError then error(env.tomTomError, 0) end
+                if env.tomTomRefuses then return nil end
+                local key = table.concat({ map, x, y, tostring(opts.title) }, ":")
+                if not held[key] then
+                    held[key] = { map, x, y, title = opts.title }
+                    seen.waypoints[#seen.waypoints + 1] = held[key]
+                    seen.crazy[#seen.waypoints] = opts.crazy
+                end
+                return held[key]
             end,
-            RemoveWaypoint = function(_, uid) seen.removed[#seen.removed + 1] = uid end
+            IsValidWaypoint = function(_, uid)
+                for _, waypoint in pairs(held) do
+                    if waypoint == uid then return true end
+                end
+                return false
+            end,
+            RemoveWaypoint = function(_, uid)
+                seen.removed[#seen.removed + 1] = uid
+                Forget(uid)
+            end
         }
+        seen.Drop = Forget
     end
     env.FireEvent("ADDON_LOADED", "ForeverCampFeatures")
     env.FireEvent("PLAYER_LOGIN")
@@ -205,17 +233,64 @@ H.test("in range: an Anvil is never found this way (city anvils answer the same)
     H.eq(#ns.Known(), 0, "no anvil")
 end)
 
-H.test("hover: a tracked object's world tooltip alerts in the chat, without a waypoint, and is not shared", function()
+H.test("hover: a tracked object's world tooltip alerts with a waypoint where you stood and is not shared (FRV-183)", function()
     local ns, env, seen = Load()
     env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" }, { leftText = "Leatherworking" } } }
     env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
-    H.eq(#Printed(env, "Tanning Rack in sight near 38.5, 73.6, Ironforge"), 1, "chat line")
-    H.eq(#seen.waypoints, 0, "no waypoint")
+    H.eq(#seen.sounds, 1, "the alert")
+    H.same(seen.waypoints, { { IRONFORGE, 0.385, 0.736, title = "Tanning Rack (seen from here)" } },
+        "its waypoint is where you stood, and says so")
+    H.eq(#Printed(env, "Tanning Rack in sight"), 0, "no coordinates in the chat")
     H.eq(#seen.sent, 0, "not shared")
     H.eq(ns.Known()[1].source, "hover", "source")
     -- the same rack again: no second alert
     env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    H.eq(#seen.sounds, 1, "one alert")
+    H.eq(#seen.waypoints, 1, "one waypoint")
+end)
+
+H.test("hover without TomTom: the coordinates go to the chat", function()
+    local _, env = Load({ noTomTom = true })
+    env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    H.eq(#Printed(env, "Tanning Rack in sight near 38.5, 73.6, Ironforge"), 1, "chat line")
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
     H.eq(#Printed(env, "Tanning Rack in sight"), 1, "one alert")
+end)
+
+H.test("hover: a find that is later in range takes its waypoint to the exact place without a second alert (FRV-183)", function()
+    local ns, env, seen = Load()
+    env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    H.eq(seen.waypoints[1].title, "Tanning Rack (seen from here)", "the hover's waypoint")
+    -- 20 yards on, a recipe that needs the rack says it is in range
+    env.px = 0.405
+    env.requirements[LOBSTER_STEW] = { { name = "Tanning Rack", met = true, type = 0 } }
+    env.tick()
+    H.eq(#ns.Known(), 1, "the same rack")
+    H.eq(#seen.sounds, 1, "no second alert")
+    H.eq(seen.removed[1], seen.waypoints[1], "the waypoint of where you stood is gone")
+    H.same(seen.waypoints[2], { IRONFORGE, 0.405, 0.736, title = "Tanning Rack" }, "the exact place, the plain name")
+    env.clock = env.clock + 1
+    env.tick()
+    H.eq(#seen.waypoints, 2, "it stays there")
+    -- in range right where you hovered it: the place is the same, the name loses its note
+    ns, env, seen = Load()
+    env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    env.requirements[LOBSTER_STEW] = { { name = "Tanning Rack", met = true, type = 0 } }
+    env.tick()
+    H.same(seen.waypoints[2], { IRONFORGE, 0.385, 0.736, title = "Tanning Rack" }, "the same place, the plain name")
+    H.eq(#seen.sounds, 1, "still one alert")
+    -- a waypoint the player removed in TomTom is not put back by the next move
+    ns, env, seen = Load()
+    env.cursor = { type = 4, lines = { { leftText = "Tanning Rack" } } }
+    env.FireEvent("WORLD_CURSOR_TOOLTIP_UPDATE", 0)
+    seen.Drop(seen.waypoints[1])
+    env.px = 0.405
+    env.requirements[LOBSTER_STEW] = { { name = "Tanning Rack", met = true, type = 0 } }
+    env.tick()
+    H.eq(#seen.waypoints, 1, "not set again without an alert")
 end)
 
 H.test("hover: other tooltips, a secret name, an object switched off and an anvil are ignored", function()
@@ -450,8 +525,39 @@ H.test("expiry: an object is gone 15 minutes after its placement, its waypoint t
     H.eq(#Printed(env, "No known camp objects in Ironforge."), 1, "the list is empty")
 end)
 
-H.test("zones: an object alerts again only after you left its zone and came back", function()
+-- Walk into another zone and back
+local function LeaveAndReturn(env, home)
+    env.playerMap = home == DUN_MOROGH and IRONFORGE or DUN_MOROGH
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+    env.playerMap = home
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+end
+
+H.test("once: an object that alerted stays quiet when you come back to its zone, one of another zone waits for you (FRV-182)", function()
     local ns, env, seen = Load()
+    H.eq(env.ForeverCampFeaturesSettings.alertOnce, true, "on by default")
+    H.eq(env.ForeverCampFeaturesSettings.alertOnceReset, false, "Reset on reload off by default")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.sounds, 1, "first alert")
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+    H.eq(#seen.sounds, 1, "still in Ironforge")
+    LeaveAndReturn(env, IRONFORGE)
+    H.eq(#seen.sounds, 1, "back in Ironforge: no second alert")
+    H.eq(#Printed(env, "Loom at"), 0, "and no chat line")
+    -- an object of another zone waits for you there, once
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1453,500,500,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.sounds, 1, "Stormwind's loom waits")
+    env.playerMap = STORMWIND
+    env.FireEvent("ZONE_CHANGED_NEW_AREA")
+    H.eq(#seen.sounds, 2, "in Stormwind")
+    LeaveAndReturn(env, STORMWIND)
+    H.eq(#seen.sounds, 2, "back in Stormwind: quiet")
+    H.eq(#ns.Known(), 2, "both known")
+end)
+
+H.test("once off: an object alerts again only after you left its zone and came back (FRV-182)", function()
+    local ns, env, seen = Load()
+    ns.SetOption("alertOnce", false)
     env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
     H.eq(#seen.sounds, 1, "first alert")
     env.FireEvent("ZONE_CHANGED_NEW_AREA")
@@ -469,10 +575,173 @@ H.test("zones: an object alerts again only after you left its zone and came back
     env.FireEvent("ZONE_CHANGED_NEW_AREA")
     H.eq(#seen.sounds, 3, "in Stormwind")
     H.eq(#ns.Known(), 2, "both known")
+    -- switched on again, what alerted stays quiet from now on
+    ns.SetOption("alertOnce", true)
+    LeaveAndReturn(env, STORMWIND)
+    H.eq(#seen.sounds, 3, "once again")
+end)
+
+-- A loom in Ironforge as a /reload finds it in SavedVariables, alerted before
+local function SavedLoom(env_clock, settings)
+    settings.known = { { key = "loom", map = IRONFORGE, x = 0.485, y = 0.736, time = env_clock - 60,
+        expires = env_clock + 840, kind = "p", source = "shared", alerted = true } }
+    return settings
+end
+
+H.test("once: a /reload keeps what alerted, \"Reset on reload\" lets each known object alert once more (FRV-182)", function()
+    local clock = 1795400000
+    local ns, env, seen = Load({ saved = SavedLoom(clock, {}) })
+    H.eq(#ns.Known(), 1, "the loom is still known")
+    H.eq(#seen.sounds, 0, "default: quiet after the reload")
+    H.eq(ns.Known()[1].alerted, true, "its mark is kept")
+    env.tick()
+    H.eq(#seen.sounds, 0, "and quiet a second later")
+    -- "Reset on reload" on: it alerts once after the reload, and only once
+    ns, env, seen = Load({ saved = SavedLoom(clock, { alertOnceReset = true }) })
+    H.eq(#seen.sounds, 1, "alerts after the reload")
+    H.eq(#seen.waypoints, 1, "with its waypoint")
+    H.eq(ns.Known()[1].alerted, true, "marked again")
+    env.tick()
+    LeaveAndReturn(env, IRONFORGE)
+    H.eq(#seen.sounds, 1, "once")
+    H.eq(#seen.waypoints, 1, "one waypoint")
+    -- the reset belongs to "Alert me only once per feature": with that off it does nothing
+    ns, env, seen = Load({ saved = SavedLoom(clock, { alertOnce = false, alertOnceReset = true }) })
+    H.eq(#seen.sounds, 0, "the parent option is off")
+    H.eq(ns.Known()[1].alerted, true, "mark kept")
+end)
+
+H.test("once: \"Reset on reload\" leaves your own placement quiet, as when you placed it (FRV-182)", function()
+    local clock = 1795400000
+    local saved = SavedLoom(clock, { alertOnceReset = true })
+    saved.known[1].source = "placed"
+    saved.known[1].placedByYou = true
+    local ns, env, seen = Load({ saved = saved })
+    H.eq(#seen.sounds, 0, "your own loom does not alert after the reload")
+    H.eq(#seen.waypoints, 0, "and gets no waypoint")
+    H.eq(ns.Known()[1].alerted, true, "its mark is kept")
+    env.tick()
+    H.eq(#seen.sounds, 0, "quiet a second later")
+end)
+
+H.test("waypoints: a repeated alert keeps the waypoint TomTom holds and sets one TomTom removed again, never the chat line (FRV-183)", function()
+    local ns, env, seen = Load()
+    -- alerts repeat when you come back to the zone
+    ns.SetOption("alertOnce", false)
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.waypoints, 1, "first alert: a waypoint")
+    H.eq(#Printed(env, "Loom at"), 0, "no coordinates in the chat")
+    LeaveAndReturn(env, IRONFORGE)
+    H.eq(#seen.sounds, 2, "the alert repeats")
+    H.eq(#seen.waypoints, 1, "its waypoint is still the one")
+    H.eq(#Printed(env, "Loom at"), 0, "still no coordinates in the chat")
+    -- you arrived at it: TomTom cleared the waypoint itself
+    seen.Drop(seen.waypoints[1])
+    LeaveAndReturn(env, IRONFORGE)
+    H.eq(#seen.sounds, 3, "the alert repeats again")
+    H.eq(#seen.waypoints, 2, "the waypoint is set again")
+    H.same(seen.waypoints[2], { IRONFORGE, 0.485, 0.736, title = "Loom" }, "in the same place")
+    H.eq(#Printed(env, "Loom at"), 0, "and still no chat line")
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "TomTom: loaded; waypoint option: on; arrow option: on; TomTom's own arrow: on"), 1, "debug: TomTom")
+    H.eq(#Printed(env, "Waypoints set: 1, still in TomTom: 1"), 1, "debug: the waypoints")
+    H.eq(#Printed(env, "Last request 0 s ago: Loom -> set"), 1, "debug: the last request")
+end)
+
+H.test("waypoints: after a /reload the objects that alerted get their waypoints back, quietly and without the arrow (FRV-183)", function()
+    local clock = 1795400000
+    local saved = SavedLoom(clock, {})
+    -- your own oven, placed and never alerted: it had no waypoint; a rack hidden by the settings gets none
+    saved.known[2] = { key = "ironoven", map = IRONFORGE, x = 0.2, y = 0.2, time = clock - 60, expires = clock + 840,
+        kind = "p", source = "placed", alerted = true, placedByYou = true }
+    saved.known[3] = { key = "tanningrack", map = STORMWIND, x = 0.3, y = 0.3, time = clock - 60, expires = clock + 840,
+        kind = "p", source = "shared", alerted = true }
+    saved.known[4] = { key = "anvil", map = IRONFORGE, x = 0.4, y = 0.4, time = clock - 60, expires = clock + 840,
+        kind = "p", source = "shared", alerted = true }
+    saved.objects = { anvil = false }
+    local ns, env, seen = Load({ saved = saved })
+    H.eq(#seen.waypoints, 0, "nothing before the first check")
+    env.tick()
+    H.eq(#seen.sounds, 0, "no alert")
+    H.eq(#env.printed, 0, "no chat line")
+    H.eq(#seen.waypoints, 2, "the loom and the rack of another zone")
+    H.same(seen.waypoints[1], { IRONFORGE, 0.485, 0.736, title = "Loom" }, "the loom's")
+    H.same(seen.waypoints[2], { STORMWIND, 0.3, 0.3, title = "Tanning Rack" }, "the rack's")
+    H.same({ seen.crazy[1], seen.crazy[2] }, { false, false }, "the arrow is left alone")
+    env.clock = env.clock + 1
+    env.tick()
+    H.eq(#seen.waypoints, 2, "only once")
+    -- an expired object still loses its waypoint
+    env.clock = env.clock + 900
+    env.tick()
+    H.eq(#seen.removed, 2, "both removed with their objects")
+    -- the option off, or no TomTom: nothing to set
+    saved = SavedLoom(clock, { waypoint = false })
+    ns, env, seen = Load({ saved = saved })
+    env.tick()
+    H.eq(#seen.waypoints, 0, "the waypoint option is off")
+    ns, env, seen = Load({ saved = SavedLoom(clock, {}), noTomTom = true })
+    env.tick()
+    H.eq(#env.printed, 0, "without TomTom: nothing, also no chat line")
+end)
+
+H.test("waypoints: the option off, TomTom refusing or failing put the coordinates in the chat, and /fcf debug says why (FRV-183)", function()
+    local ns, env, seen = Load()
+    ns.SetOption("waypoint", false)
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.waypoints, 0, "option off: no waypoint")
+    H.eq(#Printed(env, "Loom at 48.5, 73.6, Ironforge"), 1, "option off: chat line")
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "waypoint option: off"), 1, "debug: the option")
+    H.eq(#Printed(env, "No waypoint asked for since login"), 1, "debug: nothing asked")
+    -- TomTom returns nothing
+    ns, env, seen = Load()
+    env.tomTomRefuses = true
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(#Printed(env, "Loom at 48.5, 73.6, Ironforge"), 1, "refused: chat line")
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "Loom -> TomTom returned no waypoint"), 1, "debug: refused")
+    H.eq(#Printed(env, "Waypoints set: 0, still in TomTom: 0"), 1, "debug: none set")
+    -- TomTom raises an error: the alert still shows, the error is kept for the debug report
+    ns, env, seen = Load()
+    env.tomTomError = "attempt to index a nil value"
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(#seen.sounds, 1, "the alert itself")
+    H.eq(#Printed(env, "Loom at 48.5, 73.6, Ironforge"), 1, "failed: chat line")
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "Loom -> TomTom failed: attempt to index a nil value"), 1, "debug: the error")
+    -- without TomTom
+    ns, env, seen = Load({ noTomTom = true })
+    env.SlashCmdList.FCF("debug")
+    H.eq(#Printed(env, "TomTom: not loaded; waypoint option: on; arrow option: on; TomTom's own arrow: unknown"), 1,
+        "debug: no TomTom")
+end)
+
+H.test("arrow: the waypoint takes TomTom's arrow unless \"TomTom waypoint arrows\" is off; TomTom's own switch is read (FRV-184)", function()
+    local ns, env, seen = Load()
+    H.eq(env.ForeverCampFeaturesSettings.waypointArrow, true, "on by default")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
+    H.eq(seen.crazy[1], true, "on: the arrow is asked for")
+    ns.SetOption("waypointArrow", false)
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,ironoven,1455,200,200,p,0", "CHANNEL", "Someone")
+    H.eq(seen.crazy[2], false, "off: the arrow is left alone")
+    -- TomTom's own "Enable floating waypoint arrow"
+    H.eq(ns.TomTomArrowEnabled(), true, "enabled in TomTom")
+    env.TomTom.profile.arrow.enable = false
+    H.eq(ns.TomTomArrowEnabled(), false, "disabled in TomTom")
+    env.TomTom.profile = nil
+    env.TomTom.db = { profile = { arrow = { enable = false } } }
+    H.eq(ns.TomTomArrowEnabled(), false, "read from TomTom's database when the shortcut is missing")
+    env.TomTom.db = nil
+    H.eq(ns.TomTomArrowEnabled(), nil, "TomTom without readable settings")
+    env.TomTom = nil
+    H.eq(ns.TomTomArrowEnabled(), nil, "no TomTom")
 end)
 
 H.test("settings: an object switched off and shared objects while they are hidden leave the list and the alerts", function()
     local ns, env, seen = Load()
+    -- coming back to a zone alerts its objects again
+    ns.SetOption("alertOnce", false)
     env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,0", "CHANNEL", "Someone")
     env.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", IRON_OVEN_PLACE)
     H.eq(#seen.waypoints, 1, "the loom alerted")
@@ -524,6 +793,7 @@ H.test("slash commands: the list, help, debug, test and errors", function()
     env.SlashCmdList.FCF("")
     H.eq(#Printed(env, "Camp objects in Ironforge:"), 1, "list header")
     H.eq(#Printed(env, "48.5, 73.6 · 100 yd · placed 1 min ago · shared"), 1, "list line")
+    H.eq(#env.printed, 2, "the list alone: no pointer to the help after it (FRV-181)")
     env.SlashCmdList.FCF("help")
     H.eq(#Printed(env, "/fcf debug objects"), 1, "help")
     -- the debug report runs every section (its lines are for the in-game test)
@@ -551,6 +821,31 @@ H.test("slash commands: the list, help, debug, test and errors", function()
     env.SlashCmdList.FCF("debug objects now")
     H.eq(#Printed(env, "Wrong number of arguments for 'debug' (expected 0-1)"), 1, "argument range")
     H.eq(#ns.Known(), 2, "known objects")
+end)
+
+H.test("slash commands: the bare command prints the list and nothing else, also when it is empty (FRV-181)", function()
+    local _, env = Load()
+    env.SlashCmdList.FCF("")
+    H.eq(#env.printed, 1, "one line")
+    H.eq(#Printed(env, "No known camp objects in Ironforge."), 1, "the empty list")
+    H.eq(#Printed(env, "/fcf help"), 0, "no pointer to the help")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,loom,1455,485,736,p,60", "CHANNEL", "Someone")
+    env.FireEvent("CHAT_MSG_ADDON", "ForeverCampFeat", "1,ironoven,1455,385,736,p,60", "CHANNEL", "Someone")
+    env.printed = {}
+    env.SlashCmdList.FCF("")
+    H.eq(#env.printed, 3, "the header and one line per object")
+    H.eq(#Printed(env, "Camp objects in Ironforge:"), 1, "the header")
+    H.eq(env.printed[2]:find("Iron Oven", 1, true) ~= nil, true, "the nearest first")
+    -- spaces alone are the bare command too
+    env.printed = {}
+    env.SlashCmdList.FCF("  ")
+    H.eq(#env.printed, 3, "spaces only: the list too")
+    -- disabled: the hint how to enable it stays
+    env.SlashCmdList.FCF("off")
+    env.printed = {}
+    env.SlashCmdList.FCF("")
+    H.eq(#env.printed, 1, "one line while disabled")
+    H.eq(#Printed(env, "ForeverCampFeatures is disabled. Use /fcf on to enable it."), 1, "the hint")
 end)
 
 H.test("sound: Raid Warning by default, the sound picked in the settings on the next alert, none while off (FRV-121)", function()
@@ -770,6 +1065,16 @@ local function BuildPanel(ns, env)
         function widget:SetEnabled(on) self.enabled = on end
         function widget:SetChecked(on) self.checked = on end
         function widget:GetChecked() return self.checked end
+        function widget:SetShown(on) self.shown = on end
+        function widget:Show() self.shown = true end
+        function widget:Hide() self.shown = false end
+        function widget:SetPoint(...) self.point = { ... } end
+        -- a named text is kept like a named frame
+        function widget:CreateFontString(name)
+            local text = Widget()
+            if name then named[name] = text end
+            return text
+        end
         -- anything else is another widget: a child (checkbox.Text) or, when called, a method that returns one
         return setmetatable(widget, {
             __index = function(self, key)
@@ -846,4 +1151,103 @@ H.test("settings: the search fades the features it does not match, changes no se
     ns.SetAddonEnabled(false)
     H.eq(Profession("COOKING").enabled, false, "greyed while the AddOn is disabled")
     H.eq(Box("anvil").enabled, false, "like the checkboxes")
+end)
+
+H.test("settings: the arrow, once and reset options are on, on and off by default, and Defaults restores them (FRV-182, FRV-184)", function()
+    local ns, env = Load()
+    local db = env.ForeverCampFeaturesSettings
+    H.same({ db.waypointArrow, db.alertOnce, db.alertOnceReset }, { true, true, false }, "fresh install")
+    ns.SetOption("waypointArrow", false)
+    ns.SetOption("alertOnce", false)
+    ns.SetOption("alertOnceReset", true)
+    H.same({ db.waypointArrow, db.alertOnce, db.alertOnceReset }, { false, false, true }, "changed")
+    ns.ResetToDefaults()
+    H.same({ db.waypointArrow, db.alertOnce, db.alertOnceReset }, { true, true, false }, "Defaults")
+    -- what a /reload finds is kept, anything that is no switch becomes the default
+    ns, env = Load({ saved = { waypointArrow = false, alertOnce = false, alertOnceReset = true } })
+    db = env.ForeverCampFeaturesSettings
+    H.same({ db.waypointArrow, db.alertOnce, db.alertOnceReset }, { false, false, true }, "saved switches kept")
+    ns, env = Load({ saved = { waypointArrow = 0, alertOnce = "yes", alertOnceReset = "no" } })
+    db = env.ForeverCampFeaturesSettings
+    H.same({ db.waypointArrow, db.alertOnce, db.alertOnceReset }, { true, true, false }, "broken values")
+end)
+
+H.test("settings: the Alerts rows stand in the asked order, an indented option is greyed out with the one above it (FRV-182, FRV-184)", function()
+    local ns, env = Load()
+    local named = BuildPanel(ns, env)
+    local function Option(key) return named["ForeverCampFeaturesSettings_" .. key] end
+    -- top to bottom (y falls): the waypoint option, its arrows, once, its reset, then the sharing options
+    local order = { "waypoint", "waypointArrow", "alertOnce", "alertOnceReset", "share", "showShared" }
+    for index = 2, #order do
+        H.eq(Option(order[index]).point[5] < Option(order[index - 1]).point[5], true,
+            order[index] .. " stands below " .. order[index - 1])
+    end
+    H.eq(Option("waypointArrow").point[4] > Option("waypoint").point[4], true, "the arrows option is indented")
+    H.eq(Option("alertOnce").point[4], Option("waypoint").point[4], "once is not")
+    H.eq(Option("alertOnceReset").point[4], Option("waypointArrow").point[4], "the reset is indented alike")
+    H.eq(Option("waypointArrow").Text.text, "TomTom waypoint arrows", "label")
+    H.eq(Option("alertOnce").Text.text, "Alert me only once per feature", "label")
+    H.eq(Option("alertOnceReset").Text.text, "Reset on reload", "label")
+    H.same({ Option("waypointArrow").checked, Option("alertOnce").checked, Option("alertOnceReset").checked },
+        { true, true, false }, "the defaults show")
+    H.same({ Option("waypointArrow").enabled, Option("alertOnceReset").enabled }, { true, true }, "both usable")
+    -- a click sets the option; the indented option follows the one above it
+    local function Click(key, checked)
+        Option(key).checked = checked
+        Option(key).scripts.OnClick(Option(key))
+    end
+    Click("waypoint", false)
+    H.eq(env.ForeverCampFeaturesSettings.waypoint, false, "the waypoint option off")
+    H.eq(Option("waypointArrow").enabled, false, "its arrows option is greyed out")
+    H.eq(Option("alertOnceReset").enabled, true, "the reset is not")
+    Click("waypoint", true)
+    H.eq(Option("waypointArrow").enabled, true, "usable again")
+    Click("alertOnce", false)
+    H.eq(env.ForeverCampFeaturesSettings.alertOnce, false, "once off")
+    H.eq(Option("alertOnceReset").enabled, false, "its reset is greyed out")
+    Click("alertOnce", true)
+    Click("alertOnceReset", true)
+    H.eq(env.ForeverCampFeaturesSettings.alertOnceReset, true, "the reset set by its checkbox")
+    Click("waypointArrow", false)
+    H.eq(env.ForeverCampFeaturesSettings.waypointArrow, false, "the arrows option set by its checkbox")
+    -- the AddOn disabled: all four are greyed out
+    ns.SetAddonEnabled(false)
+    for _, key in ipairs({ "waypoint", "waypointArrow", "alertOnce", "alertOnceReset" }) do
+        H.eq(Option(key).enabled, false, key .. " greyed while the AddOn is disabled")
+    end
+end)
+
+H.test("settings: \"You have TomTom arrows disabled\" shows next to the arrows option only while it applies (FRV-184)", function()
+    local ns, env = Load()
+    local named = BuildPanel(ns, env)
+    local warning = named.ForeverCampFeaturesSettingsArrowWarning
+    local arrows = named.ForeverCampFeaturesSettings_waypointArrow
+    local page = named.ForeverCampFeaturesSettingsPanel
+    H.eq(warning.text:find("You have TomTom arrows disabled", 1, true) ~= nil, true, "its text")
+    H.eq(warning.text:find("|TInterface\\DialogFrame\\UI-Dialog-Icon-AlertNew", 1, true), 1, "the warning sign first")
+    H.same({ warning.point[1], warning.point[2] == arrows.Text, warning.point[3] }, { "LEFT", true, "RIGHT" },
+        "right next to the option's label")
+    H.eq(warning.shown, false, "TomTom's arrow is on: no warning")
+    -- the arrow switched off in TomTom while the page was closed: opening it shows the warning
+    env.TomTom.profile.arrow.enable = false
+    page.scripts.OnShow(page)
+    H.eq(warning.shown, true, "TomTom's arrow is off")
+    ns.SetOption("waypointArrow", false)
+    H.eq(warning.shown, false, "the arrows option unchecked")
+    ns.SetOption("waypointArrow", true)
+    H.eq(warning.shown, true, "checked again")
+    ns.SetOption("waypoint", false)
+    H.eq(warning.shown, false, "no waypoints at all")
+    ns.SetOption("waypoint", true)
+    ns.SetAddonEnabled(false)
+    H.eq(warning.shown, false, "the AddOn disabled")
+    ns.SetAddonEnabled(true)
+    H.eq(warning.shown, true, "enabled again")
+    env.TomTom.profile.arrow.enable = true
+    page.scripts.OnShow(page)
+    H.eq(warning.shown, false, "TomTom's arrow switched on again")
+    -- without TomTom there is nothing to warn about
+    env.TomTom = nil
+    page.scripts.OnShow(page)
+    H.eq(warning.shown, false, "no TomTom")
 end)

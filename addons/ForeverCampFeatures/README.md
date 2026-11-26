@@ -11,7 +11,7 @@ The game gives AddOns no list of the objects around you, so the AddOn learns abo
 | Way | Range | What it needs | Limits |
 | --- | --- | --- | --- |
 | **In range** | Where you stand | A recipe you know that needs the object nearby ("Requires: Iron Oven") | Only objects a recipe of yours needs; open each profession window once so the AddOn learns your recipes. Anvils are skipped: a city anvil answers the same |
-| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown is where you stood, and the alert puts the coordinates in the chat instead of a TomTom waypoint. Anvils are skipped here too |
+| **Hover** | As far as you can see | Point your cursor at the object | The game tells the AddOn the object's name, not where it is, so the place shown, and the TomTom waypoint ("Tanning Rack (seen from here)"), is where you stood; finding the object in range later moves the waypoint to the exact place. Anvils are skipped here too |
 | **Shared** | The whole zone and beyond | Other players who run the AddOn | Only what others placed or found in range |
 
 When you place a camp object yourself, or find one in range, the AddOn sends it to the other players who run the AddOn (see Privacy below); an object you stay in range of goes out again every 5 minutes, for players who arrive later.
@@ -22,8 +22,8 @@ For an object in your current zone:
 
 - A text on a grey rounded background, a quarter of the screen above its center (above your character), for example `Iron Oven at 38.5, 73.6, Ironforge`, with the distance and the age for a shared one; the font, its size, both colors and the place can be changed in the settings
 - A sound, Raid Warning unless you pick another one of the game's sounds in the settings
-- With TomTom: a waypoint on it. Without TomTom: the coordinates in the chat. An object found by hovering always gets the chat line instead of a waypoint: the game only tells the AddOn where you stood
-- The same object alerts once. It alerts again when it moved, or after you left the zone and came back. An object that expired is dropped and its waypoint removed
+- With TomTom: a waypoint on it, with its pins on the minimap and the world map and, unless you switch "TomTom waypoint arrows" off, TomTom's arrow. Without TomTom: the coordinates in the chat. An object found by hovering gets its waypoint where you stood: the game only tells the AddOn that much. TomTom removes a waypoint by itself when you arrive at it (its "Clear waypoint distance"), and drops these waypoints at a `/reload`: the AddOn then sets them again for the objects it still knows, without an alert and without moving the arrow
+- The same object alerts once for as long as it is known, also when you leave its zone and come back ("Alert me only once per feature", on by default). It alerts again when it moved. With the option off it also alerts again every time you come back to its zone. A `/reload` keeps what has alerted, unless you check "Reset on reload". An object that expired is dropped and its waypoint removed
 
 Placing an object does not alert you at once; finding it in range or by hovering it does, like any other object.
 
@@ -45,7 +45,7 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 | `/fcf on`, `/fcf off` | Enables or disables the AddOn without a reload |
 | `/fcf test` | Shows a test alert |
 | `/fcf options` | Opens the settings |
-| `/fcf debug` | Prints what each way of finding objects sees right now (for bug reports) |
+| `/fcf debug` | Prints what each way of finding objects sees right now, and what TomTom did with the last waypoint (for bug reports) |
 | `/fcf debug objects` | Prints every camp object with its item and placement spell |
 | `/fcf help` | Shows the commands |
 
@@ -55,6 +55,8 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 
 - Enable the AddOn
 - Alerts: the text in the middle of the screen, the sound, and a TomTom waypoint instead of the coordinates in the chat (each on by default)
+  - "TomTom waypoint arrows" (on by default), under the waypoint option: the waypoint also takes TomTom's arrow; off leaves the arrow alone. A red note next to it tells you when TomTom's own arrow is disabled, because TomTom then shows none
+  - "Alert me only once per feature" (on by default): a camp feature that alerted stays quiet for as long as it is known, also when you come back to its zone. "Reset on reload" under it (off by default) lets every known feature alert once more after a `/reload` or a login
   - Sound: a list of every sound of the game, A-Z, that scrolls; picking one plays it, resting the mouse on one plays it after a moment, and the ▶ button next to it plays the chosen one. Default: Raid Warning. Greyed out while "Sound" is off
   - Under the text: Font (the game's fonts, plus LibSharedMedia's when another AddOn loaded it), Size (10-40, default 20), Text color, Background (color and opacity; opacity 0 shows no background; default grey at 50%). Move shows the alerts as a preview you drag anywhere; Done (or a right-click on the preview) keeps the place, Reset position puts it back a quarter of the screen above the center. Test shows a sample alert. All greyed out while the text is off
   - The page scrolls; Defaults (top right) also resets the sound, the look and the place
