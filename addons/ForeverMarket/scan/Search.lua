@@ -151,18 +151,20 @@ end
 
 -- The listings of others of a full search (FRV-214): FM.live[key], newest first; a partial result may lack the
 -- cheapest units and changes nothing. The plan shown hears of it (FM.FlipSearched, trade/Picks.lua)
-local function Live(key, rows, full)
+local function Live(key, rows, full, kind)
     if not full then return end
     local levels, qty = {}, 0
+    local aids = kind == "i" and {} or nil -- an item's auctions of others, for your buyouts of them (review round 2)
     for _, row in ipairs(rows) do
         local n = row.owner ~= "@" and row.qty or (row.othersQty or 0)
         if n > 0 then
             local unit = FM.UnitPrice(row.qty, row.buyout)
             levels[unit] = (levels[unit] or 0) + n
             qty = qty + n
+            if aids and row.auctionID then aids[row.auctionID] = n end
         end
     end
-    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty }
+    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids }
     if FM.FlipCheckAnswered then FM.FlipCheckAnswered(key) end
     if FM.FlipSearched then FM.FlipSearched(key) end
 end
@@ -234,13 +236,14 @@ local function CaptureItem(itemKey)
                 end
                 -- ForeverArtisan reads item results the same way: buyoutAmount covers the whole stack
                 rows[#rows + 1] = { aid = r.auctionID or i, qty = qty, buyout = r.buyoutAmount, left = left,
-                    owner = OwnerTag(r.owners, r.containsOwnerItem) }
+                    owner = OwnerTag(r.owners, r.containsOwnerItem),
+                    auctionID = type(r.auctionID) == "number" and not FM.IsSecret(r.auctionID) and r.auctionID or nil }
             end
         end
     end
     for key, rows in pairs(byKey) do
         Save(key, "i", rows, full)
-        Live(key, rows, full)
+        Live(key, rows, full, "i")
     end
 end
 
@@ -363,6 +366,45 @@ function FM.FlipCheckAnswered(key)
     if check.waiting and check.asked[key] then check.waiting = nil end
 end
 
+-- Your buyouts of items sold per auction this session (review round 2): trade/Cost.lua logs commodity purchases
+-- only, so an item auction you buy is noted here. PlaceBid (HasRestrictions: only hooked, never called here) names an
+-- auction an item search showed (FM.live[key].aids); AUCTION_HOUSE_PURCHASE_COMPLETED with that auction ID makes it a
+-- purchase of its units. A flip pick counts them as its own (FM.ItemBoughtSince, trade/Picks.lua)
+local bids, itemBuys, bidsHooked = {}, {}, false
+
+local function HookBids()
+    if bidsHooked or not (C_AuctionHouse and C_AuctionHouse.PlaceBid and hooksecurefunc) then return end
+    bidsHooked = true
+    hooksecurefunc(C_AuctionHouse, "PlaceBid", function(auctionID)
+        if type(auctionID) ~= "number" or FM.IsSecret(auctionID) then return end
+        for key, e in pairs(FM.live) do
+            local n = type(e) == "table" and e.aids and e.aids[auctionID]
+            if n then
+                bids[auctionID] = { key = key, qty = n }
+                return
+            end
+        end
+    end)
+end
+
+FM.On("AUCTION_HOUSE_PURCHASE_COMPLETED", function(auctionID)
+    local b = type(auctionID) == "number" and not FM.IsSecret(auctionID) and bids[auctionID]
+    if not b then return end
+    bids[auctionID] = nil
+    local list = itemBuys[b.key] or {}
+    itemBuys[b.key] = list
+    list[#list + 1] = { t = FM.Now(), qty = b.qty }
+end)
+
+-- Units of an item you bought out per auction this session since a time
+function FM.ItemBoughtSince(key, since)
+    local n = 0
+    for _, b in ipairs(itemBuys[key] or {}) do
+        if b.t >= (since or 0) then n = n + b.qty end
+    end
+    return n
+end
+
 local function StopCheck()
     if check.ticker then
         check.ticker:Cancel()
@@ -372,6 +414,7 @@ local function StopCheck()
 end
 
 FM.On("AUCTION_HOUSE_SHOW", function()
+    HookBids()
     StopCheck()
     check.asked = {} -- a new visit searches every flip pick again
     if C_Timer and C_Timer.NewTicker then

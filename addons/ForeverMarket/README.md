@@ -960,8 +960,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     most and each again after 2 minutes (`FM.FlipCheckTick` in `scan/Search.lua`, `C_AuctionHouse.SendSearchQuery`
     as the sniper sends it), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
     its throttle is not ready, Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab, or in combat.
-    Units of the item you bought yourself since the snapshot count as the flip's own: your purchase is no "gone" (the
-    reason says "you bought 2 since the scan: list them once they are in your bags"). Each new answer reaches the plan
+    Units of the item you bought yourself since the snapshot count as the flip's own (a commodity from the purchase log,
+    an item sold per auction from your buyouts this session): your purchase is no "gone" (the reason says "you bought 2
+    since the scan: list them once they are in your bags"). A confirmation counts for 5 minutes: after that the buy
+    step says "(not confirmed since 18:52)", and the next plan cuts its confidence again (at the AH each flip pick is
+    searched again every 2 minutes). Each new answer reaches the plan
     shown: not locked, a pass plans again as after a post (your craft picks keep their targets); locked, the pick
     shows it in place, confirmed (its confidence back, in its tooltip and the summary too) or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
     plans without it.")

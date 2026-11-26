@@ -1928,6 +1928,8 @@ end
 -- 85% of what it would be (UNCONFIRMED, the 87% still there at the first search, rounded down): never 100%.
 
 local UNCONFIRMED = 0.85
+local CONFIRM_FRESH = 300 -- a confirming search counts for 5 minutes (review round 2: 28% of the cheapest listings go
+                          -- within 5 to 10 minutes); at the AH the check searches each flip again after 2
 
 -- The live listings of others of an item newer than `since` (a snapshot's time), or nil
 function FM.FlipLive(key, since)
@@ -1941,9 +1943,16 @@ local function Clock(t)
     return date("%H:%M", t)
 end
 
--- Units of an item this character bought since a time (trade/Cost.lua's purchase log), 0 without it
+-- Units of an item this character bought since a time: commodities from trade/Cost.lua's purchase log, items sold per
+-- auction from this session's buyouts (scan/Search.lua, review round 2)
 local function BoughtSince(key, since)
-    return FM.BoughtSince and FM.BoughtSince(key, since or 0) or 0
+    return (FM.BoughtSince and FM.BoughtSince(key, since or 0) or 0)
+        + (FM.ItemBoughtSince and FM.ItemBoughtSince(key, since or 0) or 0)
+end
+
+-- A confirming search still counts: at most CONFIRM_FRESH old
+local function Fresh(live)
+    return live ~= nil and FM.Now() - live.t <= CONFIRM_FRESH
 end
 
 -- A flip pick of the plan shown against the newest search of its item (FRV-214): "confirmed" while that search, newer
@@ -1968,21 +1977,29 @@ end
 function FM.FlipBuyNote(pick)
     if type(pick) ~= "table" or pick.kind ~= "flip" then return "" end
     local state, live = FM.FlipLiveState(pick)
-    if state == "confirmed" then return " (confirmed " .. Clock(live.t) .. ")" end
+    if state == "confirmed" then
+        -- an old confirmation says when it was (review round 2): away from the AH nothing confirms it again
+        if Fresh(live) then return " (confirmed " .. Clock(live.t) .. ")" end
+        return " (not confirmed since " .. Clock(live.t) .. ")"
+    end
     if state == "gone" then return "" end
     return " (not confirmed yet)"
 end
 
--- The tooltip note of a flip pick's live state (one line of pick.reasons, pick.liveNote)
+-- The tooltip note of a flip pick's live state: one line of pick.reasons, marked live (review round 2: an out of scope
+-- pick gets lines put in front of its reasons, so FM.FlipSearched finds it by the mark, not by its place)
 local function LiveNote(pick, state, live, have)
     if state == "confirmed" then
-        return { "n", string_format("Confirmed by the AH search at %s: its cheap listings are there.", Clock(live.t)), GREY }
+        return { "n", string_format("Confirmed by the AH search at %s: its cheap listings are there.", Clock(live.t)), GREY,
+            live = true }
     elseif state == "gone" then
         return { "n", string_format("Gone: the AH search at %s shows %s of its %s cheap units. Refresh plans without it.",
-            Clock(live.t), Count(have or 0), Count(math_max(1, (pick.listUnits or 0) - (pick.held or 0)))), "|cFFFF5555" }
+            Clock(live.t), Count(have or 0), Count(math_max(1, (pick.listUnits or 0) - (pick.held or 0)))), "|cFFFF5555",
+            live = true }
     end
     return { "n", string_format("Seen in the %s of %s, not confirmed yet: cheap listings go fast. While the AH is open FM searches it within seconds; confidence at most %d%% until then.",
-        pick.seenSource == "api" and "feed snapshot" or "deep scan", Clock(pick.seenAt or FM.Now()), Pct(UNCONFIRMED)), ORANGE }
+        pick.seenSource == "api" and "feed snapshot" or "deep scan", Clock(pick.seenAt or FM.Now()), Pct(UNCONFIRMED)), ORANGE,
+        live = true }
 end
 
 -- A search of an item came (scan/Search.lua): a flip pick of it in the plan shown follows. Not locked: the plan is made
@@ -2014,8 +2031,8 @@ function FM.FlipSearched(key)
                     end
                 end
                 pick.gone = state == "gone" and live.t or nil
-                if pick.liveNote and pick.reasons and pick.reasons[pick.liveNote] then
-                    pick.reasons[pick.liveNote] = LiveNote(pick, state, live, have)
+                for i, line in ipairs(pick.reasons or EMPTY) do
+                    if line.live then pick.reasons[i] = LiveNote(pick, state, live, have) end
                 end
             end
         end
@@ -2131,9 +2148,10 @@ local function EvaluateFlip(c)
         return nil, string_format("%s cheaper listing%s would stay under %s: this pick can buy %s of the %s", Count(stay),
             stay == 1 and "" or "s", M(row.sell), Count(n), Count(stay + n))
     end
-    -- a buy not confirmed by a search newer than the snapshot: never full confidence (FRV-214; a Stock pick above buys
-    -- nothing and keeps its own)
-    if not live then conf = conf * UNCONFIRMED end
+    -- a buy not confirmed by a search newer than the snapshot, or by one more than 5 minutes old: never full confidence
+    -- (FRV-214; a Stock pick above buys nothing and keeps its own)
+    local confirmed = Fresh(live)
+    if not confirmed then conf = conf * UNCONFIRMED end
     local items = n + held
     local unitCost = cost / n
     local m = sell * (1 - AH_CUT) - unitCost
@@ -2153,8 +2171,8 @@ local function EvaluateFlip(c)
     if score < P.minScore and not want then return nil, TooSmall(score, conf) end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
         unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf,
-        seenAt = P.view.t, seenSource = P.view.source, unconfirmed = not live or nil, -- the snapshot it came from (FRV-214)
-        liveState = live and "confirmed" or nil }
+        seenAt = P.view.t, seenSource = P.view.source, unconfirmed = not confirmed or nil, -- the snapshot it came from (FRV-214)
+        liveState = confirmed and "confirmed" or nil }
     if want and n < want then
         pick.amountNote = "no more available for flipping"
         pick.amountWhy = string_format("Only %s can be bought now: more would leave cheaper listings under the list price or "
@@ -2191,8 +2209,7 @@ local function EvaluateFlip(c)
     -- why it lists under the cheapest listing that stays (FRV-214), and what the AH search says of its buy
     local capText = FM.FlipCapText and FM.FlipCapText(f, row.usual, d.todayMedian)
     if capText then pick.reasons[#pick.reasons + 1] = { "n", capText, GREY } end
-    pick.reasons[#pick.reasons + 1] = LiveNote(pick, live and "confirmed" or nil, live)
-    pick.liveNote = #pick.reasons
+    pick.reasons[#pick.reasons + 1] = LiveNote(pick, confirmed and "confirmed" or nil, live)
     for _, note in ipairs(notes) do pick.reasons[#pick.reasons + 1] = { "n", note, ORANGE } end
     RoomLines(pick.reasons, row, room, b, "buy", n)
     return pick

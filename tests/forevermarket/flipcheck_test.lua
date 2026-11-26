@@ -62,12 +62,13 @@ local FLIP = { key = "105", sell = 9999, usual = 10000, top = 6000, units = 5, s
 local LADDER = { { 4000, 2 }, { 6000, 3 }, { 10000, 55 } }
 local SNAPSHOT_AGE = 120 -- the snapshot the plan comes from: 2 minutes old
 
--- A plan of the flip from a snapshot of this ladder: its pick of item 105 (or nil) and the plan
-local function PlanOn(FM, env, ladder)
+-- A plan of the flip from a snapshot of this ladder (taken at snapshotT, else 2 minutes ago): its pick of item 105 (or
+-- nil) and the plan
+local function PlanOn(FM, env, ladder, snapshotT)
     local out = { flips = { FLIP } }
     local qty = 0
     for _, level in ipairs(ladder or LADDER) do qty = qty + level[2] end
-    local view = { t = env.clock - SNAPSHOT_AGE, source = "fm", Get = function(key)
+    local view = { t = snapshotT or (env.clock - SNAPSHOT_AGE), source = "fm", Get = function(key)
         if key == "105" then return { ladder = ladder or LADDER, qty = qty, own = 0 } end
         return { ladder = { { 10000, 50 } }, qty = 50, own = 0 }
     end }
@@ -302,4 +303,71 @@ H.test("flip check: at the AH the flip picks are searched one by one, never whil
     env.C_AuctionHouse.IsThrottledMessageSystemReady = function() return true end
     H.eq(FM.FlipCheckTick(), "105", "free again, 2 minutes later: searched again")
     H.same(sent, { 105, 106, 105 }, "three searches in all")
+end)
+
+H.test("flip check: a confirmation older than 5 minutes no longer counts as one", function()
+    local FM, env = Setup()
+    local snapshotT = env.clock - SNAPSHOT_AGE
+    Search(FM, LADDER)
+    local fresh = PlanOn(FM, env, nil, snapshotT)
+    H.eq(fresh.unconfirmed, nil, "confirmed just now")
+    env.clock = env.clock + 301
+    H.eq(FM.FlipBuyNote(fresh), " (not confirmed since " .. os.date("%H:%M", env.clock - 301) .. ")", "the buy step says since when")
+    local old = PlanOn(FM, env, nil, snapshotT)
+    H.eq(old and old.unconfirmed, true, "the next plan: not confirmed, the confidence cut again")
+    H.eq(math.abs(old.conf - fresh.conf * 0.85) < 1e-9, true, "85% of the confirmed one")
+end)
+
+H.test("flip check: an out of scope flip's live note is found by its mark, not its place", function()
+    local FM, env = Setup()
+    local pick = PlanOn(FM, env)
+    pick.extra = true
+    -- the plan puts its out of scope lines in front of the reasons
+    table.insert(pick.reasons, 1, { "n", "Out of scope: pick #1 takes its gold.", "|cFFFF9933" })
+    table.insert(pick.reasons, 1, { "n", "Also good", "|cFFFF9933" })
+    local count = #pick.reasons
+    FM.trade = { picks = { pick } }
+    env.clock = env.clock + 10
+    Search(FM, { { 10000, 55 } })
+    H.eq(pick.gone ~= nil, true, "gone")
+    H.eq(#pick.reasons, count, "no line added or lost")
+    H.eq(Note(pick, "Gone: the AH search at") ~= nil, true, "the live note says gone")
+    H.eq(Note(pick, "Seen in the deep scan of"), nil, "the old live note is replaced")
+    H.eq(Note(pick, "Out of scope: pick #1") ~= nil, true, "the out of scope line stays")
+    local confLine
+    for _, r in ipairs(pick.reasons) do
+        if r[1] == "l" and r[2] == "Confidence" then confLine = r[3] end
+    end
+    H.eq(confLine ~= nil, true, "the Confidence line stays")
+end)
+
+H.test("flip check: your buyout of an item sold per auction counts as the flip's own", function()
+    local FM, env = Setup()
+    local pick = PlanOn(FM, env)
+    FM.trade = { picks = { pick } }
+    env.C_AuctionHouse = { PlaceBid = function() end }
+    env.FireEvent("AUCTION_HOUSE_SHOW")
+    -- an item search shows the 5 cheap units as 5 auctions of others
+    env.clock = env.clock + 5
+    local rows = {}
+    for i = 1, 2 do rows[#rows + 1] = { aid = i, auctionID = 100 + i, qty = 1, buyout = 4000, left = 3600, owner = "?" } end
+    for i = 3, 5 do rows[#rows + 1] = { aid = i, auctionID = 100 + i, qty = 1, buyout = 6000, left = 3600, owner = "?" } end
+    rows[#rows + 1] = { aid = 6, auctionID = 106, qty = 55, buyout = 550000, left = 3600, owner = "?" }
+    FM.SearchLive("105", rows, true, "i")
+    -- you buy all 5 on Blizzard's Buy page
+    for id = 101, 105 do
+        env.C_AuctionHouse.PlaceBid(id, 6000)
+        env.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", id)
+    end
+    H.eq(FM.ItemBoughtSince("105", pick.seenAt), 5, "five units bought out")
+    -- a bid without its purchase event, or an auction no search showed, is no purchase
+    env.C_AuctionHouse.PlaceBid(106, 550000)
+    env.C_AuctionHouse.PlaceBid(999, 100)
+    env.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 999)
+    H.eq(FM.ItemBoughtSince("105", pick.seenAt), 5, "still five")
+    -- the refresh after the purchase shows only the 2g ones: not gone
+    env.clock = env.clock + 5
+    FM.SearchLive("105", { { aid = 6, auctionID = 106, qty = 55, buyout = 550000, left = 3600, owner = "?" } }, true, "i")
+    H.eq(pick.gone, nil, "not gone")
+    H.eq(FM.FlipLiveState(pick), "confirmed", "your buyouts confirm it")
 end)
