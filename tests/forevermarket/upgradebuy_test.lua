@@ -136,6 +136,40 @@ H.test("upgrade buy: none of the row's variant: gone, the row grey, Buy off; mor
     H.eq(#ah.sent, 1, "one search")
 end)
 
+H.test("upgrade buy: a listing that cannot be told apart is not called gone: the plain search instead (review round 2)", function()
+    local FM, env, ah = Load()
+    -- a row the deep scan could not read the suffix of (variant ""), while the AH lists the item's suffixes
+    local row = Row(FM)
+    row.id, row.bonus, row.name = "7542:", "", "Champion's Greaves"
+    ah.results = { Auction(FM, 1, "12733", 9500), Auction(FM, 2, "12724", 5000) }
+    FM.UpgradeBuyOpen(row)
+    Answer(env, ah)
+    local state = FM.UpgradeBuyState()
+    H.eq(state.state, "unknown", "not known which of them it is")
+    H.eq(Plain(state.line1), "This listing cannot be told apart from the item's other suffixes: look for it in the Auction House's own window.", "says so")
+    H.eq(state.buy, false, "Buy off")
+    H.eq(env.ForeverMarketUpgradeBuy.search:IsShown(), true, "the plain search offered")
+    H.eq(FM.UpgradeGone(row), false, "the row is not marked gone")
+    -- an item without suffixes: its row's "" matches the listings, found as usual
+    ah.results = { Auction(FM, 3, nil, 4000) }
+    FM.UpgradeBuyOpen(row)
+    Answer(env, ah)
+    H.same(FM.UpgradeBuyState().found, { auctionID = 3, buyout = 4000 }, "no bonus IDs on either side: found")
+    -- a result whose link the client cannot read yet is never bought, and leaves the row's listing unclear
+    local unreadable = Auction(FM, 4, "12733", 100)
+    unreadable.itemLink = unreadable.itemLink:gsub("%[Champion's Greaves%]", "[]")
+    ah.results = { unreadable }
+    local power = Row(FM)
+    FM.UpgradeBuyOpen(power)
+    Answer(env, ah)
+    H.eq(FM.UpgradeBuyState().state, "unknown", "an unreadable link: unclear, not found and not gone")
+    H.eq(FM.UpgradeGone(power), false, "not marked gone")
+    ah.results = { unreadable, Auction(FM, 5, "12733", 9000) }
+    FM.UpgradeBuyOpen(power)
+    Answer(env, ah)
+    H.same(FM.UpgradeBuyState().found, { auctionID = 5, buyout = 9000 }, "the readable listing of the row's suffix, not the cheaper unreadable one")
+end)
+
 H.test("upgrade buy: dearer than at the scan shows both prices; above your gold red, your gold, Buy off", function()
     local FM, env, ah = Load()
     local row = Row(FM)

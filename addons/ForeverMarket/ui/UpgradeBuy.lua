@@ -7,7 +7,10 @@ local _, FM = ...
 --   * The lookup: while the AH is free (FM.AHBusyReason), one search by the item ID (C_AuctionHouse.SendSellSearchQuery
 --     with MakeItemKey(itemID), the search Blizzard's sell page sends for equipment, so every variant is listed); of
 --     its results the cheapest auction whose link has the row's bonus IDs (FM.GearBonusKey), with a buyout, not yours
---     (containsOwnerItem). A long list comes in batches: more are asked for while none matches
+--     (containsOwnerItem). A long list comes in batches: more are asked for while none matches. A result whose link the
+--     client cannot read yet is never bought; when it, or a row without bonus IDs among other variants (a deep scan
+--     stores "" for a link it could not read), leaves the listing unclear, the window offers the plain search instead
+--     of calling it gone
 --   * Buy calls C_AuctionHouse.PlaceBid(auctionID, buyout) straight from its OnClick (HasRestrictions: a click, never
 --     in combat), once; it stays off until AUCTION_HOUSE_PURCHASE_COMPLETED for that auction or 10 s without it
 --   * The game blocking PlaceBid (ADDON_ACTION_BLOCKED naming ForeverMarket) turns Buy off until /reload and offers the
@@ -49,6 +52,7 @@ local STATE_TEXT = {
     blocked = RED .. "The game did not let the AddOn buy. Use the Auction House's own window for this item.|r",
     combat = ORANGE .. "Not in combat: buy it once the fight is over.|r",
     failed = RED .. "The Auction House could not be asked for this listing.|r",
+    unknown = ORANGE .. "This listing cannot be told apart from the item's other suffixes: look for it in the Auction House's own window.|r",
 }
 
 local function PlayerMoney()
@@ -100,7 +104,7 @@ local function Render()
     window.line2:SetText(line2)
     B.buyEnabled = CanBuy()
     window.buy:SetEnabled(B.buyEnabled)
-    window.search:SetShown(B.blocked)
+    window.search:SetShown(B.blocked or B.state == "unknown")
 end
 
 local function SetState(state, why)
@@ -211,34 +215,43 @@ local function SameKey(a, b)
     return true
 end
 
--- The cheapest auction of the results that is the row's variant, has a buyout and is not yours: { auctionID, buyout }
+-- The cheapest auction of the results that is the row's variant, has a buyout and is not yours: { auctionID, buyout };
+-- second, whether it cannot be told apart: a buyable auction whose link the client cannot read yet (an empty name: its
+-- suffix is not known) was left out, or the row itself has no bonus IDs while other buyable variants are listed (a
+-- deep scan stores "" for an auction whose link it could not read, FRV-200; review round 2)
 local function Cheapest(key, row)
     local ah = C_AuctionHouse
     local okN, n = pcall(ah.GetNumItemSearchResults, key)
-    if not okN or FM.IsSecret(n) or type(n) ~= "number" then return nil end
-    local best
+    if not okN or FM.IsSecret(n) or type(n) ~= "number" then return nil, false end
+    local bonus = row.bonus or ""
+    local best, unreadable, others = nil, false, false
     for i = 1, n do
         local ok, info = pcall(ah.GetItemSearchResultInfo, key, i)
         if ok and type(info) == "table" then
             local buyout, id, link, own = info.buyoutAmount, info.auctionID, info.itemLink, info.containsOwnerItem
             if not (FM.IsSecret(buyout) or FM.IsSecret(id) or FM.IsSecret(link) or FM.IsSecret(own))
-                and type(buyout) == "number" and buyout > 0 and type(id) == "number" and own ~= true
-                and type(link) == "string" and FM.GearBonusKey(FM.GearVariant(link)) == (row.bonus or "")
-                and (not best or buyout < best.buyout) then
-                best = { auctionID = id, buyout = buyout }
+                and type(buyout) == "number" and buyout > 0 and type(id) == "number" and own ~= true and type(link) == "string" then
+                if string_find(link, "|h[]|h", 1, true) then
+                    unreadable = true -- never bought: which variant it is is not known
+                elseif FM.GearBonusKey(FM.GearVariant(link)) == bonus then
+                    if not best or buyout < best.buyout then best = { auctionID = id, buyout = buyout } end
+                else
+                    others = true
+                end
             end
         end
     end
-    return best
+    return best, unreadable or (bonus == "" and others)
 end
 
 -- The search's answer (ITEM_SEARCH_RESULTS_UPDATED, ITEM_SEARCH_RESULTS_ADDED): the listing found, more results asked
--- for while none matches and the list is not complete, else the listing is gone
+-- for while none matches and the list is not complete, else the listing is gone (or, when it cannot be told apart from
+-- the item's other variants, the plain search is offered and the row stays as it is)
 local function OnResults(itemKey)
     local s = B.search
     if not s or not SameKey(itemKey, s.key) then return end
     local ah = C_AuctionHouse
-    local found = Cheapest(s.key, B.row)
+    local found, unsure = Cheapest(s.key, B.row)
     if not found and s.batches < MORE_MAX and ah.HasFullItemSearchResults and ah.RequestMoreItemSearchResults then
         local ok, full = pcall(ah.HasFullItemSearchResults, s.key)
         if ok and full == false then
@@ -253,6 +266,7 @@ local function OnResults(itemKey)
         SetState("found")
         return
     end
+    if unsure then return SetState("unknown") end -- maybe still listed: not marked gone
     FM.UpgradeMarkGone(B.row)
     SetState("gone")
     if FM.RefreshTable then FM.RefreshTable() end -- the row turns grey

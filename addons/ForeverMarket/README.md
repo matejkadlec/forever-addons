@@ -1218,6 +1218,9 @@ offers the cheapest auction of the row's suffix with a buyout that is not yours:
   1g 33s 15c when scanned", Buy on; above your gold: the price in red and "You have 4g 02s 62c", Buy off
 * not found: "This listing is gone (sold, cancelled or expired).", Buy off, and the row is grey with "(gone)" in the tab
   until the next snapshot; no answer in 10 s: it says so
+* not to be told apart (1.54.2, review round 2): a listing whose suffix the client cannot read yet is never bought, and
+  when it, or a row whose suffix the deep scan could not read while the AH lists other suffixes, leaves the row's listing
+  unclear, the window says so and offers "Search at the AH" (the row is not greyed)
 * **Buy** buys that one auction with its buyout, on your click only (`C_AuctionHouse.PlaceBid`), one click one auction;
   it stays off until the Auction House answers ("Bought. It arrives by mail.", the row turns grey) or 10 s pass ("No
   answer from the Auction House: check your mail before buying again.")
