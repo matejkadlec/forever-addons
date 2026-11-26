@@ -8,6 +8,8 @@ local _, FM = ...
 --   * R.accountBank = "t|id:all:free,..." the account bank, once per realm bucket, while Blizzard lets you view it, and
 --     R.accountGear = "t|key/variant,..." the gear in it with its suffixes (FRV-206, the Upgrades tab)
 --   * R.gearBank[key] = "t|key/variant,..." the gear in the character's bank (trade/Sources.lua, FRV-206)
+--   * R.windowRecipes[key] = { [name] = recipeID } the recipes its profession window listed as learned that
+--     ForeverArtisan does not (trade/Sources.lua, FRV-208)
 --   * R.sent[key] = { "t|id:count,...", ... } the items of the mails your other characters sent to the key's
 --     character, until it reads its mailbox (1.24, FRV-37)
 -- FM.Owned (trade/Sources.lua) stays the logged-in character, live; the reader never counts it.
@@ -342,7 +344,8 @@ end
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "gearBank", "mailbox", "owned", "goldLast", "sent" }) do
+    local fields = { "chars", "charInfo", "bags", "bank", "gearBank", "windowRecipes", "mailbox", "owned", "goldLast", "sent" }
+    for _, field in ipairs(fields) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end
     -- its auction list counted as your listings

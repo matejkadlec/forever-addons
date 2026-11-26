@@ -631,6 +631,27 @@ end
 -- of that name is known at once, whatever the pattern's tooltip says yet (FRV-208)
 local learnedNow = {}
 
+-- Recipes your profession window lists as learned that ForeverArtisan does not (FRV-208, after the first in-game test):
+-- Forever's window shows only the recipes you know (Blizzard_ProfessionsTemplates, Camelot: SetShowUnlearned(false)),
+-- so a recipe built from its pattern is known when the window lists its name, whichever item taught it (the client has
+-- two recipes named Turtle Scale Gloves: 10509 from pattern 8385, the one vendors sell, and 439118 from 217271; the
+-- tooltip of the one you did not use never says "Already known"). Per character, saved (R.windowRecipes[char] =
+-- { [name] = recipeID }), so a /reload keeps them; nil while there is none (create: make the table)
+local function WindowRecipes(create)
+    local r = FM.realm or (FM.R and FM.R())
+    if type(r) ~= "table" then return nil end
+    if type(r.windowRecipes) ~= "table" then
+        if not create then return nil end
+        r.windowRecipes = {}
+    end
+    local me = FM.PlayerName()
+    if type(r.windowRecipes[me]) ~= "table" then
+        if not create then return nil end
+        r.windowRecipes[me] = {}
+    end
+    return r.windowRecipes[me]
+end
+
 -- The vendors QuestieDB names for a recipe's pattern (e = { ids, vendors }) as ways to learn it: the skill and level of
 -- the first pattern item the client knows (else 25 under where the recipe turns grey, as for a pattern on the AH: no
 -- pick takes an estimate), the vendors friendly to your faction, without a price
@@ -678,6 +699,7 @@ function FM.BuildSources()
     local qdb = FM.QuestiePatterns and FM.QuestiePatterns() or nil
     local sold = type(qdb) == "table" and qdb or {}
     local index -- item names to keys, made when a pattern's lines are read
+    local windowKnown = WindowRecipes(false) or {} -- learned by your profession window's list
 
     local crafts, byKey = {}, {}
     local laterList, laterByKey = {}, {}
@@ -796,10 +818,12 @@ function FM.BuildSources()
             end
         end
         for recipeName, r in pairs(extra) do
-            -- learned since its lines were read: learned this session, or the live tooltip of any of its pattern items
-            -- says so, the one a vendor you opened sells and every one QuestieDB names (review rounds 1 and 2 of PR 80:
-            -- an item of another game version can teach another spell, its tooltip then never says it)
-            local known = learnedNow[recipeName] ~= nil
+            -- learned since its lines were read: learned this session, your profession window lists it as learned, or
+            -- the live tooltip of any of its pattern items says so, the one a vendor you opened sells and every one
+            -- QuestieDB names (review rounds 1 and 2 of PR 80: an item of another game version can teach another
+            -- spell, its tooltip then never says it)
+            local recipeID = learnedNow[recipeName] or windowKnown[recipeName]
+            local known = recipeID ~= nil
             for _, route in ipairs(routes[recipeName] or {}) do
                 if not known and route.pattern and KnownNow(route.pattern) == true then known = true end
             end
@@ -811,8 +835,9 @@ function FM.BuildSources()
             -- it could never be crafted or picked); one you do not know yet stays a recipe to learn with its vendors
             if known then
                 r.learned = true
-                -- learned this session: the event gave its recipe ID (its spell, for Ctrl+click and the cast time)
-                if type(learnedNow[recipeName]) == "number" then r.id = learnedNow[recipeName] end
+                -- learned this session or listed by the window: its recipe ID (its spell, for Ctrl+click and the cast
+                -- time) is the one you know
+                if type(recipeID) == "number" then r.id = recipeID end
             end
             Consider(prof, data, recipeName, r)
         end
@@ -833,8 +858,9 @@ end
 
 ---------------------------------------------------------------- your recipes changed (FRV-208)
 -- Every pass of the table builds the sources again (FM.ComputeTrade), so learning a recipe needs a pass: a recipe
--- learned (NEW_RECIPE_LEARNED), a profession window that lists more learned recipes than before (ForeverArtisan reads
--- the window: its lists in memory are what FM.BuildSources reads) and a pattern item a "known" check waited for
+-- learned (NEW_RECIPE_LEARNED), a profession window after which ForeverArtisan lists more learned recipes than before
+-- (it reads the window: its lists in memory are what FM.BuildSources reads) or that lists a learned recipe
+-- ForeverArtisan does not (ReadWindow, kept in WindowRecipes), and a pattern item a "known" check waited for
 -- (KnownNow) start one a second later. FM.recipesVersion counts the changes; a locked plan stays and Refresh's tooltip
 -- says a recipe changed (ui/Table.lua), as for your bags (FRV-63, FRV-98)
 FM.recipesVersion = 0
@@ -856,18 +882,65 @@ local function LearnedSignature()
     return table.concat(parts, ",")
 end
 
--- force: a change for sure (a recipe learned, an awaited item arrived); else only when ForeverArtisan's count moved
-local recipesForce = false
-local function RecipesChangedSoon(force)
+-- The open profession window's learned recipes that ForeverArtisan does not list as learned, kept in WindowRecipes;
+-- true when one is new. A name keeps the first recipe ID seen (two learned recipes of one name must not swap it on
+-- every read). Never someone else's list: a linked profession, a guild's, an NPC crafting for you (the window then
+-- shows their recipes)
+local NOT_YOURS = { "IsTradeSkillLinked", "IsTradeSkillGuild", "IsTradeSkillGuildMember", "IsNPCCrafting" }
+local function ReadWindow()
+    local T = C_TradeSkillUI
+    if not (T and T.GetFilteredRecipeIDs and T.GetRecipeInfo) then return false end
+    for _, f in ipairs(NOT_YOURS) do
+        if T[f] then
+            local ok, theirs = pcall(T[f])
+            if not ok or FM.IsSecret(theirs) or theirs then return false end
+        end
+    end
+    local ok, ids = pcall(T.GetFilteredRecipeIDs)
+    if not ok or type(ids) ~= "table" then return false end
+    local listed = {} -- learned in ForeverArtisan's lists: no second record
+    for _, prof in ipairs(PROFESSIONS) do
+        local data = CharData(_G[prof.db])
+        for name, r in pairs(data and type(data.recipes) == "table" and data.recipes or {}) do
+            if type(r) == "table" and r.learned then listed[name] = true end
+        end
+    end
+    local kept, added = nil, false
+    for _, id in ipairs(ids) do
+        if type(id) == "number" and not FM.IsSecret(id) then
+            local okInfo, info = pcall(T.GetRecipeInfo, id)
+            local name = okInfo and type(info) == "table" and not FM.IsSecret(info.learned) and info.learned == true
+                and info.name
+            if type(name) == "string" and not FM.IsSecret(name) and name ~= "" and not listed[name] then
+                kept = kept or WindowRecipes(true)
+                if kept[name] == nil then
+                    kept[name] = id
+                    added = true
+                end
+            end
+        end
+    end
+    return added
+end
+
+-- force: a change for sure (a recipe learned, an awaited item arrived); else only when ForeverArtisan's count moved or
+-- the profession window (window: one of its events came) lists a recipe learned that was not kept yet
+local recipesForce, recipesWindow = false, false
+local function RecipesChangedSoon(force, window)
     if force then recipesForce = true end
+    if window then recipesWindow = true end
     if recipesPending then return end
     recipesPending = true
     C_Timer.After(RECIPES_SETTLE, function()
-        local forced = recipesForce
-        recipesPending, recipesForce = false, false
+        local forced, readWindow = recipesForce, recipesWindow
+        recipesPending, recipesForce, recipesWindow = false, false, false
         local ok, sig = pcall(LearnedSignature)
         local changed = ok and learnedSig ~= nil and sig ~= learnedSig
         if ok then learnedSig = sig end
+        if readWindow then
+            local okWindow, added = pcall(ReadWindow)
+            if okWindow and added then changed = true end
+        end
         if not (forced or changed) then return end
         FM.recipesVersion = FM.recipesVersion + 1
         FM.sources = nil
@@ -883,8 +956,25 @@ FM.On("NEW_RECIPE_LEARNED", function(recipeID)
     end
     RecipesChangedSoon(true)
 end)
-FM.On("TRADE_SKILL_SHOW", function() RecipesChangedSoon(false) end)
-FM.On("TRADE_SKILL_LIST_UPDATE", function() RecipesChangedSoon(false) end)
+-- the window's list can fill a moment after it opens (its update event reads it again); read once more a little later
+local WINDOW_AGAIN = 3
+local function WindowShown()
+    RecipesChangedSoon(false, true)
+    C_Timer.After(WINDOW_AGAIN, function() RecipesChangedSoon(false, true) end)
+end
+FM.On("TRADE_SKILL_SHOW", WindowShown)
+FM.On("TRADE_SKILL_LIST_UPDATE", function() RecipesChangedSoon(false, true) end)
+-- Forever's profession window does not send the trade skill events every time (ForeverArtisan reads it as it shows for
+-- the same reason): its OnShow too, hooked once Blizzard_Professions has loaded it
+local windowHooked = false
+local function HookWindow()
+    local frame = not windowHooked and _G.ProfessionsFrame
+    if type(frame) == "table" and frame.HookScript then
+        windowHooked = true
+        frame:HookScript("OnShow", WindowShown)
+    end
+end
+FM.On("ADDON_LOADED", HookWindow)
 -- an item the client does not have (success false: another game version's) is not asked for again
 local function ItemArrived(itemID, success)
     if type(itemID) ~= "number" or FM.IsSecret(itemID) or not awaitedItems[itemID] then return end
@@ -900,6 +990,7 @@ FM.On("ITEM_DATA_LOAD_RESULT", ItemArrived)
 FM.On("PLAYER_LOGIN", function()
     local ok, sig = pcall(LearnedSignature)
     if ok then learnedSig = sig end
+    HookWindow()
 end)
 
 -- Cheapest vendor price per unit of an item: (unit, offer) or nil. Material costs leave out offers

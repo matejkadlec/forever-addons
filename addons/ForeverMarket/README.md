@@ -429,13 +429,21 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     made item per craft (the lines do not say more). Its tooltip and rows are those of any recipe to learn
   * Once you know it (1.55, FRV-208) it is a learned recipe made from the same lines: Craft lists it, Picks can plan
     it as "Craft and sell" or "Craft and wait", Learn no longer lists it (until ForeverArtisan lists it itself at its
-    next look at the profession window). You know it when you learned it this session (`NEW_RECIPE_LEARNED`: its
-    recipe ID comes with it, for Ctrl+click) or when the live tooltip of one of its pattern items says "Already known".
-    A pattern item whose data the game has not loaded yet tells neither (until 1.55 that read as "not known", the
-    reason Turtle Scale Gloves stayed a Learn pick after the maintainer learned it): it is asked for, and the
-    marketplace computes again when it arrives. Learning a recipe, a profession window after which ForeverArtisan
-    lists more learned recipes, and such an item arriving each compute the tabs again a second later; a locked Picks
-    plan stays, and Refresh's tooltip names "a recipe you learned" among what changed since the plan
+    next look at the profession window). You know it when:
+    * your profession window lists it (1.55.1). Forever's window shows only the recipes you know, so every time one
+      opens, the learned recipes in it that ForeverArtisan does not list are kept for the character, by name with
+      their recipe ID (for Ctrl+click), and stay known after a `/reload`. The name counts, whichever pattern taught
+      it: the game has two recipes named Turtle Scale Gloves (10509 from pattern 8385, the one vendors sell, and
+      439118 from 217271), and with the tooltip check below alone 1.55.0 kept the maintainer's a Learn pick while his
+      window listed it. Someone else's window (a linked profession, a guild's, an NPC crafting for you) is never read
+    * you learned it this session (`NEW_RECIPE_LEARNED`: its recipe ID comes with it)
+    * the live tooltip of one of its pattern items says "Already known". A pattern item whose data the game has not
+      loaded yet tells neither (until 1.55 that read as "not known"): it is asked for, and the marketplace computes
+      again when it arrives
+
+    Learning a recipe, a profession window after which ForeverArtisan lists more learned recipes or that lists one it
+    does not, and such an item arriving each compute the tabs again a second later; a locked Picks plan stays, and
+    Refresh's tooltip names "a recipe you learned" among what changed since the plan
   * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
     for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
     "?" and the tooltip "price not known yet ... not visited yet (QuestieDB)" (QuestieDB has no prices), the skill and
@@ -1950,6 +1958,10 @@ Picks skip).
   as the bank closes; `accountGear` (1.55, optional) the same of the account bank, once per realm bucket, written at
   each read while the bank is open (next to `accountBank`); the Upgrades tab's owned rows read both, `/fm forget` drops
   a character's `gearBank`
+* `windowRecipes[char]` (1.55.1, FRV-208, optional, made at the first profession window that lists such a recipe)
+  `{ [name] = recipeID }`: the recipes the character's profession window listed as learned that ForeverArtisan does
+  not list as learned; a recipe built from its pattern (FRV-199) of that name is a learned craft with that recipe ID;
+  only added to, `/fm forget` drops a character's
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
   character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
