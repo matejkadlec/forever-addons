@@ -116,11 +116,11 @@ Before any implementation, for every ticket of the batch:
 2. Move it to In Progress and comment `🔒 Claim`: the branch, the run location, the date
 3. Create the batch's branch and worktree once ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): `frv-<n>-<slug>`, several tickets as `frv-15-19-<slug>`
 
-A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim release` with the reason and what it leaves behind (a pushed branch with its tip SHA, or nothing), and moves it back to To Do. Then it cleans up ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): it removes its worktree, and deletes its branch, remote and local, unless the release leaves that branch for a later session.
+A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim release` with the reason and what it leaves behind (a pushed branch with its tip SHA, or nothing), and moves it back to To Do. When that was the batch's last ticket on the branch, it cleans up ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)): it removes its worktree, and deletes its branch, remote and local, unless the release leaves that branch for a later session. A release of only some tickets of a batch keeps the branch and the worktree for the rest.
 
 ### Withdrawn work
 
-When the maintainer closes a pull request without merging it or drops its ticket, the run that owns the batch records each branch's tip SHA on the tickets (`🤖 Claude QA`: the branch, the SHA, why, the restore command `git push origin <sha>:refs/heads/<branch>`), then deletes the remote and local branch and removes the worktree ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)). Its tickets leave In Review: one he still wants goes back to To Do with a `🔒 Claim release` that names the recorded SHA; one he drops is left as he decides, never moved to Done by the run.
+When the maintainer closes a pull request without merging it, or drops every ticket of its batch, the run that owns the batch records each branch's tip SHA on the tickets (`🤖 Claude QA`: the branch, the SHA, why, the restore command `git push origin <sha>:refs/heads/<branch>`), then deletes the remote and local branch and removes the worktree ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)). Its tickets leave In Review: one he still wants goes back to To Do with a `🔒 Claim release` that names the recorded SHA; one he drops is left as he decides, never moved to Done by the run. When he drops only some tickets of a batch, the branch and the worktree stay for the rest; the dropped ticket's changes come out of the branch like any other revision.
 
 ---
 
