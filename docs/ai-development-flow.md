@@ -120,7 +120,7 @@ A run that gives a ticket back (blocked, out of reach) comments `🔒 Claim rele
 
 ### Withdrawn work
 
-When the maintainer closes a pull request without merging it, or drops every ticket of its batch, the run that owns the batch records each branch's tip SHA on the tickets (`🤖 Claude QA`: the branch, the SHA, why, the restore command `git push origin <sha>:refs/heads/<branch>`), then deletes the remote and local branch and removes the worktree ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)). Its tickets leave In Review: one he still wants goes back to To Do with a `🔒 Claim release` that names the recorded SHA; one he drops is left as he decides, never moved to Done by the run. When he drops only some tickets of a batch, the branch and the worktree stay for the rest; the dropped ticket's changes come out of the branch like any other revision.
+When the maintainer closes a pull request without merging it, or drops every ticket of its batch, the run that owns the batch records each branch's tip SHA on the tickets (`🤖 Claude QA`: the branch, the SHA, why, the restore command `git push origin <sha>:refs/heads/<branch>`), then deletes the remote and local branch and removes the worktree ([AGENTS.md, Branches and Worktrees](../AGENTS.md#branches-and-worktrees)). Its tickets leave In Review: one he still wants goes back to To Do with a `🔒 Claim release` that names the recorded SHA; one he drops is left as he decides, never moved to Done by the run. When he drops only some tickets of a batch, the branch and the worktree stay for the rest: first a `🤖 Claude QA` comment on each dropped ticket records the branch, the current tip SHA and the restore command, then its changes come out of the branch like any other revision.
 
 ---
 
