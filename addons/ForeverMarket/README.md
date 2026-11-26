@@ -20,8 +20,8 @@ as before. Copy the `ForeverMarket` folder into `Interface/AddOns` next to Forev
 (`## X-Curse-Required-Dependencies: foreverartisan`, sent with every upload, [`docs/releasing.md`](../../docs/releasing.md)),
 so the CurseForge app installs it with ForeverMarket.
 
-**[Pawn](https://www.curseforge.com/wow/addons/pawn) is optional** (1.53, FRV-202): it scores the gear of the coming
-Upgrades tab (below). `## OptionalDeps: Pawn` loads it first when it is installed, `## X-Curse-Optional-Dependencies:
+**[Pawn](https://www.curseforge.com/wow/addons/pawn) is optional** (1.53, FRV-202): it scores the gear of the
+Upgrades tab (1.54, below; without Pawn the tab says it needs it). `## OptionalDeps: Pawn` loads it first when it is installed, `## X-Curse-Optional-Dependencies:
 pawn` names it as an Optional Dependency on CurseForge; without it ForeverMarket works as before.
 
 ## What it records
@@ -330,7 +330,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   stays the average of each scan's own numbers, and the sniper keeps its prices (a craft row's Shift+click snipes its
   main material at its max price, which that material's own reference does not move)
 * Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
-  (gold, 1.15, a graph, see below), **Learn**, **Farm** (green, right end). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+  (gold, 1.15, a graph, see below), **Learn**, **Farm**, **Upgrades** (green, right end; 1.54, see below: ten tabs, so
+  every tab button is 84 px wide, 88 apart, 94 and 98 before). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
@@ -1133,12 +1134,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
 
-## Upgrades (1.53, FRV-202: trade/Upgrades.lua; the tab comes with FRV-203)
+## Upgrades (1.53, FRV-202: trade/Upgrades.lua; the tab since 1.54)
 
-The logic of the coming Upgrades tab (Epic FRV-190): the gear of the latest snapshot that the logged-in character can
-wear and that beats what it wears, scored live by [Pawn](https://www.curseforge.com/wow/addons/pawn) (optional; every
-Pawn call of ForeverMarket is in this file, each in `pcall`, Pawn's globals read only when called). Nothing shows yet
-and nothing is saved: a score depends on the character, its gear, its level and Pawn's scales, and Pawn needs the
+The logic of the Upgrades tab (Epic FRV-190; the tab and its buy window below): the gear of the latest snapshot that
+the logged-in character can wear and that beats what it wears, scored live by
+[Pawn](https://www.curseforge.com/wow/addons/pawn) (optional; every Pawn call of ForeverMarket is in this file, each in
+`pcall`, Pawn's globals read only when called). No score is saved: a score depends on the character, its gear, its level and Pawn's scales, and Pawn needs the
 item's data, which a scan of 100,000 gear auctions cannot wait for. The results are kept for the session.
 
 * **Rows** (`FM.UpgradeCandidates()`): one per gear item and bonus key of the latest snapshot's gear variants (Gear
@@ -1172,6 +1173,58 @@ item's data, which a scan of 100,000 gear auctions cannot wait for. The results 
   deal by far and pushing every other row under 15%: a row far cheaper than usual is ranked by what it gives, a row far
   dearer by what it gives per gold. It is worked out over the rows after the level and rarity filters and before the
   name search, so typing a name changes no number
+
+### The Upgrades tab (1.54, FRV-203, FRV-205: ui/Upgrades.lua)
+
+The last tab of the marketplace (`/fm upgrades`, or the key `U` and the tab): the rows above, one per item and suffix.
+
+* **Columns:** Item (the name with its suffix, in its quality color), Slot (the game's name of it; sorts in the
+  character sheet's order), Lvl (the required level, red above yours), Price (always gold, silver and copper,
+  "1g 33s 15c"; red when it is more than your gold), Upgrade (Pawn's %, rounded as Pawn's tooltip shows it, "<1%"
+  under 1, a green "empty slot" where you wear nothing, which sorts above every %), Cost-Benefit (the default sort,
+  largest first; the best row of the list is 100%). Header tooltips say what Upgrade and Cost-Benefit are
+* **Filters** right of the search box (their tooltips while Shift is held): **Level** [min] - [max] on the required
+  level, your level - 5 to your level + 1 (within 1 to 60) until a `/reload` or a level-up, not saved; **Rarities**
+  (checkboxes in their quality colors, Uncommon to Legendary by default, saved in `settings.upgradeRarities`, quality ->
+  checked); **Slots** (one checkbox per slot, all by default, "Slots: 3" while not all are checked, saved in
+  `settings.upgradeSlots`, an equipLoc set to false is not listed); **Spec** (the scales Pawn shows for this character, in
+  Pawn's order, only while it shows more than one; saved for this character, a scale Pawn no longer shows falls back
+  to the first one); **Best per slot** (the best deal of each slot, the two best rings; `settings.upgradeBestPerSlot`)
+* **Which numbers move:** Cost-Benefit is worked out over the rows inside Level and Rarities for the chosen spec. The
+  search (it matches the name with its suffix), Slots and Best per slot only pick which of those rows show, so they
+  never change a number; another spec does, at once and without scoring again
+* **Around the list:** an empty list says why: "Upgrades needs the Pawn AddOn ...", "Pawn shows no scale for this
+  character ...", "Waiting for Pawn to start...", "No gear data yet: run a deep scan ...", "Scoring gear with Pawn...
+  420 / 2,900" (the title bar's "computing..." while rows are already shown), else "No upgrades in this level range and
+  these rarities right now."; from an hour on a line above the list says the listings are that old; the footer reads
+  "1-20 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship"
+* **Row tooltip:** the item's own tooltip (Pawn adds its lines to it), then the price ("the cheapest of 3 listed"),
+  "Upgrade: 30% over [what you wear]" or "fills an empty slot", the scale, Cost-Benefit with the Pawn points gained and
+  the typical price of the list it counts against, the time left when scanned and the snapshot's age, a red "Requires
+  level 48" above your level. Hold Shift to see the item you wear beside it
+* **Clicks:** a click searches the item at the AH; Alt+click makes the tooltip a sticky window; Ctrl+click tries the
+  item on in the Dressing Room (Blizzard's `DressUpLink`; nothing for a ring or a neck); Shift+click at the AH opens the
+  buy window below, away from it links the item with its suffix in the chat; right-click: Buy this listing (at the AH),
+  Favorize, Ignore, Show history. An Upgrades row never goes to the sniper (it buys commodities only)
+
+### Buying a listing (1.54, FRV-204: ui/UpgradeBuy.lua)
+
+Shift+click on an Upgrades row at the Auction House (or its menu's Buy this listing) opens a small window with the
+item. It looks the listing up live with one search by the item ID (the search Blizzard's sell page sends for gear, so
+every suffix is listed), only while the AH is free (it says what keeps it busy otherwise) and never in combat, and
+offers the cheapest auction of the row's suffix with a buyout that is not yours:
+
+* found at the scanned price or below: "Buyout: 1g 33s 15c", Buy on; found only dearer: the price in orange and "was
+  1g 33s 15c when scanned", Buy on; above your gold: the price in red and "You have 4g 02s 62c", Buy off
+* not found: "This listing is gone (sold, cancelled or expired).", Buy off, and the row is grey with "(gone)" in the tab
+  until the next snapshot; no answer in 10 s: it says so
+* **Buy** buys that one auction with its buyout, on your click only (`C_AuctionHouse.PlaceBid`), one click one auction;
+  it stays off until the Auction House answers ("Bought. It arrives by mail.", the row turns grey) or 10 s pass ("No
+  answer from the Auction House: check your mail before buying again.")
+* If the game does not let the AddOn buy, Buy stays off until `/reload` and a "Search at the AH" button runs the plain
+  search of the item instead. Cancel, Esc and closing the AH close the window
+* The purchase needs no log of its own: the "Auction won" mail books it like any won auction, and equipping it marks it
+  as your gear on the Profit tab
 
 ## Profit tab (1.15, named Performance until 1.15.11: scan/Worth.lua, trade/Performance.lua, ui/Performance.lua)
 
@@ -1839,8 +1892,9 @@ Picks skip).
 * `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
-  seen, since, bagsEmpty }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
-  `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
+  seen, since, bagsEmpty, upgradeScale }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
+  `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31; `upgradeScale` =
+  Pawn's name of the scale chosen in the Upgrades tab's Spec dropdown, 1.54, FRV-205); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
   apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c3` = counted at cost (1.38: only readings of the

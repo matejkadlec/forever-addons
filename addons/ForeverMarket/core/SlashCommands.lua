@@ -19,6 +19,7 @@ local function PrintHelp()
     FM.Print("Available commands:")
     PrintHelpLine("", "Open or close the marketplace")
     PrintHelpLine("snipe", "Open or close the snipe window (sniping runs while it is open at the AH)")
+    PrintHelpLine("upgrades", "Open the marketplace on Upgrades: gear on the AH that beats what you wear (needs Pawn)")
     PrintHelpLine("help", "This list")
     PrintHelpLine("status", "What is stored, last scans")
     PrintHelpLine("scan", "Deep scan now (AH open, once per 15 min)")
@@ -175,6 +176,9 @@ local function HandleSlash(msg)
         FM.ToggleTable()
     elseif command == "snipe" then
         FM.ToggleSnipe()
+    elseif command == "upgrades" then
+        -- the marketplace on its Upgrades tab (FRV-203): gear on the AH that beats what you wear
+        FM.OpenTable("upgrades")
     elseif command == "help" then
         PrintHelp()
     elseif command == "status" then

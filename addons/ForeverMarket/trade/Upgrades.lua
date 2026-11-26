@@ -86,6 +86,12 @@ local function VisibleScales()
     return visible
 end
 
+-- Pawn's visible scales in its order, { { name, localized }, ... } (the Upgrades tab's Spec dropdown, FRV-205); nil and
+-- why as FM.UpgradeScale gives it when there is none
+function FM.UpgradeScales()
+    return VisibleScales()
+end
+
 -- The scale in use: name when Pawn shows it, else the first visible one. Returns its name and localized name, or nil
 -- and why: "nopawn" (Pawn not loaded), "notready" (Pawn not initialized yet), "noscale" (no visible scale)
 function FM.UpgradeScale(name)

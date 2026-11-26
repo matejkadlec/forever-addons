@@ -61,6 +61,11 @@ FM.DEFAULTS = {
                           -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
     tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
+    -- Upgrades tab (FRV-203, FRV-205): the rarities listed (item quality -> checked), the slots (an equipLoc set to false
+    -- is not listed: every slot by default), "Best per slot"
+    upgradeRarities = { [0] = false, [1] = false, [2] = true, [3] = true, [4] = true, [5] = true },
+    upgradeSlots = {},
+    upgradeBestPerSlot = false,
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
@@ -242,7 +247,14 @@ function FM.InitializeSavedData()
         db.settings.tableInvestPctOn = db.settings.tableInvestManual ~= true
     end
     for key, value in pairs(FM.DEFAULTS) do
-        if db.settings[key] == nil then
+        -- a setting of the wrong kind (a table default saved as something else) gets the default too
+        if db.settings[key] == nil or (type(value) == "table" and type(db.settings[key]) ~= "table") then
+            -- a table default is copied: the saved table must never be the default itself
+            if type(value) == "table" then
+                local copy = {}
+                for k, v in pairs(value) do copy[k] = v end
+                value = copy
+            end
             db.settings[key] = value
         end
     end
