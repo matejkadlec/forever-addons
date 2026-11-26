@@ -70,9 +70,9 @@ class Repo:
         shutil.rmtree(self.root, ignore_errors=True)
 
 
-def addon_repo(toc=TOC, addon="TestCamp", license_text="MIT own\n"):
+def addon_repo(toc=TOC, addon="TestCamp", license_text="All Rights Reserved own\n"):
     repo = Repo()
-    repo.write("LICENSE", "MIT root\n")
+    repo.write("LICENSE", "All Rights Reserved root\n")
     repo.write("addons/%s/%s.toc" % (addon, addon), toc)
     repo.write("addons/%s/Core.lua" % addon, "local x = 1\n")
     repo.write("addons/%s/ui/Panel.lua" % addon, "local y = 2\n")
@@ -281,7 +281,7 @@ class BuildTests(unittest.TestCase):
         ])
         self.assertIn("TestCamp/", names)
         self.assertIn("TestCamp/ui/", names)
-        self.assertEqual(files["TestCamp/LICENSE"], "MIT own\n")
+        self.assertEqual(files["TestCamp/LICENSE"], "All Rights Reserved own\n")
         # folders extract as drwxr-xr-x with unzip on Linux and macOS, never as mode 000
         with zipfile.ZipFile(os.path.join(self.repo.root, "dist", "TestCamp-1.2.3.zip")) as archive:
             for name in ("TestCamp/", "TestCamp/ui/"):
@@ -293,8 +293,9 @@ class BuildTests(unittest.TestCase):
         self.repo.close()
         self.repo = addon_repo(license_text=None)
         _, _, files, printed = self.build()
-        self.assertEqual(files["TestCamp/LICENSE"], "MIT root\n")
+        self.assertEqual(files["TestCamp/LICENSE"], "All Rights Reserved root\n")
         self.assertIn("::notice::addons/TestCamp/ has no LICENSE of its own", printed)
+        self.assertIn("the repository's LICENSE (All Rights Reserved)", printed)
 
     def test_release_notes(self):
         self.build("Fixed the alert")
@@ -545,6 +546,32 @@ class WorkflowTests(unittest.TestCase):
             "release_addon.py cf-metadata", "gh release create", "release_addon.py cf-upload")]
         self.assertEqual(order, sorted(order))
         self.assertIn("tags: ['*-v*']", workflow)
+
+
+class RepositoryLicenseTests(unittest.TestCase):
+    """The license every first-party package carries (FRV-211): this repository's own files, not a throwaway repo."""
+
+    def addons(self):
+        folder = os.path.join(ROOT, "addons")
+        return sorted(name for name in os.listdir(folder)
+                      if os.path.isfile(os.path.join(folder, name, name + ".toc")))
+
+    def test_every_first_party_toc_is_all_rights_reserved(self):
+        self.assertTrue(self.addons())
+        for addon in self.addons():
+            with open(os.path.join(ROOT, "addons", addon, addon + ".toc"), encoding="utf-8-sig") as handle:
+                licenses = [line.strip() for line in handle if line.startswith("## X-License:")]
+            self.assertEqual(licenses, ["## X-License: All Rights Reserved"], addon)
+
+    def test_an_addon_license_file_is_the_repository_one(self):
+        with open(os.path.join(ROOT, "LICENSE"), encoding="utf-8") as handle:
+            root_license = handle.read()
+        self.assertIn("All rights reserved.", root_license)
+        for addon in self.addons():
+            path = os.path.join(ROOT, "addons", addon, "LICENSE")
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), root_license, addon)
 
 
 if __name__ == "__main__":

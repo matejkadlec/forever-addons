@@ -24,9 +24,11 @@ The AddOn inventory is in the root guide. ForeverMarket, ForeverCraftQueue and F
   ## IconTexture: Interface\Icons\{IconName}
   ## Author: Matej Kadlec (https://github.com/matejkadlec)
   ## Version: 1.0.0
+  ## X-License: All Rights Reserved
   ## X-Repository: https://github.com/matejkadlec/forever-addons
   ## SavedVariables: Forever{AddonName}Settings, JimsForeverAddOnsDB
   ```
+  - `## X-License: All Rights Reserved`: first-party AddOns are All Rights Reserved, like the rest of the repository (the root `LICENSE`); an AddOn released on its own (CurseForge, `## X-Curse-Project-ID:`) also carries a copy of the root `LICENSE` in its folder, as ForeverCampFeatures does, so the notice travels with its download. A third-party library embedded in an AddOn (`Libs/`) keeps its own license file and header and is listed in the root `LICENSE` and the README's Licenses section
   - `## X-Curse-Project-ID: <id>` (after `## X-Repository:`) only for an AddOn the maintainer put on CurseForge: the `Release` workflow uploads its releases to that project ([`docs/releasing.md`](../docs/releasing.md)); it is set only with the ID he gives, and an AddOn without it is released on GitHub only
   - `ForeverTweaks` keeps its historical `ForeverTweaksDB` SavedVariables name, `ForeverMarket` uses `ForeverMarketDB` (it stores market data, not only settings)
   - `ForeverMarket`'s title is `|cFFFF8000Forever|r Marketplace |cFF0070DD[Core]|r` (FRV-1, 1.50): the AddOn is named "Forever Marketplace [Core]", the blue `[Core]` sets it apart from its planned modules (FRV-53) and is not part of its window titles ("Forever Marketplace", "Forever Marketplace Sniper"); its folder, `ForeverMarketDB` and `/fm` keep their names

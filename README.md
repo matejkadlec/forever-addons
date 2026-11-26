@@ -2,7 +2,7 @@
 
 ![Language](https://img.shields.io/badge/language-Lua-2C2D72.svg)
 ![WoW Version](https://img.shields.io/badge/WoW-Forever-blue.svg)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](#-licenses)
+[![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red.svg)](#-licenses)
 ![Status](https://img.shields.io/badge/status-active-brightgreen.svg)
 
 Collection of custom World of Warcraft AddOns developed for **WoW: Forever**, plus third-party AddOns backported to it.
@@ -212,7 +212,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - `/fcf debug` prints what each way of finding objects sees right now (the recipes asked and their answers, the last world tooltip, the last placement, the channel and what was sent and received, TomTom and what became of the last waypoint); `/fcf debug objects` prints every object with its item and placement spell
   - `/fcf help` shows help
 - Settings panel: `Jim's Forever AddOns -> Camp Features` (the page scrolls): the alert text, sound and waypoint, "TomTom waypoint arrows" under the waypoint option (with a red note next to it while TomTom's own arrow is disabled) and "Alert me only once per feature" with "Reset on reload" under it; the sound picked from every game sound A-Z (Raid Warning by default, a preview on pick and hover, a ▶ play button); the text's font (the game's, plus LibSharedMedia's when loaded), size, text and background color with opacity, Move (drag a preview anywhere), Reset position and Test; sharing and showing shared camp features, with a note on what is sent; the features in one group per profession with a line between the groups, each on or off, All on and All off, a click on a profession's name for its whole group, and a search that greys out every feature that does not match
-- Standalone, TomTom optional; MIT licensed and written for CurseForge, with a player README: [`addons/ForeverCampFeatures/README.md`](addons/ForeverCampFeatures/README.md)
+- Standalone, TomTom optional; written for CurseForge, with a player README: [`addons/ForeverCampFeatures/README.md`](addons/ForeverCampFeatures/README.md)
 
 ### ForeverCraftQueue
 
@@ -330,7 +330,7 @@ If you have an AddOn idea you would rather talk over privately, you can email me
 
 ## 🤝 Contributing
 
-Contributions are welcome. Ideas and bugs go to an issue first ([Feedback](#-feedback)), so we agree on a change before anyone writes it; pull requests are welcome after that. The rules, the checks and the development setup (syncing the AddOns into your game) are in [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome. Ideas and bugs go to an issue first ([Feedback](#-feedback)), so we agree on a change before anyone writes it; pull requests are welcome after that. By opening a pull request you agree that the maintainer may use, change and relicense your contribution as part of this repository and its AddOns ([CONTRIBUTING.md](CONTRIBUTING.md#your-contribution)). The rules, the checks and the development setup (syncing the AddOns into your game) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 🧰 For developers
 
@@ -344,9 +344,12 @@ This repository is developed with AI agents (Claude Code): the maintainer plans 
 
 ## 📜 Licenses
 
-- **My AddOns** (everything in `addons/`) and the rest of this repository (scripts, tests, tools, services, documentation): MIT, see [`LICENSE`](LICENSE). Feel free to use any of them in your own project; a link back to this repository is appreciated
-  - ForeverCampFeatures carries the same MIT text in its own folder ([`addons/ForeverCampFeatures/LICENSE`](addons/ForeverCampFeatures/LICENSE)), so it travels with its download
-  - ForeverRangeIndicator embeds LibRangeCheck-3.0 (MIT, [its `LICENSE`](addons/ForeverRangeIndicator/Libs/LibRangeCheck-3.0/LICENSE)) and LibStub (public domain)
+- **My AddOns** (everything in `addons/`) and the rest of this repository (scripts, tests, tools, services, documentation): All Rights Reserved, Copyright (c) 2026 Matěj Kadlec, see [`LICENSE`](LICENSE)
+  - You may download the released AddOns and use them in your own game client
+  - Copying, changing, redistributing or republishing the code or the AddOns needs my written permission: ask in an issue or by email ([Feedback](#-feedback))
+  - ForeverCampFeatures carries the same notice in its own folder ([`addons/ForeverCampFeatures/LICENSE`](addons/ForeverCampFeatures/LICENSE)), so it travels with its download
+- **Third-party libraries embedded in my AddOns** keep the licenses of their authors:
+  - ForeverRangeIndicator: LibRangeCheck-3.0, MIT ([its `LICENSE`](addons/ForeverRangeIndicator/Libs/LibRangeCheck-3.0/LICENSE)), and LibStub, public domain (its header)
 - **Backported AddOns** keep the license of the original:
   - Quartz: GPL v2, [`backports/Quartz/GPLv2.txt`](backports/Quartz/GPLv2.txt)
   - Skada: MIT, [`backports/Skada/LICENSE`](backports/Skada/LICENSE) (Skada declares MIT/X in its `.toc`); its bundled fonts are not under it: Cinzel and Marcellus are under the SIL Open Font License 1.1 ([`backports/Skada/media/fonts/README-fonts.md`](backports/Skada/media/fonts/README-fonts.md)), the other five (ABF, Accidental Presidency, Adventure, Avqest, VeraSe) come with upstream Skada, which names no license for them

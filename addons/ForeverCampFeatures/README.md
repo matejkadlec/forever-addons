@@ -81,4 +81,4 @@ Please report them on GitHub, not in the comments, so nothing gets lost:
 
 ## License
 
-MIT, see `LICENSE`. Source: https://github.com/matejkadlec/forever-addons
+All Rights Reserved, Copyright (c) 2026 Matěj Kadlec, see `LICENSE`. You may download the AddOn and use it in your own game client; copying, changing, redistributing or republishing it needs the author's written permission. Source: https://github.com/matejkadlec/forever-addons
