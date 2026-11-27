@@ -271,11 +271,16 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
     unit counted at the item's AH price whatever you paid, so the line always sat above the AH price: the
     maintainer's crafted Turtle Scale Helm (paid 2g 40s 17c, materials today 2g 80s 17c) read 3g 19s 54c = (the
     helm's 2g 88s + its 15s 56c 8h deposit) / 0.95, over the plan's 2g 87s; now (2g 40s 17c + 15s 56c) / 0.95 =
-    2g 69s 19c. Deposit =
-    max(1s, share x vendor sell price x units), share 20% for 8h and 60% for 24h (Medium Leather sells for 50c:
-    8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
-    replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
-    `R.deposits[key][2|3] = { rate, floor }`)
+    2g 69s 19c. Deposit (`FM.Deposit`; the rule since 1.58, FRV-216, from the real deposits of the maintainer's
+    sale mails): a share of the vendor sell price, 20% for 8h and 60% for 24h. A commodity pays for the whole post,
+    max(1s, share x price x units) (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as measured
+    in game); an item that does not stack goes up one auction per unit, and each pays its share rounded down, at
+    least 1c and without the 1s floor (a Light Leather Reagent Bag of 1s: 20c; until 1.57 the estimate was 1s per
+    such auction). `C_AuctionHouse.CalculateCommodityDeposit` gives the rate of the stackable items in your bags
+    whenever the AH opens (once a week, `R.deposits[key][2|3] = { rate, floor }`); the 1s floor counts for it too
+    (the calculator answers 50c for one Mageweave Cloth, the AH takes 1s). The vendor price and the stack size come
+    from the client, which only answers for items it has loaded: both are kept once known (`R.facts[key]` =
+    `"sell:stack"`), so a deposit is the same whatever the client has loaded (Profit tab, The numbers stand still)
 * Auctionator's price database (`scan/Auctionator.lua`, setting "Keep Auctionator's prices fed from our data"):
   every refresh of our data writes the lowest unit price and the quantity per item ID into it the way
   Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and full item searches (1.16;
@@ -1649,7 +1654,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 * From the first reading at cost on, what you hold counts step by step between consecutive readings (the stored
   ones and one of right now), each step in the period of its later reading; that first reading is the baseline, and
   a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + the rule the reading
-  was made by, `c3`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
+  was made by, `c4`: counted at cost, `c3` until 1.57; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
   such a reading doesn't replace the earlier one of its hour, and neither does one that holds less than it (the
   line keeps the level before a fall). A reading marked `x` is skipped. Only readings of the current rule count:
   when what a reading counts changes, the rule's number does, the readings before tell their gold alone and the
@@ -2200,6 +2205,9 @@ Picks skip).
   `{ [name] = recipeID }`: the recipes the character's profession window listed as learned that ForeverArtisan does
   not list as learned; a recipe built from its pattern (FRV-199) of that name is a learned craft with that recipe ID;
   only added to, `/fm forget` drops a character's
+* `facts[key]` (1.58, FRV-216) `"sell:stack"`: what a vendor pays for one unit of the item and how many of it stack,
+  as the client last told (either part empty while unknown); a deposit is worked out from it, so it does not change
+  with what the client has loaded. One short text per item a deposit was ever asked for
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
   character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
