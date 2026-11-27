@@ -2276,7 +2276,9 @@ def cmd_listings(m, args):
     book = ListingsBook(realm, now, since=start)
     older = []
     for path in sorted(args.older or [], key=os.path.getmtime, reverse=True):
-        older.append(Market(path, m.realm_key, m.char))
+        # only their deep records are read: no character is asked of an older copy (it may hold settings of
+        # other characters only, and an unknown character ends the run)
+        older.append(Market(path, m.realm_key))
     settings = m.settings or {}
     room = (settings.get('tableCircPct') or 25) / 100
     first_share = (settings.get('tableFirstPct') or 2) / 100
