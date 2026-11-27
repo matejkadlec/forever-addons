@@ -1594,7 +1594,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     them again), the AH closing or a logout. A post the AH answers late (a slow AH, a post it asks to confirm) is not
     settled by the quiet seconds while its auction ID is still waited for (30 seconds, 1.70.1): the ID and the gold
     that leaves then still reach its line. A purchase or a cancel asked for in that time leaves `paid` empty: its
-    gold cannot be told from the deposit's. The tab takes `paid`, then `calc`. Which of the two the AH really takes
+    gold cannot be told from the deposit's. So does a post of several auctions that was not seen to make all of them
+    (it still runs after a minute, or the AH closes on it): what left by then is only a part, and the calculator's
+    answer for the whole post stands (1.70.4). The 0 your gold reads while you log out is no fall. The tab takes `paid`, then `calc`. Which of the two the AH really takes
     for every kind of post is only seen in the game (the in-game test of this version), so both are saved.
   * **Older posts, and posts without the fields**, take their deposit from your sale mails, which name the real one
     (`FM.PostDepositKnown` in `trade/Cost.lua`): each mail takes the units of the oldest post of its character and

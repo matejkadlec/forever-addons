@@ -130,6 +130,72 @@ H.test("post deposit: a post of several single auctions takes every fall, each n
     H.same({ f[7], f[8], f[9], f[10] }, { "i", B(101), B(495), B(495) }, "three falls of 1s 65c: 4s 95c")
 end)
 
+-- Review round 4 of PR 94: a post of several auctions that one of the time limits cut off was settled with the gold
+-- that had left so far, and that partial sum stood before the calculator's answer for the whole post
+H.test("post deposit: a post of several auctions that is not seen to make all of them keeps no partial sum", function()
+    -- its steps are further apart than the quiet seconds: it stays open and takes every fall
+    local FM, env, state, r = Session(nil)
+    state.calc.item = 495
+    env.C_AuctionHouse.PostItem(PANTS_LOC, 2, 3, nil, 50000)
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 101)
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    state.Pay(165)
+    state.Wait(5)
+    H.eq(#Fields(r.posts[1]), 8, "1 of 3 made, 5 quiet seconds: still open")
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 2, 3)
+    state.Pay(165)
+    state.Wait(5)
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 3, 3)
+    state.Pay(165)
+    state.Wait(3)
+    H.same({ Fields(r.posts[1])[9], Fields(r.posts[1])[10] }, { B(495), B(495) }, "all three made: the whole deposit")
+    -- one that still runs after a minute: the falls so far are a part, the calculator's answer stands alone
+    local FM2, env2, state2, r2 = Session(nil)
+    state2.calc.item = 495
+    env2.C_AuctionHouse.PostItem(PANTS_LOC, 2, 3, nil, 50000)
+    env2.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 201)
+    env2.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    state2.Pay(165)
+    state2.Wait(61)
+    state2.Pay(165)
+    local f = Fields(r2.posts[1])
+    H.same({ f[8], f[9], f[10] }, { B(201), "", B(495) }, "a fall 61 s into the post: no paid, calc kept")
+    H.eq(FM2.PostDepositKnown(r2, 1), 495, "the calculator's answer is the deposit")
+    -- one the AH closes on after 1 of 3: no partial sum either
+    local FM3, env3, state3, r3 = Session(nil)
+    state3.calc.item = 495
+    env3.C_AuctionHouse.PostItem(PANTS_LOC, 2, 3, nil, 50000)
+    env3.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 301)
+    env3.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    state3.Pay(165)
+    env3.FireEvent("AUCTION_HOUSE_CLOSED")
+    H.same({ Fields(r3.posts[1])[9], Fields(r3.posts[1])[10] }, { "", B(495) }, "cut off by the AH closing: calc alone")
+    -- one that fails after 2 of 3: no more auctions come, what left is all that left
+    local FM4, env4, state4, r4 = Session(nil)
+    state4.calc.item = 495
+    env4.C_AuctionHouse.PostItem(PANTS_LOC, 2, 3, nil, 50000)
+    env4.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 401)
+    env4.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    state4.Pay(165)
+    env4.FireEvent("AUCTION_MULTISELL_UPDATE", 2, 3)
+    state4.Pay(165)
+    env4.FireEvent("AUCTION_MULTISELL_FAILURE")
+    state4.Wait(3)
+    H.same({ Fields(r4.posts[1])[9], Fields(r4.posts[1])[10] }, { B(330), B(495) }, "failed after two: the gold of the two")
+end)
+
+H.test("post deposit: the 0 that your gold reads at a logout is no fall", function()
+    local FM, env, state, r = Session(nil)
+    env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 20, 450)
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 1)
+    state.Pay(400)
+    -- a /reload right after the post: GetMoney answers 0 while a PLAYER_MONEY still comes
+    state.gold = 0
+    env.FireEvent("PLAYER_MONEY")
+    env.FireEvent("PLAYER_LOGOUT")
+    H.same({ Fields(r.posts[1])[9], Fields(r.posts[1])[10] }, { B(400), B(400) }, "the purse is not added to the deposit")
+end)
+
 H.test("post deposit: the next post settles the one before, the gold from then on is the new one's", function()
     local FM, env, state, r = Session(nil)
     env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 20, 450)

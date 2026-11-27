@@ -136,6 +136,8 @@ local function ClosePost(final)
     openPost = nil
     if not p then return end
     local paid = (not p.mixed and p.paid and p.paid > 0) and p.paid or nil
+    -- a post of several auctions that was not seen to make all of them: what left so far is no whole deposit
+    if p.total and (p.created or 0) < p.total then paid = nil end
     if not (paid or p.calc) then return end
     local waiting = WaitsForID(p)
     if waiting and final ~= true and GetTime() - p.at < ID_WAIT then return end
@@ -165,23 +167,32 @@ local function TouchPost()
     C_Timer.After(POST_QUIET, function()
         if openPost ~= p or GetTime() - p.touched < POST_QUIET - 0.05 then return end
         if WaitsForID(p) and GetTime() - p.at < ID_WAIT then return end
+        -- a post of several auctions still makes them (its next step comes later than the quiet seconds)
+        if p.total and (p.created or 0) < p.total and GetTime() - p.at < POST_LONGEST then return end
         ClosePost()
     end)
 end
 
--- Whether the open post may still take a fall of your gold: not after a purchase or a cancel was asked for (mixed:
--- its number is dropped), not after POST_LONGEST, not away from the AH
+-- Whether the open post may still take a fall of your gold: not after a purchase or a cancel was asked for, and not
+-- after POST_LONGEST (a post of several auctions that still runs then: what left before is only a part). Either way
+-- its number is dropped (mixed) and the line keeps the calculator's answer alone (review round 4 of PR 94: the time
+-- limit used to keep the partial sum)
 local function PostTakes(p)
     if FM.AHTrafficCount and (FM.AHTrafficCount("buy") ~= p.buys or FM.AHTrafficCount("cancel") ~= p.cancels) then
         p.mixed = true
         return false
     end
-    return GetTime() - p.at <= POST_LONGEST
+    if GetTime() - p.at > POST_LONGEST then
+        p.mixed = true
+        return false
+    end
+    return true
 end
 
 FM.On("PLAYER_MONEY", function()
     local money = Money()
-    if not money then return end
+    -- 0 is what GetMoney answers while the character logs out (the gold log skips it too): no fall of your gold
+    if not money or money == 0 then return end
     local fall = moneyLast and (moneyLast - money) or 0
     moneyLast = money
     local p = openPost
@@ -193,8 +204,21 @@ FM.On("PLAYER_MONEY", function()
     p.paid = (p.paid or 0) + fall
     TouchPost()
 end)
--- a post of several auctions: each one made keeps the post open
-FM.On("AUCTION_MULTISELL_UPDATE", TouchPost)
+-- a post of several auctions: each one made keeps the post open, and how many of how many are made tells whether
+-- the gold that left is the whole deposit (created, total: ClosePost and the quiet timer read them)
+FM.On("AUCTION_MULTISELL_UPDATE", function(created, total)
+    local p = openPost
+    if p and type(created) == "number" and type(total) == "number" and not FM.IsSecret(created) and not FM.IsSecret(total) then
+        p.created, p.total = created, total
+    end
+    TouchPost()
+end)
+-- it ended early: no more auctions come, what left is all that left
+FM.On("AUCTION_MULTISELL_FAILURE", function()
+    local p = openPost
+    if p and p.total then p.total = p.created or 0 end
+    TouchPost()
+end)
 FM.On("AUCTION_HOUSE_CLOSED", function() ClosePost(true) end)
 FM.On("PLAYER_LOGOUT", function() ClosePost(true) end)
 
