@@ -85,7 +85,9 @@ FM.DEFAULTS = {
     -- own windows, "vanilla" = above them, "anything" = above everything (ui/Layers.lua); "vanilla" was built in until 1.59
     windowSniper = "standard", -- "Sniper window priority", the same choices; "anything" was built in until 1.59
     perfMode = "day", -- Profit tab: one dot per day, week or month
-    perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
+    perfScope = "all", -- Profit tab until 1.68: the switch "All characters" / "This character" ("char"). Since 1.69 the
+    -- character dropdown's choice is perfChar, the logged-in character's own (FRV-231, FM.PerfWho): "*" = all of them,
+    -- else a character's key; a "char" saved here stays this character until a choice is made
     priceMode = "day" -- price graph: one dot per day, week or month
 }
 
@@ -313,8 +315,8 @@ end
 --     values in ForeverMarketDB.settings are kept and only read: a character met later starts from them
 --   * a key the table does not hold (one added by a later version, a broken value dropped at load) reads the
 --     account-wide value, then the default; a table among them is copied into the character's table first, so the
---     account's is never changed in place. Where nothing is a choice (FM.CHAR_NIL: the profession dropdown's "all",
---     the Profit tab's "All characters") a character's nothing stays nothing
+--     account's is never changed in place. Where nothing is a choice (FM.CHAR_NIL: the profession dropdown's "all")
+--     a character's nothing stays nothing
 --   * FM.GetSettings() is the one way in and out, for every key: it returns a view that reads and writes a key of
 --     FM.CHAR_SETTINGS in the character's table and every other key in the account's. No file reads
 --     ForeverMarketDB.settings itself (tests/forevermarket/charsettings_test.lua checks that)
@@ -339,7 +341,7 @@ FM.CHAR_SETTINGS = {
 }
 
 -- The keys of a character's settings where nil is a value it chose
-FM.CHAR_NIL = { tableProf = true, perfChar = true }
+FM.CHAR_NIL = { tableProf = true }
 
 local function CopyValue(value)
     if type(value) ~= "table" then return value end

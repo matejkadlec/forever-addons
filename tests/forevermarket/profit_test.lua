@@ -246,29 +246,76 @@ H.test("profit: buy on one character, mail it to another, sell there: the sale a
     FM.RecordWorth(true)
     H.eq(All(), 1500 - 75 - 1000, "all characters: the sale after the cut, less the purchase")
     H.eq(Alone(), 1500 - 75, "Bee alone: the whole sale (as before 1.24)")
-    local scope, choice = FM.PerfScope()
-    H.eq(scope, "all", "two characters with AH logs: all of them by default")
-    H.eq(choice, true, "and the switch is offered")
+    H.eq(FM.PerfWho(), "*", "all characters by default")
+    -- the same result by the character's key, whoever is logged in (FRV-231)
+    H.eq(FM.PerfSeries("day", env.clock, "Bee").change, 1500 - 75, "Bee by her key: her own result")
+    H.eq(FM.PerfSeries("day", env.clock, "Ada").change, -1000, "Ada by her key, not logged in: her purchase, nothing held")
 end)
 
-H.test("profit: one character with AH logs has no switch and its own series; a saved choice is kept", function()
+-- Rule (FRV-231): the tab shows all your characters together ("*", the default, also with one character) or one known
+-- character by its key, the logged-in one or not. The choice is the logged-in character's own (perfChar, FRV-228);
+-- "This character" of the switch until 1.68 stays this character until a choice is made; a character that is
+-- forgotten falls back to all
+H.test("profit: all characters by default, any known character by choice, a forgotten one falls back", function()
     local FM, _, _, r = Session(nil, "Ada", "G-A", NOW)
     Buy(r, NOW - 3600, CLOTH, 10, 1000, "Ada")
     r.posts[1] = table.concat({ FM.Stamp(NOW - 1800), "Ada", tostring(CLOTH), B(10), B(150), "3", "c" }, ",")
-    r.worth.Bee = { FM.Stamp(NOW - 7200) .. "," .. B(1) .. "," .. B(0) .. ",h" } -- readings are not AH logs
-    local scope, choice = FM.PerfScope()
-    H.eq(scope, "char", "this character")
-    H.eq(choice, false, "no switch")
-    H.eq(FM.PerfSeries("day", NOW).all, false, "the series of the character alone")
-    -- a second character's AH mail: now there is a choice, all of them by default
-    SaleMail(FM, r, "Bee", CLOTH_NAME, 1, 150, 0, 7, NOW - 600, NOW - 300)
-    scope, choice = FM.PerfScope()
-    H.eq(scope, "all", "all characters")
-    H.eq(choice, true, "the switch")
+    H.eq(FM.PerfWho(), "*", "one known character: all characters all the same")
     H.eq(FM.PerfSeries("day", NOW).all, true, "the series of all of them")
+    H.eq(FM.PerfScope(), "all", "and /fm held's breakdown of all of them")
+    -- the old switch's "This character" stays this character
     FM.GetSettings().perfScope = "char"
-    H.eq(FM.PerfScope(), "char", "This character stays chosen")
-    H.eq(FM.PerfSeries("day", NOW).all, false, "the series of the character alone again")
+    H.eq(FM.PerfWho(), "Ada", "This character of before: Ada")
+    H.same({ FM.PerfSeries("day", NOW).all, FM.PerfSeries("day", NOW).char }, { false, "Ada" }, "her series alone")
+    H.eq(FM.PerfScope(), "char", "the breakdown of her own")
+    -- a choice is kept, also "All characters" over the old "This character"
+    FM.PerfSetWho("*")
+    H.eq(FM.PerfWho(), "*", "All characters chosen")
+    -- another known character
+    r.charInfo.Bee = { guid = "G-B", full = "Bee Keeper", class = "MAGE" }
+    FM.PerfSetWho("Bee")
+    H.eq(FM.PerfWho(), "Bee", "Bee chosen while logged in with Ada")
+    H.eq(FM.PerfSeries("day", NOW).char, "Bee", "her series")
+    -- forgotten: all characters again
+    H.eq(FM.ForgetCharacter("Bee"), true, "Bee is forgotten")
+    H.eq(FM.PerfWho(), "*", "a forgotten character's choice falls back to all characters")
+    H.eq(FM.PerfSeries("day", NOW).all, true, "and the series follows")
+end)
+
+-- Rule (FRV-231): a character you are not logged in with shows its own result from its own log lines, what it holds
+-- from its last saved reading (heldT says when) and its gold as last recorded; the logged-in one is read right now
+H.test("profit: another character's own result comes from its logs and its last saved reading", function()
+    local FM, env, state, r = Session(nil, "Bee", "G-B", NOW)
+    r.charInfo.Ada = { guid = "G-A", full = "Ada Lovelace", class = "HUNTER" }
+    local function Line(hoursAgo, gold, held)
+        return FM.Stamp(NOW - hoursAgo * 3600) .. "," .. B(gold) .. "," .. B(held) .. ",hbmc4," .. B(held) .. ",x1"
+    end
+    -- Ada (not logged in): held 500, bought 10 cloth for 1000 (held 1500 then), sold 4 of them for 600 less 30
+    r.worth.Ada = { Line(30, 70000, 500), Line(20, 69000, 1500), Line(5, 69570, 1100) }
+    Buy(r, NOW - 25 * 3600, CLOTH, 10, 1000, "Ada")
+    SaleMail(FM, r, "Ada", CLOTH_NAME, 4, 600, 0, 30, NOW - 8 * 3600, NOW - 7 * 3600)
+    -- Bee, logged in, holds nothing from the AH and sold 1 cloth of her own
+    SaleMail(FM, r, "Bee", CLOTH_NAME, 1, 150, 0, 7, NOW - 600, NOW - 300)
+    state.gold = 123
+    local ada = FM.PerfSeries("day", NOW, "Ada")
+    H.same({ ada.all, ada.char, ada.live }, { false, "Ada", false }, "Ada's series, not read live")
+    H.eq(ada.change, -1000 + (600 - 30) + (1100 - 500), "her purchase and sale, and her readings' steps")
+    H.eq(ada.heldNow, 1100, "held: her last saved reading")
+    H.eq(ada.heldT, FM.Unstamp(FM.Stamp(NOW - 5 * 3600)), "and when it was taken")
+    H.eq(ada.goldNow, 69570, "her gold as last recorded, not the logged-in character's")
+    local sold, bought = 0, 0
+    for _, p in ipairs(ada.periods) do
+        for _, e in ipairs(p.sold) do sold = sold + e.qty end
+        for _, e in ipairs(p.bought) do bought = bought + e.qty end
+    end
+    H.same({ sold, bought }, { 4, 10 }, "her lists hold her own sale and purchase only")
+    local bee = FM.PerfSeries("day", NOW, "Bee")
+    H.same({ bee.char, bee.live, bee.heldT }, { "Bee", true, nil }, "Bee, logged in: read right now")
+    H.eq(bee.change, 150 - 7, "her own sale")
+    H.eq(bee.goldNow, 123, "her gold right now")
+    -- chosen in the dropdown: the default series is hers
+    FM.PerfSetWho("Ada")
+    H.eq(FM.PerfSeries("day", NOW).char, "Ada", "the tab's series follows the choice")
 end)
 
 -- Rule (FRV-106): a reading without the "c" (1.15 to 1.37) counted units at the usual price and a sold stack's money

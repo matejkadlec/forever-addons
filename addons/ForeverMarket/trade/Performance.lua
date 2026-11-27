@@ -656,11 +656,35 @@ function FM.PerfCharacters()
     return list
 end
 
--- What the tab counts: "all" (your characters together) or "char" (the logged-in one), and whether there is a
--- choice. Only with more than one character with AH logs: one alone is shown as before 1.24, without the switch
+-- Whose AH result the tab shows (1.69, FRV-231: the character dropdown): "*" = all your characters of this realm and
+-- faction together, the default, else the key of one of them, the logged-in one or another. The choice is the
+-- logged-in character's own setting (perfChar, FRV-228). Until one is made, "This character" of the switch until 1.68
+-- (perfScope "char") stays this character. A character that is no longer known (/fm forget) falls back to all
+function FM.PerfWho()
+    local s = FM.GetSettings()
+    local who = s.perfChar
+    if type(who) ~= "string" or who == "" then
+        who = s.perfScope == "char" and FM.PlayerName() or "*"
+    end
+    if who ~= "*" and FM.Characters then
+        local known = false
+        for _, c in ipairs(FM.Characters()) do
+            if c.key == who then known = true end
+        end
+        if not known then who = "*" end
+    end
+    return who
+end
+
+-- "*" or a character's key
+function FM.PerfSetWho(who)
+    FM.GetSettings().perfChar = (type(who) == "string" and who ~= "") and who or "*"
+end
+
+-- "all" while the tab shows all your characters together, else "char" (scan/Worth.lua's /fm held: the breakdown of
+-- all of them, or the logged-in character's own)
 function FM.PerfScope()
-    if #FM.PerfCharacters() < 2 then return "char", false end
-    return FM.GetSettings().perfScope == "char" and "char" or "all", true
+    return FM.PerfWho() == "*" and "all" or "char"
 end
 
 local cache = {} -- scope and mode -> { r, char, sig, series, waiting, shown }
@@ -679,8 +703,11 @@ function FM.PerfPercentText(pct)
 end
 
 -- { mode, all, periods = { { from, to, value, change, pct, flow, heldDelta, gold, sold, bought, expired, losses,
--- lossTotal } }, change, since, heldSince, heldNow, goldNow, updating }: value = the AH result since the first dot's
--- start; the last period ends now with a live reading. scope = "char" or "all" (default: FM.PerfScope).
+-- lossTotal } }, change, since, heldSince, heldNow, goldNow, updating, char, live, heldT }: value = the AH result since
+-- the first dot's start. who = "*" (or "all") all your characters together, a character's key (or "char": the
+-- logged-in one) that character alone; default FM.PerfWho. The last period ends now, with a live reading when the
+-- logged-in character is part of it (live); another character's ends with its last saved reading (heldT = when it
+-- was taken) and its gold as last recorded (FRV-231).
 -- updating (FRV-216) = numbers are on their way: a post's deposit waits for its item's data (trade/Cost.lua). Until
 -- they are there (a few seconds at most) the series is the last finished one, so a dot never shows a value that is
 -- about to change; without a finished one yet (the first look after a login) it is what is known so far
@@ -689,10 +716,13 @@ function FM.PerfSeries(modeId, now, scope)
     local mode = MODES[modeId] and modeId or "day"
     local r = FM.R()
     local me = FM.PlayerName()
-    local all = (scope or FM.PerfScope()) == "all"
-    local char = not all and me or nil
+    local who = scope or FM.PerfWho()
+    local all = who == "all" or who == "*"
+    local char = not all and (who == "char" and me or who) or nil
+    -- what is held right now can only be read of the logged-in character
+    local live = all or char == me
     local sig = Signature(r, char, mode, Start(mode, now))
-    local id = (all and "all:" or "char:") .. mode
+    local id = (char or "*") .. ":" .. mode
     local c = cache[id]
     if not (c and c.r == r and c.char == char and c.sig == sig) then
         local built = Build(r, char, mode, now)
@@ -712,7 +742,7 @@ function FM.PerfSeries(modeId, now, scope)
     -- the last period: the AH's money until now, and a reading of right now as one more step after the last one
     last.flow = FlowAt(series.flows, now + 1)
     local liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts
-    if FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts = FM.WorthNow(true) end
+    if live and FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts = FM.WorthNow(true) end
     if all then liveHeld, liveSeen = liveAll, liveSaw end
     -- a live reading made while a deposit is still unknown holds less than the next one will: the step of the last
     -- finished one stands until then, so the dot stays where it was
@@ -747,6 +777,8 @@ function FM.PerfSeries(modeId, now, scope)
     end
     series.heldNow = liveGold and liveHeld or series.lastHeld
     series.goldNow = last.gold
+    -- whose it is, and whether what is held was read right now or is the last saved reading (heldT: when)
+    series.char, series.live, series.heldT = char, liveGold ~= nil, (not liveGold) and series.lastT or nil
     -- change against the end of the period before (the first: against its start); the percent is of the capital
     -- of the dot: what you had spent on the AH by its end (as if you had started with it), plus the AH result before
     local prevFlow = series.startFlow

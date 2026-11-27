@@ -432,8 +432,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
   maintainer wanted it only on the boxes): the tooltips of the marketplace and of its Filters dialogs are of two
   kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
-  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH, the Profit tab's This character / All
-  characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
+  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH), the Profit tab's header (where its
+  Held from the AH and Gold come from) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
   (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
   rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
   filters", "Auto-refresh", "Keep edits", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
@@ -444,8 +444,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   hover or Shift (Shift types capitals there), so a row tooltip never opens over the box you are typing in; an input of
   another window (the chat, the sniper's item box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
   links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
-  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
-  "All characters" buttons above it show on hover), the item tooltips in your bags,
+  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the character dropdown
+  above it is a dropdown like the others: while Shift is held), the item tooltips in your bags,
   the sniper window and the settings panel. The footer of every tab with a table ends with the hint of what of that
   tab waits for Shift (the Profit tab's keeps "hover a dot"): Picks "... · hover for why · hold Shift over inputs,
   dropdowns and checkboxes for their tips", Craft and Learn "· hold Shift over inputs and checkboxes for their tips",
@@ -1582,10 +1582,25 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     the first new reading says again which bought units are gone
   * a percent that is not 0 never reads "0.0%": under 0.05% in size it is "+0.1%" or "-0.1%", an exact 0 is "0.0%"
     (`FM.PerfPercentText`)
-* **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
-  once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
-  **All characters** is the default. With one such character there is no switch and the tab shows that character
-  alone, as before 1.24. Everything below describes one character; all characters together:
+* **The character dropdown** (1.69, FRV-231; at the right end of the row of Daily / Weekly / Monthly, its right edge
+  under the Upgrades tab's): **All characters**, the default, then every known character of this realm and faction
+  (`FM.Characters`, the list of `/fm chars`), each with its full name in its class color: `Elfiehu Ntress`,
+  `Forever Marketplace`. It is always there, also with one known character. The graph, the total, the dots' tooltips
+  and their top 3 lists follow the choice (`FM.PerfWho`, `FM.PerfSetWho`, `FM.PerfSeries(mode, now, who)` in
+  `trade/Performance.lua`).
+  * **One character** is that character's own result, whether or not you are logged in with it: its own posts,
+    purchases and mails, its own Gold and Held from the AH in the header. For the character you are logged in with,
+    what it holds is read right now; for another one it is its last saved reading (`worth[char]`) and its gold as last
+    recorded, the header's second line says "as last saved for this character", and the header's tooltip says how
+    old the reading is ("Elfiehu Ntress is not logged in: what it holds is its last saved reading, taken 2h ago").
+    The title names the character ("AH result, Elfiehu Ntress").
+  * The choice is saved for the character you are logged in with, like the table's filters (`perfChar`, FRV-228: `*`
+    or a character's key). A character removed with `/fm forget` is no longer listed, and a saved choice of it falls
+    back to All characters. Until a choice is made, "This character" of the switch below stays this character.
+  * Until 1.68 two buttons, **This character** / **All characters** (1.24, FRV-37, `perfScope`), stood right of Daily /
+    Weekly / Monthly, shown only once more than one character had AH logs, and one such character was shown alone
+    without a switch. FRV-74's question, whether to offer "All characters" in more cases, is settled: always, by default.
+  Everything below describes one character; all characters together:
   * The AH's money is the money of all of them, and the lists (Sold, Bought, Real losses) hold all of them; a sale
     is "under cost" against what its units cost any of them.
   * What you hold from the AH is one number for all of them: the units of each item bought there by any character
