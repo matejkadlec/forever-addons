@@ -1830,7 +1830,7 @@ per purchase.
   line reads "buy 3 more": pick 1 adds 11, 14 left to buy for the two, as their steps lines say 3 + 11. Never more
   than its plan's units; nothing back for purchases by hand, and none for a traced pick kept under its plan's units by
   units still in your mail (the sniper bought nothing for it under this plan). A traced pick whose material you bought
-  by hand keeps its units in the sniper until a new plan follows it (Refresh). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
+  by hand follows at once since 1.57 (FRV-189, see Purchases by hand below). Craft and Learn: the main material at the max material price (the item keeps its number); Flip:
   its units at the buy up to price; Favorites: as in the tab of its best use. The row tooltip names what it snipes
   with the units ("Shift+click: snipe its 3 AH purchases: 31 Heavy Leather, 12 Thick Leather and 5 Salt", "snipe
   what is still to buy, ..." once some were bought; the menu's entry keeps the short "Snipe its 3 AH purchases").

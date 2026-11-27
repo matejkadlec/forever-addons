@@ -1300,7 +1300,8 @@ end
 -- material was bought by hand, lowers the sum, else a third pick got the same units back again). Picks 1 and 2 of 11
 -- each, pick 2 sent first and 8 bought by the sniper: the plan gives pick 1 the 8 (3 left), pick 2 its 11; pick 1
 -- adds 3 + min(8, 8, 11 - 3) = 11, 14 left to buy for the two, as their steps lines say. Review round 2: never below
--- the pick's own units (a traced pick that holds more than it needs keeps it, until a new plan follows: FRV-189), and
+-- the pick's own units (a traced pick that holds more than it needs keeps it; a purchase by hand follows at once since
+-- FRV-189, FM.SnipeFollowShown), and
 -- a trace kept under its plan's units by purchases still in the mail (Capped) gives nothing, since the sniper bought
 -- nothing for it under this plan. 0 for an item without a traced pick of this plan of this character, and when this pick is traced
 -- already (the sniper's own rules then: nothing added, or its units replaced)
