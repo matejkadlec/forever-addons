@@ -60,9 +60,9 @@ The AddOn inventory is in the root guide. ForeverMarket, ForeverCraftQueue, Fore
 ## Settings Panel Rules
 
 - First-party AddOns with settings register under `Esc -> Options -> AddOns -> Jim's Forever AddOns` (same name as the AddOn list category)
-- The shared `Jim's Forever AddOns` parent category is created by whichever AddOn loads first (global frame `JimsForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel
+- The shared `Jim's Forever AddOns` parent category is created by whichever AddOn loads first (global frame `JimsForeverAddOnsSettingsPanel`, category stored in `.foreverCategory`), every AddOn adds itself to its overview page (`.foreverEntries`) with a button that opens its own panel (one exception: ForeverGamepadRebind's button opens its binding table's window, as FRV-227 asks the table to open from the Jim's Forever AddOns menu; its page is in the category's list and behind `/fgr options`)
 - Use one child panel per AddOn with the short display name, for example `Tweaks`, `Tracking Aid`, `Range Indicator` or `Hawk Timer`
-- The entries of `.foreverEntries` (`{ name, button }`) are also the minimap button's right-click menu (the shared file sorts them by name and opens a page with a click on its overview button), so registering the settings this way is all an AddOn does to be in the menu; the shared file adds `Show minimap button` to the overview page below the entries
+- The entries of `.foreverEntries` (`{ name, button }`) are also the minimap button's right-click menu (the shared file sorts them by name and opens a page with a click on its overview button; Gamepad Rebind's entry opens its table, see above), so registering the settings this way is all an AddOn does to be in the menu; the shared file adds `Show minimap button` to the overview page below the entries
 - Panel layout follows the warmane-addons style: large title `Forever {Addon Name}` with the version, `User Settings` header, enable checkbox first, indented child options below it
 - Everything that can be set with a slash command must also be settable in the panel
 - Child options are greyed out while the AddOn is disabled
