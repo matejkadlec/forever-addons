@@ -237,11 +237,14 @@ local function RecordPost(itemLocation, duration, quantity, unit, kind)
     openPost = { index = #posts, base = base, at = GetTime(), calc = CalculatedDeposit(itemLocation, key, duration, quantity, kind),
         buys = FM.AHTrafficCount and FM.AHTrafficCount("buy") or 0, cancels = FM.AHTrafficCount and FM.AHTrafficCount("cancel") or 0 }
     TouchPost()
-    -- a post whose auction ID never comes is settled when the wait for it is over
+    -- a post whose auction ID never comes is settled when the wait for it is over. Only such a post: one that has
+    -- its ID is the quiet timer's, which leaves a post of several auctions open while it still makes them (review
+    -- round 5 of PR 94: this timer closed such a post at 30 s and its later falls were lost)
     local p = openPost
     if C_Timer and C_Timer.After then
         C_Timer.After(ID_WAIT, function()
-            if openPost == p and GetTime() - p.at >= ID_WAIT - 0.05 and GetTime() - p.touched >= POST_QUIET - 0.05 then
+            if openPost == p and WaitsForID(p) and GetTime() - p.at >= ID_WAIT - 0.05
+                and GetTime() - p.touched >= POST_QUIET - 0.05 then
                 ClosePost(true)
             end
         end)

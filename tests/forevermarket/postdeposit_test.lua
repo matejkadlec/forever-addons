@@ -149,6 +149,22 @@ H.test("post deposit: a post of several auctions that is not seen to make all of
     state.Pay(165)
     state.Wait(3)
     H.same({ Fields(r.posts[1])[9], Fields(r.posts[1])[10] }, { B(495), B(495) }, "all three made: the whole deposit")
+    -- one whose second step comes after half a minute (review round 5 of PR 94): the wait for an auction ID, which it
+    -- has, settles nothing, and all three falls count
+    local FM5, env5, state5, r5 = Session(nil)
+    state5.calc.item = 495
+    env5.C_AuctionHouse.PostItem(PANTS_LOC, 2, 3, nil, 50000)
+    env5.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 501)
+    env5.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    state5.Pay(165)
+    state5.Wait(31)
+    H.eq(#Fields(r5.posts[1]), 8, "31 s into a post that still makes its auctions: open")
+    env5.FireEvent("AUCTION_MULTISELL_UPDATE", 2, 3)
+    state5.Pay(165)
+    env5.FireEvent("AUCTION_MULTISELL_UPDATE", 3, 3)
+    state5.Pay(165)
+    state5.Wait(3)
+    H.same({ Fields(r5.posts[1])[9], Fields(r5.posts[1])[10] }, { B(495), B(495) }, "seen whole within a minute: the whole deposit")
     -- one that still runs after a minute: the falls so far are a part, the calculator's answer stands alone
     local FM2, env2, state2, r2 = Session(nil)
     state2.calc.item = 495
