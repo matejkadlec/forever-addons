@@ -394,12 +394,16 @@ end
 
 -- Wait for a press that does the next "craft" / "open" (known: the game is known to want one, nothing was tried)
 local function WaitForPress(runner, what, row, known)
-    runner.phase, runner.batch, runner.opening = "press", nil, nil
-    runner.press = { what = what, row = row, known = known }
     if not known then
         -- a try the game did not take: when the press does it, the key press was what it missed
         runner.contrast = what
     end
+    if runner.stopping then
+        -- Stop was pressed while the try was out: the run ends as asked instead of waiting for a press
+        return Halt(runner, "stopped")
+    end
+    runner.phase, runner.batch, runner.opening = "press", nil, nil
+    runner.press = { what = what, row = row, known = known }
     return { kind = "press", what = what, row = row, known = known }
 end
 
@@ -427,8 +431,9 @@ local function ErrorSince(runner, since)
 end
 
 -- The game did not take a start (attempt: the batch or the opening): it answered false or an error at once, or
--- nothing began in time. A blocked call is known for good. With an error text of the game's own, or from a press,
--- the run ends; a silent refusal of a start without a press means the game wants a key press for it.
+-- nothing began in time. A blocked call is known for good. With an error text of the game's own (full bags, a
+-- missing tool) the run ends with it: that is no matter of key presses and counts nothing. Without a word: a press
+-- the game refuses ends the run too, a start without a press means the game wants a key press for it.
 local function Refused(runner, what, attempt)
     local row = attempt.row
     if attempt.blocked then
@@ -437,12 +442,20 @@ local function Refused(runner, what, attempt)
         end
         return WaitForPress(runner, what, row, true)
     end
+    local reason = what == "craft" and "refused" or "noopen"
     local text = ErrorSince(runner, attempt.time)
-    if attempt.byPress or text then
-        -- a press the game refuses too is no matter of key presses; a refused try with the game's reason still
-        -- counts when the next press does it
-        runner.contrast = (not attempt.byPress) and what or nil
-        return Halt(runner, what == "craft" and "refused" or "noopen", { row = row, text = text })
+    if text then
+        return Halt(runner, reason, { row = row, text = text })
+    end
+    if attempt.byPress then
+        if attempt.afterOpen then
+            -- the craft of the very press that opened its profession: the window was not ready for it yet, so
+            -- the next press crafts
+            return WaitForPress(runner, what, row, true)
+        end
+        -- a press the game refuses too: an earlier refused try was no matter of key presses either
+        runner.contrast = nil
+        return Halt(runner, reason, { row = row })
     end
     return WaitForPress(runner, what, row, false)
 end
@@ -543,7 +556,12 @@ function ns.RunnerStep(runner, w)
         local opening = runner.opening
         if w.openSkillLine == opening.skillLine then
             Worked(runner, "open", opening.byPress)
-            return Decide(runner, w)
+            local action = Decide(runner, w)
+            if w.hardware == true and runner.batch then
+                -- asked inside the press that opened the profession: its craft goes out with the same press
+                runner.batch.afterOpen = true
+            end
+            return action
         end
         if w.now - opening.time < ns.OPEN_WAIT then
             return nil

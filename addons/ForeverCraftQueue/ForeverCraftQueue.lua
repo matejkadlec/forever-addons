@@ -460,9 +460,10 @@ local function CraftingStatus()
     if left < 1 then
         return string_format(L.RUN_FINISHING, batch.name)
     end
-    -- rows finished in this run count before the ones still queued
+    -- rows finished in this run count before the ones still queued; until a cast shows the batch only starts
     local index = ns.FindRow(queue, batch.recipeID) or 1
-    local text = string_format(L.RUN_CRAFTING, left, batch.name, run.finished + index, run.finished + #queue)
+    local text = string_format(batch.started and L.RUN_CRAFTING or L.RUN_STARTING, left, batch.name,
+        run.finished + index, run.finished + #queue)
     -- what follows: the next step of the queue without this row
     local others = {}
     for _, row in ipairs(queue) do

@@ -625,9 +625,11 @@ H.test("the game wants a key press for every craft: the run waits with Continue,
     H.same(seen.asked[2], { CLOAK, 1, "auto" }, "tried without a press")
     H.eq(#seen.crafted, 1, "the game does nothing")
     Wait(env, 2)
-    H.eq(select(1, ns.ProcessState()), "Stop", "the game gets its time")
-    Wait(env, 1.1)
     local label, status = ns.ProcessState()
+    H.eq(label, "Stop", "the game gets its time")
+    H.eq(status, "Starting 1 Hillman's Cloak (row 2 of 2)", "no cast yet: starting, not crafting")
+    Wait(env, 1.1)
+    label, status = ns.ProcessState()
     H.eq(label, "Continue", "the press is ready")
     H.eq(status, "The game wants a key press here: press Continue, your Process queue key or scroll the mouse wheel "
         .. "to craft 1 Hillman's Cloak.", "status")

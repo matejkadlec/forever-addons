@@ -629,6 +629,85 @@ H.test("a start the game refuses with its own words ends the run instead of wait
     action = After(ns, runner, world, 3.5)
     H.eq(action.reason, "refused", "ended with the reason")
     H.eq(runner.auto.craft, nil, "nothing learned about key presses")
+    -- you free a bag slot and press: that it works now says nothing about key presses either
+    action = Press(ns, runner, world)
+    Batch(ns, runner, world, queue, run, action)
+    H.eq(runner.auto.craftStrikes, 0, "not counted against starting without a press")
+    H.eq(runner.auto.craft, nil, "still not known")
+end)
+
+H.test("full bags at two row changes in a row do not unlearn that rows start without a press", function()
+    local ns = Load()
+    local queue, run = {}, ns.NewRun()
+    local runner = ns.NewRunner(ns.CleanAuto({ craft = true }))
+    local world = World(ns, queue, PLENTY, LEATHERWORKING)
+    for _ = 1, 2 do
+        ns.QueueRecipe(queue, BOOTS, 1)
+        ns.QueueRecipe(queue, CLOAK, 1)
+        local action = Press(ns, runner, world)
+        Batch(ns, runner, world, queue, run, action)
+        After(ns, runner, world, 1)
+        ns.RunnerError(runner, "Inventory is full.", world.now)
+        H.eq(After(ns, runner, world, 3.5).reason, "refused", "ended with the game's words")
+        action = Press(ns, runner, world)
+        Batch(ns, runner, world, queue, run, action)
+        H.eq(After(ns, runner, world, 1).reason, "empty", "done")
+    end
+    H.eq(runner.auto.craft, true, "still known to work")
+    H.eq(runner.auto.craftStrikes, 0, "nothing counted")
+end)
+
+H.test("Stop pressed while a try without a press is out ends the run when the try is not taken, without a Continue", function()
+    local ns = Load()
+    local queue, run, runner = {}, ns.NewRun(), ns.NewRunner()
+    ns.QueueRecipe(queue, BOOTS, 1)
+    ns.QueueRecipe(queue, CLOAK, 1)
+    local world = World(ns, queue, PLENTY, LEATHERWORKING)
+    local action = Press(ns, runner, world)
+    Batch(ns, runner, world, queue, run, action)
+    H.eq(After(ns, runner, world, 1).auto, true, "tried without a press")
+    -- nothing casts; the press meant to get it going is a Stop
+    H.eq(Press(ns, runner, world).kind, "stopping", "Stop")
+    action = After(ns, runner, world, 3.5)
+    H.eq(action.kind, "halt", "ended, no wait for a press")
+    H.eq(action.reason, "stopped", "as asked")
+    H.eq(runner.active, false, "not going")
+    -- the next press crafts at once, and the refused try counts
+    action = Press(ns, runner, world)
+    H.eq(action.kind, "craft", "the press crafts")
+    Batch(ns, runner, world, queue, run, action)
+    H.eq(runner.auto.craftStrikes, 1, "counted")
+end)
+
+H.test("the craft sent with the press that opened its profession and not taken leaves the run waiting for the next press", function()
+    local ns = Load()
+    local queue, run, runner = {}, ns.NewRun(), ns.NewRunner()
+    ns.QueueRecipe(queue, MEAT, 3)
+    local world = World(ns, queue, PLENTY, nil)
+    world.hardware = true
+    H.eq(ns.RunnerPress(runner, world).kind, "open", "the press opens Cooking")
+    world.openSkillLine = COOKING
+    H.eq(ns.RunnerStep(runner, world).kind, "craft", "and crafts with the same press")
+    world.hardware = false
+    -- the window was not ready: no cast, no word
+    local action = After(ns, runner, world, 3.5)
+    H.eq(action.kind, "press", "waits for the next press")
+    H.eq(action.known, true, "nothing to learn from it")
+    H.eq(runner.contrast, nil, "and nothing counted")
+    action = Press(ns, runner, world)
+    H.eq(action.kind, "craft", "the press crafts")
+    -- a press of its own that the game does not take ends the run
+    action = After(ns, runner, world, 3.5)
+    H.eq(action.reason, "refused", "ended")
+    -- and with the cast there, the first way works as before
+    world.openSkillLine = nil
+    world.hardware = true
+    ns.RunnerPress(runner, world)
+    world.openSkillLine = COOKING
+    action = ns.RunnerStep(runner, world)
+    world.hardware = false
+    Batch(ns, runner, world, queue, run, action)
+    H.eq(After(ns, runner, world, 1).reason, "empty", "done")
 end)
 
 H.test("a call the game blocks: without a press it is known at once, from a press the run ends", function()
