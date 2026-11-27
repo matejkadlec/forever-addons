@@ -11,7 +11,17 @@ local _, FM = ...
 --     for 3 s, after 30 s without a change (plus the recipe's cast time) while no profession cast is running, or with
 --     the next craft. A craft casts long on Forever (Dusky Boots 45 s, FRV-107): until 1.38.5 a batch ended after
 --     30 s, before such a craft took its reagents, and no line was written
--- Cost basis of the materials (FM.HeldLots): the units you hold are taken to be your newest acquisitions (older ones
+-- Cost basis of the materials (1.67, FRV-225): a craft takes its materials at your pool's average of that moment
+-- (trade/Pool.lua, the moving average behind "you paid", FRV-88): units x average for the units the pool holds, the
+-- units beyond it (no price was known when they came, or held where the pool does not look) at the rule for units
+-- nobody recorded below. The pool is set against your bags right before (FM.PoolUpdate), so units collected a moment
+-- ago count. A material's "you paid" and what a craft books for it are one number then, and so are the product's
+-- "you paid" (it enters its pool at the line's copper) and the sum of its materials' averages. The line's format is
+-- unchanged, only where its copper comes from; R.craftsPoolAt is the time of the first such line of the bucket: the
+-- one-time repairs below, which replay the craft log from the purchase log's lots, leave every line from then on as
+-- it is (a pool cannot be replayed).
+-- Until 1.66, and still while the pool has not started (the first seconds after a login), the lots of the logs
+-- (FM.HeldLots): the units you hold are taken to be your newest acquisitions (older ones
 -- already left your bags), and a craft uses the oldest of them first:
 --   * lots of an item = your AH purchases of it (R.buys) and your own crafts of it (R.crafts, at their recorded
 --     basis), less what your earlier crafts used of them (the same rule, replayed in time order with the units you
@@ -380,6 +390,7 @@ local function ReplayCrafts(r, oldBuys)
         end
     end
     local changed, mats = 0, 0
+    local poolAt = tonumber(r.craftsPoolAt)
     for char, list in pairs(byChar) do
         table_sort(list, function(a, b)
             if a.c.t ~= b.c.t then return a.c.t < b.c.t end
@@ -395,6 +406,8 @@ local function ReplayCrafts(r, oldBuys)
         end
         for _, entry in ipairs(list) do
             local c = entry.c
+            -- a line whose copper came from your pool (FRV-225) is never mended: its lots still move below
+            local fromPool = poolAt ~= nil and c.t >= poolAt
             -- the purchases up to the craft (a purchase of the same second came first)
             for _, run in ipairs(runs) do
                 while run.events[run.next] and run.events[run.next].t <= c.t do
@@ -407,7 +420,7 @@ local function ReplayCrafts(r, oldBuys)
             local parts, newTotal, differs = {}, 0, false
             for i, m in ipairs(c.mats) do
                 local cost = m.cost
-                if m.held then
+                if m.held and not fromPool then
                     local newCost, newUnrec = ReplayBasis(Lots(now, m.key), m.held, m.units)
                     local mended
                     if old and cost then
@@ -479,7 +492,8 @@ end
 -- its lots cover in full (purchases and your crafts, newest first over the units you held) gets the replay's copper;
 -- one that used units no lot covers keeps its copper (those were priced at the vendor or the AH price of that moment,
 -- which no log keeps). The 120 Heavy Leather of 11/20 11:10 at 5s 56c a unit stay: its AH mail holds the same total.
--- r.craftsRepaired = { t, lines, mats }; a chat line too
+-- r.craftsRepaired = { t, lines, mats }; a chat line too.
+-- Both repairs stay on the lots (FRV-225): they mend lines written from the lots, the ones before r.craftsPoolAt
 local CRAFTS_REPAIR = 1
 
 function FM.RepairCrafts(r)
@@ -500,7 +514,8 @@ end
 
 ---------------------------------------------------------------- recording
 
-local batch -- the craft batch in progress: { spell, key, crafts, before, mats, t, done, units, touched, idle, line, index }
+local batch -- the craft batch in progress: { spell, key, crafts, before, mats, t, done, units, touched, idle, line, index,
+            -- pooled = its materials' copper comes from your pools (FRV-225) }
 
 -- Units of an item you hold: bags, bank, reagent bank and account bank (a craft may take reagents from any of
 -- them), nil when the client cannot tell
@@ -551,13 +566,30 @@ local function FromSources(spell)
     return nil
 end
 
+-- What `used` units of a batch's material cost (FRV-225): from your pool as it was at the batch's start, its units
+-- at its average, the units beyond it at the price of a unit nobody recorded (nil without one); without a pool
+-- (m.lots) the oldest units of the logs' lots
+local function MatCost(m, used)
+    if not m.pool then return Take(m.lots, used) end
+    local pooled = math_min(used, m.pool.n)
+    local rest = used - pooled
+    if rest <= 0.0005 then return pooled * m.pool.unit end
+    if not m.other then return nil end
+    return pooled * m.pool.unit + rest * m.other
+end
+
 -- Write the batch's line: a new one at its first craft, the same line again afterwards
 local function Write(b)
     local parts = {}
     for i, m in ipairs(b.mats) do
         local used = m.n * b.done
-        local cost = Take(m.lots, used)
+        local cost = MatCost(m, used)
         parts[i] = string_format("%s:%d:%s:%d", m.key, used, cost and tostring(math_floor(cost + 0.5)) or "", m.before)
+    end
+    -- the bucket's first line from the pool: the repairs of the craft log end here (ReplayCrafts)
+    if b.pooled then
+        local r = FM.R()
+        if not tonumber(r.craftsPoolAt) then r.craftsPoolAt = b.t end
     end
     local line = string_format("%d,%s,%d,%d,%s,%d,%s", b.t, b.key, b.units, b.done, FM.PlayerName(), b.spell,
         table_concat(parts, "/"))
@@ -621,16 +653,31 @@ local function Open(spell, casts)
     if not recipe then return end
     local before = Count(recipe.key)
     if not before then return end
+    -- your pools as they are right now (FRV-225): set against the bags first, so units that arrived since the last
+    -- look (it comes 2 s after a change) are in them
+    local pooled = false
+    if FM.PoolActive and FM.PoolActive() and FM.PoolOf then
+        if FM.PoolUpdate then pcall(FM.PoolUpdate) end
+        pooled = true
+    end
     local mats = {}
     for i, g in ipairs(recipe.reagents) do
         local held = Count(g.key)
         if not held then return end
-        mats[i] = { key = g.key, n = g.n, before = held, lots = FM.HeldLots(g.key, held) }
+        local m = { key = g.key, n = g.n, before = held }
+        if pooled then
+            local p = FM.PoolOf(g.key)
+            m.pool = { n = p and p.n or 0, unit = p and p.unit or 0 }
+            m.other = (UnrecordedUnit(g.key))
+        else
+            m.lots = FM.HeldLots(g.key, held)
+        end
+        mats[i] = m
     end
     -- an interrupted batch ends after IDLE_MAX without a change, counted from the end of a cast it may still wait for
     local castSeconds = FM.CraftSeconds and FM.CraftSeconds({ spell = spell }) or 0
     batch = { spell = spell, key = recipe.key, crafts = casts, before = before, mats = mats, t = FM.Now(),
-        done = 0, units = 0, touched = GetTime(), idle = IDLE_MAX + castSeconds }
+        done = 0, units = 0, touched = GetTime(), idle = IDLE_MAX + castSeconds, pooled = pooled or nil }
     local b = batch
     C_Timer.After(TICK, function() Tick(b) end)
 end

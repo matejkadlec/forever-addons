@@ -184,7 +184,8 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
         closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units (a bag change
         at the mailbox that moved no unit, an item put into another slot, does not count either). The first look
         of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
-      * Crafted units at their materials' basis from the craft log (below).
+      * Crafted units at their materials' basis from the craft log (below), which since 1.67 (FRV-225) is the sum
+        of the materials' pool averages at the craft.
       * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
         Units count as posted when they leave your bags within a minute of the look that found their post (1.66,
         FRV-232): a post is logged at the click on Post, its units leave when the server answers, and a look in
@@ -264,7 +265,19 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
     cast time) while no profession cast is running (`UnitCastingInfo("player")`'s `isTradeskill`), or with the next
     craft. A craft casts long on Forever (Dusky Boots 45 s): until 1.38.5 a batch ended after 30 s, before such a
     craft took its reagents, so the higher leatherworking recipes (Comfortable Leather Hat, Turtle Scale Bracers,
-    Tough Scorpid Breastplate, Dusky Boots, Shadowskin Gloves) never got a line (FRV-107). A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
+    Tough Scorpid Breastplate, Dusky Boots, Shadowskin Gloves) never got a line (FRV-107). **A material's basis at the craft is your pool's average of that moment** (1.67, FRV-225): the moving
+    average behind "you paid" (FRV-88, above), units x average for the units the pool holds, so a material's "you
+    paid" and what a craft books for the same units are one number, and the product's "you paid" (it enters its own
+    pool at the line's copper) is the sum of its materials' averages at the craft: a craft right after buying 20
+    leather at 2s on top of 20 held at 4s books its leather at 3s a unit (the lots below said the oldest units, 4s).
+    The pool is set against your bags right before the craft, so units collected a moment ago count. Units of a
+    material the pool does not hold (no price was known when they came, or they lie where the pool does not look,
+    the reagent or account bank) keep the rule for units nobody recorded: the vendor price when a vendor sells it
+    without limit, else its AH price at the craft; with neither the basis is unknown. The line keeps its format. The
+    Profit tab is not touched: its lots (`trade/Basis.lua`, the oldest units first per sale) are a model of their
+    own, which replays which materials a craft used and never reads the line's copper. Until 1.66, and still while
+    the pool has not started (the first seconds after a login), the lots of the logs:
+    the units you hold are taken to be your newest acquisitions (older ones
     already left your bags) and a craft uses the oldest first: your purchases (`R.buys`, at what you paid) and your
     own crafts of it (`R.crafts`, at their recorded basis, so an intermediate like Cured Thick Hide passes its basis
     on), less what your earlier crafts used of them (replayed in time order by the same rule, with the units you held
@@ -2345,7 +2358,10 @@ Picks skip).
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
   craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
-  and 5000 lines at most. Worked out again once per bucket (1.40.6, FRV-112, `craftsRepair` = 1, the counts in
+  and 5000 lines at most. Since 1.67 (FRV-225) the copper comes from your pool's average at the craft (the lots of
+  the logs before, and while the pool has not started); `craftsPoolAt` (optional) = the time of the bucket's first
+  such line, and the two repairs of the craft log (`FM.RepairCrafts`, `FM.RepairCraftBasis`), which replay the
+  purchase log's lots, mend only lines before it. Worked out again once per bucket (1.40.6, FRV-112, `craftsRepair` = 1, the counts in
   `craftsRepaired` = { t, lines, mats }, a chat line says them): the maintainer's lines of before 2026-11-22 were
   worked out from the purchase log as it was then, before FRV-102 mended it, and that repair's replay
   (`FM.RepairCraftBasis`) never ran on his bucket (the first build, 1.36.3, marked it before the replay existed, and
