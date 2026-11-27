@@ -2186,8 +2186,9 @@ def _plans(m, book, last):
     for line in as_list(m.r.get('plans')):
         f = str(line).split(',')
         # a line marked "e" is a pick whose amount you set in the table (1.47, FRV-154): your number, not the
-        # formula's, so it is left out; the plan's own line of that pick is in the log too
-        if len(f) > 9 and 'e' in f[9]:
+        # formula's, so it is left out; the plan's own line of that pick is in the log too. "r" (1.57, FRV-188): a pick
+        # planned around your amounts (a plan made again after an edit, or one keeping your set picks), also left out
+        if len(f) > 9 and ('e' in f[9] or 'r' in f[9]):
             continue
         if len(f) >= 9:
             plans.setdefault(b36(f[0]), []).append({'char': f[1], 'key': f[2], 'kind': f[3], 'batch': int(f[4] or 0),

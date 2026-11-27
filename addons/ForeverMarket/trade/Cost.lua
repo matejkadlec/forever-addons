@@ -161,6 +161,11 @@ FM.On("COMMODITY_PURCHASE_SUCCEEDED", function()
     local p = NextPending()
     if not (p and p.total) or p.sniper then return end -- a sniper purchase: scan/Sniper.lua logs it
     FM.LogPurchase(p.key, p.qty, p.total)
+    -- bought by hand: the sniper's traced picks of the plan shown follow it at once (FRV-189, trade/Calc.lua)
+    if FM.SnipeFollowShown then
+        local ok, err = pcall(FM.SnipeFollowShown, p.key)
+        if not ok and geterrorhandler then geterrorhandler()(err) end
+    end
 end)
 
 FM.On("COMMODITY_PURCHASE_FAILED", function()

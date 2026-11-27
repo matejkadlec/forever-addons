@@ -1543,6 +1543,11 @@ function FM.CheckStock()
     if not ok or sig == stockSig then return false end
     stockSig = sig
     FM.stockVersion = FM.stockVersion + 1
+    -- a vendor resell whose amount you set counts the units you bought of it (FRV-188, trade/Picks.lua)
+    if FM.SetPicksStock then
+        local done, err = pcall(FM.SetPicksStock)
+        if not done and geterrorhandler then geterrorhandler()(err) end
+    end
     local shown = (FM.TableShown and FM.TableShown()) or (FM.StickyShown and FM.StickyShown())
     if FM.trade and not FM.trade.empty and FM.PicksLocked and not FM.PicksLocked() and shown then
         if FM.TradeBusy and FM.TradeBusy() then

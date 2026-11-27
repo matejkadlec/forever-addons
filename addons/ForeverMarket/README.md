@@ -337,8 +337,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
   the default tab, its saved sort is dropped at load.
-* At most 10 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 10 since 1.47 (FRV-154: Amount; 9 since
-  1.35, FRV-67), the other tabs up to 8.
+* At most 11 columns per tab, 932 px (`MAX_COLUMNS`, `W - 28`): Picks has 11 since 1.57 (FRV-188: the status after
+  Expected; 10 since 1.47, FRV-154: Amount; 9 since 1.35, FRV-67), the other tabs up to 8.
 * **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
   maintainer wanted it only on the boxes): the tooltips of the marketplace and of its Filters dialogs are of two
   kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
@@ -519,8 +519,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
     checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
-* Right-click a row (plain actions since 1.14): on a Flip pick first **Hide this pick** (1.51, FRV-193, see Picks),
-  then **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
+* Right-click a row (plain actions since 1.14): on a pick whose amount you set first **Remove from Picks** (1.57,
+  FRV-188, see Picks, Amount: it leaves the plan and the rest is planned again), on a Flip pick then **Hide this
+  pick** (1.51, FRV-193, see Picks), then **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
   only one that offers Stop ignoring; `/fm exclude|include|excluded`), **Snipe <item> up to <price>** / **Snipe its 3 AH purchases** (1.25, FRV-44: on
   every row Shift-click snipes from, at the AH and away from it; see Sniper; a row whose AH purchases are all sold per
@@ -534,9 +535,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   such an NPC, and is disabled with "Install TomTom to enable NPC tracking" without TomTom. Where there is none and
   the recipe is only sold as a pattern on the AH, its place holds **Recipe on AH** instead (1.16): light blue and
   unclickable, it only says where the recipe comes from (`FM.RecipeOnAH`, a `kind = "ah"` learn route). On a pick
-  with an Amount input (also from its steps line), **Reset amount** (1.49, FRV-194): the plan's number back, as
-  emptying the input and pressing Enter does (`FM.SetPickAmount(key, nil)`; a refusal is said in the chat), greyed out
-  while the pick has the plan's number. Last,
+  with an Amount input (also from its steps line), **Reset amount** (1.49, FRV-194): the plan's number back and the
+  rest planned again, as emptying the input and pressing Enter does (`FM.SetPickAmount(key, nil)`; a refusal is said
+  in the chat), greyed out while the pick has the plan's number. Last,
   **Show history** (1.26, FRV-76, "Show price graph" until 1.36) on every row of an item (all tabs but Farm and Profit):
   see Item history.
   The row tooltip's "Right-click:" line lists the menu as it will open. Favorite items get a star everywhere.
@@ -695,61 +696,82 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     measured later against what sold (FRV-125, the `listings` report of tools/fm_analyze.py).
   * **Amount** (1.47, FRV-154), a column between Type and Invest and an input: what a craft makes (the "make N" of
     its steps line) and what a vendor resell or a flip buys. Click the number, type yours and press Enter (a click
-    elsewhere applies too, Escape puts the old number back; whole numbers from 1, anything else changes nothing): that
-    pick is made again for your number by the plan's own rules (`FM.RemakePick` in `trade/Picks.lua`: the materials up
-    the AH ladder, buy or craft, what you hold, the price to list at), so its steps line, Invest, Expected, Conf., its
-    tooltip, Ctrl+click's count and what Shift+click snipes follow, and the summary's "needs" and "expected" with them.
-    The other picks stay as they are. The pick is planned **as of the plan's own moment**: with the latest scan's
-    prices, but with your bags and bank as the plan read them (`pickOwned`) and the plan picks before it taking what
-    they took then (`took`, recorded by `Commit`, applied again by `Apply`); the picks after it are not planned again.
-    It keeps the plan's time, so what you bought and crafted since the plan counts toward it as progress ("buy 4
-    more", "4 / 8"), shared out with the other picks in the plan's order, exactly as for a pick you did not touch. So
-    an amount set half way through a plan never hands one pick's materials to another: with both picks' 11 Heavy
-    Leather bought, the first pick set to 15 and the second to 12, the two together ask for the 5 that are missing.
-    A craft's number is what it makes from its plan on (crafts before the plan that an automatic plan carried do not
-    count against it), and a material the plan never looked at is read as of the plan too (your units now less what
-    was bought of it since).
-    Two limits of that: units that reached your bags outside the plan since it was made are not seen (Refresh makes a
-    new plan with them), and the picks before it keep their AH units set aside in the latest scan's ladder also when
-    you bought them before that scan, so the pick's cost can read a little high then. The amount may be over
-    the room on the AH and over the pick's share of the gold (your choice). The AH's materials, your minimum profit, a
-    vendor's limited stock and the flip rule still stop it: the pick then makes or buys what they allow (Invest,
-    Expected, the steps, Ctrl+click's count and the sniper go by that), the input shows **your** number in **red**
-    (1.48, FRV-187, `FM.AmountShown`: the maintainer's rule, it cannot be done, an error and not a warning; light
-    blue until 1.47 showed the number reached, which read as a bug) and the steps line ends the step it is about with
-    a short red note (`pick.amountNote`): "(no more available for flipping)" for a flip, "(the vendor has no more)"
-    for a vendor's limited stock, "(no more materials on the AH at a usable price)" for a craft ("make 30 (no more
-    materials ...)"; until 1.47 an orange "(of the 100 you set: ...)"). Your minimum profit is no limit of the market
-    (the maintainer's decision on FRV-187, `pick.amountWarn`): a craft it cuts keeps the number reached in light blue
-    and an orange "(more would earn under your min. profit)", its tooltip the reason in orange ("Set by you: 100.
-    Only 20 can be made now: more would earn less than your minimum profit."); FRV-188 is to let an amount pass it
-    with a warning icon.
-    The input's tooltip has the full reason (`pick.amountWhy`): "Set by you: 2. Only 1 can be bought now: more would
-    leave cheaper listings under the list price or earn no margin." and "Empty it and press Enter for the plan's
-    number (1)." Leaving your red number in the input changes nothing; typing the number reached sets that one.
-    When nothing can be made for it the pick stays and a chat line says why. A number you set and met is light blue
-    and its tooltip says "Set by you. Empty it and press Enter for the plan's number (11)"; emptying it, or the row
-    menu's Reset amount (1.49, FRV-194), brings the plan's own pick back. It belongs to the plan shown: a locked plan keeps it through
-    deep scans, a new plan (Refresh, or any plan with the lock off, which carries the plan's own target of a craft in
-    progress and not your number, `FM.PickCarry`) starts from its own numbers. A saved sort of the Picks tab follows
-    its columns past the new one. Stock picks show the
-    units they list and Learn picks "-", neither is an input. The sniper follows an edited pick like a new plan
-    (`FM.SnipeFollowPlan(picks, at, changed)`): its items get what the edited pick still has to buy (its units less
-    what was bought for it since the plan, `FM.PickBuysLeft`), never more than the pick was sent with. So a craft pick
-    lowered under what was already bought for it, or to a number your own stock covers, stops the sniper for it, and
-    it stays traced with nothing left ("all bought" in the tooltips): a Shift+click of the same plan adds nothing, and
-    its number put back gives the rest back. One exception: an item nothing was bought of yet, which no other pick
-    and no number of your own needs, has nothing to stay in the sniper's list for, so it leaves the list as after a
-    new plan (the chat says "no pick needs ... any more, removed"); its number put back does not bring it back then,
-    a Shift+click on the pick sends it again. A pick raised keeps the limit it was sent with (Shift+right-click sends
-    what it still has to buy again, counted from 0). A flip's or a vendor resell's number counts from the edit: such a pick has
-    no progress, so what was bought of it before does not come off, and the sniper may buy up to the new number more
-    (never past what the pick was sent with). The plan log keeps the plan's own line and gets one more for the
-    edited pick, marked `e` (Data format), which `tools/fm_analyze.py listings` leaves out. Not yet verified in game
+    elsewhere applies too, Escape puts the old number back; whole numbers from 1, anything else changes nothing): the
+    pick becomes a **set pick** (1.57, FRV-188) and the plan is made again around it (`FM.SetPickAmount` and
+    `FM.ReplanPicks` in `trade/Calc.lua`, `FM.ComputePicks` in `trade/Picks.lua`). Its example (the maintainer's):
+    budget 70g, Picks 3, the plan 2x X (20g), 2x Y (20g), 3x Z (30g); X set to 5 gives 5x X (50g), 1x Y, 1x Z, within
+    the 70g, X still first.
+    * The set pick takes your number by the plan's own rules (the materials up the AH ladder, buy or craft, what you
+      hold, the price to list at), so its steps line, Invest, Expected, Conf., its tooltip, Ctrl+click's count and what
+      Shift+click snipes follow. The batch, the room on the AH, its share of the gold, the stock listed by others and
+      your minimum profit no longer cut it (your choice; FRV-154 cut at your minimum profit with an orange note, gone):
+      under your minimum profit or at a loss its status icon says so (below). The AH's materials, a vendor's limited
+      stock and the flip rule still stop it: it then makes or buys what they allow (Invest, Expected, the steps,
+      Ctrl+click's count and the sniper go by that), the input shows **your** number in **red** (1.48, FRV-187,
+      `FM.AmountShown`) and the steps line ends the step it is about with a short red note (`pick.amountNote`): "(no
+      more available for flipping)", "(the vendor has no more)", "(no more materials on the AH at a usable price)";
+      the input's tooltip has the full reason (`pick.amountWhy`, "Set by you: 2. Only 1 can be bought now: ..."). When
+      nothing at all can be made for it, your number is dropped, the plan picks the item by its own numbers and a chat
+      line says why.
+    * It **keeps its place** (changing an amount never changes the order), and the plan's other picks are chosen again
+      with the same "Picks N" (the set picks count in it) and what is left of the budget: the gold your set picks need
+      is kept for them first, so raising a number takes budget from every other pick and lowering it gives budget back.
+      Picks are placed in rank order: a pick ranked before a set pick takes its materials first, as in the plan (it may
+      already have crafted with them), your number takes what it leaves, the picks after it get the rest. Picks that no
+      longer fit go to "Also good, but out of scope"; set picks together over the budget are allowed, and the summary
+      line says "over budget" in orange.
+    * The plan is made again **as of its own moment** (review round 3 of PR 69): with the latest scan's prices, but
+      with your bags and bank as the plan read them (`pickOwned`), its budget and gold (`pickFunds`), what it carried
+      over (`pickCarry`) and its time (`pickNow`: every pick's `planAt` and a new craft's `since`, `pickAt` stays). So
+      what you bought and crafted since the plan stays progress ("buy 4 more", "4 / 8"), shared out over the picks in
+      the plan's order: with both picks' 11 Heavy Leather bought, the first set to 15 and the second to 12, the two
+      together ask for the 5 that are missing. A craft's number counts from its plan (crafts before it that an
+      automatic plan carried do not count against it); a material the plan never looked at is read as of the plan too
+      (your units now less what was bought of it since). Units that reached your bags outside the plan are not seen
+      (Refresh makes a new plan with them). It runs like a pass (the table shows the plan before it meanwhile; another
+      edit waits for it), also while "Lock plan after refresh" is checked: that lock is about scans, an edit is yours.
+    * A number set on a pick **out of scope** keeps it there with your number: it takes none of the plan's gold and
+      does not change the plan (its tooltip's first line says so).
+    * Set picks are saved per character (`setPicks` in Data format): an alt's plan neither keeps nor changes them.
+      **Lock manual plan changes** (a checkbox under "Lock plan after refresh", at the end of the summary line,
+      `tablePicksLockManual`, on by default): a new plan (Refresh, a change of a Picks setting, or an automatic plan
+      with "Lock plan after refresh" off) keeps every set pick with its number and in its place, in the plan or out of
+      scope, even when the scan says it is no longer pick #1, and the tab's filters (the profession, the place, a
+      maximum, Exclude crafting) do not drop it; a craft's crafts since you set it count toward your number ("Make 3 /
+      5", listed with it), a flip's AH purchases since you set it, a vendor resell's units you hold more than then.
+      Off, a new plan starts from its own numbers and your amounts are dropped.
+    * A set pick ends when you empty its input and press Enter, or the row menu's Reset amount (1.49, FRV-194): the
+      plan's own pick of it back, the rest planned again; when it is done (everything made, or for a flip or a vendor
+      resell bought): it behaves as any pick once its target is reached ("made 5", then listing what you hold) and the
+      next new plan no longer keeps it; by the row menu's **Remove from Picks** (only on a set pick, its first entry,
+      above Favorize this item): the pick leaves the plan at once and the rest is planned again, a later new plan may
+      choose the item again by itself; and by Ignore (out for good) or Hide this pick.
+    * Stock picks show the units they list and Learn picks "-", neither is an input. A saved sort of the Picks tab
+      follows its columns past the Amount and status columns.
+    * The sniper follows the plan made again within it (`FM.SnipeFollowPlan(picks, at, true)`): every traced pick gets
+      what it still has to buy (its units less what was bought for it since the plan, `FM.PickBuysLeft`), never more
+      than it was sent with; so a pick lowered under what was already bought for it, or to a number your own stock
+      covers, stops the sniper for it, and it stays traced with nothing left ("all bought" in the tooltips): a
+      Shift+click of the same plan adds nothing, and its number put back gives the rest back. An item nothing was
+      bought of yet, which no other pick and no number of your own needs, leaves the list ("no pick needs ... any
+      more, removed"); a Shift+click on the pick sends it again. A flip's or a vendor resell's number counts from the
+      edit: such a pick has no progress in its steps line, so its units stay whole.
+    * The plan log gets the plan made again: the set pick's line marked `e` (`xe` out of scope), the picks planned
+      around it `r` (`xr`), which `tools/fm_analyze.py listings` leaves out (Data format). Not yet verified in game
+  * **The status** (1.57, FRV-188): a column right after Expected without a header label, empty by default; Expected's
+    numbers stay where they are and the icon sits to their right (18 px, from On AH, C/8h and C/24h). A warning sign
+    (the dialogs' alert, `Interface\DialogFrame\UI-Dialog-Icon-AlertNew`): a unit of the pick earns less than your
+    minimum profit (the Profit of the budget row); hover: "Below your min. profit setting." A red cross (the ready
+    check's `UI-LFG-DeclineMark` atlas, the loot roll's Pass where the client has none): the pick loses money now, its
+    Expected under 0 ("-26s 09c 8h", the minus in red); hover: "Is not profitable as of now." A set pick can get either;
+    so can any pick of a plan held by "Lock plan after refresh" once a newer scan moved its item's price
+    (`FM.PickStatus`: a craft, a vendor resell or a Stock pick read at the price its item lists at in the pass shown; a
+    flip has its own AH check, a wait lists later). The icon's tooltip shows on hover (an icon, no input: FRV-186);
+    its clicks are the row's. Not yet verified in game
   * Columns (1.17): **#** (the rank), **Pick** (icon, name in its quality color), **Type** (Craft and sell / Craft
     and wait / Learn / Vendor / Flip / Stock / Stock, wait; 104 px since 1.47, 110 since 1.40, "Craft" until 1.39),
     **Amount** (1.47, above), **Invest** (the
-    gold it needs now), **Expected**, since 1.35 (FRV-67) **On AH** (yours grey in
+    gold it needs now), **Expected**, the status (1.57, above), since 1.35 (FRV-67) **On AH** (yours grey in
     brackets), **C/8h** and **C/24h**, and last **Conf.** (`pick.conf`, the confidence the tooltip explains; last since
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
     columns only moved by their titles). On AH, C/8h and C/24h have the same cells, header
@@ -873,7 +895,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     came since ("A newer snapshot, 2 posts and a change in your bags or bank since the plan", `pickT`, `pickListings`,
     `pickStock`). The plan
     is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
-    1.20.3, and turning it off plans at once (keeping what you crafted of its picks, below).
+    1.20.3, and turning it off plans at once (keeping what you crafted of its picks, below). An amount you set makes the
+    plan again whatever this lock says (an edit is yours), and "Lock manual plan changes" under it (1.57, FRV-188)
+    decides whether a new plan keeps your amounts (see Amount).
   * What you crafted counts toward a pick (1.45, FRV-104; `FM.PickProgress`, `FM.CraftedSince` in trade/Crafts.lua):
     a craft pick's Make is its plan's target, and the units of its item this character crafted since the plan was
     made (the craft log, `R.crafts`: batches started since, written again on every bag update) count toward it. The
@@ -1850,6 +1874,16 @@ per purchase.
     (Elfiehu)" in the sniper row's "Sniped for", "sent by Elfiehu" in the pick's "Sniped for this pick". A pick
     traced by 1.45 has no character: it is followed as before and belongs to the character whose plan or click first
     changes it. What was bought comes off all picks of the item in proportion, whoever was logged in.
+  * Purchases by hand follow at once (1.57, FRV-189): a purchase of a traced item in any other AH window (Blizzard's
+    buy page, Auctionator; `trade/Cost.lua` logs it) lets every traced pick of the plan shown follow within that plan
+    (`FM.SnipeFollowShown` in `trade/Calc.lua`, `FM.SnipeFollowPlan(picks, at, true)`): each gets what its steps line
+    still has to buy (`FM.PickBuysLeft`: the plan's units less the purchases since the plan, by hand and by the
+    sniper, shared over the plan's picks in their order), never more than it was sent with (`Capped`: units the
+    sniper bought that wait in your mail stay counted). Before, it kept buying a traced pick's units until a new plan
+    followed it. The sniper's own purchases are in that count and in its own: the follow starts its trace count again
+    from there, so none is counted twice. Your own number of an item (typed in the window, not a pick's) stays yours.
+    The chat line says "The sniper follows the plan: ..." for a follow within the plan shown (an amount you set, a
+    purchase by hand). Not yet verified in game
   * Shift+right-click (at the AH) starts again: each item's limit becomes what the pick still has to buy and Bought
     now starts at 0 ("count started again"). That fits a new plan, whose numbers already leave out what you hold: 100
     of 144 bought, Refresh, the plan asks for 44: Shift+right-click gives 0/44. It sends what is still to buy like
@@ -1948,8 +1982,17 @@ Picks skip).
   batch = the units of its listing, invest and expected in copper (expected at its confidence), conf in %, rank its
   place, x = `x` for a pick of "Also good, but out of scope"; the same plan as the one logged last is logged again only
   after an hour, lines older than 14 days go (at most 6,000). Since 1.47 (FRV-154) a pick whose amount you set in the
-  table gets a line of its own at that moment with x = `e` (`xe` for one out of scope): its batch, invest and expected
-  are those of your number, the plan's own line stays as it was
+  table gets a line with x = `e` (`xe` for one out of scope): its batch, invest and expected are those of your number,
+  the plan's own line stays as it was. Since 1.57 (FRV-188) the plan made again around your amounts is logged whole:
+  your set picks `e` / `xe`, the picks planned around them `r` / `xr` (also in a new plan that keeps set picks in the
+  plan); `tools/fm_analyze.py` leaves both out of measuring the formula
+* `setPicks` (1.57, FRV-188) `{ [character] = { [key] = { key, n, from, pos, extra, since, at, held, held0, got } } }`: the
+  picks whose amount you set, per character: your number, the candidate's kind (`craft`, `vendor`, `flip`), its place
+  in its section (in the plan, or out of scope with `extra`), the plan time a craft's crafts count from, when it was
+  set (a flip's purchases count from then), the units of yours a craft listed with it, and for a vendor resell the
+  units you held then and the most more of them seen since. An entry goes when you empty its Amount, remove it, ignore
+  or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Lock
+  manual plan changes off; the tables go once empty
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was

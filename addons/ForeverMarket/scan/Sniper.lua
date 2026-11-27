@@ -957,10 +957,12 @@ end
 -- leaves the list (its saved price and number stay, as after the window's X). Only the picks of the logged-in character
 -- follow (FRV-169: the plan counts its bags, bank, gold and recipes; a pick another character sent keeps its units and
 -- keeps its item in the list); a pick saved before 1.46 without a character follows as before. changed = the key of a
--- pick whose amount you set in the table (FRV-154, FM.SetPickAmount): it follows within the plan it was sent for too,
--- with what is still to buy (FM.PickBuysLeft), and it stays traced for every item it was sniped for, at 0 where it has
--- nothing to buy now: bought in full, or covered by your stock at the lower number (review rounds 5 and 6; a new plan
--- drops a pick that no longer buys an item, but an amount can be taken back within the same plan). That holds while
+-- pick whose amount you set in the table (FRV-154), or true for every pick of the plan shown (FRV-188: the plan made
+-- again around your amounts keeps its time; FRV-189: a purchase by hand), each given what it still has to buy
+-- (FM.PickBuysLeft): it follows within the plan it was sent for too, and it stays traced for every item it was sniped
+-- for, at 0 where it has nothing to buy now: bought in full, or covered by your stock at the lower number (review rounds
+-- 5 and 6 of PR 69; a new plan drops a pick that no longer buys an item, but an amount can be taken back within the
+-- same plan). That holds while
 -- the item stays in the list. An item nothing was bought of, which no other pick and no number of yours needs, has
 -- no limit left (0 is no limit, Left), so it leaves the list here too and the chat names it; only the items in the
 -- list are followed, so its number put back does not bring it back: a Shift+click on the pick sends it again (review
@@ -988,10 +990,11 @@ function FM.SnipeFollowPlan(picks, at, changed)
         for _, t in ipairs(TraceList(saved)) do
             -- only a pick this plan has (review round 1: a filter or profession you only look at keeps the others),
             -- and only one this character sent (FRV-169)
-            if (t.char == nil or t.char == me) and (t.at ~= at or t.pick == changed) and plan[t.pick] then
+            local within = changed == true or t.pick == changed
+            if (t.char == nil or t.char == me) and (t.at ~= at or within) and plan[t.pick] then
                 follow = true
                 shares[t.id] = plan[t.pick][key] or 0
-                if t.pick == changed then keep[t.id] = true end
+                if within then keep[t.id] = true end
             end
         end
         if follow then
@@ -1013,7 +1016,8 @@ function FM.SnipeFollowPlan(picks, at, changed)
         end
     end
     if changes[1] or removed[1] then
-        FM.Print("The sniper follows the new plan: " .. table_concat(changes, ", ")
+        -- (within the plan shown: an amount you set, a purchase by hand, FRV-154, FRV-188, FRV-189)
+        FM.Print((changed ~= nil and "The sniper follows the plan: " or "The sniper follows the new plan: ") .. table_concat(changes, ", ")
             .. (removed[1] and ((changes[1] and "; " or "") .. "no pick needs " .. table_concat(removed, ", ") .. " any more, removed") or ""))
         Refresh()
     end
