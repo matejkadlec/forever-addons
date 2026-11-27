@@ -320,7 +320,7 @@ end
 --   * FM.GetSettings() is the one way in and out, for every key: it returns a view that reads and writes a key of
 --     FM.CHAR_SETTINGS in the character's table and every other key in the account's. No file reads
 --     ForeverMarketDB.settings itself (tests/forevermarket/charsettings_test.lua checks that)
---   * until the character's key is known (its GUID and the realm, at login) the account-wide values are read, and
+--   * until the character's key is known (its GUID and the realm, from PLAYER_LOGIN on) the account-wide values are read, and
 --     a key set in that time is kept for the session and moved into the character's table once it is found: the
 --     account-wide values are never written through the view (review round 1 of PR 94). Once found, the
 --     character's table is used for the rest of the session. Two characters nobody can tell apart (the same first
@@ -390,10 +390,15 @@ local earlyWrites, earlyReads = {}, {}
 
 -- The logged-in character's own settings, nil until its key is known: FM.PlayerName is the character's key for good
 -- once its GUID can be read and the realm is known (two characters nobody can tell apart, the same first name without
--- a surname, share that key and so this table, like their other records). Found once, it stays for the session
+-- a surname, share that key and so this table, like their other records). Found once, it stays for the session.
+-- Never before PLAYER_LOGIN (loggedIn): the realm and faction are known from then on and FM.R() creates the bucket
+-- then (ForeverMarket.lua); a setting read while the AddOn loads (the settings panel's first refresh) must not ask
+-- for the bucket earlier (review round 3 of PR 94)
 local charSettings
+local loggedIn = false
 local function CharSettings()
     if charSettings then return charSettings end
+    if not loggedIn then return nil end
     local guid = FM.db and FM.PlayerGUID and FM.PlayerGUID()
     if not guid then return nil end
     local r = FM.R()
@@ -1050,6 +1055,10 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     end
 end)
 
--- A character's own settings (FRV-228) are found at login, once its key is certain: its table is there from its
--- first login on, whether or not the marketplace is opened
-FM.On("PLAYER_LOGIN", function() FM.SettingsPerCharacter() end)
+-- A character's own settings (FRV-228) are found at PLAYER_LOGIN, never earlier (this handler is the first of the
+-- AddOn's, so the other files' login handlers read the character's values): its table is there from its first login
+-- on, whether or not the marketplace is opened. While its GUID cannot be read yet, a later read finds it
+FM.On("PLAYER_LOGIN", function()
+    loggedIn = true
+    FM.SettingsPerCharacter()
+end)

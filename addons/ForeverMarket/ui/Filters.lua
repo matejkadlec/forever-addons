@@ -89,10 +89,11 @@ end
 ---------------------------------------------------------------- tooltips on hover or while Shift is held (FRV-155, FRV-186)
 -- One rule for every tooltip of the market table and its dialogs, in two kinds that every element chooses:
 --   * "hover": the rows (their item tooltip too), the column headers, the tabs, the buttons (Filters, Global filters,
---     Refresh, Search all at the AH, the Profit tab's scope buttons) and the summary line show their tooltip on hover,
---     as until 1.46
+--     Refresh, Search all at the AH), the Profit tab's header (where its Held from the AH and Gold come from) and the
+--     summary line show their tooltip on hover, as until 1.46
 --   * "shift": the inputs (the search box, the budget row's boxes, the Amount inputs of the rows, the dialog's boxes),
---     the dropdowns and the checkboxes show theirs only while Shift is held with the mouse over them, so a tooltip never
+--     the dropdowns (the Profit tab's character dropdown too, FRV-231) and the checkboxes show theirs only while Shift
+--     is held with the mouse over them, so a tooltip never
 --     covers the box you type in (FRV-155). Shift pressed over such an element shows it at once, Shift released hides
 --     it, the mouse leaving hides it as before
 -- While an input of the table or of this dialog has the keyboard focus nothing shows, hover or Shift (Shift types

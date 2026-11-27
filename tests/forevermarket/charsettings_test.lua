@@ -10,7 +10,7 @@
 --     values as they are then, so nothing changes for it
 --   * FM.GetSettings() is the one way in and out: no file reads ForeverMarketDB.settings itself
 --   * /fm forget removes a character's settings; /fm wipe confirm (market data) keeps them
---   * until the character's key is known (its GUID can be read) the account-wide values are read; what is set in that
+--   * until the character's key is known (PLAYER_LOGIN came and its GUID can be read) the account-wide values are read; what is set in that
 --     time is kept for the session and becomes the character's once the key is known, never the account's
 --   * two characters nobody can tell apart (the same first name without a surname) share one key and one set of values
 local H = require("harness")
@@ -192,8 +192,12 @@ H.test("char settings: what is set before the character's key is known never rea
     H.same({ db.settings.tableInvestPicks, db.settings.tableProf, db.settings.tableFilters.global.noCraft }, { 4, "LW", false },
         "the account-wide values are untouched")
     H.eq(db.settings.windowMarket, "anything", "an account-wide key is written as ever")
-    -- the GUID can be read now: the character's table takes what was set
+    -- the GUID can be read, but PLAYER_LOGIN has not come: the realm's bucket is not asked for before it
     guid = "G-A"
+    H.eq(FM.SettingsPerCharacter(), false, "before PLAYER_LOGIN nothing is looked up")
+    H.eq(db.realms["TestRealm-Alliance"] == nil or db.realms["TestRealm-Alliance"].settings == nil, true, "and no table is made")
+    -- the login: the character's table takes what was set
+    env.FireEvent("PLAYER_LOGIN")
     H.eq(FM.SettingsPerCharacter(), true, "the key is known")
     H.same({ s.tableInvestPicks, s.tableProf, FM.FilterSet("global").noCraft }, { 9, nil, true }, "it is the character's own now")
     local own = FM.CharSettingsOf("Ada")
@@ -213,6 +217,7 @@ H.test("char settings: what is set before the character's key is known never rea
     H.eq(FM2.FilterSet("global").noVendor, true, "read before the key is known: the account's filters, as a copy")
     FM2.GetSettings().tableCircPct = 50
     guid2 = "G-A"
+    env2.FireEvent("PLAYER_LOGIN")
     H.same({ FM2.GetSettings().tableInvestPicks, FM2.GetSettings().tableCircPct }, { 6, 50 }, "her own 6 picks stay, the 50% set early is added")
 end)
 
