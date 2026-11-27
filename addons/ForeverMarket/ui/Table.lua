@@ -183,13 +183,18 @@ end
 
 ---------------------------------------------------------------- columns
 
--- Favorite and ignored marks behind a name
+-- Favorite and ignored marks behind a name; the Ignored tab's row of a flip pick you hid "(hidden)" (FRV-218)
 local function Marks(row)
     local text = ""
     if FM.IsFavorite(row.key) then text = text .. " |A:auctionhouse-icon-favorite:13:13|a" end
-    if FM.IsExcluded and FM.IsExcluded(row.key) then text = text .. GREY .. " (ignored)|r" end
+    if FM.IsExcluded and FM.IsExcluded(row.key) then
+        text = text .. GREY .. " (ignored)|r"
+    elseif row.hiddenFlip then
+        text = text .. GREY .. " (hidden)|r"
+    end
     return text
 end
+FM.TableNameMarks = Marks -- for the tests
 
 -- What learning a recipe costs (row.learnCost, the cheapest route); a recipe sold only as a pattern that is not on
 -- the AH now: its last seen price, true as the second value (shown grey, as the tooltip's LearnLines does)
@@ -791,7 +796,16 @@ local function BuildRows(tab, lookup)
         -- the gear among the favorites or ignored items with the Upgrades tab's numbers (FRV-207, ui/Upgrades.lua)
         source = FM.GearViewRows and FM.GearViewRows(tab.ignored and s.excluded or s.favorites) or {}
     elseif tab.ignored then
-        source = KeptRows(trade, s.excluded) -- nil before the first item is ignored: no rows
+        -- the items you ignored and the flip picks you hid that still count (FRV-218: "(hidden)", right-click > Show this
+        -- pick again); an item both is ignored
+        local hidden = FM.HiddenFlips and FM.HiddenFlips() or {}
+        local set = {}
+        for key in pairs(type(s.excluded) == "table" and s.excluded or {}) do set[key] = true end
+        for key in pairs(hidden) do set[key] = true end
+        source = KeptRows(trade, set)
+        for _, row in ipairs(source) do
+            if hidden[row.key] and not FM.IsExcluded(row.key) then row.hiddenFlip = hidden[row.key] end
+        end
     elseif tab.favs then
         source = KeptRows(trade, s.favorites)
     elseif tab.upgrades then
@@ -1595,6 +1609,16 @@ FM.TableHiddenFlips = function()
     return list
 end
 
+-- The Ignored tab's rows (FRV-218): the items you ignored and the flip picks you hid that are not ignored too. An FM
+-- field, not a local (the main chunk's 200 locals)
+FM.IgnoredTabCount = function()
+    local n = FM.ExcludedCount()
+    for key in pairs(FM.HiddenFlips and FM.HiddenFlips() or {}) do
+        if not FM.IsExcluded(key) then n = n + 1 end
+    end
+    return n
+end
+
 local function ShowRowTooltip(button)
     local row = button.row
     if not row then return end
@@ -1703,6 +1727,15 @@ local function ShowRowMenu(button, row)
         -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204); gear you own has none
         if gear and not row.owned and not row.notListed and FM.ahOpen and FM.UpgradeBuyOpen then
             root:CreateButton("Buy this listing", function() FM.UpgradeBuyOpen(row) end)
+        end
+        -- the Ignored tab's row of a flip pick you hid (FRV-218): first, its hidden entry goes and Picks plans again
+        if row.hiddenFlip and FM.UnhideFlipPick then
+            root:CreateButton("Show this pick again", function()
+                local shown = FM.UnhideFlipPick(key)
+                FM.Print(Name(key) .. (shown and ": flip pick shown again, Picks plans with it." or ": it was not hidden any more."))
+                FM.PlanPicks()
+                FM.RefreshTable()
+            end)
         end
         -- a pick whose amount you set, also from its steps line (FRV-188): first, out of the plan shown and the rest
         -- planned again; a later plan may choose it again by itself (Ignore keeps it out)
@@ -2191,8 +2224,8 @@ local function FooterText(total, short, tab)
         -- "1-4 of 4  ·  3 gear items  ·  scored with Pawn's scale ..." (FRV-207)
         text = text .. (FM.GearViewFooter and FM.GearViewFooter(rowsCache, short) or "")
     elseif tab.ignored then
-        text = text .. (short and "  ·  right-click a row > Stop ignoring this item brings it back"
-            or "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item brings it back")
+        text = text .. (short and "  ·  right-click a row > Stop ignoring / Show this pick again brings it back"
+            or "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item (a hidden flip pick: Show this pick again) brings it back")
     elseif tab.favs then
         text = text .. (short and "  ·  right-click any row > Favorize this item adds it here"
             or "  ·  right-click any row > Favorize this item adds it here; best use = highest PPG of its tabs")
@@ -2493,7 +2526,7 @@ end
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
-    frame.tabs.ignored:SetText(string_format("Ignored (%d)", FM.ExcludedCount()))
+    frame.tabs.ignored:SetText(string_format("Ignored (%d)", FM.IgnoredTabCount()))
     -- the plan's pass shows "Computing..." and renders itself
     if EnsurePlan(tab) then return end
     local graph = (tab.graph and FM.PerfShow) and true or false
@@ -2665,7 +2698,7 @@ Render = function()
         if tab.upgrades and FM.UpgradesEmptyText then text = FM.UpgradesEmptyText() end
         if tab.gearView and FM.GearViewEmptyText then
             text = FM.GearViewEmptyText(tab.gearOf) -- the Gear view (FRV-207): its own words, Pawn's from the Upgrades tab
-        elseif tab.ignored and not busy and FM.ExcludedCount() == 0 then
+        elseif tab.ignored and not busy and FM.IgnoredTabCount() == 0 then
             text = "No ignored items: right-click a row in any tab > Ignore this item."
         elseif tab.favs and not tab.ignored and not busy then
             text = "No favorites yet: right-click a row in any tab > Favorize this item."
@@ -2971,6 +3004,7 @@ local function CreateTable()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")
         GameTooltip:AddLine("Every item you ignored, a table like Favorites. Ignored items show in no other tab and never become picks. Right-click a row in any tab > Ignore this item adds it here; here, Stop ignoring this item brings it back. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
+        GameTooltip:AddLine("The flip picks you hid (Hide this pick) are listed here too, \"(hidden)\", for 24 hours or until their listings change; right-click > Show this pick again brings one back.", 1, 1, 1, true)
         GameTooltip:Show()
     end, "hover")
 

@@ -1915,6 +1915,16 @@ function FM.HideFlipPick(pick)
     return true
 end
 
+-- Shows one hidden flip pick again (FRV-218: the Ignored tab's row of it, right-click > Show this pick again): its saved
+-- entry goes, the next plan may pick the flip again. Returns whether it was hidden
+function FM.UnhideFlipPick(key)
+    local r = FM.R()
+    if not (r and type(r.hiddenPicks) == "table" and type(key) == "string" and r.hiddenPicks[key] ~= nil) then return false end
+    r.hiddenPicks[key] = nil
+    if next(r.hiddenPicks) == nil then r.hiddenPicks = nil end
+    return true
+end
+
 -- Shows every hidden flip pick again (a click on the Picks footer's "n hidden"): how many still counted
 function FM.ShowHiddenFlips()
     local n = 0

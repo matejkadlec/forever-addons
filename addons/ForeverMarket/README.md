@@ -519,7 +519,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
     checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
-* Right-click a row (plain actions since 1.14): on a pick whose amount you set first **Remove from Picks** (1.57,
+* Right-click a row (plain actions since 1.14): on the Ignored tab's row of a flip pick you hid first **Show this pick
+  again** (1.57, FRV-218, see Favorites and Ignored); on a pick whose amount you set first **Remove from Picks** (1.57,
   FRV-188, see Picks, Amount: it leaves the plan and the rest is planned again), on a Flip pick then **Hide this
   pick** (1.51, FRV-193, see Picks), then **Favorize this item** / Unfavorize (`settings.favorites`), **Ignore
   this item** / Stop ignoring this item (hidden from the other tabs and the picks, `settings.excluded`; listed in the Ignored tab, the
@@ -550,8 +551,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   AH it says to open it.
 * **Ignored (n)** (1.30, FRV-83; `settings.excluded`) = the same table as Favorites for every item you ignored
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
-  (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
-  its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
+  (`FM.IgnoredTabCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
+  its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item". Since 1.57 (FRV-218) the
+  flip picks you hid (Hide this pick, below) are listed there too while they count (`FM.HiddenFlips`, 24 hours), with
+  a grey "(hidden)" in place of "(ignored)" (`row.hiddenFlip`); the label counts them, and right-click > **Show this
+  pick again** (the menu's first entry) drops that item's entry and plans Picks again (`FM.UnhideFlipPick`), with a
+  chat line. An item both ignored and hidden shows once, as ignored. The Gear view is unchanged.
 * **Marketplace / Gear** (1.56, FRV-207): a dropdown left of Refresh on Favorites and Ignored only switches the tab
   between **Marketplace** (the default: the table above, every item, gear included) and **Gear**; each tab keeps its
   own choice over a `/reload` (`settings.favoritesView`, `settings.ignoredView`), its tooltip (with Shift): "Marketplace:
@@ -1017,7 +1022,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     with "  ·  2 hidden" in light blue (`f.hiddenPicks`), the hidden flips the plan shown holds back (`pickHidden`; one
     that is a pick again at another price is not counted, its entry stays until the 24 hours end): its tooltip lists
     them (item, "up to" price, when hidden),
-    a click shows them all again and plans again (`FM.ShowHiddenFlips`). Saved per realm and faction
+    a click shows them all again and plans again (`FM.ShowHiddenFlips`). Every hidden flip that still counts is also
+    listed in the Ignored tab with "(hidden)", where right-click > Show this pick again brings one back (1.57, FRV-218:
+    the footer counts only what the plan shown holds back, so a flip the plan no longer reached could not be shown
+    again). Saved per realm and faction
     (`hiddenPicks`, Data format), so they survive a `/reload`; entries 24 hours old are dropped at load
     (`FM.PruneHiddenFlips` from `FM.R`). The tooltip shows on plain hover like the other buttons (FRV-186: only
     inputs, dropdowns and checkboxes wait for Shift), so Shift over it lists them too.
@@ -2135,7 +2143,8 @@ Picks skip).
   materials became 34g 32s 98c
 * `hiddenPicks[key] = { t, top, levels }` (1.51, FRV-193, optional, made by the first Hide this pick): a Flip pick you
   hid, `t` when (epoch seconds), `top` its "up to" price and `levels` the prices it bought, cheapest first (copper);
-  it counts for 24 hours, then it is dropped at load; a click on the Picks footer's "n hidden" drops them all
+  it counts for 24 hours, then it is dropped at load; a click on the Picks footer's "n hidden" drops them all, the
+  Ignored tab's "Show this pick again" one (FRV-218)
 * `vendorSeen[key]` `<unit price>,<t>,<npc>` (1.33, FRV-48, optional): what a merchant was seen selling the item for
   without limit, for gold; the unit price is plain copper (decimals for a stack of several, the one number here that is
   not base36), t the visit, npc the merchant's name (empty when it was secret); a later visit replaces the line
