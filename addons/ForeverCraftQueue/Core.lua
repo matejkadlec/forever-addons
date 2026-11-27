@@ -4,8 +4,9 @@ local L = ns.L
 
 -- Pure queue logic without game calls (tests/forevercraftqueue/ runs it outside the client): the rows and their
 -- saved form, queueing and merging, moving, counts, what the bags allow, the next step of Process queue, the crafts
--- that leave the queue and the "done" summary. Bag counts come in as countOf(itemID), the open profession as its
--- skill line ID.
+-- that leave the queue, the "done" summary and the run of the queue (one press, every next row by itself: what to
+-- do when a batch ends, a profession opens, the game refuses a start). Bag counts come in as countOf(itemID), the
+-- open profession as its skill line ID.
 
 local ipairs = ipairs
 local math_floor = math.floor
@@ -213,15 +214,15 @@ function ns.ReagentLines(row, countOf)
     return lines
 end
 
--- The materials a row lacks for even one craft, as "Name have/need, ..." (nameOf(itemID) names an item without a
--- recorded name)
-function ns.MissingText(row, countOf, nameOf)
+-- The materials a row lacks for all its crafts left, as "3 Salt, 2 Light Hide" (nameOf(itemID) names an item
+-- without a recorded name); "" when it lacks none
+function ns.ShortText(row, countOf, nameOf)
     local parts = {}
     for _, reagent in ipairs(row.reagents) do
-        local have = countOf(reagent.itemID) or 0
-        if have < reagent.need then
+        local short = reagent.need * row.count - (countOf(reagent.itemID) or 0)
+        if short > 0 then
             local name = reagent.name or (nameOf and nameOf(reagent.itemID)) or string_format(L.UNKNOWN_ITEM, reagent.itemID)
-            parts[#parts + 1] = string_format("%s %d/%d", name, have, reagent.need)
+            parts[#parts + 1] = string_format("%d %s", short, name)
         end
     end
     return table.concat(parts, ", ")
@@ -276,9 +277,9 @@ function ns.FormatDuration(seconds)
     return L.DURATION_SECONDS
 end
 
--- A new run of the queue: the crafts made and the recipes crafted since the queue was last empty
+-- A new run of the queue: the crafts made, the recipes crafted and the rows finished since the queue was last empty
 function ns.NewRun()
-    return { crafts = 0, recipes = {} }
+    return { crafts = 0, recipes = {}, finished = 0 }
 end
 
 -- A successful cast of a recipe: one craft of its row is made. Returns the row (nil when the recipe is not queued),
@@ -295,6 +296,7 @@ function ns.OnCrafted(queue, run, spellID)
     local finished = row.count < 1
     if finished then
         table_remove(queue, index)
+        run.finished = (run.finished or 0) + 1
     end
     return row, finished, #queue == 0
 end
@@ -317,4 +319,291 @@ function ns.QueueText(queue)
     end
     return string_format("%d %s, %d %s", #queue, #queue == 1 and L.RECIPE or L.RECIPES,
         crafts, crafts == 1 and L.CRAFT or L.CRAFTS)
+end
+
+--------------------------------------------------------------------------------
+-- A run of the queue (FRV-220): one press starts it, every next row starts by itself
+--------------------------------------------------------------------------------
+
+-- The run is a small state machine without game calls. The main file tells it what happened (a press, your casts,
+-- the game's error texts and blocked calls) and asks it what to do now (ns.RunnerPress, ns.RunnerStep); the answer
+-- is one action for the main file to carry out, or nil while there is nothing to do:
+--   { kind = "craft", row, casts, auto }   call CraftRecipe (auto: not from a press)
+--   { kind = "open", row, auto }           call OpenTradeSkill
+--   { kind = "press", what, row, known }   the game wants a key press or click for the next "craft" / "open": the
+--                                          run waits for it (known: learned before, so no try was made)
+--   { kind = "halt", reason, ... }         the run is over and says why; the rows left stay queued
+--   { kind = "join" }                      the press came during a craft of yours: the run goes on when it ends
+--   { kind = "stopping" } / { kind = "resume" }   Stop was pressed / taken back
+-- What it is told about the world (w): now, hardware (this call is a press), combat, crafting (a craft of yours
+-- runs), moving, busy (another cast of yours runs), openSkillLine, step() (ns.NextStep of now).
+-- runner: active, stopping, phase ("craft": a batch runs, "open": a profession opens, "press": waiting for a
+-- press), batch, opening, press, contrast, error, auto
+
+-- Seconds the game gets to start a cast after CraftRecipe and to open a profession after OpenTradeSkill, and the
+-- quiet time after a batch's last cast before the next row starts (its product reaches the bags after the cast)
+ns.START_WAIT = 3
+ns.OPEN_WAIT = 5
+ns.SETTLE = 0.5
+-- How often a start without a press must fail where the press after it works before the AddOn stops trying
+ns.AUTO_STRIKES = 2
+
+-- What the game allowed without a key press so far (saved): craft / open = true (seen working), false (seen
+-- refused), nil (not tried yet); craftStrikes / openStrikes count the refused tries that a press then did;
+-- blocked: the game's last blocked call; build: the client build all of it was seen on (another build starts
+-- afresh)
+function ns.CleanAuto(saved, build)
+    local auto = { craftStrikes = 0, openStrikes = 0, build = build }
+    if type(saved) ~= "table" or saved.build ~= build then
+        return auto
+    end
+    for _, what in ipairs({ "craft", "open" }) do
+        if type(saved[what]) == "boolean" then
+            auto[what] = saved[what]
+        end
+        local strikes = saved[what .. "Strikes"]
+        if IsPositiveInteger(strikes) then
+            auto[what .. "Strikes"] = math_min(strikes, ns.AUTO_STRIKES)
+        end
+    end
+    auto.blocked = CleanString(saved.blocked)
+    return auto
+end
+
+-- A run that is not going (auto: the saved record of ns.CleanAuto, kept up to date by the run)
+function ns.NewRunner(auto)
+    return { active = false, auto = auto or ns.CleanAuto() }
+end
+
+-- End the run: nothing more starts by itself; returns the halt action
+local function Halt(runner, reason, info)
+    runner.active, runner.stopping = false, false
+    runner.phase, runner.batch, runner.opening, runner.press, runner.error = nil, nil, nil, nil, nil
+    local action = info or {}
+    action.kind, action.reason = "halt", reason
+    return action
+end
+
+-- End a run from outside (the window closed, the AddOn turned off, the queue emptied); nil when none goes
+function ns.RunnerHalt(runner, reason, info)
+    if not runner.active then
+        return nil
+    end
+    return Halt(runner, reason, info)
+end
+
+-- Wait for a press that does the next "craft" / "open" (known: the game is known to want one, nothing was tried)
+local function WaitForPress(runner, what, row, known)
+    runner.phase, runner.batch, runner.opening = "press", nil, nil
+    runner.press = { what = what, row = row, known = known }
+    if not known then
+        -- a try the game did not take: when the press does it, the key press was what it missed
+        runner.contrast = what
+    end
+    return { kind = "press", what = what, row = row, known = known }
+end
+
+-- A start the game took: without a press it is known to work at once; from a press right after a refused try
+-- without one it counts against trying, and enough of those end the trying
+local function Worked(runner, what, byPress)
+    local auto, key = runner.auto, what .. "Strikes"
+    if not byPress then
+        auto[what], auto[key] = true, 0
+    elseif runner.contrast == what then
+        auto[key] = (auto[key] or 0) + 1
+        if auto[key] >= ns.AUTO_STRIKES then
+            auto[what] = false
+        end
+    end
+    if runner.contrast == what then
+        runner.contrast = nil
+    end
+end
+
+-- The game's own error text since a moment (bags full, a missing tool, an interrupt), or nil
+local function ErrorSince(runner, since)
+    local seen = runner.error
+    return seen and seen.time >= since and seen.text or nil
+end
+
+-- The game did not take a start (attempt: the batch or the opening): it answered false or an error at once, or
+-- nothing began in time. A blocked call is known for good. With an error text of the game's own, or from a press,
+-- the run ends; a silent refusal of a start without a press means the game wants a key press for it.
+local function Refused(runner, what, attempt)
+    local row = attempt.row
+    if attempt.blocked then
+        if attempt.byPress then
+            return Halt(runner, "blocked", { row = row, what = what })
+        end
+        return WaitForPress(runner, what, row, true)
+    end
+    local text = ErrorSince(runner, attempt.time)
+    if attempt.byPress or text then
+        -- a press the game refuses too is no matter of key presses; a refused try with the game's reason still
+        -- counts when the next press does it
+        runner.contrast = (not attempt.byPress) and what or nil
+        return Halt(runner, what == "craft" and "refused" or "noopen", { row = row, text = text })
+    end
+    return WaitForPress(runner, what, row, false)
+end
+
+-- Start what is next: the next row's batch, its profession, or the end of the run
+local function Decide(runner, w)
+    runner.phase, runner.batch, runner.opening, runner.press = nil, nil, nil, nil
+    if runner.stopping then
+        return Halt(runner, "stopped")
+    end
+    local step = w.step()
+    if not step then
+        return Halt(runner, "empty")
+    end
+    local row = step.row
+    if step.action == "short" then
+        return Halt(runner, step.cooldown and "cooldown" or "missing", { row = row, cooldown = step.cooldown })
+    end
+    local what = step.action
+    local byPress = w.hardware == true
+    if not byPress then
+        -- nothing starts by itself while you move or cast something else
+        if w.moving then
+            return Halt(runner, "moving", { row = row })
+        end
+        if w.busy then
+            return Halt(runner, "busy", { row = row })
+        end
+        if runner.auto[what] == false then
+            return WaitForPress(runner, what, row, true)
+        end
+    end
+    if what == "craft" then
+        runner.phase = "craft"
+        runner.batch = { own = true, row = row, recipeID = row.recipeID, name = row.name, asked = step.casts,
+            made = 0, started = false, byPress = byPress, time = w.now, last = w.now }
+        return { kind = "craft", row = row, casts = step.casts, auto = not byPress }
+    end
+    runner.phase = "open"
+    runner.opening = { row = row, skillLine = row.skillLine, profession = row.profession, byPress = byPress,
+        time = w.now }
+    return { kind = "open", row = row, auto = not byPress }
+end
+
+-- A press of Process queue (button, key, mouse wheel): starts a run, does what a waiting run waits for, or asks a
+-- going run to stop after its batch (a second press takes that back)
+function ns.RunnerPress(runner, w)
+    if runner.active and runner.phase ~= "press" then
+        runner.stopping = not runner.stopping
+        return { kind = runner.stopping and "stopping" or "resume" }
+    end
+    if not runner.active then
+        runner.active, runner.stopping, runner.error = true, false, nil
+    end
+    if w.crafting then
+        -- a craft runs already (the game's own Create, an earlier batch): the run goes on when it ends
+        runner.phase, runner.press, runner.opening = "craft", nil, nil
+        runner.batch = { own = false, time = w.now, last = w.now }
+        return { kind = "join" }
+    end
+    return Decide(runner, w)
+end
+
+-- What the run does now (asked a few times a second while it goes, and right after a press opened a profession)
+function ns.RunnerStep(runner, w)
+    if not runner.active then
+        return nil
+    end
+    if w.combat then
+        return Halt(runner, "combat")
+    end
+    if runner.phase == "craft" then
+        local batch = runner.batch
+        if w.crafting then
+            if batch.own and not batch.started then
+                batch.started = true
+                Worked(runner, "craft", batch.byPress)
+            end
+            batch.last = w.now
+            return nil
+        end
+        if batch.own and not batch.started then
+            if w.now - batch.time < ns.START_WAIT then
+                return nil
+            end
+            return Refused(runner, "craft", batch)
+        end
+        if w.now - batch.last < ns.SETTLE then
+            return nil
+        end
+        -- the batch is over: fewer crafts than asked for is an early end (an interrupt, full bags, moving)
+        if batch.own and batch.made < batch.asked then
+            return Halt(runner, "early", { row = batch.row, made = batch.made, asked = batch.asked,
+                text = ErrorSince(runner, batch.time) })
+        end
+        return Decide(runner, w)
+    elseif runner.phase == "open" then
+        local opening = runner.opening
+        if w.openSkillLine == opening.skillLine then
+            Worked(runner, "open", opening.byPress)
+            return Decide(runner, w)
+        end
+        if w.now - opening.time < ns.OPEN_WAIT then
+            return nil
+        end
+        return Refused(runner, "open", opening)
+    end
+    return nil
+end
+
+-- A cast of yours started (kind "start") or succeeded ("success"): the run's own batch counts its recipe's casts
+function ns.RunnerCast(runner, kind, spellID, now)
+    local batch = runner.active and runner.phase == "craft" and runner.batch
+    if not (batch and batch.own and spellID == batch.recipeID) then
+        return
+    end
+    batch.last = now
+    if not batch.started then
+        batch.started = true
+        Worked(runner, "craft", batch.byPress)
+    end
+    if kind == "success" then
+        batch.made = batch.made + 1
+    end
+end
+
+-- An error text of the game's own while the run goes (the reason of a refused start or an early end)
+function ns.RunnerError(runner, text, now)
+    if runner.active then
+        runner.error = { text = text, time = now }
+    end
+end
+
+-- The game blocked the AddOn's call for a "craft" / "open" (ADDON_ACTION_BLOCKED / FORBIDDEN): a start without a
+-- press is known to be refused from now on
+function ns.RunnerBlocked(runner, what)
+    local attempt
+    if runner.active and what == "craft" and runner.phase == "craft" and runner.batch.own then
+        attempt = runner.batch
+    elseif runner.active and what == "open" and runner.phase == "open" then
+        attempt = runner.opening
+    end
+    if not attempt then
+        return
+    end
+    attempt.blocked = true
+    if not attempt.byPress then
+        runner.auto[what], runner.auto[what .. "Strikes"] = false, ns.AUTO_STRIKES
+    end
+end
+
+-- The game answered the AddOn's call for a "craft" / "open" with false or an error at once; returns the action
+-- that follows (a halt, or the wait for a press), nil when the run has no such start under way
+function ns.RunnerRefuse(runner, what)
+    if not runner.active then
+        return nil
+    end
+    if what == "craft" and runner.phase == "craft" and runner.batch.own and not runner.batch.started then
+        return Refused(runner, "craft", runner.batch)
+    elseif what == "open" and runner.phase == "open" then
+        return Refused(runner, "open", runner.opening)
+    end
+    return nil
 end

@@ -217,7 +217,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 
 ### ForeverCraftQueue
 
-📜 A crafting queue across all your professions, right in the profession window: queue what you want to make, then craft it with one key.
+📜 A crafting queue across all your professions, right in the profession window: queue what you want to make, then craft all of it with one press.
 
 - **Add all to queue** sits above Create All in the profession window, level with the Track Recipe checkbox, a red button as wide as Create All: it queues the selected recipe with the count Create All shows ("Create All [19]" queues 19: what your bags hold the materials for; the count box does not matter); a recipe already in the queue is set to that count, not added on top. With materials for none it is off, and its tooltip says why
 - **Open queue** next to it opens the queue panel
@@ -225,22 +225,25 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - One list across every profession (10x Dusky Boots, 10x Hillman's Cloak, 60x Smoked Bear Meat, ...): icon, name, profession, the count (type a new one and press Enter), up / down and remove
   - A row whose materials are short says for how many crafts your bags hold them, in red; its tooltip lists each material with what your bags hold and what all of the row's crafts need
   - **Clear queue** empties it after a confirmation in the panel
-- **Process queue** (the panel's button, or its key binding) does one step per press, never more: the game lets an AddOn craft only on a key press or click
-  - The next row is the first one your bags hold the materials for at least one craft of: when its profession is open, the press crafts its whole count as one batch (like Create with that count), or as many as the materials allow
-  - When another profession (or none) is open, the button reads "Open Cooking" (the row's profession) and the press opens it; the next press crafts
-  - A recipe that needs a fire, an anvil or a forge nearby is not started away from it: the chat says what it requires
+- **Process queue** (the panel's button, or its key binding) crafts the whole queue with one press: each row as one batch, the next row as soon as the batch before it ends, across professions
+  - The next row is the first one your bags hold the materials for at least one craft of: its whole count as one batch (like Create with that count), or as many as the materials allow
+  - When a row needs another profession, its window is opened and the row crafted once it is there
+  - While it runs the button reads **Stop**: a press lets the current batch finish and stops after it (a second press takes that back); Process queue later goes on from where it stopped
+  - The status line says what happens: "Crafting 31 Cured Light Hide (row 1 of 2), next: 10 Dusky Boots", at the end "Queue done: 2 recipes, 41 crafts" (also in the chat, with a sound)
+  - It stops by itself, says why in the status line and the chat ("Stopped: missing 3 Salt for Cured Light Hide") and plays a sound, and the rest stays queued: no row with materials, a fight, moving or another cast when the next row would start, a batch that ended early (an interrupt, full bags), the profession window closed, a recipe on cooldown or one that needs a fire, an anvil or a forge you are not at
+  - Where the game starts a craft or opens a profession only on a key press or click, the queue waits there: the button reads **Continue**, a sound calls you, and the button, the Process queue key or one step of the mouse wheel anywhere goes on. The AddOn finds this out by itself (it tries without a press first), tells you in the chat and remembers it, so the wait is ready the moment a batch ends; its settings page shows what the game allowed and has "Try again"
   - A recipe on cooldown (transmutes, Mooncloth, ...) is passed over until it is ready; its row shows the time left
-  - Crafted units leave the queue as each cast succeeds, so an interrupted batch keeps the rest queued; when the queue is empty the chat says "Craft queue done: 3 recipes, 80 crafts" with a sound
-  - In combat the button is off and says so; while a batch runs, a press waits for it
+  - Crafted units leave the queue as each cast succeeds, also when you craft a queued recipe with the game's own Create; a batch started that way never locks the queue (a press during it goes on when it ends)
+  - In combat the button is off and says so
 - The queue is saved per character and kept over a relog
 - Key bindings: `Esc -> Options -> Keybindings -> Jim's Forever AddOns`: "Forever Craft Queue: process queue" and "show or hide the queue" (no keys by default)
 - Slash commands:
   - `/fcq` shows or hides the queue panel
   - `/fcq on` and `/fcq off` enable/disable it without reloading the UI (the queue stays saved)
   - `/fcq clear` empties the queue (asks first while that option is on), `/fcq options` opens the settings
-  - `/fcq debug` prints the profession window's state, the next step, the last call to the game and the last casts (for testing)
+  - `/fcq debug` prints the profession window's state, the run, what the game allowed without a key press, the next step, the last call to the game, the last casts and the end of the run's trace (for testing)
   - `/fcq help` shows help
-- Settings panel: `Jim's Forever AddOns -> Craft Queue`: enable, dock the panel to the profession window, open the queue window automatically (off by default), ask before Clear queue, the sound when the queue is done, Show queue, Reset position and a `Defaults` button
+- Settings panel: `Jim's Forever AddOns -> Craft Queue`: enable, dock the panel to the profession window, open the queue window automatically (off by default), ask before Clear queue, the sound when the queue is done, stops or waits for a key press, the mouse wheel continuing a queue that waits for one (on by default), Show queue, Reset position, what the game allowed without a key press with "Try again", and a `Defaults` button
 - Standalone; the idea of the queue comes from the 3.3.5 AddOn Advanced Trade Skill Window, the code is written from scratch for Forever
 
 ### ForeverEnhancedMailbox
