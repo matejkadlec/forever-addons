@@ -344,8 +344,8 @@ end
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    local fields = { "chars", "charInfo", "bags", "bank", "gearBank", "windowRecipes", "mailbox", "owned", "goldLast", "sent",
-        "pool" }
+    local fields = { "chars", "charInfo", "bags", "bank", "gearBank", "bankBagSlots", "windowRecipes", "mailbox", "owned",
+        "goldLast", "sent", "pool" }
     for _, field in ipairs(fields) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end

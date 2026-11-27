@@ -184,8 +184,15 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
         closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units (a bag change
         at the mailbox that moved no unit, an item put into another slot, does not count either). The first look
         of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
-      * Crafted units at their materials' basis from the craft log (below).
+      * Crafted units at their materials' basis from the craft log (below), which since 1.67 (FRV-225) is the sum
+        of the materials' pool averages at the craft.
       * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
+        Units count as posted when they leave your bags within a minute of the look that found their post (1.66,
+        FRV-232): a post is logged at the click on Post, its units leave when the server answers, and a look in
+        between (two posts about 2 seconds apart, one post of several auctions made over more than 2 seconds) used
+        to use the post up before its units had left, so they left as plain units and came back from an unsold
+        auction as looted ones, at the AH price of that moment. Units that leave later than that minute without a
+        post (used, vendored, mailed) are not taken for posted ones.
       * Units from a vendor at the vendor's price (bags that changed while a merchant window was open): what that
         merchant's list asks for the item in gold, limited stock too, else a vendor price ForeverMarket knows of
         the item. The gold that left you is never taken for the price: it also pays repairs and AH purchases. An
@@ -234,7 +241,8 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
       table keeps cheap units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper,
       green 5%+ dearer (the same colors for "today's prices" of crafted units)
     * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
-      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; kept on
+      "t,key,qty,total,char", kept a year, a line before 1.15.5 without a character is read as its writer's, see
+      Lines without a character under Profit; kept on
       `COMMODITY_PURCHASE_SUCCEEDED`, each purchase with its own price since 1.36.3, FRV-102: the sniper logs its own
       with the quote it confirmed (`FM.LogPurchase`); any other AH window through `StartCommoditiesPurchase` and
       `ConfirmCommoditiesPurchase` hooked, the quote after a start pricing only a confirm of that item and units, also
@@ -257,7 +265,19 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
     cast time) while no profession cast is running (`UnitCastingInfo("player")`'s `isTradeskill`), or with the next
     craft. A craft casts long on Forever (Dusky Boots 45 s): until 1.38.5 a batch ended after 30 s, before such a
     craft took its reagents, so the higher leatherworking recipes (Comfortable Leather Hat, Turtle Scale Bracers,
-    Tough Scorpid Breastplate, Dusky Boots, Shadowskin Gloves) never got a line (FRV-107). A material's basis at the craft: the units you hold are taken to be your newest acquisitions (older ones
+    Tough Scorpid Breastplate, Dusky Boots, Shadowskin Gloves) never got a line (FRV-107). **A material's basis at the craft is your pool's average of that moment** (1.67, FRV-225): the moving
+    average behind "you paid" (FRV-88, above), units x average for the units the pool holds, so a material's "you
+    paid" and what a craft books for the same units are one number, and the product's "you paid" (it enters its own
+    pool at the line's copper) is the sum of its materials' averages at the craft: a craft right after buying 20
+    leather at 2s on top of 20 held at 4s books its leather at 3s a unit (the lots below said the oldest units, 4s).
+    The pool is set against your bags right before the craft, so units collected a moment ago count. Units of a
+    material the pool does not hold (no price was known when they came, or they lie where the pool does not look,
+    the reagent or account bank) keep the rule for units nobody recorded: the vendor price when a vendor sells it
+    without limit, else its AH price at the craft; with neither the basis is unknown. The line keeps its format. The
+    Profit tab is not touched: its lots (`trade/Basis.lua`, the oldest units first per sale) are a model of their
+    own, which replays which materials a craft used and never reads the line's copper. Until 1.66, and still while
+    the pool has not started (the first seconds after a login), the lots of the logs:
+    the units you hold are taken to be your newest acquisitions (older ones
     already left your bags) and a craft uses the oldest first: your purchases (`R.buys`, at what you paid) and your
     own crafts of it (`R.crafts`, at their recorded basis, so an intermediate like Cured Thick Hide passes its basis
     on), less what your earlier crafts used of them (replayed in time order by the same rule, with the units you held
@@ -1057,7 +1077,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     from older records (confidence 50%).
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
-    the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average).
+    the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average),
+    and an item vendors sell is never a Flip pick (1.63, FRV-233, see Flip below).
     A flip pick follows the Flip tab's rule within its own batch and gold (1.46, FRV-172, `EvaluateFlip`): when
     they buy fewer units than the flip row, it takes fewer whole price levels and lists under the level above those
     (its "List at", Expected profit, "Sells", Gold needed and steps line follow that buy), and when no such buy earns
@@ -1184,6 +1205,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   The tooltip's "List at" line names what waits above: "8g 02s 01c  next: 16 at 9g 29s", or with a thin level
   "79s 99c  next: 1 at 80s, 18 more up to 1g 05s" (`FM.FlipNextText`; "N wait at W" before, which counted the thin
   levels as waiting at the wall).
+  **An item vendors sell is never an AH flip** (1.63, FRV-233; the report: Balanced Throwing Dagger as pick #1, "Buy 3
+  up to 12s > list at 22s"): a vendor supplies it, usually cheaper and without limit, which is the Vendor tab's and
+  the vendor picks' business, and the vendor's price caps what buyers pay on the AH. An item a vendor sells without a
+  stock limit gets no row here and no Flip pick; an item whose every known vendor offer has limited stock is a flip
+  only of the price levels under the cheapest such offer (`FM.FlipPlan`'s `under`). Which items vendors sell
+  (`FM.VendorSold` in `trade/Sources.lua`): ForeverArtisan's Trade Contacts, a merchant you saw selling it without a
+  limit (`vendorSeen`), and the vendors QuestieDB names that are friendly to your faction, also while you have not
+  opened them (`FM.QuestieSells` in `trade/QuestieVendors.lua`; no price is known then, and QuestieDB does not say
+  whether stock is limited, so such an item counts as sold without limit). "Exclude vendor flips" does not bring such
+  an item back as an AH flip: the rule does not read the filters. Where the AH alone would make a flip, the item's
+  "Not in the picks" reason says "sold by vendors: a vendor flip, not an AH flip" (or "a vendor sells it for 13s 0c
+  (limited stock): an AH flip only under that price"), unless the item is a vendor resell, which keeps its own reason
+  (`FM.FlipOf`, `out.flipVendorWhy`).
   Until 1.45 the list price was 1c under the wall, so thin levels stayed under it: Recipe: Cleric's Elixir (2026-11-25:
   1g 03s 99c, 1g 04s, 1g 05s 09c, 1g 10s 98c, 1g 30s 99c, ...) read "buy 2 up to 1g 04s, list at 1g 30s" over the
   listings at 1g 05s 09c and 1g 10s 98c; with 9 listed only two units are within the 25%, and two units earn no
@@ -1534,6 +1568,23 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     of them with their deposits and sold money on its way. So an item one character buys and mails to another is no
     loss at the mailing, and its sale there counts against its purchase. For one character alone the same mail is
     still a loss for the sender and the sale all profit for the seller: that is what **This character** shows.
+  * **Lines without a character** (1.64, FRV-230): a purchase line written before 1.15.5 names no character. Until
+    1.63 such a line counted for every character, so a character made later showed the first one's old purchases in
+    its own view, without what they became: the report's new level 1 character at **-35g 37s 1c**, the hunter's 16
+    purchases of 11/17 and 11/18 (200x Thick Hide, 200x Deeprock Salt, ...). Such a line belongs to the character
+    that wrote it. The data cannot say who that was, so it is read as the line of the character whose own log line
+    is nearest to it in time: the gold records, posts, AH mails, purchases and crafts that name their character (a
+    tie goes to the earlier line); with one character known at that time, that is the one, and a line older than
+    every other belongs to the character with the oldest line (`FM.LineOwner`, `FM.BuyOwner` in `core/Store.lua`).
+    Nothing in the saved data is rewritten, the rule is applied at every read, in every reader of the purchase log:
+    this tab (`Purchases` in `trade/Performance.lua`, and through it what your units cost, `trade/Basis.lua`), what
+    still waits in the mail and what was spent since a reading (`InTransit`, `SpentSince` in `scan/Worth.lua`), the
+    craft log's lots (`trade/Crafts.lua`), what you bought since a plan and the price of your latest purchases
+    (`FM.BoughtSince`, `FM.BoughtUnit` in `trade/Cost.lua`) and an item's activity in its price history
+    (`FM.ItemActivity`). An own-gear mark of such a purchase still finds it (the mark names the line's character
+    field as it is written). While no log names any character, such a line counts for every character as before.
+    On the maintainer's data of 2026-11-27: the new character's own view no longer holds those purchases, the
+    hunter's own result (95g 25s 96c) and All characters (138g 19s 59c) are the same before and after.
   * Every reading holds both numbers (`worth[char]`: `held` for the character, `all` for all of them as known at
     that moment, `saw` = a short hash of which readings counted: each character's bags, bank and mailbox, and the
     account bank). The joint line is the `all` of every character's readings in time order; a step counts only
@@ -1622,6 +1673,29 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   its price; bought one day and worn another: the first shows its cost gained, the second the same lost;
   bought and worn before your first reading: nothing moves). Item IDs match whatever you wear: an item looted and
   worn while you hold a bought one of the same ID for resale marks the bought one.
+* **Bags as own gear** (1.65, FRV-222, scan/Worth.lua; the report: a Traveler's Backpack bought for 18g and put into
+  a bag slot showed as a loss of its day): a bag bought on the AH and put into a bag slot is own gear the same way,
+  and its purchase leaves the tab (its day's Bought list, the day's total, the period total, what you hold). The bag
+  slots are the character's own (the four bag slots and the reagent bag slot: `C_Container.ContainerIDToInventoryID`,
+  then `GetInventoryItemID`, as Blizzard's container frames read them) and its bank's: Forever's bank has bag slots
+  to buy, and the bag in slot n is item n of `Enum.BagIndex.Characterbanktab`, read while the bank is open
+  (`C_Bank.FetchPurchasedBankTabIDs`, `C_Container.GetContainerItemID`; not yet verified in game); the last reading
+  is kept per character (`bankBagSlots`), so the bank's bags count while it is closed. The account bank's bag slots
+  are left out: every character sees them, so who put a bag there is not known. Matched like equipped gear, by item
+  ID against the purchases not sold or marked yet, the oldest first, one unit per bag placed: the bags of an item in
+  the slots (the character's and its bank's together) against the marks of it, so moving a bag between slots, also
+  between the bags and the bank, or taking it out and putting it back marks nothing more. **A bag does not bind**:
+  once a unit of the item is sold on the AH after the mark (a sale mail of any of your characters), the mark no
+  longer counts, each sold unit taking the oldest mark made before it, and the purchase and the sale both count again
+  (it was a flip after all); the mark stays in the saved data and is only read that way. A bag still in a slot then
+  gets a new mark on the next oldest purchase (units count oldest first, as everywhere). Checked with the gear:
+  5 s after login (bags placed before 1.65 are found then, and past days are computed again), a second after
+  `BAG_CONTAINER_UPDATE`, `PLAYER_EQUIPMENT_CHANGED` and, at the bank, `BANKFRAME_OPENED` and
+  `PLAYERBANKSLOTS_CHANGED` (the bank's slots are read at once, they are gone when it closes), and a second after a
+  sale mail is read (1.67.1: the sale may have taken a mark, and the bag still in its slot is marked again at once,
+  else both purchases counted against the one sale until the slots next changed). A bag found in a slot
+  (by the login check, or during the first visit to the bank that reads its bag slots) was placed at a moment nobody
+  saw: none of its steps is taken back, as for gear found worn.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
   since (oldest first). What the lists saw change (`osold`, `opart`, `ocancel`, `ogone`) is matched to the mails you
   read of the item (sent after the list before it and by the list that saw it, a sale's up to 2 hours later): a
@@ -2238,7 +2312,8 @@ Picks skip).
   `"units|cost|t"` units posted on the AH at what they left with (less every sale's mail; 30 days); `crafts["t:key"]`
   = the units of a craft line that entered already (a day). `/fm forget <name>` drops a character's pools with its
   other records
-* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
+* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5: such a line is
+  read as the line of the character whose own log line is nearest in time, `FM.BuyOwner`, FRV-230). Mended once per
   bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
   a chat line says them): every commodity purchase sends a buyer mail with its units and real total (`invoices`;
   several for more than 16 stacks, FRV-113), so a line takes the total of its purchase's mail (the same character,
@@ -2276,12 +2351,19 @@ Picks skip).
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
   item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
   purchase (`b<t>,<char>` a `buys` line, `i<sent>,<char>` a won auction's mail), item = its key or the mail's name,
-  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it)
+  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it); a bag
+  in a bag slot (1.65, FRV-222): `b` seen placed, `bl` found placed. A bag's mark stops counting once a unit of its
+  item was sold on the AH after it (read that way, the line stays)
+* `bankBagSlots[char]` (1.65, FRV-222, optional, made at the first look at the bank) `t|id:n,...`: the bags in the
+  character's bank bag slots at the last look with the bank open; `/fm forget` removes it
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
   craft (empty when one of them had no price), held = the units of it you held before the batch; newest last, a year
-  and 5000 lines at most. Worked out again once per bucket (1.40.6, FRV-112, `craftsRepair` = 1, the counts in
+  and 5000 lines at most. Since 1.67 (FRV-225) the copper comes from your pool's average at the craft (the lots of
+  the logs before, and while the pool has not started); `craftsPoolAt` (optional) = the time of the bucket's first
+  such line, and the two repairs of the craft log (`FM.RepairCrafts`, `FM.RepairCraftBasis`), which replay the
+  purchase log's lots, mend only lines before it. Worked out again once per bucket (1.40.6, FRV-112, `craftsRepair` = 1, the counts in
   `craftsRepaired` = { t, lines, mats }, a chat line says them): the maintainer's lines of before 2026-11-22 were
   worked out from the purchase log as it was then, before FRV-102 mended it, and that repair's replay
   (`FM.RepairCraftBasis`) never ran on his bucket (the first build, 1.36.3, marked it before the replay existed, and

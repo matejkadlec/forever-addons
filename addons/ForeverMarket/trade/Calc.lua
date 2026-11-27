@@ -814,7 +814,8 @@ end
 -- Returns { units, cost, top (the dearest unit bought), sell, next and nextQty (the cheapest listing that stays and
 -- its units), wall, support (units of others from next up to the wall: none under the list price), profit, level (the
 -- price the cap is 110% of), capped (true when the cap, not the listing that stays, set the list price) }, or nil
-function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost, ref)
+-- under (FRV-233): the price a vendor with limited stock asks per unit; a flip buys only levels cheaper than it
+function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost, ref, under)
     if type(ladder) ~= "table" or not (usual and qty) then return nil end
     local need = math_max(3, 0.1 * qty)
     local level = math_max(usual, type(ref) == "number" and ref or 0)
@@ -822,6 +823,7 @@ function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost, ref)
     local best
     local units, cost = 0, 0
     for k = 1, #ladder - 1 do
+        if under and ladder[k][1] >= under then break end
         units = units + ladder[k][2]
         cost = cost + ladder[k][2] * ladder[k][1]
         if units > FLIP_MAX_SHARE * qty then break end
@@ -854,22 +856,47 @@ function FM.FlipNextText(f)
         FM.FormatCount(f.support - f.nextQty), FM.FormatMoney(f.wall))
 end
 
--- A row of the Flip tab: FM.FlipPlan on the item's whole ladder, when its usual price is known (median daily low, last
--- week) and has not moved to a new level in the last 2 days; the list price may follow today's price and the last 2
--- days' when they are higher (FRV-214)
+-- An item vendors sell is never an AH flip (FRV-233): a vendor supplies it, which is the Vendor tab's and the vendor
+-- picks' business, and the vendor's price caps what buyers pay on the AH. FM.VendorSold says what is known:
+--   * a vendor sells it without a stock limit (or QuestieDB names a vendor nobody opened yet): no flip
+--   * every vendor offer known has limited stock: a flip only of the levels cheaper than the cheapest such offer
+-- "Exclude vendor flips" does not bring such an item back: the rule does not read the filters.
+-- Returns the flip (FM.FlipPlan on the whole ladder, nil for none), why the vendors took a flip there would be
+-- otherwise (nil when they took none), and the limited vendor's price the flip stayed under (row.under)
+local VENDOR_SOLD = "sold by vendors: a vendor flip, not an AH flip"
+function FM.FlipOf(key, ladder, qty, usual, floor, ref)
+    local sold, unit = nil, nil
+    if FM.VendorSold then sold, unit = FM.VendorSold(key) end
+    if not sold then return FM.FlipPlan(ladder, qty, usual, floor, nil, nil, ref) end
+    local under = sold == "limited" and unit or nil
+    local f = under and FM.FlipPlan(ladder, qty, usual, floor, nil, nil, ref, under) or nil
+    if f then return f, nil, under end
+    -- no flip under the vendor rule: the reason only where the AH alone would make one
+    if not FM.FlipPlan(ladder, qty, usual, floor, nil, nil, ref) then return nil end
+    if under then
+        return nil, string_format("a vendor sells it for %s (limited stock): an AH flip only under that price",
+            FM.FormatMoney(under))
+    end
+    return nil, VENDOR_SOLD
+end
+
+-- A row of the Flip tab: the flip rule on the item's whole ladder (FM.FlipOf: FM.FlipPlan, and never an item vendors
+-- sell, FRV-233), when its usual price is known (median daily low, last week) and has not moved to a new level in the
+-- last 2 days; the list price may follow today's price and the last 2 days' when they are higher (FRV-214)
 -- anyLevel: a flip whose amount you set (FRV-188, review round 2 of PR 90): its row also below the Flip tab's lowest
 -- usual price and at a new price level, which only the tab leaves out
+-- The second value: why vendors took the flip (FM.FlipOf), for the "Not in the picks" reason
 local function FlipRow(key, p, now, anyLevel)
     local usual, recent, today = UsualPrice(key, now)
     if not usual or (usual < FLIP_MIN_USUAL and not anyLevel) then return nil end
     if recent and (recent < 0.8 * usual or recent > 1.25 * usual) and not anyLevel then return nil end -- a new price level
     local ref = math_max(recent or 0, today or 0)
-    local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p), nil, nil, ref)
-    if not f then return nil end
+    local f, vendorWhy, under = FM.FlipOf(key, p.ladder, p.qty, usual, FM.MinListPrice(key, p), ref)
+    if not f then return nil, vendorWhy end
     return { key = key, top = f.top, units = f.units, cheapQty = f.units, cost = f.cost, sell = f.sell, profit = f.profit,
         p1g = f.profit / f.cost * 10000, usual = usual, recent = recent, today = today, ref = ref, level = f.level,
         capped = f.capped, wall = f.wall, support = f.support, next = f.next, nextQty = f.nextQty, qty = p.qty, own = p.own,
-        minSell = math_floor(f.cost / f.units / (1 - AH_CUT) + 0.99) }
+        minSell = math_floor(f.cost / f.units / (1 - AH_CUT) + 0.99), under = under }
 end
 
 -- Why a flip lists under the cheapest listing of others that stays (FRV-214), nil when it lists just under it: "Under
@@ -1384,19 +1411,23 @@ function FM.ComputeTrade(record, onDone)
             local keys = {}
             for key in pairs(r.last.fp) do keys[#keys + 1] = key end
             local flips = {}
+            -- the items whose flip the vendors took (FRV-233), [key] = why: trade/Picks.lua's "Not in the picks" reason
+            local vendorWhy = {}
             FM.RunSliced(keys, 300, Safe(function(key)
                 -- random suffix items mix variants of different value; gear never checked counts as such
                 if FM.HasVariants(key) or FM.SuffixUnknown(key) then return end
                 local p = view.Get(key)
                 if not p or p.qty < FLIP_MIN_QTY or #p.ladder < 2 then return end
                 if not MaybeFlip(p.ladder, p.qty) then return end
-                local row = FlipRow(key, p, now)
+                local row, why = FlipRow(key, p, now)
                 if row then flips[#flips + 1] = row end
+                if why then vendorWhy[key] = why end
             end), function()
                 for _, row in ipairs(flips) do
                     row.sold12, row.soldWide = Sold(row.key, WINDOW_12H)
                 end
                 out.flips = flips
+                out.flipVendorWhy = vendorWhy
                 done()
             end)
         end,

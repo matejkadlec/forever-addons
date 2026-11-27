@@ -491,12 +491,25 @@ end
 -- item: a character that wears e units of an item and is the wearer of m marks of it gets e - m new marks, so taking
 -- gear off and on again marks nothing. Checked at login (gear equipped before 1.31 too) and after every
 -- PLAYER_EQUIPMENT_CHANGED.
+-- Bags (1.65, FRV-222): a bag bought on the AH and put into a bag slot is own gear the same way (the report: a
+-- Traveler's Backpack for 18g showed as a loss of its day). The bag slots: the character's (Bag_1 to Bag_4 and the
+-- reagent bag, C_Container.ContainerIDToInventoryID) and its bank's (Forever's bank has bag slots to buy, each a
+-- container: the bag in one is the item at Enum.BagIndex.Characterbanktab, its slot number; read while the bank is
+-- open, the last reading kept in R.bankBagSlots). The account bank's bag slots are left out: every character sees
+-- them, so who put a bag there is not known. A bag placed counts as worn: e bags of an item in its slots against m
+-- marks, as above, so moving one between slots, or taking it out and putting it back, marks nothing.
+-- A bag does not bind when placed, unlike most gear: when a unit of the item is sold on the AH after the mark (a sale
+-- mail of any of your characters), the mark no longer counts, each sold unit taking the oldest mark made before it;
+-- purchase and sale then count again (it was a flip after all). Nothing is deleted: the marks are read that way
+-- (GearMarks), and a bag still in a slot gets a new mark, on the next oldest purchase.
 -- R.gear = { "t|wearer|id|units|value|ref|item|how", ... }  t = FM.Stamp of the mark, id = the equipped item's ID,
 --   units = units marked, value = what one unit counted for in the readings of what you hold at the mark (what it
 --   cost you, FRV-106; until 1.37 the usual AH price; 0 when no reading counts it), ref = the purchase ("b<t>,<char>" a buys line,
 --   "i<sent>,<char>" a won auction's mail, FM.GearRef), item = its key (buys) or the mail's item name, how = "e" seen
 --   equipped (the mark is the moment of the equipping) or "l" found worn by the login check (when it was equipped
---   is not known: trade/Performance.lua takes no steps of what you held back for it)
+--   is not known: trade/Performance.lua takes no steps of what you held back for it); a bag in a bag slot: "b" seen
+--   placed, "bl" found placed (by the login check, or by the first look at the bank's bag slots)
+-- R.bankBagSlots[char] = "t|id:n,..." the bags in the character's bank bag slots at the last look with the bank open
 local GEAR_MAX = 2000 -- marks kept
 local EMPTY_LIST = {}
 
@@ -506,19 +519,61 @@ local function GearRef(kind, stamp, who)
 end
 FM.GearRef = GearRef
 
--- The marks: { { t, wearer, id, units, value, ref, item, who = the buyer, login = found worn at login }, ... } in the
--- order they were made
+-- A bag's mark no longer counts once a unit of its item was sold on the AH after it (FRV-222): every unit of a sale
+-- mail takes one unit off the oldest bag mark of the item made before the mail was sent. bags = the bag marks
+local function CancelSold(r, bags)
+    local byName = {} -- the item's name (as a sale mail has it) -> its bag marks, oldest first
+    for _, m in ipairs(bags) do
+        -- a purchase log's mark holds the item's key, a won auction's the name of its mail
+        local name = m.ref:sub(1, 1) == "b" and type(r.names) == "table" and r.names[m.item] or m.item
+        local list = byName[name] or {}
+        byName[name] = list
+        list[#list + 1] = m
+    end
+    local sales = {}
+    for _, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+        if line:find(",seller,", 1, true) then
+            local f = FM.Split(line, ",")
+            local t = byName[f[4]] and f[3] == "seller" and FM.Unstamp(f[1])
+            if t then sales[#sales + 1] = { t = t, name = f[4], qty = Dec(f[6]) or 1 } end
+        end
+    end
+    table_sort(sales, function(a, b) return a.t < b.t end)
+    for _, sale in ipairs(sales) do
+        local left = sale.qty
+        for _, m in ipairs(byName[sale.name]) do
+            if left <= 0 then break end
+            if m.t <= sale.t and m.units > 0 then
+                local n = math_min(left, m.units)
+                m.units, left = m.units - n, left - n
+            end
+        end
+    end
+end
+
+-- The marks that count: { { t, wearer, id, units, value, ref, item, who = the buyer, login = found worn at login (or
+-- a bag found placed), bag = a bag in a bag slot }, ... } in the order they were made; a bag's mark without the
+-- units sold since (CancelSold), and none of it once all are
 local function GearMarks(r)
-    local list = {}
+    local list, bags = {}, {}
     for _, line in ipairs(type(r.gear) == "table" and r.gear or {}) do
         local f = FM.Split(line, "|")
         local t, id, units = FM.Unstamp(f[1]), tonumber(f[3]), Dec(f[4])
         if t and id and units and units > 0 and f[6] and f[7] and f[7] ~= "" then
-            list[#list + 1] = { t = t, wearer = f[2], id = id, units = units, value = Dec(f[5]) or 0, ref = f[6],
-                item = f[7], who = f[6]:match(",(.*)$") or "", login = f[8] == "l" }
+            local bag = f[8] == "b" or f[8] == "bl"
+            local m = { t = t, wearer = f[2], id = id, units = units, value = Dec(f[5]) or 0, ref = f[6],
+                item = f[7], who = f[6]:match(",(.*)$") or "", login = f[8] == "l" or f[8] == "bl", bag = bag or nil }
+            list[#list + 1] = m
+            if bag then bags[#bags + 1] = m end
         end
     end
-    return list
+    if not bags[1] then return list end
+    CancelSold(r, bags)
+    local kept = {}
+    for _, m in ipairs(list) do
+        if m.units > 0 then kept[#kept + 1] = m end
+    end
+    return kept
 end
 
 -- The own-gear units of each purchase: "ref|item" -> { units, list = its marks } (trade/Performance.lua)
@@ -630,10 +685,116 @@ local function Equipped()
     return worn
 end
 
--- Marks what the logged-in character wears and one of your characters bought on the AH as own gear (see above);
--- atLogin = the login check (gear found worn, how = "l"), else an equipping seen now ("e"). Returns the units marked
-function FM.CheckGear(atLogin)
+-- The name in an item link, nil without one
+local function LinkName(link)
+    local name = type(link) == "string" and not FM.IsSecret(link) and link:match("|h%[(.-)%]|h")
+    return name ~= "" and name or nil
+end
+
+-- "t|id:n,..." (R.bankBagSlots) -> [itemID] = units; nil without a reading
+local function SavedBankBags(text)
+    if type(text) ~= "string" then return nil end
+    local list = text:match("^%w*|(.*)$")
+    if not list then return nil end
+    local out = {}
+    for id, n in list:gmatch("(%d+):(%d+)") do out[tonumber(id)] = tonumber(n) end
+    return out
+end
+
+-- The bags in the bank's bag slots of the logged-in character, read while the bank is open: [itemID] = { n, names },
+-- nil when they cannot be read (the bank closed, or a call the client does not answer: not verified in game, so
+-- every call is guarded). Forever's bank bag slots are its "bank tabs": each bought one is a container
+-- (C_Bank.FetchPurchasedBankTabIDs), and the bag in slot n is the item n of Enum.BagIndex.Characterbanktab
+local bankIsOpen = false
+local function BankBagSlots()
+    local bankType = Enum and Enum.BankType and Enum.BankType.Character
+    local slots = Enum and Enum.BagIndex and Enum.BagIndex.Characterbanktab
+    local first = Enum and Enum.BagIndex and Enum.BagIndex.CharacterBankTab_1
+    if not (bankIsOpen and bankType and slots and first and C_Bank and C_Bank.FetchPurchasedBankTabIDs
+        and C_Container and C_Container.GetContainerItemID) then
+        return nil
+    end
+    local ok, ids = pcall(C_Bank.FetchPurchasedBankTabIDs, bankType)
+    if not ok or type(ids) ~= "table" then return nil end
+    local placed = {}
+    for _, container in ipairs(ids) do
+        local slot = IsNumber(container) and container - first + 1
+        if slot and slot >= 1 then
+            local okID, id = pcall(C_Container.GetContainerItemID, slots, slot)
+            if okID and IsNumber(id) then
+                local e = placed[id] or { n = 0, names = {} }
+                placed[id] = e
+                e.n = e.n + 1
+                local okLink, link = false, nil
+                if C_Container.GetContainerItemLink then okLink, link = pcall(C_Container.GetContainerItemLink, slots, slot) end
+                local name = okLink and LinkName(link)
+                if name then e.names[name] = true end
+            end
+        end
+    end
+    return placed
+end
+
+-- Reads the bank's bag slots (while the bank is open) and keeps the reading
+local function SaveBankBags()
+    local placed = BankBagSlots()
+    if not placed then return end
+    local r = FM.R()
+    if type(r.bankBagSlots) ~= "table" then r.bankBagSlots = {} end
+    local parts = {}
+    for id, e in pairs(placed) do parts[#parts + 1] = id .. ":" .. e.n end
+    table_sort(parts)
+    r.bankBagSlots[FM.PlayerName()] = FM.Stamp() .. "|" .. table_concat(parts, ",")
+end
+
+-- The bags in the logged-in character's bag slots (FRV-222): its own (Bag_1 to Bag_4 and the reagent bag, as
+-- Blizzard's container frames read them: C_Container.ContainerIDToInventoryID, then the inventory item) and its
+-- bank's as last read (R.bankBagSlots; found = { [itemID] = true } for the bags of a bank reading that was its
+-- first). [itemID] = { n = units, names, bag = true }
+local function PlacedBags(found)
+    local placed = {}
+    local function Add(id, name, n)
+        local e = placed[id]
+        if not e then
+            e = { n = 0, names = {}, bag = true }
+            placed[id] = e
+        end
+        e.n = e.n + (n or 1)
+        if name then e.names[name] = true end
+    end
+    if C_Container and C_Container.ContainerIDToInventoryID and GetInventoryItemID then
+        local last = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
+        for bag = 1, IsNumber(last) and last or 4 do
+            local okSlot, slot = pcall(C_Container.ContainerIDToInventoryID, bag)
+            if okSlot and IsNumber(slot) then
+                local ok, id = pcall(GetInventoryItemID, "player", slot)
+                if ok and IsNumber(id) then
+                    local okLink, link = false, nil
+                    if GetInventoryItemLink then okLink, link = pcall(GetInventoryItemLink, "player", slot) end
+                    Add(id, okLink and LinkName(link) or nil)
+                end
+            end
+        end
+    end
+    local r = FM.R()
+    local saved = SavedBankBags(type(r.bankBagSlots) == "table" and r.bankBagSlots[FM.PlayerName()])
+    for id, n in pairs(saved or {}) do
+        Add(id, nil, n)
+        if found then placed[id].found = true end
+    end
+    return placed
+end
+
+-- Marks what the logged-in character wears, and the bags in its bag slots, that one of your characters bought on the
+-- AH as own gear (see above); atLogin = the login check (gear found worn, how = "l"), else an equipping seen now
+-- ("e"); a bag "bl" / "b", bankFound = the bank's bag slots were read for the first time (their bags count as found).
+-- Returns the units marked
+function FM.CheckGear(atLogin, bankFound)
     local worn = Equipped()
+    for id, e in pairs(PlacedBags(bankFound)) do
+        -- an item is gear or a bag, never both
+        if not worn[id] then worn[id] = e end
+    end
     if next(worn) == nil then return 0 end
     local r = FM.R()
     local me = FM.PlayerName()
@@ -663,8 +824,9 @@ function FM.CheckGear(atLogin)
                 local value = math_floor((p.unit or 0) + 0.5)
                 if type(r.gear) ~= "table" then r.gear = {} end
                 FM.CapList(r.gear, GEAR_MAX)
-                r.gear[#r.gear + 1] = table_concat({ FM.Stamp(), me, tostring(id), Enc(n), Enc(value), p.ref, p.item,
-                    atLogin and "l" or "e" }, "|")
+                local e = worn[id]
+                local how = e.bag and ((atLogin or e.found) and "bl" or "b") or (atLogin and "l" or "e")
+                r.gear[#r.gear + 1] = table_concat({ FM.Stamp(), me, tostring(id), Enc(n), Enc(value), p.ref, p.item, how }, "|")
                 left, added = left - n, added + n
             end
         end
@@ -674,8 +836,12 @@ end
 
 local gearPending = false
 local gearLive = false -- the login check ran: from now on an equipment change is an equipping seen as it happens
+local bankFirst = false -- the bank is open for the first time this character's bank bag slots are read
+local bankFound = false -- its bag slots were read in that first visit since the last check: their bags count as found
 local function RunCheck(atLogin)
-    local ok, err = pcall(FM.CheckGear, atLogin)
+    local found = bankFound
+    bankFound = false
+    local ok, err = pcall(FM.CheckGear, atLogin, found)
     if not ok and geterrorhandler then geterrorhandler()(err) end
 end
 local function CheckGearSoon()
@@ -688,6 +854,30 @@ local function CheckGearSoon()
     end)
 end
 FM.On("PLAYER_EQUIPMENT_CHANGED", CheckGearSoon)
+-- a sale mail was logged (scan/Ledger.lua): the sale may have taken a bag's mark (CancelSold), and a bag of that item
+-- still in a slot gets its new mark now, not at the next change of the slots (review round 2 of PR 93: until then both
+-- purchases counted against the one sale)
+FM.CheckGearSoon = CheckGearSoon
+-- a bag put into or taken out of a bag slot (FRV-222): the character's own slots, and the bank's while it is open.
+-- The bank's slots are read at once (they are gone once it closes), the marks follow a moment later
+local function BankBagsChanged()
+    pcall(SaveBankBags)
+    if bankIsOpen and bankFirst then bankFound = true end
+    CheckGearSoon()
+end
+FM.On("BAG_CONTAINER_UPDATE", BankBagsChanged)
+FM.On("PLAYERBANKSLOTS_CHANGED", BankBagsChanged)
+FM.On("BANKFRAME_OPENED", function()
+    bankIsOpen = true
+    -- no reading of this character's bank bag slots yet: what this visit finds there was placed at a moment nobody
+    -- saw (the whole visit: the client may tell the slots a moment after the bank opens)
+    local r = FM.R()
+    bankFirst = type(r.bankBagSlots) ~= "table" or r.bankBagSlots[FM.PlayerName()] == nil
+    BankBagsChanged()
+end)
+FM.On("BANKFRAME_CLOSED", function()
+    bankIsOpen, bankFirst = false, false
+end)
 FM.On("PLAYER_LOGIN", function()
     C_Timer.After(5, function()
         RunCheck(true)
@@ -696,13 +886,15 @@ FM.On("PLAYER_LOGIN", function()
 end)
 
 -- AH purchases of a character after since (its last mailbox reading, or its login without one): still in the mail.
--- named: only the purchases logged with its name (a character that is not logged in: one without a name, from
--- before 1.15.5, would wait in the mail of every one of them)
+-- A line without a character (before 1.15.5) is its writer's (FM.BuyOwner, FRV-230).
+-- named: only the purchases known to be its own (a character that is not logged in: a line nobody can be named for
+-- would wait in the mail of every one of them)
 local function InTransit(r, char, since, add, named)
     for i = #(r.buys or {}), 1, -1 do
         local t, key, qty, who = r.buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
         t, qty = tonumber(t), tonumber(qty)
         if not t or t <= since then break end
+        who = FM.BuyOwner(r, t, who)
         if who == char or (who == "" and not named) then add(key, qty) end
     end
 end
@@ -957,6 +1149,8 @@ local function SpentSince(r, char, since)
     for i = #(r.buys or {}), 1, -1 do
         local t, total, who = r.buys[i]:match("^(%d+),[^,]+,%d+,(%d+),?([^,]*)$")
         if not t or tonumber(t) <= since then break end
+        -- a line without a character is its writer's (FM.BuyOwner, FRV-230)
+        if char then who = FM.BuyOwner(r, t, who) end
         if not char or who == "" or who == char then sum = sum + tonumber(total) end
     end
     for i = #(r.invoices or {}), 1, -1 do

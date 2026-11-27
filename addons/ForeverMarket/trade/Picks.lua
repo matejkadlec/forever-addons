@@ -2115,7 +2115,7 @@ local function EvaluateFlip(c)
         if b.batch < 1 and not want then return nil, BatchShort(b, room, 1) end
         -- what you hold first: the flip buys only the rest of the batch
         held = math_min(heldAll, b.batch)
-        f = FM.FlipPlan(left, qty, row.usual, floor, want or (b.batch - held), not want and cap or nil, ref)
+        f = FM.FlipPlan(left, qty, row.usual, floor, want or (b.batch - held), not want and cap or nil, ref, row.under)
         if not f or f.sell == sell then break end
         sell = f.sell
     end
@@ -2128,7 +2128,7 @@ local function EvaluateFlip(c)
     local n, cost = 0, 0
     -- a search newer than the snapshot holds no flip any more, whatever this pick could buy: gone (FRV-214; a flip
     -- that is only too big for its batch or gold keeps the reasons below)
-    if live and not f and held <= 0 and not FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref) then
+    if live and not f and held <= 0 and not FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref, row.under) then
         -- you bought them yourself since the snapshot (review round 1): that is no "gone"
         local mine = BoughtSince(row.key, P.view.t)
         if mine > 0 then
@@ -2411,6 +2411,13 @@ local function Candidates(out, why)
         else
             list[#list + 1] = { kind = "flip", row = row }
         end
+    end
+    -- an item vendors sell is no AH flip (FRV-233, FM.FlipOf): said where nothing else speaks for the item, so a
+    -- vendor resell of it keeps its own reason
+    local listed = {}
+    for _, c in ipairs(list) do listed[c.row.key] = true end
+    for key, text in pairs(out.flipVendorWhy or EMPTY) do
+        if not why[key] and not listed[key] then why[key] = text end
     end
     return list
 end

@@ -25,7 +25,8 @@ local _, FM = ...
 -- looted) of an item you cannot make are not counted: no purchases, no price.
 --
 -- R.buys     { "t,key,qty,total,char", ... }  newest last, a year (the Profit tab holds bought items);
---             lines before 1.15.5 have no character and count for every character; mended once from your AH mail
+--             lines before 1.15.5 have no character: each is read as its writer's (FM.BuyOwner, core/Store.lua,
+--             FRV-230; for every character until 1.63); mended once from your AH mail
 --             (1.36.3, FRV-102: r.buysRepair, r.buysRepaired)
 -- R.deposits [key] = { t = seconds, [2] = { rate, floor }, [3] = { rate, floor } }  (duration 2 = 8h, 3 = 24h)
 -- R.facts    [key] = "sell:stack"  what a vendor pays for one unit and how many stack, as the client last told
@@ -98,7 +99,8 @@ function FM.LogPurchase(key, qty, total)
 end
 
 -- Units of an item this character bought on the AH since `since` (time()): what a Picks plan made then has bought of
--- its purchases since (FRV-104, review round 1); lines without a character (before 1.15.5) count for every one
+-- its purchases since (FRV-104, review round 1); a line without a character (before 1.15.5) is its writer's
+-- (FM.BuyOwner, FRV-230)
 function FM.BoughtSince(key, since)
     if type(key) ~= "string" or type(since) ~= "number" then return 0 end
     local r = FM.R()
@@ -111,7 +113,10 @@ function FM.BoughtSince(key, since)
         local t, k, qty, who = buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)")
         t = tonumber(t)
         if t and t < since then break end
-        if t and k == key and (who == "" or who == me) then n = n + (tonumber(qty) or 0) end
+        if t and k == key then
+            who = FM.BuyOwner(r, t, who)
+            if who == "" or who == me then n = n + (tonumber(qty) or 0) end
+        end
     end
     return n
 end
@@ -528,6 +533,8 @@ function FM.BoughtUnit(key, n)
     for i = #buys, 1, -1 do
         local t, k, q, cost, who = buys[i]:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         if tonumber(t) and tonumber(t) < since then break end
+        -- a line without a character is its writer's (FM.BuyOwner, FRV-230)
+        if k == key then who = FM.BuyOwner(FM.R(), t, who) end
         if k == key and (who == "" or who == char) then
             q, cost = tonumber(q), tonumber(cost)
             qty, total = qty + q, total + cost

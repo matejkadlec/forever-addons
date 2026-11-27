@@ -14,7 +14,8 @@ local _, FM = ...
 --         units you use or sell meanwhile are not the bought ones. They come out of the mailbox: only a rise seen
 --         while it was open takes them (units looted while a purchase waits are looted units)
 --       - crafted units at their materials' basis from the craft log (trade/Crafts.lua)
---       - units back from an auction that did not sell at what they left with (book.out), out of the mailbox too
+--       - units back from an auction that did not sell at what they left with (book.out), out of the mailbox too.
+--         Units count as posted when they leave within a minute of the look that found their post line (posting)
 --       - units from a vendor at the vendor's price (bags that changed at a merchant: what that merchant's list
 --         asks for the item, FM.MerchantUnit, limited stock too; else a vendor price ForeverMarket knows)
 --       - anything else (looted, skinned, gathered, traded, mailed by an alt) at the price of the craft log's rule
@@ -62,6 +63,8 @@ local WINDOW_GRACE = 2 -- seconds after the mailbox or a merchant closed that a 
 local LOGIN_QUIET = 10 -- seconds after login without a look: the bags' containers may still be loading (FRV-73)
 local BACK_SECONDS = 30 -- units that left and are back within this long are the same units (a bag read too early,
                         -- an item put into a mail or a trade and taken back, sold to a vendor and bought back)
+local POST_SECONDS = 60 -- posted units count as posted for this long after the look that found their post line: the
+                        -- line is written at the click on Post, the units leave when the server answers (FRV-232)
 local EPS = 0.0005
 
 local function IsNumber(v)
@@ -412,6 +415,12 @@ end
 
 local lastUnits -- what the character held at the last look of this session (nil before the first)
 local gone = {} -- key -> { n, cost, at } units that left at the last looks of this session, for BACK_SECONDS
+-- key -> { n, at } units posted that no fall has taken yet (FRV-232). NewPosts moves its mark past a post line at the
+-- look that finds it, and a look can come between the click on Post and the units leaving (two posts 2 s apart, one
+-- post of several auctions made over more than a look): until 1.65 those units then left as "gone" and came back from
+-- an unsold auction as looted units, at the AH price. They stay here for the next looks, POST_SECONDS at most, so
+-- units that leave later without a post (used, vendored, mailed) are not taken for them. Session only
+local posting = {}
 
 -- Sets the pools of the logged-in character against what it holds. Returns whether anything was looked at
 function FM.PoolUpdate()
@@ -430,7 +439,18 @@ function FM.PoolUpdate()
         return Start(r, char, book, units, now)
     end
     Prune(book, now)
-    local posted = NewPosts(r, char, book)
+    -- the units posted since the last look join the ones no fall has taken yet; what is too old goes
+    for key, n in pairs(NewPosts(r, char, book)) do
+        local c = posting[key]
+        if not c or now - c.at > POST_SECONDS then
+            c = { n = 0 }
+            posting[key] = c
+        end
+        c.n, c.at = c.n + n, now
+    end
+    for key, c in pairs(posting) do
+        if c.n < EPS or now - c.at > POST_SECONDS then posting[key] = nil end
+    end
     -- where the bags changed since the last look. The first look of a session cannot know (mail collected right
     -- before a /reload or a logout): what waits may have arrived
     local atMail, atMerchant = mailbox.moved or lastUnits == nil, merchant.moved
@@ -492,7 +512,9 @@ function FM.PoolUpdate()
             -- units left: those you posted wait on the AH at what they cost, the rest is gone
             local out = -d
             local cost = Out(p, out)
-            local listed = math_min(out, posted[key] or 0)
+            local c = posting[key]
+            local listed = math_min(out, c and c.n or 0)
+            if c then c.n = c.n - listed end
             if listed > EPS and cost > 0 then
                 local text = book.out[key]
                 local n, total = (type(text) == "string" and text or ""):match("^([%d%.]+)|([%d%.]+)|")

@@ -342,6 +342,74 @@ H.test("pool: units posted on the AH come back at what they left with, sold ones
     H.eq(Pool(FM, BRACERS), "5 at 2600", "(4 x 10s + 1 x 90s) / 5")
 end)
 
+-- Rule (FRV-232): a post's line is written at the click on Post, its units leave the bags when the server answers. A
+-- look in between finds the line before the units have left: they still count as posted when they leave at a later
+-- look, for a minute
+H.test("pool: a look between the post line and the units leaving still takes them for posted ones", function()
+    local FM, env, state, r, Look = Started()
+    FM.LogPurchase(LEATHER, 20, 20 * 200)
+    state.Collect(LEATHER, 20)
+    state.ah[LEATHER] = 500
+    -- the click on Post: the line is written, the 20 are still in the bags when the look comes
+    r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW), "Ada", LEATHER, FM.Enc(20), FM.Enc(450), "2", "c" }, ",")
+    Look()
+    H.eq(Pool(FM, LEATHER), "20 at 200", "nothing has left yet")
+    H.eq(r.pool.Ada.out[LEATHER], nil, "and nothing is out on the AH yet")
+    -- two seconds later they have left
+    env.clock = NOW + 2
+    state.units[LEATHER] = 0
+    Look()
+    H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. (NOW + 2), "the 20 are out on the AH at the 2s each cost")
+    -- the auction expires, the mail is collected
+    env.clock = NOW + 9 * 3600
+    state.Collect(LEATHER, 20)
+    H.eq(Pool(FM, LEATHER), "20 at 200", "back at what they left with, not at the AH's 5s")
+end)
+
+H.test("pool: a post whose units leave over two looks puts all of them out on the AH", function()
+    local FM, env, state, r, Look = Started()
+    FM.LogPurchase(BRACERS, 5, 5 * 1000)
+    state.Collect(BRACERS, 5)
+    state.ah[BRACERS] = 9000
+    -- one post of 5 single auctions: 2 are made by the first look, the other 3 by the second
+    r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW), "Ada", BRACERS, FM.Enc(5), FM.Enc(9000), "2", "i" }, ",")
+    state.units[BRACERS] = 3
+    Look()
+    H.eq(r.pool.Ada.out[BRACERS], "2|2000|" .. NOW, "the first 2")
+    env.clock = NOW + 3
+    state.units[BRACERS] = 0
+    Look()
+    H.eq(r.pool.Ada.out[BRACERS], "5|5000|" .. (NOW + 3), "all 5 at their 10s")
+    env.clock = NOW + 9 * 3600
+    state.Collect(BRACERS, 5)
+    H.eq(Pool(FM, BRACERS), "5 at 1000", "all back at what they left with")
+end)
+
+H.test("pool: units that leave without a post are not taken for posted ones, a minute after a post either", function()
+    local FM, env, state, r, Look = Started()
+    FM.LogPurchase(LEATHER, 40, 40 * 200)
+    state.Collect(LEATHER, 40)
+    state.ah[LEATHER] = 500
+    -- 20 posted and gone at once: the post is used up
+    r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW), "Ada", LEATHER, FM.Enc(20), FM.Enc(450), "2", "c" }, ",")
+    state.units[LEATHER] = 20
+    Look()
+    H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "the 20 posted")
+    -- 10 more leave a moment later (sold to a vendor): no post is left for them
+    env.clock = NOW + 4
+    state.units[LEATHER] = 10
+    Look()
+    H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "the 10 vendored are not out on the AH")
+    -- a post whose units never leave (the server refused it): what leaves over a minute later is no posted unit
+    r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW + 60), "Ada", LEATHER, FM.Enc(10), FM.Enc(450), "2", "c" }, ",")
+    env.clock = NOW + 60
+    Look()
+    env.clock = NOW + 60 + 61
+    state.units[LEATHER] = 0
+    Look()
+    H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "a post older than a minute takes no units")
+end)
+
 ---------------------------------------------------------------- the start, the tooltip, the saved data
 
 H.test("pool: it starts from the units held then, at the craft log's estimate", function()

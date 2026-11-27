@@ -176,18 +176,24 @@ local function AddLoss(p, kind, name, qty, money)
     p.lossTotal = p.lossTotal + money
 end
 
--- Your purchases since from (R.buys "t,key,qty,total,char"; lines without a character count for every one), of
--- char or without one of all your characters: key -> { { t, qty, total, who }, ... } and all of them
+-- Your purchases since from (R.buys "t,key,qty,total,char"), of char or without one of all your characters:
+-- key -> { { t, qty, total, who, ref }, ... } and all of them. A line without a character (before 1.15.5) is its
+-- writer's (FM.BuyOwner, core/Store.lua, FRV-230: until 1.63 it counted for every character, so a character made
+-- later showed the first one's old purchases as a loss); who = that character, ref = the character field as the line
+-- has it, which an own-gear mark of the purchase names (FM.GearRef)
 local function Purchases(r, char, from)
     local byKey, all = {}, {}
     for _, line in ipairs(type(r.buys) == "table" and r.buys or {}) do
-        local t, key, qty, total, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
+        local t, key, qty, total, ref = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         t, qty, total = tonumber(t), tonumber(qty), tonumber(total)
-        if t and t >= from and qty and qty > 0 and total and (who == "" or not char or who == char) then
-            local b = { t = t, key = key, qty = qty, total = total, who = who }
-            byKey[key] = byKey[key] or {}
-            byKey[key][#byKey[key] + 1] = b
-            all[#all + 1] = b
+        if t and t >= from and qty and qty > 0 and total then
+            local who = FM.BuyOwner(r, t, ref)
+            if who == "" or not char or who == char then
+                local b = { t = t, key = key, qty = qty, total = total, who = who, ref = ref }
+                byKey[key] = byKey[key] or {}
+                byKey[key][#byKey[key] + 1] = b
+                all[#all + 1] = b
+            end
         end
     end
     return byKey, all
@@ -362,7 +368,7 @@ local function Intake(r, char, cover)
     end
     -- own gear of the purchase log (after the mails found their purchases: they match its full quantity)
     for _, b in ipairs(buys) do
-        local own = Own(FM.GearRef("b", b.t, b.who), b.key, b.qty, b.t, b.who)
+        local own = Own(FM.GearRef("b", b.t, b.ref), b.key, b.qty, b.t, b.who)
         if own > 0 then
             b.total = b.total * (b.qty - own) / b.qty
             b.qty = b.qty - own
