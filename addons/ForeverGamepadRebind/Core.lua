@@ -189,6 +189,14 @@ function ns.KeyLabel(key)
     return table_concat(out, "-")
 end
 
+-- A keybinding's key as the table shows it: a chord of the pad as a chord ("LT + X"), any other key as a key
+function ns.AnyKeyLabel(key)
+    if ns.ParseChord(key) then
+        return ns.ChordLabel(key)
+    end
+    return ns.KeyLabel(key)
+end
+
 --------------------------------------------------------------------------------
 -- The saved rows
 --------------------------------------------------------------------------------
@@ -326,6 +334,9 @@ function ns.Plan(rows, reader, written)
         end
     end
 
+    -- chords this plan writes already, per action: they count as keybindings of the later rows of that action (the
+    -- right mouse button's row runs Interact With Mouseover, which a keyboard key of the table may run too)
+    local queued = {}
     for _, r in ipairs(plan.rows) do
         if r.chord == "" then
             r.state = "none"
@@ -342,12 +353,16 @@ function ns.Plan(rows, reader, written)
                 r.state = "taken"
                 r.other = current
             else
-                -- the action's keybindings besides the chord and besides those of its that Save removes
+                -- the action's keybindings besides the chord and besides those of its that Save removes, and the
+                -- chords this Save writes for it in earlier rows
                 local others = {}
                 for _, key in ipairs(reader.keys(r.action) or {}) do
                     if key ~= r.chord and removed[key] ~= r.action then
                         others[#others + 1] = key
                     end
+                end
+                for _, chord in ipairs(queued[r.action] or {}) do
+                    others[#others + 1] = chord
                 end
                 if #others >= 2 then
                     r.state = "full"
@@ -355,6 +370,8 @@ function ns.Plan(rows, reader, written)
                 else
                     r.state = "write"
                     plan.write[#plan.write + 1] = { chord = r.chord, action = r.action }
+                    queued[r.action] = queued[r.action] or {}
+                    table.insert(queued[r.action], r.chord)
                 end
             end
         end
@@ -424,8 +441,8 @@ function ns.RowStatus(r, nameOf, removing)
     elseif state == "taken" then
         return string_format(L.STATUS_TAKEN, ns.ChordLabel(r.chord), nameOf(r.other)), COLOR.RED
     elseif state == "full" then
-        return string_format(L.STATUS_FULL, nameOf(r.action), ns.KeyLabel(r.others[1]), ns.KeyLabel(r.others[2])),
-            COLOR.RED
+        return string_format(L.STATUS_FULL, nameOf(r.action), ns.AnyKeyLabel(r.others[1]),
+            ns.AnyKeyLabel(r.others[2])), COLOR.RED
     elseif state == "bound" then
         if r.mine then
             return L.STATUS_BOUND, COLOR.GREEN

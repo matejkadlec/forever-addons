@@ -199,6 +199,18 @@ H.test("the right mouse button's row runs Interact With Mouseover", function()
     H.eq(plan.rows[1].state, "full", "with two keys: not written")
 end)
 
+H.test("one Save never gives an action a third keybinding: a table key that runs Interact With Mouseover", function()
+    -- review round 1: R runs Interact With Mouseover; the right mouse button's row and R's row both want it
+    local reader = Reader({ BUTTON2 = "TURNORACTION", R = "INTERACTMOUSEOVER" }, { "BUTTON2", "R" })
+    local plan = ns.Plan(Rows({ { "BUTTON2", "SHIFT-PAD3" }, { "R", "SHIFT-PADDLEFT" } }), reader, {})
+    H.eq(plan.rows[1].state, "write", "the first row gets the second slot")
+    H.eq(plan.rows[2].state, "full", "the second row would be a third keybinding")
+    H.same(plan.rows[2].others, { "R", "SHIFT-PAD3" })
+    H.same(plan.write, { { chord = "SHIFT-PAD3", action = "INTERACTMOUSEOVER" } })
+    H.eq(Plain((ns.RowStatus(plan.rows[2], function(action) return action end))),
+        "INTERACTMOUSEOVER has two keybindings already (R, LT + X)")
+end)
+
 H.test("only what this AddOn wrote comes out, and only while it still runs what it wrote", function()
     -- G's row cleared: its chord out; Y's chord was rebound in Options since: forgotten, untouched
     local bindings = { G = "TARGETNEARESTFRIEND", ["SHIFT-PAD4"] = "TARGETNEARESTFRIEND", Y = "TOGGLEAUTORUN",
