@@ -3004,7 +3004,7 @@ local function CreateTable()
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")
         GameTooltip:AddLine("Every item you ignored, a table like Favorites. Ignored items show in no other tab and never become picks. Right-click a row in any tab > Ignore this item adds it here; here, Stop ignoring this item brings it back. Also /fm exclude, /fm include, /fm excluded.", 1, 1, 1, true)
-        GameTooltip:AddLine("The flip picks you hid (Hide this pick) are listed here too, \"(hidden)\", for 24 hours or until their listings change; right-click > Show this pick again brings one back.", 1, 1, 1, true)
+        GameTooltip:AddLine("The flip picks you hid (Hide this pick) are listed here too, \"(hidden)\", for 24 hours after you hid them (also once the flip is a pick again at another price); right-click > Show this pick again brings one back.", 1, 1, 1, true)
         GameTooltip:Show()
     end, "hover")
 
