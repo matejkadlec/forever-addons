@@ -1691,7 +1691,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   gets a new mark on the next oldest purchase (units count oldest first, as everywhere). Checked with the gear:
   5 s after login (bags placed before 1.65 are found then, and past days are computed again), a second after
   `BAG_CONTAINER_UPDATE`, `PLAYER_EQUIPMENT_CHANGED` and, at the bank, `BANKFRAME_OPENED` and
-  `PLAYERBANKSLOTS_CHANGED` (the bank's slots are read at once, they are gone when it closes). A bag found in a slot
+  `PLAYERBANKSLOTS_CHANGED` (the bank's slots are read at once, they are gone when it closes), and a second after a
+  sale mail is read (1.67.1: the sale may have taken a mark, and the bag still in its slot is marked again at once,
+  else both purchases counted against the one sale until the slots next changed). A bag found in a slot
   (by the login check, or during the first visit to the bank that reads its bag slots) was placed at a moment nobody
   saw: none of its steps is taken back, as for gear found worn.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled

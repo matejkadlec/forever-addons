@@ -888,6 +888,8 @@ local function ScanInbox()
                 logged[#logged + 1] = mail
                 -- a won auction's units are on their way into your pool, sold units no longer come back (FRV-88)
                 if mail.list == "invoices" and FM.PoolMail then FM.PoolMail(mail.record) end
+                -- a sale can take a bag's own-gear mark: a bag of the item still in a slot is marked again (FRV-222)
+                if mail.list == "invoices" and mail.record[2] == "seller" and FM.CheckGearSoon then FM.CheckGearSoon() end
             end
         end
         local keep = {}

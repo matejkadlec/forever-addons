@@ -854,6 +854,10 @@ local function CheckGearSoon()
     end)
 end
 FM.On("PLAYER_EQUIPMENT_CHANGED", CheckGearSoon)
+-- a sale mail was logged (scan/Ledger.lua): the sale may have taken a bag's mark (CancelSold), and a bag of that item
+-- still in a slot gets its new mark now, not at the next change of the slots (review round 2 of PR 93: until then both
+-- purchases counted against the one sale)
+FM.CheckGearSoon = CheckGearSoon
 -- a bag put into or taken out of a bag slot (FRV-222): the character's own slots, and the bank's while it is open.
 -- The bank's slots are read at once (they are gone once it closes), the marks follow a moment later
 local function BankBagsChanged()

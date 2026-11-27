@@ -18,8 +18,8 @@ local H = require("harness")
 local F = require("fixtures")
 
 local B = F.Base36
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Worth.lua", "scan/Characters.lua",
-    "trade/Crafts.lua", "trade/Basis.lua", "trade/Performance.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "scan/Worth.lua",
+    "scan/Characters.lua", "trade/Crafts.lua", "trade/Basis.lua", "trade/Performance.lua" }
 local NOW = 1795100000 -- epoch seconds
 local PACK, PACK_NAME = 4500, "Traveler's Backpack"
 local INV0 = 30 -- the inventory slot of bag n is 30 + n (CONTAINER_BAG_OFFSET)
@@ -202,11 +202,17 @@ H.test("bags: a sale of another unit takes the oldest mark, the bag still placed
     Place(env, state, 1, PACK)
     -- a second backpack bought and sold on (a flip) while the first stays in its slot
     Won(FM, r, "Ada", PACK_NAME, 185000, NOW - 6 * 3600)
-    Sold(FM, r, "Ada", PACK_NAME, 200000, 10000, NOW - 3600)
     env.clock = NOW
-    env.FireEvent("BAG_CONTAINER_UPDATE")
+    H.eq(#r.gear, 1, "one mark so far")
+    -- its sale mail is read (the mail reader logs it): no slot changes, the mail itself starts the check
+    env.GetInboxNumItems = function() return 1, 1 end
+    env.GetInboxHeaderInfo = function() return nil, nil, nil, "Auction successful", 190000, 0, 29.95, 0 end
+    env.GetInboxItem = function() end
+    env.GetInboxInvoiceInfo = function() return "seller", PACK_NAME, "Buyer", 200000, 200000, 0, 10000, nil, nil, nil, 1 end
+    env.FireEvent("MAIL_INBOX_UPDATE")
     env.FlushTimers()
-    H.eq(#r.gear, 2, "the bag in the slot is marked again")
+    H.eq(#r.invoices, 3, "the sale's mail is logged")
+    H.eq(#r.gear, 2, "the bag in the slot is marked again at once")
     -- the units are counted oldest first, as everywhere: the sale against the first purchase, the bag is the second
     local series = FM.PerfSeries("day", NOW, "char")
     H.same({ Bought(series) }, { 1, 180000 }, "one purchase counts, the other is the bag in the slot")
