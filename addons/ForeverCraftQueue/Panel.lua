@@ -26,8 +26,9 @@ local SCROLL_BAR_X = 20
 -- Room between the profession window and the docked panel when the window has no side tabs to measure
 local DOCK_GAP = 4
 local DOCK_FALLBACK = 50
--- Seconds within which a profession window that hid and shows again only switched professions
-local SWITCH_TIME = 1
+-- Seconds within which a profession window that hid and shows again only switched professions (as the run's
+-- CLOSE_GRACE in ForeverCraftQueue.lua)
+local SWITCH_TIME = 3
 
 local frame
 -- The rows the list was built for (recipe IDs in order); the same list only refills its rows
@@ -507,8 +508,8 @@ end
 
 -- The profession window opens the panel with it only while "Open queue window automatically" is on, docks a panel
 -- that is open already, and hides a docked panel with it (HookScript leaves Blizzard's scripts alone). A window that
--- comes back within a moment only switched professions (Camelot hides it when a trade skill closes): the docked
--- panel it closed comes back with it, so a run that opens another profession keeps its panel (FRV-220).
+-- comes back within a few seconds only switched professions (Camelot hides it when a trade skill closes): the docked
+-- panel it closed comes back with it, so a switch of professions during a run keeps the panel (FRV-220).
 function ns.HookProfessionsFrame()
     if not ProfessionsFrame or ns.professionsFrameHooked then
         return

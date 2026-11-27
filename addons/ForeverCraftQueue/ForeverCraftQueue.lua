@@ -46,9 +46,10 @@ local DEBUG_TRACE = 12
 local TICK = 0.2
 -- Seconds a count of casts left may stand without any cast before it is taken as stale (a batch that ended early)
 local RECAST_GRACE = 3
--- Seconds a closed profession window may stay closed before a going run ends: a window that only switches
--- professions shows again (0.24 s and 0.69 s after its closing in a saved log of the game, FRV-220)
-local CLOSE_GRACE = 1
+-- Seconds a closed profession window may stay closed before a going run ends: a window you switch to another
+-- profession by hand closes and shows again (0.24 s, 0.69 s and 2.17 s between the two in a saved log of the game,
+-- docs/forever-api-notes.md). Nothing starts in that time.
+local CLOSE_GRACE = 3
 
 ns.ADDON_PREFIX = ADDON_PREFIX
 ns.ADDON_FULL_NAME = ADDON_FULL_NAME
@@ -876,11 +877,14 @@ function ns.Tick()
         return
     end
     local phase = runner.phase
-    -- you closed the window under a batch or a waiting run: nothing more starts (while the run itself opens
-    -- another profession, the old one's closing is its own)
-    if closedAt and phase ~= "open" and GetTime() - closedAt >= CLOSE_GRACE then
-        closedAt = nil
-        Perform(ns.RunnerHalt(runner, "closed"), false)
+    -- you closed the window under a batch or a waiting run: nothing starts while it is closed (it is not opened
+    -- again under you), and a window that stays closed ends the run. While the run itself opens another profession,
+    -- a closing is its own.
+    if closedAt and phase ~= "open" then
+        if GetTime() - closedAt >= CLOSE_GRACE then
+            closedAt = nil
+            Perform(ns.RunnerHalt(runner, "closed"), false)
+        end
         return
     end
     local started = runner.batch and runner.batch.started
@@ -1124,7 +1128,8 @@ FCQ:SetScript("OnEvent", function(self, event, ...)
         end
         ns.RequestRefresh()
     elseif event == "UPDATE_TRADESKILL_CAST_STOPPED" then
-        -- only noted (when the game sends it is not verified on Forever)
+        -- only noted for the trace: a saved log of the game shows it when a batch ends, also early
+        -- (docs/forever-api-notes.md); the run tells a batch's end from the casts themselves
         if runner.active then
             Trace("UPDATE_TRADESKILL_CAST_STOPPED")
         end
