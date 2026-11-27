@@ -1567,7 +1567,12 @@ end
 -- would return), else a sticky window alone, which has no tick, would stay one change behind
 function FM.CheckStock()
     local ok, sig = pcall(StockSignature)
-    if not ok or sig == stockSig then return false end
+    if not ok then return false end
+    if sig == stockSig then
+        -- no unit came or left: a bag event at the mailbox or a merchant explains no later rise (trade/Pool.lua)
+        if FM.PoolSettled then FM.PoolSettled() end
+        return false
+    end
     stockSig = sig
     FM.stockVersion = FM.stockVersion + 1
     -- your pools follow what you hold (FRV-88, trade/Pool.lua): what came in, at what it cost; what left

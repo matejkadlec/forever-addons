@@ -357,6 +357,13 @@ FM.On("BAG_UPDATE_DELAYED", function()
     end
 end)
 
+-- The settled look found your bags and bank unchanged (FM.CheckStock, trade/Sources.lua): the bag events since the
+-- last look moved no unit (an item put into another slot, a stack split at the open mailbox or merchant), so they
+-- explain no rise that comes later, somewhere else
+function FM.PoolSettled()
+    mailbox.moved, merchant.moved = false, false
+end
+
 -- The price of a unit nobody recorded (trade/Crafts.lua): a vendor's without limit ("v"), else the AH's now ("l");
 -- nil without either. An item without a price is not asked again until new market data came
 local noPrice, noPriceVersion = {}, nil
@@ -419,6 +426,7 @@ function FM.PoolUpdate()
     local book = Book(r, char, true)
     if not book.t then
         lastUnits = units
+        mailbox.moved, merchant.moved = false, false -- what is held now is the start: no change is left to explain
         return Start(r, char, book, units, now)
     end
     Prune(book, now)

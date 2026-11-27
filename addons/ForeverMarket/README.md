@@ -181,7 +181,8 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
         you collect the mail were not the bought ones. 20 in the bags at 4s, 20 bought at 2s and left in the mail,
         the bags' 20 used in a craft, the mail collected: 20 at 2s (counting at the purchase would say 3s). They
         come out of the mailbox: only a rise of your bags while the mailbox was open (or within 2 seconds of its
-        closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units. The first look
+        closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units (a bag change
+        at the mailbox that moved no unit, an item put into another slot, does not count either). The first look
         of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
       * Crafted units at their materials' basis from the craft log (below).
       * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).

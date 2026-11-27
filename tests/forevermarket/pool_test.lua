@@ -159,6 +159,40 @@ H.test("pool: units looted while a purchase waits in the mail are looted units",
     H.eq(#r.pool.Ada.wait, 1, "one purchase of 5 waits")
 end)
 
+H.test("pool: a bag event at the mailbox or a merchant that moved no unit explains no later rise", function()
+    local FM, env, state, r, Look = Started()
+    state.ah[PEARL] = 400
+    FM.LogPurchase(PEARL, 20, 20 * 2 * S) -- left in the mail
+    -- at the open mailbox an item goes into another bag slot: the bags fire, no unit came or left, and the settled
+    -- look says so (FM.CheckStock calls FM.PoolSettled when your bags and bank are unchanged)
+    env.FireEvent("MAIL_SHOW")
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    FM.PoolSettled()
+    env.FireEvent("MAIL_CLOSED")
+    env.clock = env.clock + 600
+    state.units[PEARL] = 20 -- 20 looted ten minutes later, far from a mailbox
+    Look()
+    H.eq(Pool(FM, PEARL), "20 at 400", "the looted 20 at the AH's 4s, not at the purchase's 2s")
+    H.eq(#r.pool.Ada.wait, 1, "the purchase still waits")
+    state.Collect(PEARL, 40)
+    H.eq(Pool(FM, PEARL), "40 at 300", "the mail collected: 20 more at the 2s they cost")
+    -- the same at a merchant: bags rearranged there, then a drop of something its list holds for 5s
+    state.merchant["777"], state.ah["777"] = 500, 250
+    env.FireEvent("MERCHANT_SHOW")
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    FM.PoolSettled()
+    env.FireEvent("MERCHANT_CLOSED")
+    env.clock = env.clock + 600
+    state.units["777"] = 4
+    Look()
+    H.eq(Pool(FM, "777"), "4 at 250", "4 found later: looted at the AH's 2s 50c, not bought at the merchant's 5s")
+    -- a change seen at the open mailbox still takes what waits
+    FM.LogPurchase(LEATHER, 10, 10 * 200)
+    state.ah[LEATHER] = 500
+    state.Collect(LEATHER, 10)
+    H.eq(Pool(FM, LEATHER), "10 at 200", "a rise at the open mailbox takes the waiting purchase as before")
+end)
+
 H.test("pool: the first look of a session takes what waits, wherever it arrived", function()
     local FM, _, _, r = Started()
     FM.LogPurchase(PEARL, 20, 20 * 2 * S)
