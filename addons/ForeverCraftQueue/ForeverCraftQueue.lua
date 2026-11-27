@@ -46,8 +46,9 @@ local DEBUG_TRACE = 12
 local TICK = 0.2
 -- Seconds a count of casts left may stand without any cast before it is taken as stale (a batch that ended early)
 local RECAST_GRACE = 3
--- Seconds a closed profession window may stay closed before a going run ends (a window that only switches reopens)
-local CLOSE_GRACE = 0.5
+-- Seconds a closed profession window may stay closed before a going run ends: a window that only switches
+-- professions shows again (0.24 s and 0.69 s after its closing in a saved log of the game, FRV-220)
+local CLOSE_GRACE = 1
 
 ns.ADDON_PREFIX = ADDON_PREFIX
 ns.ADDON_FULL_NAME = ADDON_FULL_NAME
@@ -408,6 +409,7 @@ local function World(hardware)
         hardware = hardware == true,
         combat = InCombatLockdown() and true or false,
         crafting = ns.IsCrafting(),
+        casting = select(6, UnitCastingInfo("player")) == true,
         moving = IsPlayerMoving ~= nil and IsPlayerMoving() == true,
         busy = IsBusy(),
         openSkillLine = ns.OpenSkillLine(),

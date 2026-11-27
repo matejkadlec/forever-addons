@@ -336,7 +336,8 @@ end
 --   { kind = "join" }                      the press came during a craft of yours: the run goes on when it ends
 --   { kind = "stopping" } / { kind = "resume" }   Stop was pressed / taken back
 -- What it is told about the world (w): now, hardware (this call is a press), combat, crafting (a craft of yours
--- runs), moving, busy (another cast of yours runs), openSkillLine, step() (ns.NextStep of now).
+-- runs: a cast, or casts left of a batch), casting (a craft's cast shows right now), moving, busy (another cast of
+-- yours runs), openSkillLine, step() (ns.NextStep of now).
 -- runner: active, stopping, phase ("craft": a batch runs, "open": a profession opens, "press": waiting for a
 -- press), batch, opening, press, contrast, error, auto
 
@@ -529,11 +530,13 @@ function ns.RunnerStep(runner, w)
     end
     if runner.phase == "craft" then
         local batch = runner.batch
+        -- only a cast that shows proves the start: a count of casts left can stand for a call the game did not
+        -- carry out
+        if w.casting and batch.own and not batch.started then
+            batch.started = true
+            Worked(runner, "craft", batch.byPress)
+        end
         if w.crafting then
-            if batch.own and not batch.started then
-                batch.started = true
-                Worked(runner, "craft", batch.byPress)
-            end
             batch.last = w.now
             return nil
         end

@@ -358,8 +358,8 @@ end)
 
 -- What the run is told about the game: the clock, the open profession, the bags (step is ns.NextStep on them)
 local function World(ns, queue, bags, openSkillLine)
-    local world = { now = 100, hardware = false, combat = false, crafting = false, moving = false, busy = false,
-        openSkillLine = openSkillLine }
+    local world = { now = 100, hardware = false, combat = false, crafting = false, casting = false, moving = false,
+        busy = false, openSkillLine = openSkillLine }
     world.step = function()
         return ns.NextStep(queue, Bags(bags), world.openSkillLine)
     end
@@ -377,13 +377,13 @@ end
 -- The game takes the batch a "craft" action asked for and makes count of its crafts (all of them by default); the
 -- cast is over afterwards
 local function Batch(ns, runner, world, queue, run, action, count)
-    world.crafting = true
+    world.crafting, world.casting = true, true
     H.eq(ns.RunnerStep(runner, world), nil, "nothing to do while it crafts")
     for _ = 1, count or action.casts do
         ns.RunnerCast(runner, "success", action.row.recipeID, world.now)
         ns.OnCrafted(queue, run, action.row.recipeID)
     end
-    world.crafting = false
+    world.crafting, world.casting = false, false
 end
 
 -- Seconds pass; returns what the run does then
@@ -450,10 +450,10 @@ H.test("an early end without a word of the game ends the run too; an error from 
     Press(ns, runner, world)
     H.eq(After(ns, runner, world, 0), nil, "waiting for the cast")
     runner.error = { text = "Out of range", time = world.now - 5 }
-    world.crafting = true
+    world.crafting, world.casting = true, true
     ns.RunnerStep(runner, world)
     ns.RunnerCast(runner, "success", BOOTS.recipeID, world.now)
-    world.crafting = false
+    world.crafting, world.casting = false, false
     local action = After(ns, runner, world, 1)
     H.eq(action.reason, "early", "early")
     H.eq(action.text, nil, "no reason known")
@@ -526,7 +526,7 @@ H.test("Stop ends the run after its batch; a second press takes it back", functi
     ns.QueueRecipe(queue, CLOAK, 1)
     local world = World(ns, queue, PLENTY, LEATHERWORKING)
     local action = Press(ns, runner, world)
-    world.crafting = true
+    world.crafting, world.casting = true, true
     H.eq(Press(ns, runner, world).kind, "stopping", "Stop")
     H.eq(runner.stopping, true, "stopping")
     H.eq(Press(ns, runner, world).kind, "resume", "taken back")
@@ -582,6 +582,30 @@ H.test("a start the game does not take without a press: the run waits for one; t
     H.eq(action.kind, "press", "ready at once")
     H.eq(action.known, true, "known")
     H.eq(action.row.recipeID, CLOAK.recipeID, "names the row")
+end)
+
+H.test("casts left without a cast showing do not pass for a start: a try the game did not take is not learned as working", function()
+    local ns = Load()
+    local queue, run, runner = {}, ns.NewRun(), ns.NewRunner()
+    ns.QueueRecipe(queue, BOOTS, 1)
+    ns.QueueRecipe(queue, CLOAK, 3)
+    local world = World(ns, queue, PLENTY, LEATHERWORKING)
+    local action = Press(ns, runner, world)
+    Batch(ns, runner, world, queue, run, action)
+    action = After(ns, runner, world, 1)
+    H.eq(action.auto, true, "tried without a press")
+    -- the game takes the count of the call but starts no cast
+    world.crafting = true
+    H.eq(After(ns, runner, world, 0.2), nil, "waiting")
+    H.eq(runner.batch.started, false, "no start seen")
+    H.eq(runner.auto.craft, nil, "nothing learned")
+    H.eq(After(ns, runner, world, 2), nil, "the count holds the run a little")
+    -- the count goes stale
+    world.crafting = false
+    action = After(ns, runner, world, 1)
+    H.eq(action.kind, "press", "the run waits for a press")
+    H.eq(action.known, false, "a try that was not taken")
+    H.eq(runner.auto.craft, nil, "still nothing learned")
 end)
 
 H.test("a start without a press that works clears the count of refused tries", function()
@@ -779,9 +803,9 @@ H.test("a fight, moving, another cast, missing materials and a cooldown end the 
     local world = World(ns, queue, bags, LEATHERWORKING)
     -- a fight during the batch
     Press(ns, runner, world)
-    world.crafting, world.combat = true, true
+    world.crafting, world.casting, world.combat = true, true, true
     H.eq(ns.RunnerStep(runner, world).reason, "combat", "a fight")
-    world.crafting, world.combat = false, false
+    world.crafting, world.casting, world.combat = false, false, false
     -- moving when the next row would start (a press is left to the game)
     local action = Press(ns, runner, world)
     Batch(ns, runner, world, queue, run, action)
