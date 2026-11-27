@@ -143,6 +143,35 @@ H.test("vendor prices: a merchant's unlimited offers for gold are kept, limited 
     end
 end)
 
+H.test("vendor prices: FM.MerchantUnit is what the open merchant asks in gold, limited stock too, until another one opens", function()
+    local FM, env, r = Load()
+    H.eq(FM.MerchantUnit("2678"), nil, "no merchant seen: nothing")
+    Merchant(env, {
+        { id = 2678, info = Info(10, 1, -1) },                            -- Mild Spices, 10c, unlimited
+        { id = 4289, info = Info(25, 5, -1) },                            -- Salt, 25c for 5
+        { id = 7005, info = Info(80, 1, 3) },                             -- limited: 3 left
+        { id = 7007, info = Info(0, 1, -1, { hasExtendedCost = true }) }, -- paid in items or a currency only
+        { id = 7009, info = Info(30, 1, -1, { hasExtendedCost = true }) }, -- gold plus items or a currency
+        { id = 7008, info = Info(50, 1, -1, { currencyID = 42 }) },       -- a currency the merchant sells
+    }, "Drac Roughcut")
+    env.FireEvent("MERCHANT_SHOW")
+    H.eq(FM.MerchantUnit("2678"), 10, "Mild Spices: 10c")
+    H.eq(FM.MerchantUnit("4289"), 5, "Salt: 5c per unit")
+    H.eq(FM.MerchantUnit("7005"), 80, "limited stock: what a purchase costs all the same")
+    H.eq(r.vendorSeen["7005"], nil, "but no offer to keep")
+    for _, key in ipairs({ "7007", "7008", "7009" }) do
+        H.eq(FM.MerchantUnit(key), nil, key .. ": not for gold alone")
+    end
+    env.FireEvent("MERCHANT_CLOSED")
+    H.eq(FM.MerchantUnit("7005"), 80, "still known right after the window closed (the bags are looked at 2 s later)")
+    Merchant(env, { { id = 159, info = Info(5, 1, -1) } }, "Innkeeper Farley")
+    env.FireEvent("MERCHANT_SHOW")
+    H.eq(FM.MerchantUnit("7005"), nil, "another merchant opened: the first one's prices are gone")
+    H.eq(FM.MerchantUnit("159"), 5, "and its own are there")
+    env.FireEvent("MERCHANT_CLOSED")
+    env.FlushTimers()
+end)
+
 H.test("vendor prices: a secret NPC name keeps the price without a name, a later visit replaces what it saw", function()
     local FM, env, r = Load()
     local SECRET = {}

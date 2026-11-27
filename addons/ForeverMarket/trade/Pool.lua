@@ -15,8 +15,8 @@ local _, FM = ...
 --         while it was open takes them (units looted while a purchase waits are looted units)
 --       - crafted units at their materials' basis from the craft log (trade/Crafts.lua)
 --       - units back from an auction that did not sell at what they left with (book.out), out of the mailbox too
---       - units from a vendor at the vendor's price (bags that changed at a merchant: the price ForeverMarket knows,
---         else your gold spent on the one item that rose)
+--       - units from a vendor at the vendor's price (bags that changed at a merchant: what that merchant's list
+--         asks for the item, FM.MerchantUnit, limited stock too; else a vendor price ForeverMarket knows)
 --       - anything else (looted, skinned, gathered, traded, mailed by an alt) at the price of the craft log's rule
 --         for units nobody recorded: a vendor's price when one sells it without limit, else its AH price at that
 --         moment. Without any price the units stay out of the pool until there is one
@@ -30,7 +30,7 @@ local _, FM = ...
 --     and the purchases made after the last look into the mailbox wait
 --
 -- R.pool[char] = {
---   t = when it started, at = the last look, money = your gold at the last look, post = the newest post line seen,
+--   t = when it started, at = the last look, post = the newest post line seen,
 --   items = { [key] = "units|cost|kind:t:units:cost;..." }  the units held and their cost in copper, then where they
 --           came from: kind b bought (t = the purchase), o older (the start, returns from the AH, purchases older
 --           than a week), c crafted, l looted or the like, v from a vendor
@@ -400,8 +400,6 @@ local function Start(r, char, book, units, now)
     end
     local posts = type(r.posts) == "table" and r.posts or {}
     book.post = posts[#posts]
-    local money = GetMoney and GetMoney()
-    book.money = IsNumber(money) and money or nil
     return true
 end
 
@@ -425,9 +423,6 @@ function FM.PoolUpdate()
     end
     Prune(book, now)
     local posted = NewPosts(r, char, book)
-    local money = GetMoney and GetMoney()
-    money = IsNumber(money) and money or nil
-    local spent = (money and book.money) and (book.money - money) or 0
     -- where the bags changed since the last look. The first look of a session cannot know (mail collected right
     -- before a /reload or a logout): what waits may have arrived
     local atMail, atMerchant = mailbox.moved or lastUnits == nil, merchant.moved
@@ -508,24 +503,21 @@ function FM.PoolUpdate()
         end
         pools[key] = p
     end
-    -- what nothing recorded explains: bought from a vendor (its price, or your gold spent on the one item that
-    -- rose), else looted or the like at the rule for unrecorded units
-    local rose = 0
-    for _, u in ipairs(unexplained) do
-        if u.new then rose = rose + 1 end
-    end
+    -- what nothing recorded explains: bought from a vendor (what that merchant's list asks, else a vendor price
+    -- ForeverMarket knows; your gold is no measure: it also pays repairs and AH purchases between two looks), else
+    -- looted or the like at the rule for unrecorded units
     for _, u in ipairs(unexplained) do
         local unit, kind
         if atMerchant and u.new then
-            unit = FM.VendorUnit and FM.VendorUnit(u.key, true) or nil
-            if not unit and rose == 1 and spent > 0 then unit = spent / u.n end
+            unit = (FM.MerchantUnit and FM.MerchantUnit(u.key)) or (FM.VendorUnit and FM.VendorUnit(u.key, true)) or nil
             kind = unit and "v" or nil
         end
         if not unit then unit, kind = OtherUnit(u.key) end
         if unit then In(u.p, kind, now, u.n, unit, now) end
     end
     for key, p in pairs(pools) do book.items[key] = Write(p) end
-    book.at, book.money = now, money
+    book.at = now
+    book.money = nil -- written by 1.62.0 to 1.62.3 (your gold at the last look), no longer used
     lastUnits = units
     mailbox.moved, merchant.moved = false, false
     return true

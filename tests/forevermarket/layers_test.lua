@@ -146,7 +146,16 @@ H.test("layers: the Marketplace's other windows follow its setting and stay abov
     w.Click(w.market)
     H.eq(Above(w.history, w.sticky), true, "and still above it after a click on the Marketplace")
     H.eq(Above(w.sticky, w.market), true, "both above the Marketplace")
+    -- the Sniper clicked: in front of all of them, also a frame later (the Marketplace's windows are raised again
+    -- only after a click on one of them)
+    w.Click(w.sniper)
+    H.eq(Above(w.sniper, w.market) and Above(w.sniper, w.sticky) and Above(w.sniper, w.history), true,
+        "a click on the Sniper: above the Marketplace and its other windows")
+    H.eq(Above(w.sticky, w.market) and Above(w.history, w.market), true, "which stay above the Marketplace")
+    w.Click(w.sniper, w.env.CreateFrame("Button", nil, w.sniper))
+    H.eq(Above(w.sniper, w.sticky) and Above(w.sniper, w.history), true, "also after a click on a button of the Sniper")
     w.Click(w.sticky)
+    H.eq(Above(w.sticky, w.sniper) and Above(w.sticky, w.history), true, "a sticky window clicked: in front again")
     FM.GetSettings().windowMarket = "anything"
     FM.LayersApply()
     H.same({ w.market:GetFrameStrata(), w.sticky:GetFrameStrata(), w.history:GetFrameStrata() }, { "DIALOG", "DIALOG", "DIALOG" },

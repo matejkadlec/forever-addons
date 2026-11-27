@@ -185,8 +185,11 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
         of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
       * Crafted units at their materials' basis from the craft log (below).
       * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
-      * Units from a vendor at the vendor's price (bags that changed while a merchant window was open; the price
-        ForeverMarket knows of the item, else your gold spent when one item rose).
+      * Units from a vendor at the vendor's price (bags that changed while a merchant window was open): what that
+        merchant's list asks for the item in gold, limited stock too, else a vendor price ForeverMarket knows of
+        the item. The gold that left you is never taken for the price: it also pays repairs and AH purchases. An
+        item neither of the two prices (sold for more than gold, bought back after more than half a minute) counts
+        like the units of the next line.
       * Anything else (looted, skinned, gathered, traded, mailed by another character) at what the craft log takes
         for units nobody recorded: a vendor's price when one sells the item without limit, else its AH price at
         that moment (the cheapest of others). An item without any price stays out of the pool until there is one:
@@ -2223,7 +2226,7 @@ Picks skip).
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
 * `pool[char]` (1.62, FRV-88, trade/Pool.lua) what the units a character holds cost it, the tooltip's "you paid":
-  `t` when it started, `at` the last look, `money` the gold then, `post` the newest post line seen;
+  `t` when it started, `at` the last look, `post` the newest post line seen;
   `items[key]` = `"units|cost|kind:t:units:cost;..."` the units held (bags and bank) and their cost in copper, then
   where they came from (`b` bought with the purchase's time, `o` older: the start, returns from the AH and purchases
   older than a week or beyond the 6 newest, `c` crafted, `l` looted or the like, `v` from a vendor; at most a handful

@@ -443,6 +443,13 @@ local function MerchantName()
     return (name:gsub("[,;]", ""))
 end
 
+-- What the merchant whose window was last open asks in gold for one unit of an item, limited stock too: a purchase
+-- there enters your pool of the item at it (trade/Pool.lua, FRV-88). Session only, emptied when a merchant opens
+local merchantUnits = {}
+function FM.MerchantUnit(key)
+    return merchantUnits[key]
+end
+
 -- Reads the open merchant's offers into R.vendorSeen; returns how many it recorded
 function FM.ReadMerchant()
     local getInfo = C_MerchantFrame and C_MerchantFrame.GetItemInfo
@@ -458,15 +465,17 @@ function FM.ReadMerchant()
             local price, stack, available = info.price, info.stackCount, info.numAvailable
             local plain = not (FM.IsSecret(price) or FM.IsSecret(stack) or FM.IsSecret(available)
                 or FM.IsSecret(info.hasExtendedCost) or FM.IsSecret(info.currencyID))
-            -- for gold, without limit
-            if plain and type(price) == "number" and price > 0 and type(available) == "number" and available < 0
-                and not info.hasExtendedCost and info.currencyID == nil then
+            -- for gold alone: what a purchase here costs (FM.MerchantUnit); without limit: an offer to keep
+            if plain and type(price) == "number" and price > 0 and not info.hasExtendedCost and info.currencyID == nil then
                 local link = GetMerchantItemLink and GetMerchantItemLink(index)
                 local key = not FM.IsSecret(link) and FM.KeyFromLink(link)
                 if key then
                     if type(stack) ~= "number" or stack < 1 then stack = 1 end
-                    seen[key] = UnitText(price / stack) .. "," .. stamp .. "," .. npc
-                    recorded = recorded + 1
+                    merchantUnits[key] = price / stack
+                    if type(available) == "number" and available < 0 then
+                        seen[key] = UnitText(price / stack) .. "," .. stamp .. "," .. npc
+                        recorded = recorded + 1
+                    end
                 end
             end
         end
@@ -493,6 +502,7 @@ FM.SeenVendorOffer = SeenOffer
 local merchantOpen = false
 FM.On("MERCHANT_SHOW", function()
     merchantOpen = true
+    merchantUnits = {} -- another merchant's prices are not this one's
     FM.ReadMerchant()
     C_Timer.After(2, function()
         if merchantOpen then FM.ReadMerchant() end

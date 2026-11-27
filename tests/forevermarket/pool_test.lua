@@ -31,7 +31,8 @@ local PEARL, LEATHER, THREAD, BRACERS = "5498", "2318", "3", "100"
 -- state.Collect(key, n) = the mailbox is opened, mail taken until n units of the item are held, and closed again
 local function Session(saved, clock)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
-    local state = { units = { ["6948"] = 1 }, ah = {}, gold = 100000 } -- a hearthstone: bags that read empty tell nothing
+    -- a hearthstone: bags that read empty tell nothing; merchant = what the open merchant's list asks per unit
+    local state = { units = { ["6948"] = 1 }, ah = {}, gold = 100000, merchant = {} }
     env.clock = clock or NOW
     env.ForeverMarketDB = saved
     env.UnitName = function() return "Ada" end
@@ -49,6 +50,7 @@ local function Session(saved, clock)
     end
     FM.FreshUnitPrice = function(key) return state.ah[key] end
     FM.VendorUnit = function(key) return key == THREAD and 30 or nil end
+    FM.MerchantUnit = function(key) return state.merchant[key] end
     FM.Owned = function(key) return state.units[key] or 0, state.units[key] or 0, state.units[key] or 0, state.units[key] or 0 end
     FM.RecipeOf = function() return nil end
     FM.LatestRecord = function() return nil end
@@ -227,18 +229,41 @@ H.test("pool: looted units enter at the AH price of that moment, without one the
     H.eq(Pool(FM, PEARL), "5 at 200", "a price came: in at the AH price")
 end)
 
-H.test("pool: vendor purchases enter at the vendor's price", function()
-    local FM, env, state, _, Look = Started()
+H.test("pool: vendor purchases enter at the merchant's listed price, never at the gold that left", function()
+    local FM, env, state, r, Look = Started()
     state.ah[THREAD] = 90 -- the AH is dearer than the vendor
     env.FireEvent("MERCHANT_SHOW")
     state.units[THREAD], state.gold = 10, state.gold - 300
     Look()
-    H.eq(Pool(FM, THREAD), "10 at 30", "10 at the vendor's 30c")
-    -- an item whose vendor price nobody knows: your gold spent on the one item that rose
-    state.units["777"], state.gold = 4, state.gold - 2000
+    H.eq(Pool(FM, THREAD), "10 at 30", "not in this merchant's list: the vendor price ForeverMarket knows, 30c")
+    -- limited stock: no vendor price is known of it, the open merchant's list asks 5s. A repair of 1g and an AH
+    -- purchase of 3g between the two looks are no part of what the 4 units cost
+    state.merchant["777"] = 500
+    FM.LogPurchase(PEARL, 10, 30000)
+    state.units["777"], state.gold = 4, state.gold - 2000 - 10000 - 30000
     Look()
-    H.eq(Pool(FM, "777"), "4 at 500", "4 for the 20s that left your gold")
+    H.eq(Pool(FM, "777"), "4 at 500", "4 at the 5s of the merchant's list")
+    H.eq(Pool(FM, PEARL), "none", "the pearls bought meanwhile still wait in the mail")
+    -- the open merchant's own price goes before a price seen elsewhere
+    state.merchant[THREAD] = 20
+    state.units[THREAD], state.gold = 20, state.gold - 200
+    Look()
+    H.eq(Pool(FM, THREAD), "20 at 25", "10 more at this merchant's 20c: 10 at 30c and 10 at 20c")
+    -- an item neither the list nor a known vendor prices (paid in a currency, bought back): like looted units
+    state.ah["778"] = 250
+    state.units["778"], state.gold = 2, state.gold - 9000
+    Look()
+    H.eq(Pool(FM, "778"), "2 at 250", "no price from the merchant: the AH price, not the 90s that left")
+    -- and without any price it stays out of the pool
+    state.units["779"], state.gold = 1, state.gold - 9000
+    Look()
+    H.eq(Pool(FM, "779"), "none", "no price at all: out of the pool, the 90s that left are no price")
     env.FireEvent("MERCHANT_CLOSED")
+    -- the gold of the last look, saved by 1.62.0 to 1.62.3, is dropped
+    r.pool.Ada.money = 12345
+    state.units[THREAD] = 19
+    Look()
+    H.eq(r.pool.Ada.money, nil, "the saved gold of an earlier build is gone after a look")
 end)
 
 H.test("pool: crafted units enter at their materials' basis from the craft log, the materials leave", function()

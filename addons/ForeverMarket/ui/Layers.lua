@@ -238,8 +238,9 @@ local function OnMouseDown()
     if frame then
         FM.LayerClicked(frame)
         -- the client raises a toplevel frame on the same click, before or after this: once more a frame later, so
-        -- the Marketplace's other windows end above it either way
-        if C_Timer and C_Timer.After then C_Timer.After(0, RaiseStack) end
+        -- the Marketplace's other windows end above it either way. Only after a click on one of the Marketplace's
+        -- windows: a click on the Sniper brings the Sniper to the front, above those windows too
+        if group[frame] == "market" and C_Timer and C_Timer.After then C_Timer.After(0, RaiseStack) end
     elseif window then
         FM.LayerClicked(nil)
     end
