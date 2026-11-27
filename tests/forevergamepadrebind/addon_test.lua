@@ -49,8 +49,16 @@ local function InstallBindings(env, initial)
         Bind(entry[1], entry[2])
     end
     store.Bind = Bind
-    env.SetBinding = function(key, action)
+    -- the Gamepad UI's context (GamepadModeInGameCore): while the Gamepad UI is on, a read that names no context
+    -- answers its actions for the pad's keys (review round 2), so the AddOn must name the normal context
+    store.pad = { PAD1 = "GAMEPADACTIONBUTTON4", PAD2 = "GAMEPADACTIONBUTTON3", PAD3 = "GAMEPADACTIONBUTTON2",
+        PAD4 = "GAMEPADACTIONBUTTON1", PADDLEFT = "GAMEPADACTIONBUTTON5", PADLSHOULDER = "GAMEPADLEFTTARGETMODIFIER",
+        PADRSHOULDER = "GAMEPADRIGHTTARGETMODIFIER", PADLTRIGGER = "GAMEPADLEFTMOD", PADRTRIGGER = "GAMEPADRIGHTMOD",
+        ["SHIFT-PAD3"] = "GAMEPADACTIONBUTTON6", ["CTRL-PAD3"] = "GAMEPADACTIONBUTTON7" }
+    local NONE, PAD_CONTEXT = 0, 9
+    env.SetBinding = function(key, action, context)
         assert(not store.combat, "SetBinding in combat")
+        assert(context == NONE, "SetBinding without the normal context")
         if action == nil then
             Unbind(key)
         else
@@ -62,12 +70,24 @@ local function InstallBindings(env, initial)
         if checkOverride and store.overrides[key] then
             return store.overrides[key].action
         end
-        if context then
-            return ""
+        if context == PAD_CONTEXT then
+            return store.pad[key] or ""
         end
+        if context == nil and store.gamepadUI and store.pad[key] then
+            return store.pad[key]
+        end
+        assert(context == nil or context == NONE, "an unknown context")
         return store.map[key] or ""
     end
-    env.GetBindingKey = function(action)
+    env.GetBindingKey = function(action, _, context)
+        assert(context == NONE or context == PAD_CONTEXT, "GetBindingKey without a context")
+        if context == PAD_CONTEXT then
+            local keys = {}
+            for key, padAction in pairs(store.pad) do
+                if padAction == action then keys[#keys + 1] = key end
+            end
+            return unpack(keys)
+        end
         return unpack(store.order[action] or {})
     end
     env.GetBindingName = function(action) return "Name of " .. action end

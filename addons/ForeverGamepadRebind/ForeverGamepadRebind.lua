@@ -180,16 +180,22 @@ end
 -- The keybindings (the normal ones, as Options > Keybindings shows them)
 --------------------------------------------------------------------------------
 
+-- The normal keybindings' context, named in every read and write: while the Gamepad UI's context is active it may
+-- answer a call without one for the pad's keys (Blizzard's housing code names Enum.BindingContext.None the same way)
+local function NormalContext()
+    return Enum and Enum.BindingContext and Enum.BindingContext.None
+end
+
 -- The reader Core.lua's plan reads the keybindings through
 ns.reader = {
     -- the action bound to a key ("" for none)
     action = function(key)
-        return Str(GetBindingAction(key)) or ""
+        return Str(GetBindingAction(key, false, NormalContext())) or ""
     end,
     -- the keys bound to an action, first one first
     keys = function(action)
         local list = {}
-        local keys = { GetBindingKey(action) }
+        local keys = { GetBindingKey(action, nil, NormalContext()) }
         for i = 1, #keys do
             local key = Str(keys[i])
             if key then
@@ -448,7 +454,7 @@ local function Execute(plan)
         -- only while the chord still runs the action this AddOn wrote (the plan checked it); the keybinding read
         -- back afterwards tells whether it went
         if ns.reader.action(entry.chord) == entry.action then
-            SetBinding(entry.chord, nil)
+            SetBinding(entry.chord, nil, NormalContext())
         end
         if ns.reader.action(entry.chord) ~= entry.action then
             written[entry.chord] = nil
@@ -462,7 +468,7 @@ local function Execute(plan)
     for _, entry in ipairs(plan.write) do
         -- the chord is free right now (the plan checked it): never written over another action
         if ns.reader.action(entry.chord) == "" then
-            SetBinding(entry.chord, entry.action)
+            SetBinding(entry.chord, entry.action, NormalContext())
         end
         if ns.reader.action(entry.chord) == entry.action then
             written[entry.chord] = entry.action
