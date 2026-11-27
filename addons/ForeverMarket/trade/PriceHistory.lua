@@ -403,7 +403,9 @@ function FM.ItemActivity(key)
         qty = tonumber(qty)
         if k == key and qty and qty > 0 then
             bought = true
-            out[#out + 1] = { t = tonumber(t), kind = "buy", qty = qty, unit = tonumber(total) / qty, char = who }
+            -- a line without a character is its writer's (FM.BuyOwner, FRV-230)
+            out[#out + 1] = { t = tonumber(t), kind = "buy", qty = qty, unit = tonumber(total) / qty,
+                char = FM.BuyOwner(r, t, who) }
         end
     end
     local name = type(r.names) == "table" and r.names[key] or nil

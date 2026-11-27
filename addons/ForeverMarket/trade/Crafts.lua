@@ -132,7 +132,7 @@ local function AfterUse(lots, used, held)
 end
 
 -- This character's lots of each item still held by the logs, newest first: { qty, unit|nil, src = "b"|"c", craft }.
--- Purchases (R.buys, lines without a character from before 1.15.5 count for every character) and own crafts
+-- Purchases (R.buys; a line without a character, from before 1.15.5, is its writer's: FM.BuyOwner, FRV-230) and own crafts
 -- (R.crafts) add lots, your crafts that used the item take them (AfterUse), all in time order; built again
 -- whenever either log changed. crafted[key] = this character's craft lines of the item, newest first.
 local index, crafted, indexSig
@@ -159,8 +159,9 @@ local function Build()
     for _, line in ipairs(buys) do
         local t, k, q, cost, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         q, cost = tonumber(q), tonumber(cost)
-        if t and q and q > 0 and (who == "" or who == char) then
-            add(k, { t = tonumber(t), qty = q, unit = cost / q, src = "b" })
+        if t and q and q > 0 then
+            who = FM.BuyOwner(r, t, who)
+            if who == "" or who == char then add(k, { t = tonumber(t), qty = q, unit = cost / q, src = "b" }) end
         end
     end
     for _, line in ipairs(crafts) do
@@ -347,14 +348,16 @@ local function ReplayBasis(lots, held, used)
     return cost, unrecorded
 end
 
--- The purchase lines of a character (and those without one) as events: { t, key, qty, unit }, in log order
-local function PurchaseEvents(buys, char)
+-- The purchase lines of a character (one without a character is its writer's: FM.BuyOwner, FRV-230) as events:
+-- { t, key, qty, unit }, in log order
+local function PurchaseEvents(r, buys, char)
     local out = {}
     for _, line in ipairs(buys) do
         local t, k, q, cost, who = line:match("^(%d+),([^,]+),(%d+),(%d+),?([^,]*)$")
         q, cost = tonumber(q), tonumber(cost)
-        if t and q and q > 0 and (who == "" or who == char) then
-            out[#out + 1] = { t = tonumber(t), key = k, qty = q, unit = cost / q }
+        if t and q and q > 0 then
+            who = FM.BuyOwner(r, t, who)
+            if who == "" or who == char then out[#out + 1] = { t = tonumber(t), key = k, qty = q, unit = cost / q } end
         end
     end
     table_sort(out, function(a, b) return a.t < b.t end)
@@ -383,8 +386,8 @@ local function ReplayCrafts(r, oldBuys)
             return a.index < b.index
         end)
         -- the log as it is, and (FM.RepairCraftBasis) the log as it was when the lines were written
-        local now = { events = PurchaseEvents(r.buys, char), next = 1, lots = {} }
-        local old = oldBuys and { events = PurchaseEvents(oldBuys, char), next = 1, lots = {} } or nil
+        local now = { events = PurchaseEvents(r, r.buys, char), next = 1, lots = {} }
+        local old = oldBuys and { events = PurchaseEvents(r, oldBuys, char), next = 1, lots = {} } or nil
         local runs = { now, old }
         local function Lots(run, key)
             run.lots[key] = run.lots[key] or {}

@@ -234,7 +234,8 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
       table keeps cheap units (real buys). White within 5% of what you paid, orange 5%+ cheaper, red 15%+ cheaper,
       green 5%+ dearer (the same colors for "today's prices" of crafted units)
     * **you paid**: your latest purchases of the last 30 days covering your units (this character's; `R.buys`
-      "t,key,qty,total,char", kept a year, lines before 1.15.5 without a character count for everyone; kept on
+      "t,key,qty,total,char", kept a year, a line before 1.15.5 without a character is read as its writer's, see
+      Lines without a character under Profit; kept on
       `COMMODITY_PURCHASE_SUCCEEDED`, each purchase with its own price since 1.36.3, FRV-102: the sniper logs its own
       with the quote it confirmed (`FM.LogPurchase`); any other AH window through `StartCommoditiesPurchase` and
       `ConfirmCommoditiesPurchase` hooked, the quote after a start pricing only a confirm of that item and units, also
@@ -1548,6 +1549,23 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     of them with their deposits and sold money on its way. So an item one character buys and mails to another is no
     loss at the mailing, and its sale there counts against its purchase. For one character alone the same mail is
     still a loss for the sender and the sale all profit for the seller: that is what **This character** shows.
+  * **Lines without a character** (1.64, FRV-230): a purchase line written before 1.15.5 names no character. Until
+    1.63 such a line counted for every character, so a character made later showed the first one's old purchases in
+    its own view, without what they became: the report's new level 1 character at **-35g 37s 1c**, the hunter's 16
+    purchases of 11/17 and 11/18 (200x Thick Hide, 200x Deeprock Salt, ...). Such a line belongs to the character
+    that wrote it. The data cannot say who that was, so it is read as the line of the character whose own log line
+    is nearest to it in time: the gold records, posts, AH mails, purchases and crafts that name their character (a
+    tie goes to the earlier line); with one character known at that time, that is the one, and a line older than
+    every other belongs to the character with the oldest line (`FM.LineOwner`, `FM.BuyOwner` in `core/Store.lua`).
+    Nothing in the saved data is rewritten, the rule is applied at every read, in every reader of the purchase log:
+    this tab (`Purchases` in `trade/Performance.lua`, and through it what your units cost, `trade/Basis.lua`), what
+    still waits in the mail and what was spent since a reading (`InTransit`, `SpentSince` in `scan/Worth.lua`), the
+    craft log's lots (`trade/Crafts.lua`), what you bought since a plan and the price of your latest purchases
+    (`FM.BoughtSince`, `FM.BoughtUnit` in `trade/Cost.lua`) and an item's activity in its price history
+    (`FM.ItemActivity`). An own-gear mark of such a purchase still finds it (the mark names the line's character
+    field as it is written). While no log names any character, such a line counts for every character as before.
+    On the maintainer's data of 2026-11-27: the new character's own view no longer holds those purchases, the
+    hunter's own result (95g 25s 96c) and All characters (138g 19s 59c) are the same before and after.
   * Every reading holds both numbers (`worth[char]`: `held` for the character, `all` for all of them as known at
     that moment, `saw` = a short hash of which readings counted: each character's bags, bank and mailbox, and the
     account bank). The joint line is the `all` of every character's readings in time order; a step counts only
@@ -2252,7 +2270,8 @@ Picks skip).
   `"units|cost|t"` units posted on the AH at what they left with (less every sale's mail; 30 days); `crafts["t:key"]`
   = the units of a craft line that entered already (a day). `/fm forget <name>` drops a character's pools with its
   other records
-* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
+* `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5: such a line is
+  read as the line of the character whose own log line is nearest in time, `FM.BuyOwner`, FRV-230). Mended once per
   bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
   a chat line says them): every commodity purchase sends a buyer mail with its units and real total (`invoices`;
   several for more than 16 stacks, FRV-113), so a line takes the total of its purchase's mail (the same character,

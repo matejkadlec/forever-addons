@@ -796,3 +796,94 @@ function FM.MigrateRealm(r)
     end
     r.keyVersion = KEY_VERSION
 end
+
+---------------------------------------------------------------- whose line (FRV-230)
+-- A purchase line written before 1.15.5 names no character ("t,key,qty,total,"). Until 1.63 such a line counted for
+-- every character: a character made later got the first one's old purchases in its Profit tab, without what they
+-- became. The line belongs to the character that wrote it, which the data cannot say, so it is read as the line of
+-- the character whose own log line is nearest to it in time: the gold records, posts, AH mails, purchases and crafts
+-- that name their character (a tie goes to the earlier line). With one character known at that time, that is the one.
+-- Nothing is rewritten: the rule is applied at every read (trade/Performance.lua, scan/Worth.lua, trade/Crafts.lua,
+-- trade/Cost.lua, trade/PriceHistory.lua). The answers are kept while the logs' oldest lines stay (a new line at their
+-- end is nowhere near an old one): r -> { sig, list = { { t, who }, ... } by time, memo[t] = who or false }
+local ownerIndex = setmetatable({}, { __mode = "k" })
+local OWNER_LOGS = { "gold", "posts", "invoices", "buys", "crafts" }
+
+local function OwnerIndex(r)
+    local parts = {}
+    for i, name in ipairs(OWNER_LOGS) do
+        local list = r[name]
+        parts[i] = type(list) == "table" and (tostring(list) .. tostring(list[1])) or "-"
+    end
+    local sig = table_concat(parts, "|")
+    local index = ownerIndex[r]
+    if index and index.sig == sig then return index end
+    local list = {}
+    local function Add(t, who)
+        if t and who and who ~= "" then list[#list + 1] = { t, who, #list } end
+    end
+    local function Each(name, fn)
+        for _, line in ipairs(type(r[name]) == "table" and r[name] or {}) do
+            if type(line) == "string" then fn(line) end
+        end
+    end
+    -- "stamp,char,..." (gold records, posts, AH mails by when they were sent)
+    for _, name in ipairs({ "gold", "posts", "invoices" }) do
+        Each(name, function(line)
+            local stamp, who = line:match("^(%w+),([^,]*),")
+            if stamp then Add(FM.Unstamp(stamp), who) end
+        end)
+    end
+    -- "t,key,qty,total,char" and "t,key,units,made,char,..."
+    Each("buys", function(line)
+        local t, who = line:match("^(%d+),[^,]+,%d+,%d+,([^,]+)$")
+        Add(tonumber(t), who)
+    end)
+    Each("crafts", function(line)
+        local t, who = line:match("^(%d+),[^,]*,[^,]*,[^,]*,([^,]*)")
+        Add(tonumber(t), who)
+    end)
+    table.sort(list, function(a, b)
+        if a[1] ~= b[1] then return a[1] < b[1] end
+        return a[3] < b[3]
+    end)
+    index = { sig = sig, list = list, memo = {} }
+    ownerIndex[r] = index
+    return index
+end
+
+-- The character a log line of time t (epoch seconds) without a character belongs to; nil while no log names one
+function FM.LineOwner(r, t)
+    if type(r) ~= "table" or type(t) ~= "number" then return nil end
+    local index = OwnerIndex(r)
+    local known = index.memo[t]
+    if known ~= nil then return known or nil end
+    local list = index.list
+    -- the last line of a character at or before t, and the first after it
+    local lo, hi, at = 1, #list, 0
+    while lo <= hi do
+        local mid = math_floor((lo + hi) / 2)
+        if list[mid][1] <= t then
+            at = mid
+            lo = mid + 1
+        else
+            hi = mid - 1
+        end
+    end
+    local before, after = list[at], list[at + 1]
+    local who
+    if before and after then
+        who = (t - before[1] <= after[1] - t) and before[2] or after[2]
+    elseif before or after then
+        who = (before or after)[2]
+    end
+    index.memo[t] = who or false
+    return who
+end
+
+-- The character of a purchase line: the one it names, else the rule above; "" while no log names any character
+-- (then the line counts for every character, as all such lines did until 1.63)
+function FM.BuyOwner(r, t, who)
+    if type(who) == "string" and who ~= "" then return who end
+    return FM.LineOwner(r, tonumber(t)) or ""
+end

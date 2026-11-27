@@ -696,13 +696,15 @@ FM.On("PLAYER_LOGIN", function()
 end)
 
 -- AH purchases of a character after since (its last mailbox reading, or its login without one): still in the mail.
--- named: only the purchases logged with its name (a character that is not logged in: one without a name, from
--- before 1.15.5, would wait in the mail of every one of them)
+-- A line without a character (before 1.15.5) is its writer's (FM.BuyOwner, FRV-230).
+-- named: only the purchases known to be its own (a character that is not logged in: a line nobody can be named for
+-- would wait in the mail of every one of them)
 local function InTransit(r, char, since, add, named)
     for i = #(r.buys or {}), 1, -1 do
         local t, key, qty, who = r.buys[i]:match("^(%d+),([^,]+),(%d+),%d+,?([^,]*)$")
         t, qty = tonumber(t), tonumber(qty)
         if not t or t <= since then break end
+        who = FM.BuyOwner(r, t, who)
         if who == char or (who == "" and not named) then add(key, qty) end
     end
 end
@@ -957,6 +959,8 @@ local function SpentSince(r, char, since)
     for i = #(r.buys or {}), 1, -1 do
         local t, total, who = r.buys[i]:match("^(%d+),[^,]+,%d+,(%d+),?([^,]*)$")
         if not t or tonumber(t) <= since then break end
+        -- a line without a character is its writer's (FM.BuyOwner, FRV-230)
+        if char then who = FM.BuyOwner(r, t, who) end
         if not char or who == "" or who == char then sum = sum + tonumber(total) end
     end
     for i = #(r.invoices or {}), 1, -1 do
