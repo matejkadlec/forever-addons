@@ -134,6 +134,8 @@ local function Load(options)
     env.FireEvent("PLAYER_LOGIN")
     env.FireEvent("PLAYER_ENTERING_WORLD")
     env.FlushTimers()
+    -- what the login printed, kept apart so each test reads only its own lines
+    env.loginPrinted = env.printed
     env.printed = {}
     return ns, env, seen
 end
@@ -152,8 +154,10 @@ local function OvenInRange(env, met)
     env.requirements[LOBSTER_STEW] = { { name = "Iron Oven", met = met, type = 0 } }
 end
 
-H.test("the AddOn loads, says so, registers its prefix and joins its channel after entering the world", function()
+H.test("the AddOn loads without a line of its own, registers its prefix and joins its channel after entering the world", function()
     local ns, env, seen = Load()
+    -- the shared JimsForeverAddOns.lua prints the one [JFA] login line (FRV-177)
+    H.same(env.loginPrinted, {}, "nothing printed at login")
     H.eq(env.ForeverCampFeaturesSettings.enabled, true, "enabled by default")
     H.same(seen.joined, { "ForeverCampFeatures" }, "channel joined once")
     H.eq(env.tick ~= nil, true, "the once-a-second check runs")

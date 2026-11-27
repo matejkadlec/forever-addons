@@ -7,7 +7,6 @@ local _, ns = ...
 local L = {
     -- chat
     FAILED_TO = "Failed to",
-    LOADED = "%s v%s loaded",
     ENABLED = "%s enabled.",
     DISABLED = "%s disabled.",
     ALREADY_ENABLED = "%s is already enabled.",

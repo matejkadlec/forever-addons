@@ -2,11 +2,9 @@ local H = require("harness")
 
 -- The shared file JimsForeverAddOns.lua (FRV-120, FRV-180): every first-party AddOn carries an identical copy as
 -- the first file of its .toc, lists JimsForeverAddOnsDB in its ## SavedVariables and prints no "loaded" line of
--- its own (the shared file prints the one [JFA] line). ForeverCampFeatures gets the file with its ticket; until then
--- it is the only AddOn without it.
+-- its own (the shared file prints the one [JFA] line).
 
 local FILE = "JimsForeverAddOns.lua"
-local PENDING = { ForeverCampFeatures = "FRV-177" }
 
 local function Read(path)
     local handle = io.open(path, "rb")
@@ -65,25 +63,18 @@ H.test("every first-party AddOn carries it first in its .toc, with JimsForeverAd
         local carries = Read("addons/" .. addon.name .. "/" .. FILE) ~= nil
         local files = TocFiles(addon.toc)
         local saved = addon.toc:match("\n## SavedVariables:([^\n]*)") or ""
-        if PENDING[addon.name] then
-            -- not yet: its ticket adds the file, this list then loses the AddOn
-            H.eq(carries, false, addon.name .. " carries the file: remove it from PENDING (" .. PENDING[addon.name] .. ")")
-        else
-            H.eq(carries, true, addon.name .. " has " .. FILE)
-            H.eq(files[1], FILE, addon.name .. ".toc's first file")
-            H.eq(saved:find("JimsForeverAddOnsDB", 1, true) ~= nil, true, addon.name .. " saves JimsForeverAddOnsDB")
-        end
+        H.eq(carries, true, addon.name .. " has " .. FILE)
+        H.eq(files[1], FILE, addon.name .. ".toc's first file")
+        H.eq(saved:find("JimsForeverAddOnsDB", 1, true) ~= nil, true, addon.name .. " saves JimsForeverAddOnsDB")
     end
 end)
 
 H.test("an AddOn that carries it prints no loaded line of its own", function()
     for _, addon in ipairs(FirstPartyAddOns()) do
-        if not PENDING[addon.name] then
-            for _, file in ipairs(TocFiles(addon.toc)) do
-                local text = Read("addons/" .. addon.name .. "/" .. file) or ""
-                if file ~= FILE and text:find("v%s loaded", 1, true) then
-                    error(addon.name .. "/" .. file .. " still prints its own \"loaded\" line")
-                end
+        for _, file in ipairs(TocFiles(addon.toc)) do
+            local text = Read("addons/" .. addon.name .. "/" .. file) or ""
+            if file ~= FILE and text:find("v%s loaded", 1, true) then
+                error(addon.name .. "/" .. file .. " still prints its own \"loaded\" line")
             end
         end
     end
