@@ -30,7 +30,8 @@ FTW.DEFAULTS = {
     chatSize = 14,
     chatHistoryArrows = true,
     arrowScale = 0.9, -- world map player arrow, nil = Blizzard default
-    minimapArrowScale = nil -- minimap overlay arrow, nil = Blizzard default
+    minimapArrowScale = nil, -- minimap overlay arrow, nil = Blizzard default
+    anonMode = false -- anonymous mode for screenshots (tweaks/AnonymousMode.lua)
 }
 
 -- Allowed ranges and slider steps for numeric settings
@@ -97,6 +98,19 @@ function FTW.NormalizeNumber(key, value)
     return FTW.RoundToStep(FTW.Clamp(value, limit.min, limit.max), limit.step)
 end
 
+-- Keep only the CVar name -> value string pairs of a saved CVars table (nil when it is no table)
+local function CleanSavedCVars(saved)
+    if type(saved) ~= "table" then
+        return nil
+    end
+    for name, value in pairs(saved) do
+        if type(name) ~= "string" or type(value) ~= "string" then
+            saved[name] = nil
+        end
+    end
+    return saved
+end
+
 -- Create the saved settings table and populate validated defaults
 function FTW.InitializeSavedData()
     if type(ForeverTweaksDB) ~= "table" then
@@ -131,6 +145,27 @@ function FTW.InitializeSavedData()
     if db.minimapArrowScale ~= nil then
         local scale = tonumber(db.minimapArrowScale)
         db.minimapArrowScale = (scale and scale >= 1) and FTW.NormalizeNumber("minimapArrowScale", scale) or nil
+    end
+
+    if type(db.anonMode) ~= "boolean" then
+        db.anonMode = FTW.DEFAULTS.anonMode
+    end
+    -- the name CVars the anonymous mode changed, with their values from before:
+    -- { account = { [cvar] = value }, chars = { [player GUID] = { [cvar] = value } } }
+    if db.anonCVars ~= nil then
+        if type(db.anonCVars) ~= "table" then
+            db.anonCVars = nil
+        else
+            db.anonCVars.account = CleanSavedCVars(db.anonCVars.account)
+            local chars = db.anonCVars.chars
+            if type(chars) == "table" then
+                for key, saved in pairs(chars) do
+                    chars[key] = type(key) == "string" and CleanSavedCVars(saved) or nil
+                end
+            else
+                db.anonCVars.chars = nil
+            end
+        end
     end
 
     return db
@@ -273,12 +308,40 @@ function FTW.SetMinimapArrowScale(scale)
     FTW.RefreshSettings()
 end
 
+-- Turn the anonymous mode for screenshots on or off
+function FTW.SetAnonymousMode(enabled)
+    local db = FTW.GetDB()
+    enabled = enabled and true or false
+    if db.anonMode == enabled then
+        FTW.Print(string_format("Anonymous mode is already %s.", enabled and "on" or "off"))
+        FTW.RefreshSettings()
+        return
+    end
+
+    db.anonMode = enabled
+    FTW.ApplyTweak("AnonymousMode")
+    if not db.enabled then
+        FTW.Print("Anonymous mode set to", enabled and "on" or "off")
+    elseif enabled then
+        FTW.Print("Anonymous mode on: player and pet names, the chat and player tooltips are hidden.")
+    else
+        FTW.Print("Anonymous mode off: names, chat and tooltips are back, your name settings are restored.")
+    end
+    if FTW.IsAnonymousModePending() then
+        FTW.Print("The name settings change when combat ends.")
+    end
+    FTW.RefreshSettings()
+end
+
 -- Restore every setting to its default value
 function FTW.ResetToDefaults()
     local db = FTW.GetDB()
+    -- the CVar values the anonymous mode saved are no setting: they stay until it has restored them
+    local anonCVars = db.anonCVars
     for key in pairs(db) do
         db[key] = nil
     end
+    db.anonCVars = anonCVars
     FTW.InitializeSavedData()
     FTW.ApplyAll()
     FTW.RefreshSettings()

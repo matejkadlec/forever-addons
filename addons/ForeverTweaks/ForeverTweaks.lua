@@ -25,7 +25,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- last moment before combat lockdown to remove the Up/Down chat bindings
         FTW.OnCombatStartingChatHistory()
     elseif event == "PLAYER_REGEN_ENABLED" then
-        -- override bindings cannot change in combat, finish deferred changes
+        -- override bindings and the anonymous mode's CVars cannot change in combat, finish deferred changes
         FTW.OnCombatEndedChatHistory()
+        FTW.OnCombatEndedAnonymousMode()
     end
 end)

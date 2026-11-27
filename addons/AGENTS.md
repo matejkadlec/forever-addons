@@ -91,7 +91,7 @@ The AddOn inventory is in the root guide. ForeverMarket, ForeverCraftQueue, Fore
 - Input is trimmed and lowercased before command lookup
 - Define subcommands in a `SUBCOMMANDS` table with `handler` and `args` (or `minArgs`/`maxArgs`) fields
 - Current first-party slash commands:
-  - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `help`
+  - `/ftw`: bare command behaves like `help`; `on`, `off`, `zone`, `chat`, `history`, `arrow`, `anon` (bare toggles; `on`, `off`, `status`; FRV-224), `help`
   - `/fta`: bare command behaves like `help`; `on`, `off`, `help`
   - `/fri`: bare command behaves like `help`; `on`, `off`, `debug` (prints the raw range readings of the target), `help`
   - `/fht`: bare command behaves like `help`; `on`, `off`, `test` (shows two test bars), `debug` (prints the tracked spell, active hawks, last cast, Summon Hawk spell IDs seen and ignored duplicate events), `help`

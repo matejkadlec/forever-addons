@@ -30,6 +30,7 @@ local function PrintHelp()
     PrintHelpLine("arrow map <0.3-2|default>", "World map player arrow scale")
     PrintHelpLine("arrow minimap <1-3|default>", "Bigger minimap player arrow (it cannot be made smaller)")
     PrintHelpLine("arrow status", "Show the current player arrow settings")
+    PrintHelpLine("anon [on|off|status]", "Anonymous mode for screenshots: hide player and pet names, the chat and player tooltips")
     PrintHelpLine("help", "Show this help")
 end
 
@@ -172,6 +173,24 @@ local function HandleArrow(args)
     end
 end
 
+-- /ftw anon toggles, /ftw anon <on|off|status>
+local function HandleAnon(args)
+    local value = args[1] and string_lower(args[1])
+    if value == nil then
+        FTW.SetAnonymousMode(not FTW.GetDB().anonMode)
+    elseif value == "on" or value == "off" then
+        FTW.SetAnonymousMode(value == "on")
+    elseif value == "status" then
+        local active, saved, pending = FTW.GetAnonymousModeStatus()
+        FTW.Print(string_format("Anonymous mode: %s, active: %s, saved name settings: %d, waiting for the end of combat: %s",
+            FTW.GetDB().anonMode and "on" or "off", tostring(active), saved, tostring(pending)))
+        return false
+    else
+        PrintInvalidValue("anon", args[1], "on, off or status")
+        return false
+    end
+end
+
 -- Run a setting handler and remind about the disabled state afterwards
 local function WithDisabledNotice(handler)
     return function(args)
@@ -189,7 +208,8 @@ local SUBCOMMANDS = {
     ["zone"] = { handler = WithDisabledNotice(HandleZone), args = 1 },
     ["chat"] = { handler = WithDisabledNotice(HandleChat), args = 1 },
     ["history"] = { handler = WithDisabledNotice(HandleHistory), args = 1 },
-    ["arrow"] = { handler = WithDisabledNotice(HandleArrow), minArgs = 1, maxArgs = 2 }
+    ["arrow"] = { handler = WithDisabledNotice(HandleArrow), minArgs = 1, maxArgs = 2 },
+    ["anon"] = { handler = WithDisabledNotice(HandleAnon), minArgs = 0, maxArgs = 1 }
 }
 
 -- Split the raw argument text into words
