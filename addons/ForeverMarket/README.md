@@ -62,7 +62,10 @@ client for their items' data (`C_Item.RequestLoadItemDataByID`, 200 items per ti
 `C_Item.IsItemDataCachedByID`), waits for the answers (`ITEM_DATA_LOAD_RESULT` / `GET_ITEM_INFO_RECEIVED`), at most 8
 seconds, and reads each of those auctions' links once more, 2,000 per frame; the full scan's list stays in the client
 until the next one, so its indexes still name the same auctions (Auctionator's own full scan reads late links the
-same way). An auction whose link still has no name stays under the empty variant. `/fm scanlog` says what happened:
+same way). An auction whose link still has no name stays under the empty variant. The walk is complete before this
+second reading, so closing the Auction House during it ends only the reading: the links not read again stay under
+the empty variant and the snapshot is saved, as a finished walk always was (closing during the walk itself still
+ends the scan unsaved). `/fm scanlog` says what happened:
 "39,952 gear links unread at first (39,900 without a name, 52 no link; 31,204 of them with bonus IDs already), 39,700
 read again after 2.4 s (31,150 as their first link said), 252 still unread", or "every gear link read". The numbers in
 brackets tell whether a link without a name already carries its bonus IDs on Forever and whether they can be trusted
@@ -176,11 +179,14 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
       * An AH purchase at its price. The price is recorded at the purchase (a won auction's when its mail is read),
         but the units enter the pool when they reach your bags, not at the purchase: units you use or sell before
         you collect the mail were not the bought ones. 20 in the bags at 4s, 20 bought at 2s and left in the mail,
-        the bags' 20 used in a craft, the mail collected: 20 at 2s (counting at the purchase would say 3s).
+        the bags' 20 used in a craft, the mail collected: 20 at 2s (counting at the purchase would say 3s). They
+        come out of the mailbox: only a rise of your bags while the mailbox was open (or within 2 seconds of its
+        closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units. The first look
+        of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
       * Crafted units at their materials' basis from the craft log (below).
-      * Units back from an auction that did not sell, at what they left with.
-      * Units from a vendor at the vendor's price (the merchant window open; the price ForeverMarket knows of the
-        item, else your gold spent when one item rose).
+      * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
+      * Units from a vendor at the vendor's price (bags that changed while a merchant window was open; the price
+        ForeverMarket knows of the item, else your gold spent when one item rose).
       * Anything else (looted, skinned, gathered, traded, mailed by another character) at what the craft log takes
         for units nobody recorded: a vendor's price when one sells the item without limit, else its AH price at
         that moment (the cheapest of others). An item without any price stays out of the pool until there is one:
@@ -1496,7 +1502,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     seconds, `FM.DepositsPending`) the tab shows the **last finished numbers**, the header says "updating..." and a
     dot's tooltip "Updating: these are the last finished numbers"; the first look after a login, with no finished
     numbers yet, shows what is known so far with the same note. The answer (or the 10 seconds) ends it, and the tab
-    draws again by itself
+    draws again by itself. An answer ends an item's wait for good, also one that brings no price (an item the client
+    can no longer load): its deposit counts 0 and it is not waited for again
   * no reading of what you hold is taken during that wait (it would hold less than the next one)
   * the deposit rule itself is corrected (trade/Cost.lua, `FM.Deposit`), from the real deposits in the maintainer's
     1,791 sale mails: an item that does not stack pays its share of the vendor price per auction (20% for 8 hours,
@@ -2191,8 +2198,8 @@ Picks skip).
   Pawn's name of the scale chosen in the Upgrades tab's Spec dropdown, 1.54, FRV-205); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
-  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c3` = counted at cost (1.38: only readings of the
-  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c4` = counted at cost (1.38: only readings of the
+  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`, 1.38.4 to 1.57 `c3`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
   hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
   baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
 * `gearBank[char]` (1.55, FRV-206, optional, made at the first close of the bank) `t|key/variant,key/variant,...`: the

@@ -9,6 +9,7 @@
 --   * the vendor price comes from the client, which only answers for items it has loaded. Once it answered, the
 --     answer is kept in the saved data: a deposit is the same whatever the client has loaded later, also after a
 --     /reload
+--   * an answer ends an item's wait for good, also one that brings no price (an item the client cannot load)
 --   * the Profit tab's numbers do not move while nothing happens: while a post's deposit waits for its item's data
 --     (at most 10 seconds) the tab shows the last finished numbers and says that it is updating; no reading of what
 --     you hold is taken in that time
@@ -160,6 +161,29 @@ H.test("deposits: a wait without an answer ends by itself, and the table's rows 
     H.eq(FM.Deposit(tostring(GLOVES), 1, 2, "i"), nil, "asking again")
     H.eq(FM.DepositsPending(), false, "does not start it again")
     H.eq(state.asked[GLOVES] >= 3, true, "each call asked the client")
+end)
+
+H.test("deposits: an item the client cannot load ends its wait for good", function()
+    local FM, env, state = Session(nil, NOW)
+    local version = FM.dataVersion or 0
+    H.eq(FM.Deposit(tostring(GLOVES), 1, 2, "i"), nil, "unknown")
+    H.eq(FM.DepositsPending(), true, "it waits")
+    -- the client answers that it has no such item
+    env.FireEvent("GET_ITEM_INFO_RECEIVED", GLOVES, false)
+    env.FlushTimers()
+    H.eq(FM.DepositsPending(), false, "the answer ends the wait")
+    H.eq(FM.dataVersion, version + 1, "the numbers that waited count again, once")
+    -- asked again (the tab draws, a reading is taken): no new wait, whatever the client answers
+    for _ = 1, 3 do
+        H.eq(FM.Deposit(tostring(GLOVES), 1, 2, "i"), nil, "still unknown")
+        H.eq(FM.DepositsPending(), false, "no new wait")
+        env.FireEvent("GET_ITEM_INFO_RECEIVED", GLOVES, false)
+        env.FlushTimers()
+    end
+    H.eq(FM.dataVersion, version + 1, "and nothing counts again for it")
+    -- loaded after all (a later patch brings it back): the deposit is there at the next call
+    state.loaded[GLOVES] = true
+    H.eq(FM.Deposit(tostring(GLOVES), 1, 2, "i"), 695, "known now")
 end)
 
 ---------------------------------------------------------------- the Profit tab

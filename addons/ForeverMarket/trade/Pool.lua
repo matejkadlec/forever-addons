@@ -11,10 +11,12 @@ local _, FM = ...
 --   * Units come in: new average = (held x old average + new units x their cost) / all units
 --       - an AH purchase at its price. The price is recorded at the purchase (FM.LogPurchase; a won auction's when
 --         its mail is read), the units enter when they reach your bags: until then they wait (book.wait), because
---         units you use or sell meanwhile are not the bought ones
+--         units you use or sell meanwhile are not the bought ones. They come out of the mailbox: only a rise seen
+--         while it was open takes them (units looted while a purchase waits are looted units)
 --       - crafted units at their materials' basis from the craft log (trade/Crafts.lua)
---       - units back from an auction that did not sell at what they left with (book.out)
---       - units from a vendor at the vendor's price (the merchant window open, or your gold spent on one item)
+--       - units back from an auction that did not sell at what they left with (book.out), out of the mailbox too
+--       - units from a vendor at the vendor's price (bags that changed at a merchant: the price ForeverMarket knows,
+--         else your gold spent on the one item that rose)
 --       - anything else (looted, skinned, gathered, traded, mailed by an alt) at the price of the craft log's rule
 --         for units nobody recorded: a vendor's price when one sells it without limit, else its AH price at that
 --         moment. Without any price the units stay out of the pool until there is one
@@ -56,7 +58,7 @@ local OUT_DAYS = 30
 local CRAFT_SEEN = 86400 -- a craft line counts as new for a day
 local WEEK = 7 * 86400 -- "bought this week"
 local RECENT_MAX = 6 -- bought parts kept apart at most; the oldest join "older"
-local MERCHANT_GRACE = 5 -- seconds after the merchant window closed that a rise still counts as bought there
+local WINDOW_GRACE = 2 -- seconds after the mailbox or a merchant closed that a bag change still counts as from it
 local LOGIN_QUIET = 10 -- seconds after login without a look: the bags' containers may still be loading (FRV-73)
 local BACK_SECONDS = 30 -- units that left and are back within this long are the same units (a bag read too early,
                         -- an item put into a mail or a trade and taken back, sold to a vendor and bought back)
@@ -334,16 +336,26 @@ end
 
 ---------------------------------------------------------------- the look
 
--- Whether a rise can be a purchase from a vendor: the merchant window is open, or closed a moment ago
-local merchantOpen, merchantClosedAt = false, nil
-FM.On("MERCHANT_SHOW", function() merchantOpen = true end)
-FM.On("MERCHANT_CLOSED", function()
-    merchantOpen = false
-    merchantClosedAt = GetTime()
-end)
-local function AtMerchant()
-    return merchantOpen or (merchantClosedAt ~= nil and GetTime() - merchantClosedAt < MERCHANT_GRACE)
+-- The windows units come through, the mailbox and a merchant: moved = your bags changed while it was open (or
+-- within WINDOW_GRACE of its closing: a take arrives a moment after the click) since the last look. The look
+-- itself comes 2 s after the last change, or after a fight, so what it sees is judged by where the change happened
+local function Window(show, close)
+    local w = { open = false, moved = false }
+    FM.On(show, function() w.open = true end)
+    FM.On(close, function()
+        if w.open then w.closedAt = GetTime() end
+        w.open = false
+    end)
+    return w
 end
+local mailbox = Window("MAIL_SHOW", "MAIL_CLOSED")
+local merchant = Window("MERCHANT_SHOW", "MERCHANT_CLOSED")
+FM.On("BAG_UPDATE_DELAYED", function()
+    local now = GetTime()
+    for _, w in ipairs({ mailbox, merchant }) do
+        if w.open or (w.closedAt and now - w.closedAt < WINDOW_GRACE) then w.moved = true end
+    end
+end)
 
 -- The price of a unit nobody recorded (trade/Crafts.lua): a vendor's without limit ("v"), else the AH's now ("l");
 -- nil without either. An item without a price is not asked again until new market data came
@@ -416,7 +428,9 @@ function FM.PoolUpdate()
     local money = GetMoney and GetMoney()
     money = IsNumber(money) and money or nil
     local spent = (money and book.money) and (book.money - money) or 0
-    local merchant = AtMerchant()
+    -- where the bags changed since the last look. The first look of a session cannot know (mail collected right
+    -- before a /reload or a logout): what waits may have arrived
+    local atMail, atMerchant = mailbox.moved or lastUnits == nil, merchant.moved
     local unexplained = {} -- { key, pool, units } rises nothing recorded explains
     local keys = {}
     for key in pairs(book.items) do keys[key] = true end
@@ -441,12 +455,12 @@ function FM.PoolUpdate()
                     d = d - take
                 end
             end
-            -- then the purchases on their way, the oldest first
-            if d > EPS then
+            -- then, out of the mailbox, the purchases on their way, the oldest first
+            if d > EPS and atMail then
                 d = d - TakeWaiting(book, key, d, function(n, unit, t) In(p, "b", t, n, unit, now) end)
             end
             -- then units back from the AH, at what they left with
-            if d > EPS then
+            if d > EPS and atMail then
                 local text = book.out[key]
                 local n, total, t = (type(text) == "string" and text or ""):match("^([%d%.]+)|([%d%.]+)|(%d+)$")
                 n, total = tonumber(n), tonumber(total)
@@ -502,7 +516,7 @@ function FM.PoolUpdate()
     end
     for _, u in ipairs(unexplained) do
         local unit, kind
-        if merchant and u.new then
+        if atMerchant and u.new then
             unit = FM.VendorUnit and FM.VendorUnit(u.key, true) or nil
             if not unit and rose == 1 and spent > 0 then unit = spent / u.n end
             kind = unit and "v" or nil
@@ -513,6 +527,7 @@ function FM.PoolUpdate()
     for key, p in pairs(pools) do book.items[key] = Write(p) end
     book.at, book.money = now, money
     lastUnits = units
+    mailbox.moved, merchant.moved = false, false
     return true
 end
 

@@ -159,7 +159,8 @@ function FM.LayerClicked(frame)
     end
 end
 
--- A window of ours was shown: it is the one you asked for, so it counts as clicked
+-- A window of ours was shown, or asked for again while it is open (Alt+click on a row whose sticky window is
+-- there, Show history): it is the one you asked for, so it counts as clicked
 function FM.LayerShown(frame)
     if not group[frame] then return end
     if frame ~= main[group[frame]] then ToTop(frame) end

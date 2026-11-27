@@ -460,9 +460,12 @@ H.test("profit: a mail with items to another character of yours is logged once t
     env.SendMail("Bee-TestRealm", "subject", "body")
     env.FireEvent("MAIL_SEND_SUCCESS")
     H.eq(r.sent.Bee[2], FM.Stamp(NOW) .. "|" .. B(CLOTH) .. ":1", "Name-Realm")
-    -- forgetting the character forgets the mail on its way to it
+    -- forgetting the character forgets the mail on its way to it, and what its units cost it (R.pool, FRV-88)
+    r.pool = { Bee = { t = NOW, items = { [tostring(CLOTH)] = "5|450|o:0:5:450" } }, Ada = { t = NOW, items = {} } }
     H.eq(FM.ForgetCharacter("Bee"), true, "forgotten")
     H.eq(r.sent.Bee, nil, "its mail on the way is gone")
+    H.eq(r.pool.Bee, nil, "its pools are gone")
+    H.eq(type(r.pool.Ada), "table", "another character's stay")
 end)
 
 H.test("profit: mail on its way stays counted until the mailbox shows all its mail", function()

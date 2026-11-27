@@ -140,6 +140,13 @@ H.test("layers: the Marketplace's other windows follow its setting and stay abov
     H.eq(Above(w.history, w.market), true, "the other one still above the Marketplace")
     w.Click(w.market, w.env.CreateFrame("Button", nil, w.market))
     H.eq(Above(w.sticky, w.market) and Above(w.history, w.market), true, "also after a click on a button of the Marketplace")
+    -- a window asked for again while it is open (Show history, Alt+click on its row) comes to the front and stays there
+    FM.LayerShown(w.history)
+    H.eq(Above(w.history, w.sticky), true, "the item history asked for again: above the sticky window")
+    w.Click(w.market)
+    H.eq(Above(w.history, w.sticky), true, "and still above it after a click on the Marketplace")
+    H.eq(Above(w.sticky, w.market), true, "both above the Marketplace")
+    w.Click(w.sticky)
     FM.GetSettings().windowMarket = "anything"
     FM.LayersApply()
     H.same({ w.market:GetFrameStrata(), w.sticky:GetFrameStrata(), w.history:GetFrameStrata() }, { "DIALOG", "DIALOG", "DIALOG" },

@@ -473,7 +473,7 @@ function FM.FiltersDialogSync(tabId)
     if opening then
         Place(w)
         w:Show()
-        w:Raise()
+        if FM.LayerShown then FM.LayerShown(w) else w:Raise() end
     end
 end
 

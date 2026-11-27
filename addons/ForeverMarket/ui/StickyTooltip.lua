@@ -207,7 +207,8 @@ function FM.StickyOpen(id, tabId, tabLabel, lines)
     if type(id) ~= "string" or type(lines) ~= "table" then return end
     local w = byId[id]
     if w and w:IsShown() then
-        w:Raise()
+        -- to the front, and the last of the Marketplace's windows to be raised again (ui/Layers.lua)
+        if FM.LayerShown then FM.LayerShown(w) else w:Raise() end
         return w
     end
     w = nil

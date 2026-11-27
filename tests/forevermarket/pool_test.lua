@@ -3,7 +3,8 @@
 --   * a pool per item and character: the units held (bags and bank) and what they cost together
 --   * units come in: new average = (held x old average + new units x their cost) / all units
 --       - an AH purchase at its price, recorded at the purchase; its units enter when they arrive in your bags, not
---         at the purchase (units you use or sell before you collect the mail were not the bought ones)
+--         at the purchase (units you use or sell before you collect the mail were not the bought ones). They come
+--         out of the mailbox: units that appear elsewhere while a purchase waits are not the bought ones either
 --       - crafted units at their materials' basis from the craft log
 --       - looted, skinned or gathered units at the item's AH price at that moment
 --       - vendor purchases at the vendor price
@@ -26,7 +27,8 @@ local S = 100 -- copper in 1s
 local PEARL, LEATHER, THREAD, BRACERS = "5498", "2318", "3", "100"
 
 -- A session of the character "Ada". state.units[key] = what its bags and bank hold, state.ah[key] = the item's AH
--- price now, state.gold its gold; Look() = the look the AddOn takes 2 s after bags or bank changed
+-- price now, state.gold its gold; Look() = the bags changed and the AddOn takes its look 2 s later;
+-- state.Collect(key, n) = the mailbox is opened, mail taken until n units of the item are held, and closed again
 local function Session(saved, clock)
     local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
     local state = { units = { ["6948"] = 1 }, ah = {}, gold = 100000 } -- a hearthstone: bags that read empty tell nothing
@@ -51,7 +53,17 @@ local function Session(saved, clock)
     FM.RecipeOf = function() return nil end
     FM.LatestRecord = function() return nil end
     r.names[PEARL], r.names[LEATHER], r.names[BRACERS] = "Small Lustrous Pearl", "Light Leather", "Turtle Scale Bracers"
-    local function Look() return FM.PoolUpdate() end
+    local function Look()
+        env.FireEvent("BAG_UPDATE_DELAYED")
+        return FM.PoolUpdate()
+    end
+    function state.Collect(key, n)
+        env.FireEvent("MAIL_SHOW")
+        state.units[key] = n
+        local looked = Look()
+        env.FireEvent("MAIL_CLOSED")
+        return looked
+    end
     return FM, env, state, r, Look
 end
 
@@ -83,14 +95,11 @@ H.test("pool: 20 bought at 2s and 20 at 3s are 40 at 2s 50c, whether the mail is
         Look()
         H.eq(Pool(FM, PEARL), "none", "bought, still in the mail: not in the pool")
         if collects == 1 then
-            state.units[PEARL] = 40
-            Look()
+            state.Collect(PEARL, 40)
         else
-            state.units[PEARL] = 20
-            Look()
+            state.Collect(PEARL, 20)
             H.eq(Pool(FM, PEARL), "20 at 200", "the first mail: the purchase made first")
-            state.units[PEARL] = 40
-            Look()
+            state.Collect(PEARL, 40)
         end
         H.eq(Pool(FM, PEARL), "40 at 250", "collected " .. collects .. " time(s): 40 at 2s 50c")
         H.eq(#r.pool.Ada.wait, 0, "nothing waits any more")
@@ -101,8 +110,7 @@ H.test("pool: using or selling units lowers the count and keeps the average", fu
     local FM, _, state, _, Look = Started()
     FM.LogPurchase(PEARL, 20, 20 * 2 * S)
     FM.LogPurchase(PEARL, 20, 20 * 3 * S)
-    state.units[PEARL] = 40
-    Look()
+    state.Collect(PEARL, 40)
     state.units[PEARL] = 25 -- 15 used in a craft
     Look()
     H.eq(Pool(FM, PEARL), "25 at 250", "15 used: 25 left at the same 2s 50c")
@@ -118,8 +126,7 @@ end)
 H.test("pool: units count when they arrive: 20 at 4s used while 20 at 2s wait in the mail leave 20 at 2s", function()
     local FM, _, state, _, Look = Started()
     FM.LogPurchase(PEARL, 20, 20 * 4 * S)
-    state.units[PEARL] = 20
-    Look()
+    state.Collect(PEARL, 20)
     H.eq(Pool(FM, PEARL), "20 at 400", "20 in the bags at 4s")
     FM.LogPurchase(PEARL, 20, 20 * 2 * S) -- bought and left in the mail
     Look()
@@ -127,24 +134,53 @@ H.test("pool: units count when they arrive: 20 at 4s used while 20 at 2s wait in
     state.units[PEARL] = 0 -- the 20 from the bags used in a craft
     Look()
     H.eq(Pool(FM, PEARL), "none", "the bags' 20 are used up")
-    state.units[PEARL] = 20 -- the mail collected
-    Look()
+    state.Collect(PEARL, 20) -- the mail collected
     H.eq(Pool(FM, PEARL), "20 at 200", "20 at 2s: the units in the mail could not have been the ones used")
+end)
+
+H.test("pool: units looted while a purchase waits in the mail are looted units", function()
+    local FM, _, state, r, Look = Started()
+    state.ah[PEARL] = 400
+    FM.LogPurchase(PEARL, 20, 20 * 2 * S) -- left in the mail
+    state.units[PEARL] = 20 -- 20 looted meanwhile, far from a mailbox
+    Look()
+    H.eq(Pool(FM, PEARL), "20 at 400", "the looted 20 at the AH's 4s, not at the purchase's 2s")
+    H.eq(#r.pool.Ada.wait, 1, "the purchase still waits")
+    state.units[PEARL] = 0 -- used
+    Look()
+    state.Collect(PEARL, 20)
+    H.eq(Pool(FM, PEARL), "20 at 200", "the mail collected: 20 at the 2s they cost")
+    H.eq(#r.pool.Ada.wait, 0, "nothing waits any more")
+    -- its mail, read at the mailbox before the units were taken, was no second purchase
+    FM.LogPurchase(PEARL, 5, 5 * 3 * S)
+    FM.PoolMail({ "Ada", "buyer", "Small Lustrous Pearl", "", FM.Enc(5), FM.Enc(1500), FM.Enc(1500), FM.Enc(0), FM.Enc(0) })
+    H.eq(#r.pool.Ada.wait, 1, "one purchase of 5 waits")
+end)
+
+H.test("pool: the first look of a session takes what waits, wherever it arrived", function()
+    local FM, _, _, r = Started()
+    FM.LogPurchase(PEARL, 20, 20 * 2 * S)
+    -- the mail was collected and the game left before the AddOn looked: the next session's first look
+    local FM2, _, state2, r2, Look2 = Session(FM.db)
+    H.eq(#r2.pool.Ada.wait, 1, "the purchase waits in the saved data")
+    state2.units[PEARL] = 20
+    Look2()
+    H.eq(Pool(FM2, PEARL), "20 at 200", "20 at the 2s they cost, without a mailbox seen in this session")
+    H.eq(#r2.pool.Ada.wait, 0, "nothing waits any more")
+    H.eq(r, r2, "the same saved data")
 end)
 
 H.test("pool: the pearls case: units bought long ago and used no longer raise what you paid", function()
     local FM, _, state, _, Look = Started()
     -- 100 dear pearls bought and collected, then used in crafts
     FM.LogPurchase(PEARL, 100, 100 * 5 * S)
-    state.units[PEARL] = 100
-    Look()
+    state.Collect(PEARL, 100)
     state.units[PEARL] = 0
     Look()
     -- lately 147 bought at about 2s 30c
     FM.LogPurchase(PEARL, 80, 80 * 213)
     FM.LogPurchase(PEARL, 67, 67 * 250)
-    state.units[PEARL] = 147
-    Look()
+    state.Collect(PEARL, 147)
     local p = FM.PoolOf(PEARL)
     H.eq(math.floor(p.n + 0.5), 147, "147 held")
     H.eq(math.floor(p.unit + 0.5), math.floor((80 * 213 + 67 * 250) / 147 + 0.5), "at what these 147 cost: 2s 30c, not 5s")
@@ -155,15 +191,13 @@ H.test("pool: a won auction's mail is a purchase, a commodity purchase's mail is
     -- a won auction (an item that is no commodity): known only from its mail
     FM.PoolMail({ "Ada", "buyer", "Turtle Scale Bracers", "Seller", FM.Enc(1), FM.Enc(30000), FM.Enc(30000), FM.Enc(0), FM.Enc(0) })
     H.eq(#r.pool.Ada.wait, 1, "the bracers wait")
-    state.units[BRACERS] = 1
-    Look()
+    state.Collect(BRACERS, 1)
     H.eq(Pool(FM, BRACERS), "1 at 30000", "taken out of the mail: 1 at the 3g it cost")
     -- a commodity purchase: recorded at the purchase, its mail read later adds nothing
     FM.LogPurchase(PEARL, 20, 4000)
     FM.PoolMail({ "Ada", "buyer", "Small Lustrous Pearl", "", FM.Enc(20), FM.Enc(4000), FM.Enc(4000), FM.Enc(0), FM.Enc(0) })
     H.eq(#r.pool.Ada.wait, 1, "one purchase waits, not two")
-    state.units[PEARL] = 20
-    Look()
+    state.Collect(PEARL, 20)
     H.eq(Pool(FM, PEARL), "20 at 200", "20 at 2s")
     -- another character's mail is not this one's purchase
     FM.PoolMail({ "Bee", "buyer", "Small Lustrous Pearl", "", FM.Enc(5), FM.Enc(5000), FM.Enc(5000), FM.Enc(0), FM.Enc(0) })
@@ -210,8 +244,7 @@ end)
 H.test("pool: crafted units enter at their materials' basis from the craft log, the materials leave", function()
     local FM, _, state, r, Look = Started()
     FM.LogPurchase(LEATHER, 20, 20 * 200)
-    state.units[LEATHER] = 20
-    Look()
+    state.Collect(LEATHER, 20)
     -- a craft of 2 bracers from 8 leather: the craft log's line with the materials' basis (8 x 2s = 16s)
     r.crafts = { string.format("%d,%s,2,2,Ada,900,%s:8:1600:20", NOW, BRACERS, LEATHER) }
     state.units[LEATHER], state.units[BRACERS] = 12, 2
@@ -232,8 +265,7 @@ end)
 H.test("pool: units posted on the AH come back at what they left with, sold ones do not come back", function()
     local FM, _, state, r, Look = Started()
     FM.LogPurchase(BRACERS, 5, 5 * 1000)
-    state.units[BRACERS] = 5
-    Look()
+    state.Collect(BRACERS, 5)
     state.ah[BRACERS] = 9000
     -- 4 posted
     r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW), "Ada", BRACERS, FM.Enc(4), FM.Enc(9000), "2", "i" }, ",")
@@ -243,8 +275,7 @@ H.test("pool: units posted on the AH come back at what they left with, sold ones
     -- one sold: its mail is read
     FM.PoolMail({ "Ada", "seller", "Turtle Scale Bracers", "Buyer", FM.Enc(1), FM.Enc(9000), FM.Enc(9000), FM.Enc(18), FM.Enc(450) })
     -- the other 3 expired and are taken out of the mail
-    state.units[BRACERS] = 4
-    Look()
+    state.Collect(BRACERS, 4)
     H.eq(Pool(FM, BRACERS), "4 at 1000", "3 back at the 10s they left with, not at the AH's 90s")
     -- one more appears that no post explains: looted, at the AH price
     state.units[BRACERS] = 5
@@ -273,16 +304,14 @@ H.test("pool: it starts from the units held then, at the craft log's estimate", 
     Look2()
     H.eq(Pool(FM2, PEARL), "none", "none held yet")
     H.eq(#r2.pool.Ada.wait, 1, "the purchase waits")
-    state2.units[PEARL] = 20
-    Look2()
+    state2.Collect(PEARL, 20)
     H.eq(Pool(FM2, PEARL), "20 at 250", "collected: 20 at 2s 50c")
 end)
 
 H.test("pool: units that left and are back within half a minute come back at what they left with", function()
     local FM, env, state, _, Look = Started()
     FM.LogPurchase(PEARL, 20, 20 * 200)
-    state.units[PEARL] = 20
-    Look()
+    state.Collect(PEARL, 20)
     state.ah[PEARL] = 900
     -- a bag read before its container was loaded: 12 of the 20 seem gone, then they are there again
     state.units[PEARL] = 8
@@ -304,8 +333,7 @@ end)
 H.test("pool: no look in the first seconds after a login", function()
     local FM, env, state, _, Look = Started()
     FM.LogPurchase(PEARL, 20, 20 * 200)
-    state.units[PEARL] = 20
-    Look()
+    state.Collect(PEARL, 20)
     FM.loginAt = NOW + 100 -- a /reload
     env.clock = NOW + 103
     state.units[PEARL] = 0 -- the bags' containers still loading
@@ -333,13 +361,11 @@ H.test("pool: the tooltip's you paid is the pool's average, Shift tells where th
     -- 67 older ones (held at the start would be "older": here a purchase 10 days ago), 80 bought now, 12 looted
     env.clock = NOW - 10 * 86400
     FM.LogPurchase(PEARL, 67, 67 * 360)
-    state.units[PEARL] = 67
-    Look()
+    state.Collect(PEARL, 67)
     env.clock = NOW
     FM.LogPurchase(PEARL, 80, 80 * 221)
-    state.units[PEARL] = 147
-    Look()
-    state.units[PEARL] = 159
+    state.Collect(PEARL, 147)
+    state.units[PEARL] = 159 -- 12 looted
     Look()
     local average = (67 * 360 + 80 * 221 + 12 * 240) / 159
     local info = FM.CostInfo(PEARL)
@@ -372,13 +398,10 @@ H.test("pool: the saved data is bounded", function()
     for i = 1, 40 do
         env.clock = NOW + 40 * 86400 + i * 60
         FM.LogPurchase(LEATHER, 1, 100 + i)
-        state.units[LEATHER] = i
-        Look()
+        state.Collect(LEATHER, i)
     end
     local parts = 0
     for _ in r.pool.Ada.items[LEATHER]:gmatch("[^;]+") do parts = parts + 1 end
     H.eq(parts <= 7, true, "the bought parts of 40 purchases: the 6 newest and one for the older ones, got " .. parts)
     H.eq(Pool(FM, LEATHER):match("^(%d+) at"), "40", "and all 40 units are counted")
-    -- /fm forget drops a character's pools with its other records
-    H.eq(type(FM.ForgetCharacter), "nil", "(scan/Characters.lua is not loaded here: its field list is checked there)")
 end)

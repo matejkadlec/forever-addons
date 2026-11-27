@@ -454,7 +454,8 @@ function FM.ShowPriceGraph(key)
     if not window then CreateWindow() end
     shown.key = key
     window:Show()
-    window:Raise()
+    -- to the front also when it was open already (ui/Layers.lua keeps the order of the Marketplace's windows)
+    if FM.LayerShown then FM.LayerShown(window) else window:Raise() end
     Render()
 end
 

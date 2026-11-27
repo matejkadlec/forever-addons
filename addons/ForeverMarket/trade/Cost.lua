@@ -617,10 +617,12 @@ local function Facts(key, id)
     return sell, stack
 end
 
--- The items a post's deposit could not be worked out for yet (itemID -> { key, at }): the client was asked and has
--- not answered. While one of them is younger than FACTS_WAIT the Profit tab's numbers are not final
+-- The items a post's deposit could not be worked out for yet (itemID -> { key, at, done }): the client was asked
+-- and has not answered. While one of them is younger than FACTS_WAIT the Profit tab's numbers are not final
 -- (FM.DepositsPending, trade/Performance.lua shows the last finished ones and scan/Worth.lua takes no reading); the
--- answer makes everything that used a deposit count again
+-- answer makes everything that used a deposit count again. An answer ends an item's wait for good (done), also one
+-- that brought no price (an item the client can no longer load): asking for it again must not start a new wait,
+-- or the numbers would never be final
 local waiting = {}
 local settling = false
 
@@ -631,9 +633,10 @@ local function FactsChanged()
 end
 
 local function OnFacts(itemID, success)
+    if FM.IsSecret(itemID) then return end
     local w = waiting[itemID]
-    if not w then return end
-    waiting[itemID] = nil
+    if not w or w.done then return end
+    w.done, w.at = true, 0
     if success ~= false then Facts(w.key, itemID) end
     -- also an item that turned out not to exist ends its wait: the numbers that waited for it are final now
     if not settling and C_Timer and C_Timer.After then
