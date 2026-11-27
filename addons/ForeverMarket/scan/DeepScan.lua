@@ -39,6 +39,8 @@ local LATE_WINDOW = 5 * 60    -- a list that comes this long after a request wit
 local ATTEMPTS_MAX = 50       -- attempts kept in r.scanLog
 local COMPLETE_SHARE = 0.99   -- another AddOn's list is saved when this share of its auctions could be read
 local MIN_LIST_UPDATES = 2    -- a list without any request counts as a full scan only when it arrives in steps
+local LOAD_PER_FRAME = 200    -- item data requests per frame for the gear links that came without a name (FRV-215)
+local LOAD_WAIT = 8           -- seconds those links wait for their items' data before they are read again
 
 FM.deep = { state = "idle", progress = 0, retries = 0 }
 
@@ -150,6 +152,7 @@ local function Abort(reason, out)
     StopTicker()
     EndAttempt(out or "stopped")
     FM.deep.snap = nil
+    FM.deep.reread = nil
     SetState("idle")
     if reason then FM.PrintError("Deep scan stopped: " .. reason) end
 end
@@ -195,7 +198,12 @@ local function CheckSuffix(snap, index, key, name)
 end
 
 -- The gear variant of an auction (FRV-200): its link read for weapons and armor only (FM.IsGear once per item and
--- scan), the variant parsed once per link; nil for an item that is no gear, "" when the link tells nothing
+-- scan), the variant parsed once per link; nil for an item that is no gear, "" when the link holds none.
+-- A link that cannot be read yet (FRV-215: about 4 in 10 gear auctions of the maintainer's scan of 2026-11-26 sat
+-- under "") is told apart: the second value is "nolink" (the call failed or gave no text) or "noname" (the link's
+-- name is empty: the client has not loaded the item's data, and FRV-200 trusts no field of such a link). Such an
+-- auction is read again after the walk (Reread). snap.linkStats counts the links, both causes and how many of the
+-- nameless links carried their bonus IDs anyway (bonus)
 local function GearVariantOf(snap, index, key)
     local gear = snap.isGear
     if not gear then
@@ -203,6 +211,7 @@ local function GearVariantOf(snap, index, key)
         snap.isGear = gear
         snap.variantOf = {}
         snap.links = 0
+        snap.linkStats = { nolink = 0, noname = 0, bonus = 0 }
     end
     local isGear = gear[key]
     if isGear == nil then
@@ -214,7 +223,22 @@ local function GearVariantOf(snap, index, key)
     if not getLink then return "" end
     local ok, link = pcall(getLink, index)
     snap.links = snap.links + 1
-    if not ok or FM.IsSecret(link) or type(link) ~= "string" then return "" end
+    local stats = snap.linkStats
+    if not ok or FM.IsSecret(link) or type(link) ~= "string" then
+        stats.nolink = stats.nolink + 1
+        return "", "nolink"
+    end
+    if FM.LinkNameless(link) then
+        stats.noname = stats.noname + 1
+        -- what its fields say meanwhile: only counted, and compared with the link read again
+        local first = snap.namelessOf[link]
+        if first == nil then
+            first = FM.GearVariant(link, true)
+            snap.namelessOf[link] = first
+        end
+        if first ~= "" then stats.bonus = stats.bonus + 1 end
+        return "", "noname", first
+    end
     local variant = snap.variantOf[link]
     if not variant then
         variant = FM.GearVariant(link)
@@ -234,10 +258,127 @@ local function ReadEntry(snap, index)
     local band = ah.GetReplicateItemTimeLeft and ah.GetReplicateItemTimeLeft(index)
     if type(name) == "string" and name ~= "" and not FM.IsSecret(name) then CheckSuffix(snap, index, key, name) end
     -- a bid-only auction is skipped by the snapshot: no link read for it
-    local variant = type(buyout) == "number" and buyout > 0 and GearVariantOf(snap, index, key) or nil
+    local variant, unread, first
+    if type(buyout) == "number" and buyout > 0 then variant, unread, first = GearVariantOf(snap, index, key) end
+    if unread then
+        -- its variant is told after the walk, once its item's data is there (Reread)
+        local slot = FM.SnapshotAdd(snap, key, type(name) == "string" and name or nil, count, buyout, ownerFull or owner, band,
+            FM.VARIANT_LATER)
+        if slot then
+            local list = snap.unread
+            list[#list + 1] = { index = index, key = key, id = itemID, buyout = buyout, band = band, slot = slot, first = first }
+        end
+        return true
+    end
     FM.SnapshotAdd(snap, key, type(name) == "string" and name or nil, count, buyout, ownerFull or owner, band, variant)
     return true
 end
+
+-- The gear auctions whose link could not be read in the walk (FRV-215), read again: their items' data is asked for
+-- (C_Item.RequestLoadItemDataByID, LOAD_PER_FRAME items per frame; one already loaded needs no answer), and once
+-- every answer is there (ITEM_DATA_LOAD_RESULT / GET_ITEM_INFO_RECEIVED) or LOAD_WAIT seconds passed, each of those
+-- auctions' links is read once more, WALK_PER_FRAME per frame. The list of the full scan stays in the client until
+-- the next one, so its indexes still name the same auctions (Auctionator's own full scan reads late links the same
+-- way). A link that still has no name leaves its auction under "". The attempt keeps the counts for /fm scanlog:
+-- unread = auctions read again, nolink / noname = why, bonus = nameless links that carried bonus IDs anyway,
+-- again = links that had their name the second time, same = of those, how many say what their first link said,
+-- still = auctions left under "" unread, rwait = seconds waited for the data
+local function Reread(snap, a, done)
+    local deep = FM.deep
+    local unread = snap.unread
+    local stats = snap.linkStats or { nolink = 0, noname = 0, bonus = 0 }
+    if a then a.unread, a.nolink, a.noname, a.bonus = #unread, stats.nolink, stats.noname, stats.bonus end
+    if #unread == 0 then return done() end
+    -- the items to load, each once
+    local ids, queue = {}, {}
+    local cached = C_Item and C_Item.IsItemDataCachedByID
+    for _, u in ipairs(unread) do
+        if ids[u.id] == nil then
+            local ok, loaded = false, false
+            if cached then ok, loaded = pcall(cached, u.id) end
+            -- false = an answer is awaited, true = nothing to wait for
+            ids[u.id] = ok and not FM.IsSecret(loaded) and loaded == true
+            if not ids[u.id] then queue[#queue + 1] = u.id end
+        end
+    end
+    local waiting = #queue
+    local job = { ids = ids, left = waiting }
+    deep.reread = job
+    local started, sent = GetTime(), 0
+    local request = C_Item and C_Item.RequestLoadItemDataByID
+
+    local function Read()
+        deep.reread = nil
+        StopTicker()
+        if a then a.rwait = math_floor((GetTime() - started) * 10 + 0.5) / 10 end
+        local getLink = AH().GetReplicateItemLink
+        local again, same, still = 0, 0, 0
+        local index = 0
+        local function step()
+            if deep.snap ~= snap then return end
+            if not FM.ahOpen then
+                Abort(deep.source ~= "rep" and "the Auction House was closed" or nil, "closed")
+                return
+            end
+            local stop = math_min(#unread, index + WALK_PER_FRAME)
+            for i = index + 1, stop do
+                local u = unread[i]
+                local variant = ""
+                local ok, link = false, nil
+                if getLink then ok, link = pcall(getLink, u.index) end
+                if ok and type(link) == "string" and not FM.IsSecret(link) and not FM.LinkNameless(link) then
+                    variant = snap.variantOf[link]
+                    if not variant then
+                        variant = FM.GearVariant(link)
+                        snap.variantOf[link] = variant
+                    end
+                    again = again + 1
+                    if u.first ~= nil and u.first == variant then same = same + 1 end
+                else
+                    still = still + 1
+                end
+                FM.SnapshotGear(snap, u.key, u.slot, variant, u.buyout, u.band)
+            end
+            index = stop
+            if index < #unread then
+                C_Timer.After(0, step)
+                return
+            end
+            if a then a.again, a.same, a.still = again, same, still end
+            snap.unread = {}
+            done()
+        end
+        step()
+    end
+
+    if waiting == 0 or not request then return Read() end
+    -- asks for the next items, then looks whether every answer came
+    deep.ticker = C_Timer.NewTicker(0.1, function()
+        if deep.snap ~= snap or deep.reread ~= job then
+            return
+        end
+        if not FM.ahOpen then
+            deep.reread = nil
+            Abort(deep.source ~= "rep" and "the Auction House was closed" or nil, "closed")
+            return
+        end
+        local stop = math_min(#queue, sent + LOAD_PER_FRAME)
+        for i = sent + 1, stop do pcall(request, queue[i]) end
+        sent = stop
+        deep.progress = 1
+        if sent >= #queue and (job.left <= 0 or GetTime() - started >= LOAD_WAIT) then Read() end
+    end)
+end
+
+-- An item's data arrived (or the client says it has none): one answer less to wait for
+local function OnItemData(itemID)
+    local job = FM.deep.reread
+    if not job or FM.IsSecret(itemID) or job.ids[itemID] ~= false then return end
+    job.ids[itemID] = true
+    job.left = job.left - 1
+end
+FM.On("ITEM_DATA_LOAD_RESULT", OnItemData)
+FM.On("GET_ITEM_INFO_RECEIVED", OnItemData)
 
 local function Finish(snap, a)
     SetState("saving", 1)
@@ -283,7 +424,9 @@ local function Walk(cut)
         return
     end
     local snap = FM.NewSnapshot(deep.source)
+    snap.unread, snap.namelessOf = {}, {} -- gear auctions to read again after the walk (FRV-215)
     deep.snap = snap
+    deep.reread = nil
     deep.retries, deep.retryAt, deep.lastNoAnswer = 0, nil, nil
     SetState("walking", 0)
     local index, read = 0, 0
@@ -322,7 +465,8 @@ local function Walk(cut)
             SetState("idle")
             return
         end
-        Finish(snap, a)
+        -- the gear links that came without a name are read again first (FRV-215)
+        Reread(snap, a, function() Finish(snap, a) end)
     end
     step()
 end
@@ -735,6 +879,17 @@ function FM.DescribeScanAttempt(a)
         local cost = a.cpu and string_format(" (%s ms reading, %s gear links)", FM.FormatCount(a.cpu),
             FM.FormatCount(a.links or 0)) or ""
         parts[#parts + 1] = "read in " .. tostring(a.walk) .. " s" .. cost
+    end
+    -- the gear links that could not be read at first, why, and what reading them again brought (FRV-215)
+    if (a.unread or 0) > 0 then
+        local Count = FM.FormatCount
+        parts[#parts + 1] = string_format(
+            "%s gear links unread at first (%s without a name, %s no link; %s of them with bonus IDs already), "
+                .. "%s read again after %s s (%s as their first link said), %s still unread",
+            Count(a.unread), Count(a.noname or 0), Count(a.nolink or 0), Count(a.bonus or 0), Count(a.again or 0),
+            tostring(a.rwait or 0), Count(a.same or 0), Count(a.still or 0))
+    elseif a.unread == 0 and (a.links or 0) > 0 then
+        parts[#parts + 1] = "every gear link read"
     end
     if a.cut then parts[#parts + 1] = "cut off while it still changed" end
     if a.q then parts[#parts + 1] = "queued " .. a.q .. " s" .. (a.busy and (" (" .. a.busy .. ")") or "") end

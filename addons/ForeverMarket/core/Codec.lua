@@ -101,11 +101,19 @@ local function Digits(s)
     return s ~= nil and string_find(s, "^%d+$") ~= nil
 end
 
--- The variant of an auction's link; "" for a link that is nil, secret, has an empty name or does not parse
-function FM.GearVariant(link)
+-- Whether a link's name is empty: the client has not loaded the item's data yet (FRV-138), and the deep scan reads
+-- such a link again once it has (FRV-215)
+function FM.LinkNameless(link)
+    return type(link) == "string" and not FM.IsSecret(link) and string_find(link, "|h[]|h", 1, true) ~= nil
+end
+
+-- The variant of an auction's link; "" for a link that is nil, secret, has an empty name or does not parse.
+-- nameless = true reads the fields of a link with an empty name too: only to count how often they are there
+-- (/fm scanlog, FRV-215), never as the auction's variant
+function FM.GearVariant(link, nameless)
     if FM.IsSecret(link) or type(link) ~= "string" then return "" end
     -- the name of an item whose data is not loaded yet is empty: what the rest holds then is not known
-    if string_find(link, "|h[]|h", 1, true) then return "" end
+    if not nameless and string_find(link, "|h[]|h", 1, true) then return "" end
     local itemString = link:match("item:([^|]*)")
     if not itemString then return "" end
     local fields = FM.Split(itemString, ":")

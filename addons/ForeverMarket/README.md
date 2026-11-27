@@ -51,7 +51,23 @@ and the ones the best fit below marks). Only the latest snapshot has them: the n
 the feed reads the same numbers from the API's item auctions; a feed from an older feed program or server brings none,
 and `FM.GearSnapshot()` is nil until the next deep scan then). The extra link read costs one `GetReplicateItemLink` per gear
 auction (about 108,000 of the maintainer's 282,000 on 2026-11-25), the walk still reads 2,000 auctions per frame: `/fm
-scanlog` shows how long reading the list took, the time spent reading and the gear links read. `/fm status` counts the
+scanlog` shows how long reading the list took, the time spent reading and the gear links read.
+
+**Gear links read again** (1.61, FRV-215). A link whose name is empty (`|h[]|h`: the client has not loaded the item's
+data yet) tells nothing, and neither does a link the client does not give: in the maintainer's deep scan of 2026-11-26
+18:50, 39,952 of 71,352 gear auctions (56.0%) sat under the empty variant, where the Battle.net feed has 13.0%, so
+about 4 in 10 gear auctions were unread, and the Upgrades tab knew no suffix for them until the next feed import. Now
+the walk keeps those auctions aside (`FM.VARIANT_LATER`, `snap.unread`) and, before the snapshot is saved, asks the
+client for their items' data (`C_Item.RequestLoadItemDataByID`, 200 items per tick, none for an item already loaded:
+`C_Item.IsItemDataCachedByID`), waits for the answers (`ITEM_DATA_LOAD_RESULT` / `GET_ITEM_INFO_RECEIVED`), at most 8
+seconds, and reads each of those auctions' links once more, 2,000 per frame; the full scan's list stays in the client
+until the next one, so its indexes still name the same auctions (Auctionator's own full scan reads late links the
+same way). An auction whose link still has no name stays under the empty variant. `/fm scanlog` says what happened:
+"39,952 gear links unread at first (39,900 without a name, 52 no link; 31,204 of them with bonus IDs already), 39,700
+read again after 2.4 s (31,150 as their first link said), 252 still unread", or "every gear link read". The numbers in
+brackets tell whether a link without a name already carries its bonus IDs on Forever and whether they can be trusted
+(they are only counted: the variant always comes from a link with its name). Your own auctions are in no variant and
+are not read again. `/fm status` counts the
 variants of the latest snapshot ("Gear variants in the latest snapshot: 18,412 of 3,950 items": the listings of others,
 one per variant, and the gear items they belong to).
 
@@ -122,8 +138,9 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   requests, throttle events (`AUCTION_HOUSE_THROTTLED_MESSAGE_SENT` / `QUEUED` / `DROPPED` / `RESPONSE_RECEIVED`,
   `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`) and AH errors (`AUCTION_HOUSE_SHOW_ERROR`) while it waited, how long
   the list took, and for a list it read (1.53, FRV-200) "read in 14.2 s (812 ms reading, 107,776 gear links)": the
-  walk's time, the time spent in its reads and the gear links it read. The last 50 are kept (`scanLog`, below), so
-  the next failure shows its cause
+  walk's time, the time spent in its reads and the gear links it read; since 1.61 (FRV-215) also the gear links that
+  could not be read at first, why, and what reading them again brought (Gear links read again, above). The last 50 are
+  kept (`scanLog`, below), so the next failure shows its cause
 
 ## In game
 
@@ -2052,7 +2069,10 @@ Picks skip).
   throttle at the request (`ready` / `busy` / `?`), `before` the requests of the 10 s before it, `during` / `tev` /
   `err` the requests, throttle events and AH errors while it waited, `first` seconds to the list, `n` auctions in it,
   `read` auctions read, `walk` seconds the walk took, `cpu` ms spent in its reads and `links` gear links read (1.53,
-  FRV-200), `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
+  FRV-200), `unread` gear auctions whose link could not be read in the walk, `nolink` / `noname` why (no link given,
+  a link without a name), `bonus` the nameless links that carried bonus IDs, `rwait` seconds waited for their items'
+  data, `again` links that had their name when read again, `same` of those the ones saying what their first link
+  said, `still` auctions left under the empty variant unread (1.61, FRV-215), `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
   a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
   not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
   not finished), `next` the next try (seconds)

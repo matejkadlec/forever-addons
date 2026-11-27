@@ -237,8 +237,28 @@ local function ResolveOwn(snap, key, agg)
     end
 end
 
+-- A gear auction whose variant is told later (FRV-215: the deep scan could not read its link yet)
+FM.VARIANT_LATER = {}
+
+-- The variant of an auction added with FM.VARIANT_LATER, once it is known: slot = what FM.SnapshotAdd returned for
+-- it (true: an auction of someone else, counted in its variant now; a table: one that may be yours, decided when
+-- the snapshot is finished)
+function FM.SnapshotGear(snap, key, slot, variant, buyout, band)
+    if type(variant) ~= "string" then variant = "" end
+    if type(slot) == "table" then
+        slot.variant = variant
+        return
+    end
+    local agg = snap.keys[key]
+    if not (slot and agg) then return end
+    if type(band) ~= "number" or band < 0 or band > 3 then band = 0 end
+    AddGear(agg, variant, buyout, math_floor(band))
+end
+
 -- count: stack size, buyout: total buyout copper of the auction, band: time left band 0-3; variant: the gear
--- variant of the auction's link (FM.GearVariant, "" for none), nil for an item that is no gear (FRV-200)
+-- variant of the auction's link (FM.GearVariant, "" for none), nil for an item that is no gear (FRV-200), or
+-- FM.VARIANT_LATER for a gear auction whose variant FM.SnapshotGear tells later: the slot to tell it with is
+-- returned then (nil for an auction of yours, which is in no variant)
 function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band, variant)
     if not key or type(count) ~= "number" or type(buyout) ~= "number" or count <= 0 or buyout <= 0 then
         snap.nSkipped = snap.nSkipped + 1
@@ -266,11 +286,12 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band, variant)
 
     if type(band) ~= "number" or band < 0 or band > 3 then band = 0 end
     band = math_floor(band)
+    local later = variant == FM.VARIANT_LATER
     if type(variant) ~= "string" then
         variant = nil
-    else
-        snap.gear = true -- the scan read gear variants: r.last.gear is written
     end
+    if variant or later then snap.gear = true end -- the scan read gear variants: r.last.gear is written
+    local slot
     local tag
     local unknownOwner = type(owner) ~= "string" or owner == ""
     if FM.IsOwnChar(owner) then
@@ -292,6 +313,7 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band, variant)
         end
         pending[#pending + 1] = { count = count, unit = unit, band = band, fp = #agg.fps + 1, variant = variant,
             buyout = buyout }
+        if later then slot = pending[#pending] end
     else
         if type(owner) == "string" and owner ~= "" then
             tag = snap.hashes[owner]
@@ -304,9 +326,11 @@ function FM.SnapshotAdd(snap, key, name, count, buyout, owner, band, variant)
         end
         if not agg.minOther or unit < agg.minOther then agg.minOther = unit end
         if variant then AddGear(agg, variant, buyout, band) end
+        if later then slot = true end
     end
     agg.fps[#agg.fps + 1] = tag .. ":" .. Enc(count) .. ":" .. Enc(buyout) .. ":" .. band
     snap.nAuctions = snap.nAuctions + 1
+    return slot
 end
 
 -- Stats of a price ladder: qty within +5%/+20% of min and the quantity weighted median
