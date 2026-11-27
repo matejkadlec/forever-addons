@@ -346,7 +346,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
   (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
   rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
-  filters", "Lock plan after refresh", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
+  filters", "Auto-refresh", "Keep edits", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
   over such an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and moving onto
   it with Shift already held shows it too, while Shift over a row or a header changes nothing. A row's Amount input is
   an input inside the row: over it neither the row's tooltip nor its own shows without Shift, the rest of the row
@@ -442,7 +442,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       again when it arrives
 
     Learning a recipe, a profession window after which ForeverArtisan lists more learned recipes or that lists one it
-    does not, and such an item arriving each compute the tabs again a second later; a locked Picks plan stays, and
+    does not, and such an item arriving each compute the tabs again a second later; a held Picks plan stays, and
     Refresh's tooltip names "a recipe you learned" among what changed since the plan
   * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
     for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
@@ -463,7 +463,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
     left of it when the screen ends there). Every change applies at once: the table shows it, Picks plans again
-    (also while the plan is locked). Switching tabs shows the new tab's set (a tab without filters hides it until you
+    (also while the plan is held). Switching tabs shows the new tab's set (a tab without filters hides it until you
     are back), closing the table closes it and opening the table again opens only the table, Esc closes it (with the
     table and every other ForeverMarket window, as Esc always does: they are all in `UISpecialFrames`). The
     buttons open it, a click again closes it. A child option is greyed out and disabled while its parent is
@@ -515,7 +515,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and the global set start at their defaults; the old keys (`tableLearn`, `tableIgnoreStock`, `tableIgnoreVendor`,
     `tableLearnHigher`, `tableLearnMaxAbove`) are dropped at load (`FM.MigrateFilters`). Broken values get their
     default, numbers their range (`FM.FilterClamp`).
-  * Every checkbox of the table and its dialogs has its text first, the box after it ("Lock plan after refresh [x]"),
+  * Every checkbox of the table and its dialogs has its text first, the box after it ("Keep edits [x]"),
     like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
     checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
@@ -620,12 +620,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Your bags and bank are an input of the plan (1.35, FRV-98): 2 s after the last bag event (`BAG_UPDATE_DELAYED`,
     a bank slot change) their units are compared with the last look, and a change (moving items between bags and bank,
     crafting, looting, buying, mail taken out; not sorting) counts once (`FM.stockVersion`); in combat (arrows,
-    reagents, potions used) the look waits for the end of the fight, which counts as one change. With "Lock plan after
-    refresh" off the open table or a sticky window plans again at once (a pass that is running started with the stock
-    before: one more is queued behind it), else the table when it opens next; locked, the
+    reagents, potions used) the look waits for the end of the fight, which counts as one change. With "Auto-refresh"
+    on the open table or a sticky window plans again at once (a pass that is running started with the stock
+    before: one more is queued behind it), else the table when it opens next; held (Auto-refresh off), the
     plan stays and Refresh's tooltip says your bags or bank changed. Why the maintainer's pick read "48 from your
-    bank, AH 136" with 200+ Heavy Leather in the bank (2026-11-22): the lock held a plan made with the stock of its
-    moment (until 1.34 nothing planned again for a change of your bags or bank, locked or not), and the number fits an
+    bank, AH 136" with 200+ Heavy Leather in the bank (2026-11-22): the plan was held and had been made with the stock of its
+    moment (until 1.34 nothing planned again for a change of your bags or bank, held or not), and the number fits an
     earlier pick that used the rest (another Heavy Leather craft of the saved craft log takes 5 each: with 203 held, 31
     of its crafts leave 48), which the line did not say; the counts in the saved data agree with the bank (the craft
     log's 240 held before a craft of 75 at 16:47, the bank's reading of 165 after it). The plan itself is not saved, so
@@ -739,15 +739,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       keeps its target whatever its share of the gold says now, so what was bought and crafted for it stays its own; a
       set pick done since the plan stays at its number ("made 5") until the next new plan, and the sniper buys nothing
       more for it. Units that reached your bags outside the plan are not seen (Refresh makes a new plan with them). It runs like a pass (the table shows the plan before it meanwhile; another
-      edit waits for it), also while "Lock plan after refresh" is checked: that lock is about scans, an edit is yours.
+      edit waits for it), also while "Auto-refresh" is off and the plan is held: that is about scans, an edit is yours.
     * A number set on a pick **out of scope** keeps it there with your number: that pick alone is made again (on its
       own, as the plan judged it), the plan is not, so it takes none of the plan's gold and does not change the plan,
       also when the scan moved since (its tooltip's first line says so). Emptied, it is out of scope by its own numbers
       again; Remove from Picks takes it out of the list.
     * Set picks are saved per character (`setPicks` in Data format): an alt's plan neither keeps nor changes them.
-      **Lock manual plan changes** (a checkbox under "Lock plan after refresh", at the end of the summary line,
+      **Keep edits** (1.59, FRV-221: a checkbox right of "Auto-refresh" at the right end of the budget row; "Lock
+      manual plan changes" at the end of the summary line in 1.57 and 1.58, where it covered the line's end;
       `tablePicksLockManual`, on by default): a new plan (Refresh, a change of a Picks setting, or an automatic plan
-      with "Lock plan after refresh" off) keeps every set pick with its number and in its place, in the plan or out of
+      with "Auto-refresh" on) keeps every set pick with its number and in its place, in the plan or out of
       scope, even when the scan says it is no longer pick #1, and the tab's filters (the profession, the place, a
       maximum, Exclude crafting) do not drop it, nor do the Vendor and Flip tabs' own cuts (a vendor resell that earns
       under 10c now, a flip at a new price level: it keeps your number with its status icon; a flip with nothing left
@@ -778,9 +779,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (the dialogs' alert, `Interface\DialogFrame\UI-Dialog-Icon-AlertNew`): a unit of the pick earns less than your
     minimum profit (the Profit of the budget row); hover: "Below your min. profit setting." A red cross (the ready
     check's `UI-LFG-DeclineMark` atlas, the loot roll's Pass where the client has none): the pick loses money now, its
-    Expected under 0 ("-26s 09c 8h", the minus in red; for a locked plan's pick the Expected at the price now shows
+    Expected under 0 ("-26s 09c 8h", the minus in red; for a held plan's pick the Expected at the price now shows
     then); hover: "Is not profitable as of now." A set pick can get either;
-    so can any pick of a plan held by "Lock plan after refresh" once a newer scan moved its item's price
+    so can any pick of a plan held with "Auto-refresh" off once a newer scan moved its item's price
     (`FM.PickStatus`: a craft, a vendor resell or a Stock pick read at the price its item lists at in the pass shown; a
     flip has its own AH check, a wait lists later). The icon's tooltip shows on hover (an icon, no input: FRV-186);
     its clicks are the row's. Not yet verified in game
@@ -792,7 +793,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
     columns only moved by their titles). On AH, C/8h and C/24h have the same cells, header
     tips and sorting as on Craft, the numbers of the pick's item (the product of a craft or a recipe to learn, the item
-    of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a locked
+    of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a held
     plan keeps its picks (`MarketRow` in ui/Table.lua); an item no tab holds now keeps the numbers the pick was made with
     (`pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
     snapshot's own units; the tooltip's "you list" (Room on the AH) also counts your posts since, so the two can differ
@@ -811,8 +812,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks
-    [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]** (Profit since 1.42, FRV-126), with "Lock
-    plan after refresh" at its right (the maintainer's layout after his test, 1.35.5; first "Picks: [Y] | [X] % [x] |
+    [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]** (Profit since 1.42, FRV-126), with "Auto-refresh"
+    and "Keep edits" at its right end (1.59, FRV-221; "Lock plan after refresh" alone there from 1.35.5, the
+    maintainer's layout after his test; first "Picks: [Y] | [X] % [x] |
     Invest: [g s c] [ ]"). Y (`tableInvestPicks`, default 3, 1 to 12) is how many picks the plan has at most; fewer
     when fewer good picks exist (the summary says why). The two checkboxes of Invest and of Profit (1.42, FRV-126; one
     choice of the two until 1.41): one or both checked, a click on the last checked one of a pair is refused (it stays
@@ -820,8 +822,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (`tableInvestPctOn` / `tableInvestManual`, `tableProfitPctOn` / `tableProfitManual`; a saved choice of 1.41 stays,
     the % or the amount alone). Invest: **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90,
     1 to 90: 10% stay for deposits; an older X above 90 counts as 90), the money boxes = the amount typed in
-    (`tableInvestAmount`, copper, up to 999999g 99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed
-    to 60 / 34 / 34 px for 6 and 2 digits), capped at 90% of your gold, which the row's tooltip says; both checked,
+    (`tableInvestAmount`, copper, up to 9999g 99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed
+    to 46 / 31 / 31 px, just wide enough for 4 and 2 digits with their coin icons, since 1.59, FRV-221; 60 / 34 / 34 px
+    and 6 digits of gold until 1.58, and a larger saved amount is clamped to 9999g 99s 99c at load), capped at 90% of your gold, which the row's tooltip says; both checked,
     the settings panel's "% + manual invest logic" decides (`tableInvestLogic`): "Both must apply" (default) = within
     both budgets, the smaller one, "Either must apply" = within one of them, the larger ("12g 40s (75% and 20g, the
     smaller)" in the summary). **Profit** is the minimum profit per item of a pick, after the AH cut, against what one
@@ -899,34 +902,38 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (half of 1,051 a day) far above the 184 listed and your 150 a day, which the 1.22 rule above stops. The same
     data puts the 25% share right for items sold per auction (you sold a median 20% of C/24h per day listed) and far
     too high for commodities (at most 4%, FRV-71). `tools/fm_analyze.py room` shows these numbers per item.
-  * "Lock plan after refresh" (1.22, FRV-63, `tablePicksLock`, on by default and for existing settings): a
-    checkbox at the right of the budget row (of the summary line until 1.34). On, Picks keeps its plan while you buy, craft and post it: only the
+  * **Auto-refresh** (1.59, FRV-221; "Lock plan after refresh" from 1.22, FRV-63, to 1.58, with the meaning turned
+    around): a checkbox at the right end of the budget row, left of "Keep edits" (of the summary line until 1.34),
+    **unchecked by default**. The saved setting is still `tablePicksLock` (true or not set: the plan is held), so a
+    choice made under the old name keeps its behaviour: "Lock plan after refresh" checked is "Auto-refresh"
+    unchecked. Unchecked, Picks keeps its plan while you buy, craft and post it: only the
     Refresh button, a change of a Picks input (below, also Ignore / Stop ignoring an item and `/fm exclude`) and the
     first view of Picks (or Learn, whose green arrows come from the plan) in a session make a new plan
     (`FM.PlanPicks`). Deep scans, feed imports, posts, newly read auction lists, changes of your bags or bank, opening
     the table and its 15 s tick compute the other tabs again and keep the plan (`FM.ComputeTrade` copies the `pick*`
     fields of the plan shown; `FM.EnsureTrade` no longer computes for a post, an auction list or a change of your
     stock). The summary line keeps the gold and budget the plan was made with and its time, "Gold: 17g 73s  ·  Budget:
-    90% of your gold = 15g 95s (locked 14:05): ..." (`pickGold`, `pickFunds`, `pickAt`); Refresh's tooltip says what
+    90% of your gold = 15g 95s: ..." (`pickGold`, `pickFunds`, `pickAt`; the time is in the line's tooltip, "Planned at
+    14:05: ...", and until 1.58 also in the line as "(locked 14:05)"); Refresh's tooltip says what
     came since ("A newer snapshot, 2 posts and a change in your bags or bank since the plan", `pickT`, `pickListings`,
     `pickStock`). The plan
-    is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
-    1.20.3, and turning it off plans at once (keeping what you crafted of its picks, below). An amount you set makes the
-    plan again whatever this lock says (an edit is yours), and "Lock manual plan changes" under it (1.57, FRV-188)
+    is not saved: after a `/reload` or a login the first view plans once. Checked: Picks plans again by itself as in
+    1.20.3, and checking it plans at once (keeping what you crafted of its picks, below). An amount you set makes the
+    plan again whatever this option says (an edit is yours), and "Keep edits" right of it (1.57, FRV-188)
     decides whether a new plan keeps your amounts (see Amount).
   * What you crafted counts toward a pick (1.45, FRV-104; `FM.PickProgress`, `FM.CraftedSince` in trade/Crafts.lua):
     a craft pick's Make is its plan's target, and the units of its item this character crafted since the plan was
     made (the craft log, `R.crafts`: batches started since, written again on every bag update) count toward it. The
     tooltip reads "Make: 20 / 51" (crafted / target, "0 / 51" before the first craft, "(9 crafts left)" for a recipe
     that makes several, "55 / 51, done" past it), the make step "make 31 more", and once the target is made "made 51"
-    with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With the
-    lock on the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
+    with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With
+    Auto-refresh off the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
     of your bags), and the buy step follows your AH purchases since the plan (review round 1, `FM.PickBuyStep`,
     `FM.BoughtSince` in trade/Cost.lua: the purchase log of this character; picks buying one material share those
     purchases out in their order, pick #1 first, review round 2): "buy 31 more Heavy Leather up to 2s 75c",
     grey "bought the materials" once nothing is left to buy (the plan used your stock first, so the purchases are what
     the target needs beyond it; the use step and the tooltip's material lines stay as planned). A purchase waits in
-    your mail until you take it out, and a plan made again counts it only then. With the lock off an automatic plan carries each craft pick that is in it again over
+    your mail until you take it out, and a plan made again counts it only then. With Auto-refresh on an automatic plan carries each craft pick that is in it again over
     (`FM.PickCarry`: its target, the time of its plan and what you held then): it makes only the rest, its materials to
     buy follow the rest, the crafted units you still hold go to the AH with it ("list 51 at ... (20 you hold)", the
     tooltip's "You hold: 20 in your bags, listed with them (20 crafted for this pick)") and are no units you hold that
@@ -934,7 +941,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     shrink by them (the gold share still caps what the rest buys). Once the target is made the pick lists what you hold
     of it (a Stock pick, its make step "made 51" first); with nothing left to list it is gone ("the 51 of its plan are
     made, none left in your bags or bank to list"). A plan you ask for (Refresh, a change of a Picks input) starts new
-    targets: what you crafted is then units you hold. Switching the lock off keeps the progress. Not counted: crafts of
+    targets: what you crafted is then units you hold. Checking Auto-refresh keeps the progress. Not counted: crafts of
     another item, of another character, and of a batch started before the plan. Until 1.44 a plan made again after
     crafting counted the crafted units as yours and made the full number again (Hillman's Cloak: "make 51 > list 71 ...
     (20 you hold)" after 20 crafted).
@@ -944,7 +951,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and "Over character level" set which recipes to learn are "Level for" information), the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the budget row's Profit leaves out picks that earn
     less per item (the settings panel's minimum profit per item until 1.41), the settings panel's share of C/24h sets
-    the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
+    the room of every pick (1.19). Each change makes a new plan (also while it is held, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
   * One plan for the budget (X % of your gold, the amount set, or both combined), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
@@ -1008,7 +1015,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     since the scan: list them once they are in your bags"). A confirmation counts for 5 minutes: after that the buy
     step says "(not confirmed since 18:52)", and the next plan cuts its confidence again (at the AH each flip pick is
     searched again every 2 minutes). Each new answer reaches the plan
-    shown: not locked, a pass plans again as after a post (your craft picks keep their targets); locked, the pick
+    shown: not held, a pass plans again as after a post (your craft picks keep their targets); held, the pick
     shows it in place, confirmed (its confidence back, in its tooltip and the summary too) or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
     plans without it.")
   * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
@@ -1071,9 +1078,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     shows only with Any / Any
   * **Where I am**: the map you are in (`C_Map.GetBestMapForUnit("player")`, a micro map, dungeon or cave map taken
     up to its zone), read again on `ZONE_CHANGED_NEW_AREA`, `ZONE_CHANGED`, `ZONE_CHANGED_INDOORS` and
-    `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Lock plan after refresh"
-    off (a locked plan keeps the vendors it was made for until Refresh), and when the move came while the table was
-    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a locked plan stays)
+    `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Auto-refresh"
+    on (a held plan keeps the vendors it was made for until Refresh), and when the move came while the table was
+    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a held plan stays)
   * Vendor: a row stays when one of its vendors is in the place, at the cheapest of them there (`FM.VendorRowIn` in
     trade/Calc.lua: a copy with that offer, its Vendor price, profit, PPG and Min. price worked out again, at least
     10c of profit, or no row); its Vendor cell, row tooltip ("The cheapest of its vendors in Darnassus (1 of 3 vendors
@@ -1082,7 +1089,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     that vendor ("buy 9 at <vendor there> ..."), and an item none of whose vendors there pays is no pick ("no vendor
     in Darnassus sells it with a profit (Continent, Zone)"), except that units of it you hold stay a Stock pick (the
     place limits only what is bought); crafts and AH flips are not filtered by place, the
-    picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan locked).
+    picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan held).
     While "Exclude vendor flips" is on in the set Picks uses (its own or the global one), both stay visible but are
     greyed out and disabled, and their tooltip says why
 * **Flip** columns (1.18): Item, **Profit** (the whole flip, `row.profit`, the default sort; PPG moved to the row
@@ -1240,9 +1247,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   left (`tableStickyPos`, its top left corner; right of the screen's middle the first time), moved down and right
   while another open window sits there. Long content scrolls (Blizzard's `ScrollFrameTemplate`, from 520 px).
   Closing the marketplace leaves them, Esc closes them all at once (`UISpecialFrames`, which closes the table
-  too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Lock plan
-  after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
-  Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
+  too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Auto-refresh"
+  off (the default) only a new plan updates them (the refresh button of the table or of a window, a change of a
+  Picks input), deep scans, feed imports, posts and auction lists leave them as they are; on, every pass updates
   them (a Farm window also every farm pass). A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
   tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search; ignored, or no longer ignored on Ignored) keeps its last
   content with an orange note at the top. Clicking a window does nothing but raise it.
@@ -1883,7 +1890,7 @@ per purchase.
     least a second after the plan before, so two plans of one second stay two). The same
     pick of the same plan again adds nothing: "Already sniping 2 items for Deviate Scale Belt with this plan, nothing
     added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
-    (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
+    (Refresh; with Auto-refresh on every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
     pick that is in it (the plan or "Also good") the units its plan buys at the AH now, but the picks of an item
     together never more than they were sent with less what was bought for them (`Capped`, review rounds 1 to 3; one
     ceiling for the item, `tracedMax`, so a plan that once asked less does not lower it for good and picks cut
@@ -2041,8 +2048,8 @@ Picks skip).
   set (a flip's purchases count from then), the units of yours a craft listed with it, and for a vendor resell the
   units you held then, the most more of them seen since and how many of those it had when the last new plan kept it
   (`gotPlan`). An entry goes when you empty its Amount, remove it, ignore
-  or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Lock
-  manual plan changes off; the tables go once empty
+  or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Keep edits
+  off; the tables go once empty
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was

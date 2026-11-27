@@ -1510,7 +1510,7 @@ end
 -- last BAG_UPDATE_DELAYED or bank slot change, their units are compared with the last look, and a change counts
 -- once (moving items within your bags does not); in combat the look waits for its end. The plan stores the version
 -- it was made with (trade/Calc.lua):
--- with "Lock plan after refresh" off the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
+-- with "Auto-refresh" on (the plan is not held) the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
 -- else when the table opens next); locked, the plan stays and Refresh's tooltip says your bags or bank changed.
 local STOCK_SETTLE = 2
 FM.stockVersion = 0

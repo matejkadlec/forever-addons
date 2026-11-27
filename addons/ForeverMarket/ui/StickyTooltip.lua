@@ -4,7 +4,7 @@ local _, FM = ...
 -- opaque, movable, with an X and a refresh button at the top right and "as of HH:MM". One window per item (a mob
 -- on Farm); Alt+click on an item that has one brings it to the front. ui/Table.lua builds the lines with the same
 -- builders as its hover tooltip (FM.StickyContent) and calls FM.StickyRefresh after every refresh of its data:
---   * "Lock plan after refresh" on: a window updates only with a new plan (Refresh here or in the table, a change
+--   * "Auto-refresh" off (the plan is held; "Lock plan after refresh" on until 1.58): a window updates only with a new plan (Refresh here or in the table, a change
 --     of a Picks input); deep scans, feed imports, posts and auction lists leave it as it is
 --   * off: it updates after every pass, manual or automatic
 --   * its row gone (no longer a pick, filtered out): it keeps its last content and says so at the top

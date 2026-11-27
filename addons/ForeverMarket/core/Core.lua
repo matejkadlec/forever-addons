@@ -59,8 +59,11 @@ FM.DEFAULTS = {
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
     tableMatRefHours = 8, -- craft materials: one bought on the AH costs at least the average cheapest price of others of
                           -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
-    tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
-    tablePicksLockManual = true, -- picks: "Lock manual plan changes": a new plan keeps the amounts you set (FRV-188)
+    tablePicksLock = true, -- picks: the plan is held: only Refresh or a Picks input makes a new one. The tab shows it
+    -- as "Auto-refresh" unchecked (FRV-221; "Lock plan after refresh" checked until 1.58): the key and its values stay,
+    -- so a saved choice keeps its behaviour
+    tablePicksLockManual = true, -- picks: "Keep edits" ("Lock manual plan changes" until 1.58): a new plan keeps the
+    -- amounts you set (FRV-188)
     tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
     -- Upgrades tab (FRV-203, FRV-205): the rarities listed (item quality -> checked), the slots (an equipLoc set to false
     -- is not listed: every slot by default), "Best per slot"
@@ -192,9 +195,10 @@ FM.SETTING_RANGE = {
     tableMatRefHours = { 0, 24 }, -- 0 = no reference price, the latest scan alone (FRV-196)
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
     -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
-    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
+    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 4 digits,
+    -- 9999g, since FRV-221; 6 digits until 1.58: a larger saved amount is clamped to the new limit at load)
     tableInvestPct = { 1, 999 },
-    tableInvestAmount = { 0, 999999 * 10000 + 9999 },
+    tableInvestAmount = { 0, 9999 * 10000 + 9999 },
     -- the Picks row's Profit (FRV-126): the % of a unit's cost (3 digits) and the amount (999g 99s 99c, as the table's
     -- minimum profit per item)
     tableProfitPct = { 0, 999 },

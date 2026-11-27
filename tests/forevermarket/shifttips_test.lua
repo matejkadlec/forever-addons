@@ -340,8 +340,8 @@ H.test("shift tooltips: the window's elements have the kinds of FRV-186", functi
         "Table.lua refresh \"hover\"",
         "Table.lua header \"hover\"",
         "Table.lua summaryZone \"hover\"",       -- the plan's summary line
-        "Table.lua f.lock \"shift\"",            -- Lock plan after refresh
-        "Table.lua f.lockManual \"shift\"",      -- Lock manual plan changes (FRV-188)
+        "Table.lua f.keepEdits \"shift\"",       -- Keep edits (FRV-188; "Lock manual plan changes" until FRV-221)
+        "Table.lua f.autoRefresh \"shift\"",     -- Auto-refresh ("Lock plan after refresh" until FRV-221)
         "Table.lua b \"hover\"",                 -- a row
         "Table.lua amount \"shift\"",            -- a row's Amount input
         "Table.lua status \"hover\"",            -- a pick's status icon after Expected (FRV-188): an icon, no input
