@@ -11,6 +11,8 @@
 --     the deep scan asks for those items' data and reads their links again before it saves, each auction then in the
 --     variant its named link gives. An auction whose link still has no name after 8 seconds stays under "". The
 --     attempt keeps the counts: unread at first and why, read again, still unread
+--   * the walk is complete before that second reading: the Auction House closing during it ends the second reading,
+--     not the scan. The snapshot is saved as a finished walk always was, the links not read again stay under ""
 --   * r.last.gear goes with r.last: the next snapshot replaces it, a feed import without gear leaves none (FM.GearSnapshot nil; with gear:
 --     gearfeed_test.lua, FRV-201)
 
@@ -362,18 +364,59 @@ H.test("gear variants: a scan with every gear link read waits for nothing, and y
     H.eq(FM.DescribeScanAttempt(a):find("every gear link read", 1, true) ~= nil, true, "/fm scanlog says so")
 end)
 
-H.test("gear variants: closing the AH while the links wait for their data ends the scan unsaved (FRV-215)", function()
-    local list = { { id = 15638, buyout = 20000, link = NAMELESS_POWER, late = LINK_POWER } }
-    local FM, _, scan = DeepScan(list, { ["15638"] = true })
-    scan.Start()
-    FM.ahOpen = false
-    scan.Tick(0.1)
-    H.eq(FM.R().last, nil, "no snapshot")
-    H.eq(FM.deep.state, "idle", "the scan is over")
+H.test("gear variants: closing the AH while the links wait for their data still saves the scan (FRV-215)", function()
+    local list = {
+        { id = 15638, buyout = 20000, link = NAMELESS_POWER, late = LINK_POWER },
+        { id = 7542, buyout = 9000, link = LINK_GREAVES },
+    }
+    -- the close event itself, then a close only the wait's own tick notices
+    for _, how in ipairs({ "event", "tick" }) do
+        local FM, env, scan = DeepScan(list, { ["15638"] = true, ["7542"] = true })
+        scan.loaded[7542] = true
+        scan.Start()
+        H.eq(FM.R().last, nil, how .. ": the scan waits for the shoulders' data")
+        if how == "event" then
+            env.FireEvent("AUCTION_HOUSE_CLOSED")
+            env.FlushTimers()
+        else
+            FM.ahOpen = false
+            scan.Tick(0.1)
+        end
+        local last = FM.R().last
+        H.eq(last and last.source, "fm", how .. ": the walk was complete: the snapshot is saved")
+        H.eq(FM.deep.state, "idle", how .. ": the scan is over")
+        H.eq(last.gear["7542"], ":1:12733=" .. FM.Enc(9000) .. ":1:2", how .. ": the greaves' variant, read in the walk")
+        H.eq(last.gear["15638"], nil, how .. ": the shoulders stay under \"\": no entry")
+        H.same(FM.GearListings("15638"), { { variant = "", bonus = "", buyout = 20000, n = 1, band = 2 } },
+            how .. ": their auction is in the snapshot, without a variant")
+        local a = FM.R().scanLog[#FM.R().scanLog]
+        H.same({ a.out, a.unread, a.again, a.still }, { "ok", 1, 0, 1 }, how .. ": saved, 1 unread, none read again, 1 still unread")
+        -- a late answer changes nothing
+        scan.Load(15638)
+        scan.Tick(1)
+        H.eq(FM.R().last, last, how .. ": the snapshot stays as it was saved")
+    end
+end)
+
+H.test("gear variants: closing the AH during the walk itself still ends the scan unsaved (FRV-215)", function()
+    local list = {}
+    for i = 1, 4500 do list[i] = { id = 2589, buyout = 500 + i, link = "|Hitem:2589::::::::44|h[Linen Cloth]|h" } end
+    local FM, env, scan = DeepScan(list, {})
+    FM.ahOpen = true
+    H.eq(FM.StartDeepScan(true), true, "the scan starts")
+    env.C_AuctionHouse.n = #list
+    -- the walk reads 2,000 auctions per frame: the AH closes after the first frame
+    local after = env.C_Timer.After
+    env.C_Timer.After = function(delay, fn)
+        after(delay, fn)
+        if FM.deep.state == "walking" and FM.ahOpen then env.FireEvent("AUCTION_HOUSE_CLOSED") end
+    end
+    env.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+    env.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+    scan.Tick(2)
+    scan.Tick(2)
+    H.eq(FM.R().last, nil, "no snapshot of a list read in part")
     H.eq(FM.R().scanLog[#FM.R().scanLog].out, "closed", "the attempt says the AH closed")
-    scan.Load(15638)
-    scan.Tick(1)
-    H.eq(FM.R().last, nil, "a late answer saves nothing")
 end)
 
 H.test("gear variants: Auctionator's full scan passes the variant of its entries' links", function()

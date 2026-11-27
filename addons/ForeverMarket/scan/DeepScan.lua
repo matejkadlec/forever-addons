@@ -152,7 +152,7 @@ local function Abort(reason, out)
     StopTicker()
     EndAttempt(out or "stopped")
     FM.deep.snap = nil
-    FM.deep.reread = nil
+    FM.deep.reread, FM.deep.rereadEnd = nil, nil
     SetState("idle")
     if reason then FM.PrintError("Deep scan stopped: " .. reason) end
 end
@@ -279,16 +279,42 @@ end
 -- every answer is there (ITEM_DATA_LOAD_RESULT / GET_ITEM_INFO_RECEIVED) or LOAD_WAIT seconds passed, each of those
 -- auctions' links is read once more, WALK_PER_FRAME per frame. The list of the full scan stays in the client until
 -- the next one, so its indexes still name the same auctions (Auctionator's own full scan reads late links the same
--- way). A link that still has no name leaves its auction under "". The attempt keeps the counts for /fm scanlog:
--- unread = auctions read again, nolink / noname = why, bonus = nameless links that carried bonus IDs anyway,
--- again = links that had their name the second time, same = of those, how many say what their first link said,
--- still = auctions left under "" unread, rwait = seconds waited for the data
+-- way). A link that still has no name leaves its auction under "". The walk is complete by then, so the Auction
+-- House closing ends only this second reading: the auctions not read again yet stay under "" and the snapshot is
+-- saved, as a finished walk always was (deep.rereadEnd, called by the close handler). The attempt keeps the counts
+-- for /fm scanlog: unread = auctions read again, nolink / noname = why, bonus = nameless links that carried bonus
+-- IDs anyway, again = links that had their name the second time, same = of those, how many say what their first
+-- link said, still = auctions left under "" unread, rwait = seconds waited for the data
 local function Reread(snap, a, done)
     local deep = FM.deep
     local unread = snap.unread
     local stats = snap.linkStats or { nolink = 0, noname = 0, bonus = 0 }
     if a then a.unread, a.nolink, a.noname, a.bonus = #unread, stats.nolink, stats.noname, stats.bonus end
     if #unread == 0 then return done() end
+    local started = GetTime()
+    local again, same, still = 0, 0, 0
+    local index = 0 -- the unread auctions told their variant so far
+    local ended = false
+    -- The end of the second reading, also an early one (the AH closed): what was not read again stays under ""
+    local function End()
+        if ended then return end
+        ended = true
+        deep.reread, deep.rereadEnd = nil, nil
+        StopTicker()
+        for i = index + 1, #unread do
+            local u = unread[i]
+            still = still + 1
+            FM.SnapshotGear(snap, u.key, u.slot, "", u.buyout, u.band)
+        end
+        index = #unread
+        if a then
+            a.again, a.same, a.still = again, same, still
+            a.rwait = a.rwait or math_floor((GetTime() - started) * 10 + 0.5) / 10
+        end
+        snap.unread = {}
+        done()
+    end
+    deep.rereadEnd = End
     -- the items to load, each once
     local ids, queue = {}, {}
     local cached = C_Item and C_Item.IsItemDataCachedByID
@@ -304,7 +330,7 @@ local function Reread(snap, a, done)
     local waiting = #queue
     local job = { ids = ids, left = waiting }
     deep.reread = job
-    local started, sent = GetTime(), 0
+    local sent = 0
     local request = C_Item and C_Item.RequestLoadItemDataByID
 
     local function Read()
@@ -312,14 +338,10 @@ local function Reread(snap, a, done)
         StopTicker()
         if a then a.rwait = math_floor((GetTime() - started) * 10 + 0.5) / 10 end
         local getLink = AH().GetReplicateItemLink
-        local again, same, still = 0, 0, 0
-        local index = 0
         local function step()
-            if deep.snap ~= snap then return end
-            if not FM.ahOpen then
-                Abort(deep.source ~= "rep" and "the Auction House was closed" or nil, "closed")
-                return
-            end
+            if deep.snap ~= snap or ended then return end
+            -- the list is the open Auction House's: closed, the rest stays unread
+            if not FM.ahOpen then return End() end
             local stop = math_min(#unread, index + WALK_PER_FRAME)
             for i = index + 1, stop do
                 local u = unread[i]
@@ -344,9 +366,7 @@ local function Reread(snap, a, done)
                 C_Timer.After(0, step)
                 return
             end
-            if a then a.again, a.same, a.still = again, same, still end
-            snap.unread = {}
-            done()
+            End()
         end
         step()
     end
@@ -357,11 +377,7 @@ local function Reread(snap, a, done)
         if deep.snap ~= snap or deep.reread ~= job then
             return
         end
-        if not FM.ahOpen then
-            deep.reread = nil
-            Abort(deep.source ~= "rep" and "the Auction House was closed" or nil, "closed")
-            return
-        end
+        if not FM.ahOpen then return End() end
         local stop = math_min(#queue, sent + LOAD_PER_FRAME)
         for i = sent + 1, stop do pcall(request, queue[i]) end
         sent = stop
@@ -832,6 +848,9 @@ FM.On("AUCTION_HOUSE_CLOSED", function()
         end
         StopTicker()
         SetState("idle")
+    elseif state == "walking" and deep.rereadEnd then
+        -- the walk is complete and only its unread gear links are read again (FRV-215): that ends, the scan is saved
+        deep.rereadEnd()
     elseif state == "waiting" or state == "walking" then
         Abort(deep.source ~= "rep" and "the Auction House was closed" or nil, "closed")
     end
