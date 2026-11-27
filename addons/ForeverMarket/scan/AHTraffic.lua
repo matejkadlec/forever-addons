@@ -170,6 +170,13 @@ function FM.AHBusyReason()
     return nil
 end
 
+-- How many requests of a kind went out this session ("post", "buy", "cancel", ...): scan/Ledger.lua stops giving a
+-- post the gold that leaves once a purchase was asked for (FRV-226)
+function FM.AHTrafficCount(id)
+    local s = state[id]
+    return s and s.n or 0
+end
+
 -- What has happened so far, for FM.AHTrafficSince
 function FM.AHTrafficMark()
     local counts, events = {}, {}

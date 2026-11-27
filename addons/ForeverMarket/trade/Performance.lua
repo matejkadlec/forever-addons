@@ -203,7 +203,7 @@ end
 -- who -> key -> { { t, qty, duration, kind }, ... } (an expired mail belongs to a post of its own character)
 local function Posts(r, char, from)
     local byChar = {}
-    for _, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
+    for index, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
         local f = FM.Split(line, ",")
         if f[2] and f[3] and (not char or f[2] == char) then
             local t = FM.Unstamp(f[1])
@@ -212,7 +212,9 @@ local function Posts(r, char, from)
                 local byKey = byChar[f[2]]
                 byKey[f[3]] = byKey[f[3]] or {}
                 local list = byKey[f[3]]
-                list[#list + 1] = { t = t, qty = Dec(f[4]) or 1, duration = tonumber(f[6]), kind = f[7] }
+                -- known: what the post or your sale mails say its deposit was (FRV-226, trade/Cost.lua)
+                list[#list + 1] = { t = t, qty = Dec(f[4]) or 1, duration = tonumber(f[6]), kind = f[7],
+                    known = FM.PostDepositKnown and FM.PostDepositKnown(r, index) or nil }
             end
         end
     end
@@ -378,7 +380,7 @@ local function Intake(r, char, cover)
     for _, byKey in pairs(posts) do
         for key, list in pairs(byKey) do
             for _, post in ipairs(list) do
-                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration, post.kind) or 0
+                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration, post.kind, post.known) or 0
             end
         end
     end

@@ -1582,6 +1582,28 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     the first new reading says again which bought units are gone
   * a percent that is not 0 never reads "0.0%": under 0.05% in size it is "+0.1%" or "-0.1%", an exact 0 is "0.0%"
     (`FM.PerfPercentText`)
+* **A post's deposit as it was really paid** (1.70, FRV-226): the rule above is still an estimate, and for an auction
+  that expires the estimate was all the tab had (the "Expired deposit" loss). Now a post keeps its deposit:
+  * **With the post** (`scan/Ledger.lua`): two fields at the end of its line, `paid` and `calc`. `calc` is what the
+    client's own calculator says for the post right when it is made (`C_AuctionHouse.CalculateCommodityDeposit` with
+    the 1s a commodity post pays at least, `C_AuctionHouse.CalculateItemDeposit` for single auctions: the number the
+    AH's sell page shows). `paid` is the gold that left you after the post: every fall of your gold from the post on
+    belongs to it until the next post, 3 quiet seconds (each auction a post of several makes, and each fall, starts
+    them again), the AH closing or a logout. A purchase or a cancel asked for in that time leaves `paid` empty: its
+    gold cannot be told from the deposit's. The tab takes `paid`, then `calc`. Which of the two the AH really takes
+    for every kind of post is only seen in the game (the in-game test of this version), so both are saved.
+  * **Older posts, and posts without the fields**, take their deposit from your sale mails, which name the real one
+    (`FM.PostDepositKnown` in `trade/Cost.lua`): each mail takes the units of the oldest post of its character and
+    item that it can be of (as the lots below match them). A post's sold units count at what their mails gave back,
+    its other units at the same deposit per unit (a post of 3 White Spider Meat that sold one for 33c back: 99c); a
+    post that sold nothing takes the rate of the item's other posts of the same duration (a commodity: the lowest
+    deposit per unit any of them shows, with the 1s floor, since a small post's 1s is no rate; single auctions: the
+    deposit most of their mails name); with no such mail, the rule.
+  * On the maintainer's data of 2026-11-27 (865 posts, 1,816 sale mails, 1,797 of them matched to a post): the sum of
+    the differences between the deposit booked for a sold auction and the one its mail gave back falls from 89s 76c
+    (the rule; 1,698 of 1,814 exact) to 22s 36c (1,806 exact); 796 posts get their deposit from mails, 69 keep the
+    rule. The "Expired deposit" losses of the 13 days move from 72g 89s 82c to 72g 88s 38c, the hunter's AH result
+    from 95g 25s 96c to 94g 75s 75c: the rule had charged about 50s less than the mails gave back.
 * **The character dropdown** (1.69, FRV-231; at the right end of the row of Daily / Weekly / Monthly, its right edge
   under the Upgrades tab's): **All characters**, the default, then every known character of this realm and faction
   (`FM.Characters`, the list of `/fm chars`), each with its full name in its class color: `Elfiehu Ntress`,
@@ -2249,7 +2271,11 @@ Picks skip).
   a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
   not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
   not finished), `next` the next try (seconds)
-* `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
+* `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID[,paid,calc]]`: `paid` and `calc` (1.70,
+  FRV-226) are the post's deposit, the gold that left you after it (empty when that could not be told) and what the
+  client's calculator said (a commodity at least 1s). A line only grows at its end: the auction ID a moment after
+  the post, then both deposit fields together once the post is settled; without an auction ID its field is empty.
+  Every reader takes the fields by their place from the start (`tools/fm_analyze.py` too)
 * `plans` (1.40, FRV-103) `t,char,key,kind,batch,invest,expected,conf,rank,x`: the picks of every plan (Picks, the
   order and the plan to be measured later against what sold, FRV-125), one line each: t = when it was planned, kind
   `craft` (Craft and sell) / `wait` (Craft and wait) / `stock` / `swait` (Stock, wait) / `learn` / `vendor` / `flip`,
