@@ -744,7 +744,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       `tablePicksLockManual`, on by default): a new plan (Refresh, a change of a Picks setting, or an automatic plan
       with "Lock plan after refresh" off) keeps every set pick with its number and in its place, in the plan or out of
       scope, even when the scan says it is no longer pick #1, and the tab's filters (the profession, the place, a
-      maximum, Exclude crafting) do not drop it; a craft's crafts since you set it count toward your number ("Make 3 /
+      maximum, Exclude crafting) do not drop it, nor do the Vendor and Flip tabs' own cuts (a vendor resell that earns
+      under 10c now, a flip at a new price level: it keeps your number with its status icon; a flip with nothing left
+      to buy on the AH ends); a craft's crafts since you set it count toward your number ("Make 3 /
       5", listed with it), a flip's AH purchases since you set it, a vendor resell's units you hold more than then.
       Off, a new plan starts from its own numbers and your amounts are dropped.
     * A set pick ends when you empty its input and press Enter, or the row menu's Reset amount (1.49, FRV-194): the

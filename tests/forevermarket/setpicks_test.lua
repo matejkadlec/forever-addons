@@ -331,3 +331,53 @@ H.test("set picks: the status after Expected, a warning under your minimum profi
     FM.trade = out
     H.eq(FM.TablePickStatus(x), nil, "no newer scan: the plan's numbers, no icon")
 end)
+
+-- Review round 2 of pull request 90: a set vendor resell or flip whose price moved under the tabs' cuts keeps its number
+local PASS_FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua",
+    "scan/Ledger.lua", "trade/Sources.lua", "trade/Places.lua", "trade/Calc.lua", "trade/Listings.lua", "trade/Picks.lua" }
+
+H.test("set picks: a vendor resell the Vendor tab leaves out (no profit now) gets a row of its own in the pass", function()
+    local FM, env = H.LoadAddon("addons/ForeverMarket", PASS_FILES)
+    FM.InitializeSavedData()
+    env.clock = FM.EPOCH + NOW_MINUTES * 60
+    -- 50 listed at 10s 05c each, the vendor sells it at 10s: listed at 10s 04c it loses money after the cut
+    FM.R().last = { t = env.clock, fp = { ["301"] = F.Fingerprint({ owner = "x1", count = 50, buyout = 50 * 1005, band = 3 }) } }
+    FM.BuildSources = function()
+        return { crafts = {}, later = {}, byKey = {}, profs = {},
+            vendors = { ["301"] = { best = { unit = 1000, where = "Vendor, Zone" }, offers = {} } } }
+    end
+    FM.SaveSetPick("301", { n = 6, from = "vendor", pos = 1, at = env.clock })
+    FM.ComputeTrade(false)
+    env.FlushTimers()
+    H.eq(FM.trade.err, nil, "the pass ran through")
+    for _, row in ipairs(FM.trade.vendor) do H.eq(row.key ~= "301", true, "no row on the Vendor tab") end
+    local row = FM.trade.setRows and FM.trade.setRows[1]
+    H.same({ row and row.key, row and row.setFrom, row and row.vendorUnit }, { "301", "vendor", 1000 }, "a row of its own for your set pick")
+    H.eq(row.profit < 0, true, "at a loss: " .. tostring(row.profit))
+end)
+
+H.test("set picks: a set vendor resell at a loss is planned with your number and the red cross, not dropped", function()
+    local FM, env = Setup()
+    local row = { key = "301", sell = 1004, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 50, own = 0, sold12 = 10,
+        setFrom = "vendor" }
+    FM.R().items["301"] = { d = Records(27) }
+    FM.SaveSetPick("301", { n = 6, from = "vendor", pos = 1, at = env.clock })
+    local out = NewPlan(FM, env, { crafts = { Craft("202", 155000) }, setRows = { row } })
+    local pick = PickOf(out, "301")
+    H.same({ pick and pick.amount, pick and pick.amountSet, pick and pick.rank }, { 6, true, 1 }, "your 6, first")
+    H.eq(FM.PickStatus(pick, nil, out.pickProfit), "loss", "the red cross: it loses money as of now")
+    H.eq(FM.SetPickEntry("301") ~= nil, true, "your number is kept")
+end)
+
+H.test("set picks: a vendor resell set before the plan and bought since stays at your number in the plans made again", function()
+    local FM, env = Setup()
+    local setAt = env.clock - 600
+    FM.SaveSetPick("301", { n = 6, from = "vendor", pos = 1, at = setAt, held0 = 0 })
+    FM.SetPicksPlanned() -- the new plan that kept it: nothing bought by then
+    local held = 6
+    FM.Owned = function(key) if key == "301" then return held, held, held, held end return 0, 0, 0, 0 end
+    FM.SetPicksStock() -- the 6 bought at the vendor since that plan
+    local entry = FM.SetPickList()[1]
+    H.same({ FM.SetPickLeft(entry, env.clock) }, { 6, 0 }, "as of the plan: none bought yet, your 6 to plan")
+    H.same({ FM.SetPickLeft(entry) }, { 0, 6 }, "for the next new plan: done")
+end)

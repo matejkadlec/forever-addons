@@ -608,9 +608,11 @@ local function DefaultDesc(col)
 end
 
 -- The columns a saved sort was made for: when a tab's columns change, its saved sort goes back to the default
+-- (a column without a header label by its tooltip's title: Picks' status, FRV-188, review round 2 of PR 90; an empty
+-- part would shift the titles after it in the parse below)
 local function ColumnSig(tab)
     local titles = {}
-    for i, col in ipairs(tab.columns) do titles[i] = col.title end
+    for i, col in ipairs(tab.columns) do titles[i] = col.tipTitle or col.title end
     return table.concat(titles, "|")
 end
 
@@ -627,7 +629,7 @@ local function SortState(tab)
     if type(state) == "table" and type(state.list) == "table" and type(state.sig) == "string" and state.sig ~= sig then
         local old, at, same = {}, {}, true
         for title in string.gmatch(state.sig, "[^|]+") do old[#old + 1] = title end
-        for i, col in ipairs(tab.columns) do at[col.title] = i end
+        for i, col in ipairs(tab.columns) do at[col.tipTitle or col.title] = i end
         for _, title in ipairs(old) do
             if not at[title] then same = false end
         end

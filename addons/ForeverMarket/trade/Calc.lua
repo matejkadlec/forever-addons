@@ -857,10 +857,12 @@ end
 -- A row of the Flip tab: FM.FlipPlan on the item's whole ladder, when its usual price is known (median daily low, last
 -- week) and has not moved to a new level in the last 2 days; the list price may follow today's price and the last 2
 -- days' when they are higher (FRV-214)
-local function FlipRow(key, p, now)
+-- anyLevel: a flip whose amount you set (FRV-188, review round 2 of PR 90): its row also below the Flip tab's lowest
+-- usual price and at a new price level, which only the tab leaves out
+local function FlipRow(key, p, now, anyLevel)
     local usual, recent, today = UsualPrice(key, now)
-    if not usual or usual < FLIP_MIN_USUAL then return nil end
-    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
+    if not usual or (usual < FLIP_MIN_USUAL and not anyLevel) then return nil end
+    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) and not anyLevel then return nil end -- a new price level
     local ref = math_max(recent or 0, today or 0)
     local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p), nil, nil, ref)
     if not f then return nil end
@@ -1154,6 +1156,7 @@ function FM.KeptSetPicks()
         return nil
     end
     FM.PruneSetPicks()
+    if FM.SetPicksPlanned then FM.SetPicksPlanned() end -- what a vendor resell had as of this plan
     return FM.SetPickList()
 end
 
@@ -1396,10 +1399,47 @@ function FM.ComputeTrade(record, onDone)
             end)
         end,
         function(done)
+            -- the rows of your set picks the Vendor and Flip tabs left out (FRV-188, review round 2 of PR 90): a vendor
+            -- resell under the tab's 10c profit or without buyers or a usual price, a flip at a new price level, keeps your
+            -- number (its status says how it does); trade/Picks.lua's SetCandidate reads them (setFrom), no tab shows them.
+            -- A flip with no flip left on the AH at all gets none: it ends (nothing could be bought)
+            local have, rows = {}, {}
+            for _, row in ipairs(out.vendor) do have["vendor:" .. row.key] = true end
+            for _, row in ipairs(out.flips) do have["flip:" .. row.key] = true end
+            for _, e in ipairs(FM.SetPickList and FM.SetPickList() or {}) do
+                local p = (e.from == "vendor" or e.from == "flip") and not have[e.from .. ":" .. e.key] and view.Get(e.key) or nil
+                local row
+                if p and p.ladder[1] and e.from == "vendor" then
+                    local v = sources.vendors[e.key]
+                    local offer = v and v.best
+                    if offer then
+                        local floor = FM.MinListPrice(e.key, p)
+                        row = { key = e.key, offer = offer, offers = v.offers, floor = floor, vendorUnit = offer.unit, qty = p.qty,
+                            own = p.own, sell = math_max(floor, p.ladder[1][1] - 1), sellSrc = "ah", atFloor = p.ladder[1][1] - 1 < floor,
+                            minSell = offer.unit / (1 - AH_CUT) }
+                        row.usual = UsualPrice(e.key, now)
+                        if row.usual and row.usual < row.sell then row.sell, row.sellSrc = math_max(floor, math_floor(row.usual)), "usual" end
+                        row.profit = row.sell * (1 - AH_CUT) - offer.unit
+                        row.p1g = row.profit / offer.unit * 10000
+                    end
+                elseif p and p.ladder[1] then
+                    row = FlipRow(e.key, p, now, true)
+                end
+                if row then
+                    row.setFrom = e.from
+                    row.sold12, row.soldWide = Sold(e.key, WINDOW_12H)
+                    row.sold3d = Sold(e.key, HISTORY_MIN)
+                    rows[#rows + 1] = row
+                end
+            end
+            out.setRows = rows
+            done()
+        end,
+        function(done)
             -- Min item sell includes one lost deposit for a stack: 8h when 100+ units circulate in 24h, else 24h
             -- (it may well not sell in 8h); measured or estimated by trade/Cost.lua
             local seen = {}
-            for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {} }) do
+            for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {}, out.setRows }) do
                 for _, row in ipairs(list) do
                     if not seen[row] then
                         seen[row] = true

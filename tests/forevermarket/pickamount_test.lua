@@ -485,7 +485,11 @@ H.test("amount: a saved sort of the Picks tab follows its columns past the Amoun
     local state = FM.TableSortOf("picks")
     H.same({ state.list[1].col, state.list[1].desc, state.list[2].col, state.list[2].desc }, { 6, true, 11, false },
         "Expected is the sixth column now, Conf. the eleventh: the sort is kept")
-    H.eq(state.sig, "#|Pick|Type|Amount|Invest|Expected||On AH|C/8h|C/24h|Conf.", "saved with the eleven columns")
+    H.eq(state.sig, "#|Pick|Type|Amount|Invest|Expected|Status|On AH|C/8h|C/24h|Conf.", "saved with the eleven columns, the status by its tooltip's title")
+    -- and the next column change still finds every column after it (review round 2 of PR 90: an empty part shifted them)
+    FM.GetSettings().tableSort = { picks = { sig = "#|Pick|Type|Amount|Invest|Expected|Status|On AH|C/8h|C/24h|Conf.",
+        list = { { col = 11, desc = true } } } }
+    H.eq(FM.TableSortOf("picks").list[1].col, 11, "a sort on Conf. saved with the status column stays on Conf.")
     -- a sort saved with a column that is gone falls back to the default (the rank)
     FM.GetSettings().tableSort = { picks = { sig = "#|Pick|Gone", list = { { col = 3, desc = true } } } }
     state = FM.TableSortOf("picks")

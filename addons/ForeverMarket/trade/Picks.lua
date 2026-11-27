@@ -2931,7 +2931,7 @@ function FM.SetPickList()
             list[#list + 1] = { key = key, n = math_floor(n), from = e.from, pos = math_max(1, math_floor(tonumber(e.pos) or 1)),
                 extra = e.extra == true or nil, since = tonumber(e.since) or 0, at = tonumber(e.at) or 0,
                 held = math_max(0, math_floor(tonumber(e.held) or 0)), held0 = math_max(0, math_floor(tonumber(e.held0) or 0)),
-                got = math_max(0, math_floor(tonumber(e.got) or 0)) }
+                got = math_max(0, math_floor(tonumber(e.got) or 0)), gotPlan = tonumber(e.gotPlan) }
         end
     end
     table_sort(list, function(a, b)
@@ -2963,9 +2963,10 @@ function FM.SetPickLeft(e, asOf)
         done = Bought(at)
         if asOf then done = done - Bought(math_max(at, asOf)) end
     else
-        -- no log of vendor purchases: as of a plan made before you set it, none
+        -- no log of vendor purchases: as of a plan made before you set it, none; as of a later one what it had then
+        -- (gotPlan, FM.SetPicksPlanned, review round 2 of PR 90: bought in full since, it stays at your number)
         done = tonumber(e.got) or 0
-        if asOf and (tonumber(e.at) or 0) >= asOf then done = 0 end
+        if asOf then done = (tonumber(e.at) or 0) >= asOf and 0 or (tonumber(e.gotPlan) or done) end
     end
     done = math_max(0, math_floor(done))
     return n - done, done
@@ -2990,6 +2991,14 @@ function FM.PruneSetPicks(keepDone)
     return gone
 end
 
+-- A new plan keeps your set picks (trade/Calc.lua's FM.KeptSetPicks): what each vendor resell had bought by then, for
+-- the plans made again of it (FM.SetPickLeft with asOf)
+function FM.SetPicksPlanned()
+    for _, e in pairs(SetPicksOf(false) or EMPTY) do
+        if type(e) == "table" and e.from == "vendor" then e.gotPlan = tonumber(e.got) or 0 end
+    end
+end
+
 -- Your bags or bank changed (trade/Sources.lua, FM.CheckStock): a vendor resell you set counts the units you hold more
 -- than when you set it, the most seen (bought at the vendor; listing them later takes nothing back)
 function FM.SetPicksStock()
@@ -3006,14 +3015,24 @@ end
 -- resell (at its vendor in the place filter's place when there is one), a flip; nil while the pass has none
 local function SetCandidate(out, e)
     local rows = e.from == "vendor" and out.vendor or (e.from == "flip" and out.flips or out.crafts)
+    local found
     for _, row in ipairs(rows or EMPTY) do
         if row.key == e.key then
-            if e.from == "vendor" then return { kind = "vendor", row = FM.VendorRowIn(row, P.place) or row } end
-            if e.from == "flip" then return { kind = "flip", row = row } end
-            if row.learned and row.sell and row.cost and row.parts and not row.missing then return { kind = "craft", row = row } end
-            return nil
+            found = row
+            break
         end
     end
+    -- a vendor resell or a flip the tabs left out (its price moved): the pass's row of its own (out.setRows, review round
+    -- 2 of PR 90)
+    if not found and e.from ~= "craft" then
+        for _, row in ipairs(out.setRows or EMPTY) do
+            if row.key == e.key and row.setFrom == e.from then found = row end
+        end
+    end
+    if not found then return nil end
+    if e.from == "vendor" then return { kind = "vendor", row = FM.VendorRowIn(found, P.place) or found } end
+    if e.from == "flip" then return { kind = "flip", row = found } end
+    if found.learned and found.sell and found.cost and found.parts and not found.missing then return { kind = "craft", row = found } end
     return nil
 end
 
