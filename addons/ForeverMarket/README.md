@@ -186,6 +186,12 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
         of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
       * Crafted units at their materials' basis from the craft log (below).
       * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
+        Units count as posted when they leave your bags within a minute of the look that found their post (1.66,
+        FRV-232): a post is logged at the click on Post, its units leave when the server answers, and a look in
+        between (two posts about 2 seconds apart, one post of several auctions made over more than 2 seconds) used
+        to use the post up before its units had left, so they left as plain units and came back from an unsold
+        auction as looted ones, at the AH price of that moment. Units that leave later than that minute without a
+        post (used, vendored, mailed) are not taken for posted ones.
       * Units from a vendor at the vendor's price (bags that changed while a merchant window was open): what that
         merchant's list asks for the item in gold, limited stock too, else a vendor price ForeverMarket knows of
         the item. The gold that left you is never taken for the price: it also pays repairs and AH purchases. An
