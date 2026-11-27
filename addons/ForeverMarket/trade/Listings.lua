@@ -16,9 +16,7 @@ local _, FM = ...
 --     at your auctions, as the analysis counts "now" of your own data): before that read a commodity post that ended
 --     while you were away is still taken as running, never as sold out (an osold of 1 unit, or whose buyout is not the unit price: the purchase's
 --     total; an osold of more units at the unit price is the list's mark of a running auction, no sale). opart and
---     purchase entries happened in the middle of (prev, t]. A post from before its character was deleted and made
---     again (FRV-236: the new one took the key over, R.charInfo[char].again) is never over that way: the new
---     character's lists never held it
+--     purchase entries happened in the middle of (prev, t]
 --   * units sold without a known moment spread evenly over the listing's life
 -- The rules stay as they are after FRV-108 and FRV-109: they cost nothing when the lines are right. As the Profit tab
 -- and Picks' pace before 1.40 (FRV-109): an osold line without "s" (an auction that was merely gone from a list) of an
@@ -133,9 +131,8 @@ local function RealSale(e, unit)
     return e.kind == "osold" and (e.qty == 1 or e.buyout ~= unit)
 end
 
--- The commodity posts, each by its auction's events; looked[char] = the minute its auction list was last read;
--- again[char] = the minute its character, deleted and made again, took the key over (FRV-236)
-local function CommodityOutcomes(posts, byAid, expiries, looked, again)
+-- The commodity posts, each by its auction's events; looked[char] = the minute its auction list was last read
+local function CommodityOutcomes(posts, byAid, expiries, looked)
     local mailUsed = {}
     for _, L in ipairs(posts) do
         if L.kind == "c" then
@@ -180,10 +177,8 @@ local function CommodityOutcomes(posts, byAid, expiries, looked, again)
             end
             if returned then
                 L.sold = L.n - returned
-            elseif (looked[L.char] or -math.huge) < L.finish or (again[L.char] and L.t < again[L.char]) then
-                -- running, or over by the clock while no list of yours was read since: what is known to have sold.
-                -- The same for a post of the character that was deleted before this one took its key over: the new
-                -- one's lists never held it, so a list that lacks it says nothing
+            elseif (looked[L.char] or -math.huge) < L.finish then
+                -- running, or over by the clock while no list of yours was read since: what is known to have sold
                 L.open = true
                 L.sold = math_min(L.n, math_max(partSum, buySum))
             else
@@ -309,13 +304,8 @@ function FM.ListingsRecord(now)
     for char, snap in pairs(type(r.owned) == "table" and r.owned or {}) do
         if type(snap) == "table" and type(snap.t) == "number" then looked[char] = (snap.t - FM.EPOCH) / 60 end
     end
-    -- when a character made again took its key over (R.charInfo[char].again, seconds; core/Core.lua, FRV-236)
-    local again = {}
-    for char, info in pairs(type(r.charInfo) == "table" and r.charInfo or {}) do
-        if type(info) == "table" and type(info.again) == "number" then again[char] = (info.again - FM.EPOCH) / 60 end
-    end
     ItemOutcomes(posts, sales, events, now)
-    CommodityOutcomes(posts, byAid, expiries, looked, again)
+    CommodityOutcomes(posts, byAid, expiries, looked)
     for _, L in ipairs(posts) do table_sort(L.times, function(a, b) return a[1] < b[1] end) end
 
     local book = { listings = posts, byKey = byKey, now = now }

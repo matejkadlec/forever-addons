@@ -267,13 +267,12 @@ H.test("characters: /fm forget removes a character's records and readings, keeps
 end)
 
 -- Rule (FRV-236): a full name belongs to one character of a realm at a time (both names are checked together when a
--- character is made). A character deleted and made again under the same first name and surname has a new GUID and
--- is no second character:
---   * it takes the key of that name over: the key's logs, settings and Profit readings stay, what the gone character
---     held and knew (bags, bank, mailbox, auctions, gold, mail on its way, pool) goes
---   * saved data of before 1.70.6 holds such a character under two keys: of the keys with one full name under
---     different GUIDs the logged-in character's own stays, else the one seen last; the others are forgotten as
---     /fm forget does it, no log line is touched
+-- character is made). A character deleted and made again under the same first name and surname has a new GUID, so
+-- the key rule gives it a key of its own, like any new character; the deleted one's key must not stay listed:
+--   * at login, of the keys with one full name under different GUIDs the logged-in character's own stays, else the
+--     one seen last; the others are forgotten as /fm forget does it (records and readings; no log line is touched)
+--   * so a made-again character is listed once from its first login on, and saved data of before 1.70.9 that holds
+--     both keys is mended from either character
 --   * two characters with the same first name and different surnames stay two; without a surname nothing tells two
 --     characters apart and they stay together, nothing is dropped
 
@@ -315,7 +314,7 @@ local function Names(FM)
     return names
 end
 
-H.test("characters: a character made again under the same name takes its key over and is listed once", function()
+H.test("characters: a character made again under the same name is listed once, the deleted one's key is forgotten", function()
     local FM, env = Load("Player-1-A", "Tester", "Surname")
     FM.InitializeSavedData()
     env.UnitClass = function() return "Warrior", "WARRIOR" end
@@ -323,70 +322,30 @@ H.test("characters: a character made again under the same name takes its key ove
     env.FlushTimers()
     local r = FM.R()
     H.eq(r.charInfo.Tester.full, "Tester Surname", "the first one's full name is saved with its key")
-    FM.GetSettings().tableInvestPicks = 5
     r.chars.Tester = "WARRIOR"
     r.bags.Tester, r.bank.Tester, r.mailbox.Tester = Reading(60, { { 2589, 5, 3 } }), Reading(90, { { 2589, 1, 1 } }), "x"
     r.owned.Tester = { t = 1, list = "" }
     r.goldLast = { Tester = { t = 1, copper = 500 } }
     r.sent = { Tester = { "x" } }
     r.pool = { Tester = { items = {} } }
-    r.charInfo.Tester.bagsEmpty = "logout,1"
     r.posts[1] = "1,Tester,2589,1,1,3,i"
     r.worth.Tester = { "1,1,1,h" }
     -- deleted and made again: the same two names, another GUID
     FM, env = Next(env.ForeverMarketDB, "Player-1-Z", "Tester", "Surname")
-    H.eq(FM.PlayerName(), "Tester", "the key of its name")
+    H.eq(FM.PlayerName(), "Tester Surname", "a new character: a key of its own, the first name is the deleted one's")
     r = FM.R()
-    H.eq(r.charInfo.Tester.guid, "Player-1-Z", "the key is this character's now")
-    H.eq(r.charInfo["Tester Surname"], nil, "no second key")
-    for _, field in ipairs({ "bags", "bank", "mailbox", "goldLast", "sent", "pool" }) do
-        H.eq(r[field].Tester, nil, field .. ": what the gone character held is dropped")
-    end
-    H.same(r.owned.Tester, { t = NOW, list = "", v = 2 }, "its auction list starts empty as of the take-over")
-    H.eq(r.charInfo.Tester.again, NOW, "the moment of the take-over is kept with the key")
-    H.eq(r.charInfo.Tester.bagsEmpty, nil, "the note of its last empty read too")
-    H.eq(r.posts[1], "1,Tester,2589,1,1,3,i", "the key's posts stay")
-    H.same(r.worth.Tester, { "1,1,1,h" }, "its Profit readings stay")
+    H.same(Names(FM), { "Tester", "Tester Surname" }, "until its login both keys are there")
     env.FireEvent("PLAYER_LOGIN")
-    env.FlushTimers()
-    H.eq(FM.GetSettings().tableInvestPicks, 5, "its settings stay")
-    H.same(Names(FM), { "Tester" }, "listed once")
-    H.eq(r.charInfo.Tester.guid, "Player-1-Z", "and the key stays its own at the next reads")
-end)
-
--- Rule (FRV-236, review round 1 of PR 96): the key's post lines stay its log, but the deleted character's auctions
--- are not the new one's. A character without an auction list counts every post that can still run as listed
--- (FM.OwnListings, scan/Ledger.lua), so the take-over starts the key's list empty: no post of before counts
-H.test("characters: what the deleted character posted is not listed as the made-again one's auctions", function()
-    local files = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Characters.lua", "scan/Ledger.lua" }
-    local function Session(saved, guid)
-        local FM, env = H.LoadAddon("addons/ForeverMarket", files)
-        env.clock = NOW
-        env.UnitName = function() return "Tester", "Surname" end
-        env.UnitNameUnmodified = function() return "Tester", "Surname" end
-        env.UnitGUID = function() return guid end
-        env.ForeverMarketDB = saved
-        FM.InitializeSavedData()
-        return FM, env
+    H.same(Names(FM), { "Tester Surname" }, "listed once from the login on")
+    for _, field in ipairs({ "chars", "charInfo", "bags", "bank", "mailbox", "owned", "goldLast", "sent", "pool", "settings" }) do
+        H.eq(type(r[field]) ~= "table" or r[field].Tester == nil, true, field .. " of the deleted character removed")
     end
-    -- the first character of the name: 40 units posted an hour ago for 24 hours, after its last auction list
-    local FM, env = Session(nil, nil)
-    local r = FM.R()
-    r.charInfo.Tester = { guid = "Player-1-A", full = "Tester Surname", seen = NOW - 600 }
-    r.owned.Tester = { t = NOW - 7200, list = "", v = 2 }
-    r.posts[1] = table.concat({ FM.Stamp(NOW - 3600), "Tester", "2589", B(40), B(500), "3", "c", "a1" }, ",")
-    FM, env = Session(env.ForeverMarketDB, "Player-1-A")
-    H.eq(FM.PlayerName(), "Tester", "the first one")
-    H.eq((FM.OwnListings())["2589"].n, 40, "its post counts as listed while it is this character's")
-    -- deleted and made again
-    FM, env = Session(env.ForeverMarketDB, "Player-1-Z")
-    H.eq(FM.PlayerName(), "Tester", "the made-again one takes the key over")
-    H.eq((FM.OwnListings())["2589"], nil, "the deleted one's post is not its auction")
-    H.eq(#FM.R().posts, 1, "the post line stays in the log")
-    -- what the new one posts counts as ever
-    r = FM.R()
-    r.posts[2] = table.concat({ FM.Stamp(NOW), "Tester", "2589", B(7), B(500), "3", "c", "a2" }, ",")
-    H.eq((FM.OwnListings())["2589"].n, 7, "its own post counts")
+    H.eq(r.posts[1], "1,Tester,2589,1,1,3,i", "its posts stay in the log")
+    H.same(r.worth.Tester, { "1,1,1,h" }, "its Profit readings stay")
+    H.eq(r.charInfo["Tester Surname"].guid, "Player-1-Z", "the new character's key is its own")
+    H.eq(#FM.StockElsewhere("2589"), 0, "what the deleted one held counts as stock nowhere")
+    env.FlushTimers()
+    H.same(Names(FM), { "Tester Surname" }, "the same after the later check")
 end)
 
 H.test("characters: saved data with a made-again character under two keys keeps the logged-in one's key", function()
@@ -424,16 +383,23 @@ H.test("characters: from another character, of two keys with one full name the o
     H.eq(r.goldLast["Trader Market"].copper, 195125, "and its gold")
 end)
 
-H.test("characters: made again a second time, the character takes over the key of its name that was seen last", function()
-    local saved = TwoKeys()
-    local FM, env = Next(saved, "Player-1-THIRD", "Trader", "Market")
-    H.eq(FM.PlayerName(), "Trader Market", "the key that holds its logs, not the older one")
-    local r = FM.R()
-    H.eq(r.charInfo["Trader Market"].guid, "Player-1-THIRD", "its own now")
-    H.eq(r.bags["Trader Market"], nil, "what the gone one held is dropped")
-    H.eq(r.settings["Trader Market"].tableInvestPicks, 5, "the settings stay")
+H.test("characters: made again once more, the freed first name is its key and the deleted one's key is forgotten", function()
+    -- the first deletion is mended from the remade trader
+    local FM, env = Next(TwoKeys(), "Player-1-NEW", "Trader", "Market")
     env.FireEvent("PLAYER_LOGIN")
-    H.same(Names(FM), { "Main", "Trader Market" }, "and the oldest key goes at the login")
+    env.FlushTimers()
+    H.same(Names(FM), { "Main", "Trader Market" }, "mended")
+    -- deleted and made again a second time
+    FM, env = Next(env.ForeverMarketDB, "Player-1-THIRD", "Trader", "Market")
+    H.eq(FM.PlayerName(), "Trader", "the first name is free again: its key")
+    env.FireEvent("PLAYER_LOGIN")
+    local r = FM.R()
+    H.same(Names(FM), { "Main", "Trader" }, "listed once")
+    H.eq(r.charInfo.Trader.guid, "Player-1-THIRD", "the new character's key")
+    H.eq(r.bags["Trader Market"], nil, "what the deleted one held is gone")
+    H.eq(r.settings["Trader Market"], nil, "and its settings, as after /fm forget")
+    H.same({ r.posts[1], r.posts[2] }, { "1,Trader Market,2589,1,1,3,i", "2,Main,2589,1,1,3,i" }, "no log line is touched")
+    H.eq(r.bags.Main, Reading(5, { { 2589, 9, 9 } }), "the other character is untouched")
 end)
 
 H.test("characters: the same first name with different surnames stays two characters, also after a login", function()
@@ -457,7 +423,7 @@ H.test("characters: the same first name with different surnames stays two charac
     H.eq(FM.R().bags.Tester, Reading(9, { { 2589, 1, 1 } }), "nothing of the others is dropped")
 end)
 
-H.test("characters: without a surname two characters of one name stay together, nothing is taken over or dropped", function()
+H.test("characters: without a surname two characters of one name stay together, nothing is forgotten or dropped", function()
     local FM, env = Load(nil, "Nobody")
     FM.InitializeSavedData()
     local r = FM.R()

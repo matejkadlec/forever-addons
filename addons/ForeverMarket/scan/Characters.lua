@@ -85,9 +85,10 @@ end
 
 -- A full name belongs to one character of a realm at a time (both names are checked together when a character is
 -- made, docs/forever-api-notes.md): of the keys that carry one full name under different GUIDs only one still has
--- it, the logged-in character's own, else the one seen last. The others are characters that were deleted (one made
--- again under its name got a second key up to 1.70.5 and was listed twice, FRV-236; since 1.70.6 it takes the key
--- over, FM.PlayerName) or renamed since: they are forgotten as /fm forget does it, their logs stay
+-- it, the logged-in character's own, else the one seen last. The others are characters that were deleted or renamed
+-- since: a character deleted and made again under its name has a new GUID (seen in game), so FM.PlayerName gives it
+-- a key of its own, and up to 1.70.5 the deleted one's key stayed and the name was listed twice (FRV-236). They are
+-- forgotten as /fm forget does it, their logs stay
 local function ForgetNamesakes()
     local mine, me = Info()
     if not mine then return end
@@ -378,11 +379,11 @@ end
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    for _, field in ipairs({ "chars", "charInfo", "settings" }) do
+    local fields = { "chars", "charInfo", "bags", "bank", "gearBank", "bankBagSlots", "windowRecipes", "mailbox", "owned",
+        "goldLast", "sent", "pool", "settings" }
+    for _, field in ipairs(fields) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end
-    -- its bags, bank, mailbox, auction list, gold, mail on its way and pool (core/Core.lua)
-    FM.DropHeld(r, key)
     -- its auction list counted as your listings
     FM.listingsVersion = (FM.listingsVersion or 0) + 1
     FM.dataVersion = (FM.dataVersion or 0) + 1

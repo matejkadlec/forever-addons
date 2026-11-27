@@ -61,8 +61,6 @@ for _, case in ipairs(Cases()) do
                 local rows = {}
                 for i = 3, #w do rows[#rows + 1] = w[i] end
                 r.owned.Tester = { t = FM.EPOCH + (NOW - tonumber(w[2])) * 60, list = table.concat(rows, ","), v = 2 }
-            elseif kind == "again" then
-                r.charInfo.Tester = { again = FM.EPOCH + (NOW - tonumber(w[2])) * 60 }
             else
                 checks[#checks + 1] = w
             end

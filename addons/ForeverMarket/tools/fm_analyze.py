@@ -1652,14 +1652,8 @@ class ListingsBook:
                     expiries.setdefault(key, []).append({'t': t, 'qty': count or 1})
         for lst in list(events.values()) + list(by_aid.values()):
             lst.sort(key=_by_time)
-        # when a character made again took its key over (charInfo[char].again, seconds; FRV-236)
-        again = {}
-        char_info = r.get('charInfo') if isinstance(r.get('charInfo'), dict) else {}
-        for char, info in char_info.items():
-            if isinstance(info, dict) and isinstance(info.get('again'), (int, float)):
-                again[char] = (info['again'] - EPOCH) / 60
         self._items(posts, sales, events, now)
-        self._commodities(posts, by_aid, expiries, looked, again)
+        self._commodities(posts, by_aid, expiries, looked)
         for L in posts:
             L['times'].sort(key=lambda m: m[0])
         self.listings, self.by_key = posts, by_key
@@ -1721,7 +1715,7 @@ class ListingsBook:
                 else:
                     L['expired'] = rest
 
-    def _commodities(self, posts, by_aid, expiries, looked, again):
+    def _commodities(self, posts, by_aid, expiries, looked):
         used = set()
         for L in posts:
             if L['kind'] != 'c':
@@ -1761,8 +1755,7 @@ class ListingsBook:
                     L['expired'] = returned
             if returned is not None:
                 L['sold'] = L['n'] - returned
-            elif looked.get(L['char'], -math.inf) < L['finish'] or (L['char'] in again and L['t'] < again[L['char']]):
-                # also a post of the character that was deleted before this one took its key over (FRV-236)
+            elif looked.get(L['char'], -math.inf) < L['finish']:
                 L['open'] = True
                 L['sold'] = min(L['n'], max(part_sum, buy_sum))
             else:

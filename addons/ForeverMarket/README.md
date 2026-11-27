@@ -371,23 +371,16 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   still found by the first name, and the mail a character logged under its first name before its key began counts
   as seen under its new key (it is not logged twice; `charInfo[key].since`); what the character that keeps the
   first name logs later stays its own
-* A character deleted and created again under the same name (1.70.6, FRV-236): it has a new GUID (seen in game) but
-  is no second character, since a full name belongs to one character of a realm at a time. It takes the key of its
-  full name over (the one seen last when several carry it): the key's log lines, its settings and its Profit
-  readings stay, what the deleted character held and knew goes (bags, bank, bank gear and bank bag slots, window
-  recipes, mailbox, auction list, last gold, mail on its way, pool). The key's post lines stay in the log, but the
-  deleted character's auctions are not the new one's (1.70.7): its auction list starts empty at the take-over, so
-  no post of before counts as running, as held from the AH or as your listing, and the moment is kept
-  (`charInfo[key].again`): a commodity post of before it is never taken as sold out because a later list lacks
-  it, it stays open with what is known to have sold (`trade/Listings.lua`, the same in `tools/fm_analyze.py`), and
-  a sale or a vanished auction that the deleted character's lists saw before it is not the new character's money
-  or units on their way (1.70.8, `scan/Worth.lua`).
-  Saved data of 1.70.5 and older gave such a
-  character a second key and listed it twice (`/fm chars`, the Profit tab's dropdown), each with its own result: at
-  every login, of the keys with one full name under different GUIDs only the logged-in character's own stays, else
-  the one seen last, and the others are forgotten as `/fm forget` does it (no log line is touched). A character
-  renamed away from a name that another of yours then takes is forgotten the same way until it logs in again, under
-  a new key. Without a surname nothing tells two characters of one name apart: they share their key as before
+* A character deleted and created again under the same name (1.70.9, FRV-236): it has a new GUID (seen in game),
+  so it gets a key of its own like any new character. Up to 1.70.5 the deleted character's key stayed next to
+  it, and the name was listed twice (`/fm chars`, the Profit tab's dropdown), each entry with its own result.
+  A full name belongs to one character of a realm at a time, so at every login, of the keys with one full name
+  under different GUIDs only the logged-in character's own stays, else the one seen last; the others are
+  forgotten as `/fm forget` does it (their entry, readings and settings; no log line is touched, so their
+  posts, mails and purchases count in "All characters" only). The made-again character starts with its own
+  records, settings and Profit history. A character renamed away from a name that another of yours then takes
+  is forgotten the same way until it logs in again, under a new key. Without a surname nothing tells two
+  characters of one name apart: they share their key as before
 
 ## Marketplace (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
@@ -2365,8 +2358,7 @@ Picks skip).
 * `mailSeen`, `gold`, `scans`, `names`, `watch`; `inv` (the bag and bank counts of watched items, written
   only for reading outside the game) is dropped at load since 1.32 (FRV-85)
 * `chars[char]` = the class file (`true` before 1.23, which never read it); `charInfo[char]` = `{ guid, full, class,
-  seen, since, again, bagsEmpty, upgradeScale }` the character behind a key (1.23; `since` = when a full-name key began; `again` =
-  when a character deleted and made again under the name took the key over, 1.70.7, FRV-236; `bagsEmpty` =
+  seen, since, bagsEmpty, upgradeScale }` the character behind a key (1.23; `since` = when a full-name key began; `bagsEmpty` =
   `login,<t>` / `logout,<t>`, the last read of its bags that found nothing and was not saved, 1.31; `upgradeScale` =
   Pawn's name of the scale chosen in the Upgrades tab's Spec dropdown, 1.54, FRV-205); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
