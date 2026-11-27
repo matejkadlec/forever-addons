@@ -347,6 +347,7 @@ H.test("shift tooltips: the window's elements have the kinds of FRV-186", functi
         "Filters.lua frame \"shift\"",           -- the dialog's boxes and checkboxes (Tip)
         "Performance.lua b \"hover\"",           -- This character / All characters
         "Upgrades.lua widget \"shift\"",         -- Upgrades: the Level boxes, Rarities, Slots, Spec, Best per slot (Tip)
+        "Upgrades.lua dd \"shift\"",             -- Favorites and Ignored: the Marketplace / Gear dropdown (FRV-207)
     }, "every helper call and its kind")
     local src = assert(io.open(base .. "Table.lua", "r")):read("*a")
     for _, case in ipairs({ { "f.filtersButton", "hover" }, { "f.globalButton", "hover" }, { "f.useGlobal", "shift" } }) do
@@ -375,8 +376,11 @@ H.test("shift tooltips: every other tab's footer ends with what of it waits for 
         { "learn", "  ·  hold Shift over inputs and checkboxes for their tips" },
         { "vendor", "  ·  hold Shift over inputs and dropdowns for their tips" },   -- the search box, the place dropdowns
         { "flips", "  ·  hold Shift over the search box for its tip" },
-        { "favs", "  ·  hold Shift over the search box for its tip" },
-        { "ignored", "  ·  hold Shift over the search box for its tip" },
+        -- the search box and the Marketplace / Gear dropdown (FRV-207), in both views
+        { "favs", "  ·  hold Shift over the search box and the dropdown for their tips" },
+        { "ignored", "  ·  hold Shift over the search box and the dropdown for their tips" },
+        { "favsGear", "  ·  hold Shift over the search box and the dropdown for their tips" },
+        { "ignoredGear", "  ·  hold Shift over the search box and the dropdown for their tips" },
         { "farm", "  ·  hold Shift over the search box for its tip" },
     }
     for _, case in ipairs(CASES) do

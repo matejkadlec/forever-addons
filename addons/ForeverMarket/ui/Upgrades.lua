@@ -16,6 +16,8 @@ local _, FM = ...
 --   * Gear you own (FRV-206, "Owned gear", on by default): rows of the gear in your bags, bank and account bank that
 --     beats what you wear, "(bags)" after the name, Price and Cost-Benefit "owned" (above every number, largest
 --     first); Cost-Benefit stays the AH rows' own, Best per slot picks among the AH rows only
+--   * The Gear view of Favorites and Ignored (FRV-207): a dropdown left of Refresh switches those tabs between
+--     "Marketplace" (their market table) and "Gear" (their gear with this tab's columns, FM.GearViewRows), saved per tab
 
 local type = type
 local ipairs = ipairs
@@ -64,6 +66,8 @@ local SLOTS = {
 }
 local SLOT_ORDER, SLOT_ENGLISH = {}, {}
 for i, s in ipairs(SLOTS) do SLOT_ORDER[s[1]], SLOT_ENGLISH[s[1]] = i, s[2] end
+-- the slots it never lists have a name too, for the Gear view of Favorites and Ignored (FRV-207), but no place in Slots
+SLOT_ENGLISH.INVTYPE_TRINKET, SLOT_ENGLISH.INVTYPE_BODY, SLOT_ENGLISH.INVTYPE_TABARD = "Trinket", "Shirt", "Tabard"
 
 local function Settings()
     return FM.GetSettings()
@@ -261,16 +265,23 @@ function FM.UpgradesOwnedOn()
     return Settings().upgradeOwned ~= false
 end
 
--- The filter of the tab now: { minLevel, maxLevel, quality = { [n] = true }, scale, owned } (FM.EnsureUpgrades,
--- FM.UpgradeRows)
+-- The filter of the tab now: { minLevel, maxLevel, quality = { [n] = true }, scale, owned, keys } (FM.EnsureUpgrades,
+-- FM.UpgradeRows); keys = your favorites and ignored items, scored whatever Level and Rarities say for the Gear view
+-- of Favorites and Ignored (FRV-207; they pick no row of this tab)
 function FM.UpgradesFilter()
     local min, max = FM.UpgradesLevelRange()
     local quality = {}
     for q = 0, 5 do
         if RarityOn(q) then quality[q] = true end
     end
+    local keys = {}
+    for _, set in ipairs({ Settings().favorites, Settings().excluded }) do
+        for key, on in pairs(type(set) == "table" and set or {}) do
+            if on then keys[key] = true end
+        end
+    end
     return { minLevel = min, maxLevel = max, quality = quality, scale = FM.UpgradeScaleChoice(),
-        owned = FM.UpgradesOwnedOn() }
+        owned = FM.UpgradesOwnedOn(), keys = keys }
 end
 
 ---------------------------------------------------------------- the rows
@@ -318,6 +329,12 @@ end
 
 local shown = { typical = nil } -- the list shown: its typical price (the row tooltip's workings)
 
+-- The marketplace shows Pawn's numbers now: the Upgrades tab, or Favorites or Ignored in their Gear view (FRV-207)
+local function GearShown()
+    local tab = FM.TableTabShown and FM.TableTabShown()
+    return tab == "upgrades" or ((tab == "favs" or tab == "ignored") and FM.TableViewOf(tab) == "gear")
+end
+
 local retryPending = false
 -- Pawn is still starting up: the tab looks again a second later
 local function RetrySoon()
@@ -325,8 +342,23 @@ local function RetrySoon()
     retryPending = true
     C_Timer.After(1, function()
         retryPending = false
-        if FM.TableTabShown and FM.TableTabShown() == "upgrades" and FM.RefreshTable then FM.RefreshTable() end
+        if GearShown() and FM.RefreshTable then FM.RefreshTable() end
     end)
+end
+
+-- The scored upgrades inside the filter and the AH rows among them with their Cost-Benefit (the typical price kept
+-- for the row tooltip); gear you own has none (FRV-206)
+local function ScoredRows(filter)
+    local rows, listed = FM.UpgradeRows(filter), {}
+    for _, row in ipairs(rows) do
+        if row.owned then
+            row.cb, row.cbRaw = nil, nil
+        else
+            listed[#listed + 1] = row
+        end
+    end
+    shown.typical = FM.CostBenefit(listed)
+    return rows, listed
 end
 
 -- The tab's rows (ui/Table.lua BuildRows): the scored upgrades inside Level and Rarities for the chosen scale, their
@@ -338,15 +370,7 @@ function FM.UpgradesTabRows(needle)
     local filter = FM.UpgradesFilter()
     local _, why = FM.EnsureUpgrades(filter)
     if why == "notready" then RetrySoon() end
-    local rows, listed = FM.UpgradeRows(filter), {}
-    for _, row in ipairs(rows) do
-        if row.owned then
-            row.cb, row.cbRaw = nil, nil
-        else
-            listed[#listed + 1] = row
-        end
-    end
-    shown.typical = FM.CostBenefit(listed)
+    local rows = ScoredRows(filter)
     local ah, owned = {}, {}
     for _, row in ipairs(rows) do
         if SlotOn(row.equipLoc) and not (FM.IsExcluded and FM.IsExcluded(row.key))
@@ -387,9 +411,11 @@ local function LevelCell(row)
     return Shown(row, text)
 end
 
--- Price: red when it is more than your gold; gear you own: green "owned"
+-- Price: red when it is more than your gold; gear you own: green "owned"; an item of the Gear view not listed in the
+-- latest snapshot: grey "not listed" (FRV-207)
 local function PriceCell(row)
     if row.owned then return GREEN .. "owned|r" end
+    if row.notListed then return GREY .. "not listed|r" end
     local money = PlayerMoney()
     local dear = money and type(row.price) == "number" and row.price > money
     return Shown(row, FM.MoneyFull(row.price, dear and RED or nil))
@@ -469,6 +495,8 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
             text = text .. " (last seen " .. FM.FormatAge(math_max(0, FM.Now() - row.seenAt)) .. " ago)"
         end
         tip:AddLine(GREEN .. text .. "|r", 1, 1, 1, true)
+    elseif row.notListed then
+        Line(tip, "Price", GREY .. "not listed in the latest snapshot|r")
     else
         local money = PlayerMoney()
         local dear = money and type(row.price) == "number" and row.price > money
@@ -477,15 +505,26 @@ function FM.UpgradeTooltipLines(tip, row, withTitle)
     end
     if row.empty then
         Line(tip, "Upgrade", "fills an empty slot")
+    elseif row.notListed then
+        Line(tip, "Upgrade", GREY .. "not scored: Pawn scores the listings of the latest snapshot|r")
+    elseif row.unscored then
+        Line(tip, "Upgrade", GREY .. "not scored: Pawn scores no trinket, shirt or tabard|r")
+    elseif row.noUpgrade then
+        Line(tip, "Upgrade", GREY .. "none: it does not beat what you wear, or your class cannot use it|r")
+    elseif row.scoring then
+        Line(tip, "Upgrade", GREY .. "not scored yet|r")
     else
         Line(tip, "Upgrade", Plain(FM.UpgradePctText(row)) .. " over " .. (type(row.replaces) == "string" and row.replaces or "what you wear"))
     end
     local scale = ScaleText()
-    if scale then Line(tip, "Scored with", scale .. " (Pawn)") end
+    if scale and not (row.notListed or row.unscored) then Line(tip, "Scored with", scale .. " (Pawn)") end
     if type(row.cb) == "number" then
         Line(tip, "Cost-Benefit", row.cb .. "%")
         Note(tip, string_format("gains %.1f Pawn points for %s%s; prices count against the typical %s%s of this list",
             row.gain or 0, FM.MoneyFull(row.price), GREY, FM.MoneyFull(shown.typical), GREY))
+    elseif row.gearView and (type(row.pct) == "number" or row.empty) then
+        -- an upgrade the Upgrades tab does not list now (FRV-207): its Level or Rarities, or an ignored item
+        Note(tip, "No Cost-Benefit: the Upgrades tab does not list it now (its Level, Rarities, Slots or Best per slot, or ignored).")
     end
     local snapshot = not row.owned and FM.GearSnapshot and FM.GearSnapshot()
     if BAND_TEXT[row.band] and snapshot then
@@ -499,7 +538,11 @@ end
 function FM.UpgradeHints(tip, row)
     tip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
     local atAH = FM.ahOpen and FM.UpgradeBuyOpen
-    if not (atAH and type(row) == "table" and row.owned) then
+    local owned, notListed = type(row) == "table" and row.owned, type(row) == "table" and row.notListed
+    -- an item of the Gear view that is not listed (FRV-207): no listing to buy, Shift+click links it
+    if notListed then
+        tip:AddLine("Shift+click: link to chat", HINT_R, HINT_G, HINT_B, true)
+    elseif not (atAH and owned) then
         tip:AddLine(atAH and "Shift+click: find this listing and buy it" or "Shift+click: link to chat",
             HINT_R, HINT_G, HINT_B, true)
     end
@@ -764,5 +807,224 @@ end
 
 -- Your gold changed: the prices above it turn red or back
 FM.On("PLAYER_MONEY", function()
-    if FM.TableTabShown and FM.TableTabShown() == "upgrades" and FM.RefreshTable then FM.RefreshTable() end
+    if GearShown() and FM.RefreshTable then FM.RefreshTable() end
 end)
+
+---------------------------------------------------------------- the Gear view of Favorites and Ignored (FRV-207)
+-- A dropdown left of Refresh on those two tabs: "Marketplace" (the default, their market table) or "Gear" (their gear
+-- with this tab's columns), saved per tab (settings.favoritesView, settings.ignoredView). The Gear view lists of each
+-- favorite (or ignored) item that is gear (FM.IsGear) one row per variant listed in the latest snapshot, as this tab
+-- does, whatever its Level, Rarities, Slots and Best per slot say: you picked these items. Upgrade is Pawn's % for the
+-- chosen spec, "-" when it is none; Cost-Benefit the number this tab shows for that row now, "-" where it lists none
+-- (its Level, Rarities, Slots or Best per slot, no upgrade, or ignored); an item not listed is one row with "not listed" as its
+-- price. The rows are copies: this tab's own rows keep their numbers. Favorize and Ignore stay per item ID
+
+local VIEW_SETTING = { favs = "favoritesView", ignored = "ignoredView" }
+local VIEW_TIP = "Marketplace: your items with the market columns. Gear: your gear with the Upgrades tab's columns."
+
+-- The view of Favorites ("favs") or Ignored ("ignored"): "gear" or "market" (the default, also for anything else saved)
+function FM.TableViewOf(tabId)
+    local key = VIEW_SETTING[tabId]
+    return (key and Settings()[key] == "gear") and "gear" or "market"
+end
+
+-- Sets a tab's view ("gear", else "market"); true when it changed
+function FM.SetTableView(tabId, value)
+    local key = VIEW_SETTING[tabId]
+    if not key then return false end
+    value = value == "gear" and "gear" or "market"
+    if FM.TableViewOf(tabId) == value then return false end
+    Settings()[key] = value
+    return true
+end
+
+-- A Gear view row from one of this tab's rows: its Upgrade for the scale, the Cost-Benefit this tab shows (nil: "-")
+local function GearCopy(row, scale, cb)
+    local copy = {}
+    for k, v in pairs(row) do copy[k] = v end
+    copy.offers, copy.scores = nil, nil
+    local s = row.scores and row.scores[scale]
+    copy.pct, copy.empty, copy.replaces, copy.value, copy.gain = nil, nil, nil, nil, nil
+    if s then copy.pct, copy.empty, copy.replaces, copy.value, copy.gain = s.pct, s.empty, s.replaces, s.value, s.gain end
+    -- scored (or dropped: not wearable, not loaded) and no upgrade for this scale; else still in Pawn's queue
+    copy.noUpgrade = (not s and (row.scored or row.dropped)) and true or nil
+    copy.scoring = (not s and not copy.noUpgrade) and true or nil
+    copy.cb, copy.cbRaw, copy.gearView = cb, nil, true
+    return copy
+end
+
+-- The row of an item the latest snapshot does not list: its own data where the client has it
+local function NotListedRow(key)
+    local itemID = FM.ItemIDFromKey and FM.ItemIDFromKey(key) or tonumber(key)
+    local row = { key = key, id = tostring(key) .. ":none", itemID = itemID, notListed = true, gearView = true }
+    if itemID and C_Item and C_Item.GetItemInfoInstant then
+        local ok, _, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, itemID)
+        if ok and type(equipLoc) == "string" and not FM.IsSecret(equipLoc) then row.equipLoc = equipLoc end
+    end
+    if itemID and C_Item and C_Item.GetItemInfo then
+        local ok, name, link, quality, _, minLevel = pcall(C_Item.GetItemInfo, itemID)
+        if ok and type(name) == "string" and name ~= "" and type(link) == "string" and not FM.IsSecret(name)
+            and not FM.IsSecret(link) and not FM.IsSecret(quality) and not FM.IsSecret(minLevel) then
+            row.name, row.link, row.quality, row.minLevel = name, link, tonumber(quality) or 0, tonumber(minLevel)
+        end
+    end
+    local level = FM.PlayerLevel and FM.PlayerLevel()
+    row.tooHigh = (level and row.minLevel and row.minLevel > level) and true or nil
+    return row
+end
+
+-- The listed variants of an item whose slot this tab never lists (a trinket, shirt or tabard: Pawn scores none of
+-- them, trade/Upgrades.lua): one row per variant of the latest snapshot (FM.GearListings) with its price and no
+-- Upgrade, its item data where the client has it (review round 1: such an item was "not listed" before)
+local function UnscoredRows(key, equipLoc)
+    local out = {}
+    local itemID = FM.ItemIDFromKey and FM.ItemIDFromKey(key) or tonumber(key)
+    local level = FM.PlayerLevel and FM.PlayerLevel()
+    for _, listing in ipairs(FM.GearListings and FM.GearListings(key) or {}) do
+        local row = { key = key, bonus = listing.bonus, variant = listing.variant, id = tostring(key) .. ":" .. tostring(listing.bonus),
+            itemID = itemID, equipLoc = equipLoc, price = listing.buyout, n = listing.n, band = listing.band, unscored = true,
+            gearView = true }
+        if itemID and C_Item and C_Item.GetItemInfo and FM.GearLink then
+            local ok, name, link, quality, _, minLevel = pcall(C_Item.GetItemInfo, FM.GearLink(key, listing.variant, level))
+            if ok and type(name) == "string" and name ~= "" and type(link) == "string" and not FM.IsSecret(name)
+                and not FM.IsSecret(link) and not FM.IsSecret(quality) and not FM.IsSecret(minLevel) then
+                row.name, row.link, row.quality, row.minLevel = name, link, tonumber(quality) or 0, tonumber(minLevel)
+            end
+        end
+        row.tooHigh = (level and row.minLevel and row.minLevel > level) and true or nil
+        out[#out + 1] = row
+    end
+    return out
+end
+
+-- An item's equip location from the client, nil without it
+local function EquipLocOf(key)
+    local itemID = FM.ItemIDFromKey and FM.ItemIDFromKey(key) or tonumber(key)
+    if not (itemID and C_Item and C_Item.GetItemInfoInstant) then return nil end
+    local ok, _, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, itemID)
+    if ok and type(equipLoc) == "string" and not FM.IsSecret(equipLoc) then return equipLoc end
+    return nil
+end
+
+-- The gear among a set of items ({ [key] = true }: settings.favorites or settings.excluded)
+local function GearKeys(set)
+    local keys, n = {}, 0
+    for key, on in pairs(type(set) == "table" and set or {}) do
+        if on and FM.IsGear and FM.IsGear(key) then
+            keys[key] = true
+            n = n + 1
+        end
+    end
+    return keys, n
+end
+
+-- The Gear view's rows of a set (ui/Table.lua BuildRows; its search and sort follow). None without Pawn or a scale and
+-- without gear data (FM.GearViewEmptyText says why). Starts Pawn's work for what is not scored yet
+function FM.GearViewRows(set)
+    local out = {}
+    local keys, n = GearKeys(set)
+    if n == 0 then return out end
+    local filter = FM.UpgradesFilter()
+    local scale, notWhy = FM.UpgradeScale(filter.scale)
+    -- Pawn still starting: look again a second later, as the Upgrades tab does (review round 1)
+    if notWhy == "notready" then RetrySoon() end
+    if not scale or not (FM.GearSnapshot and FM.GearSnapshot()) then return out end
+    local _, why = FM.EnsureUpgrades(filter)
+    if why == "notready" then RetrySoon() end
+    -- the Cost-Benefit this tab shows now: the AH rows it lists (Level, Rarities, Slots, Best per slot, not ignored;
+    -- review round 3: a row its Slots or Best per slot hide has none here either)
+    local cbOf = {}
+    for _, row in ipairs(FM.UpgradesTabRows(nil)) do
+        if not row.owned then cbOf[row.id] = row.cb end
+    end
+    local seen = {}
+    for _, row in ipairs(FM.UpgradeRowsOf(keys) or {}) do
+        seen[row.key] = true
+        out[#out + 1] = GearCopy(row, scale, cbOf[row.id])
+    end
+    for key in pairs(keys) do
+        if not seen[key] then
+            -- a slot this tab never lists: its listings without an Upgrade; else not listed now
+            local equipLoc = EquipLocOf(key)
+            local rows = (equipLoc and not SLOT_ORDER[equipLoc]) and UnscoredRows(key, equipLoc) or {}
+            if rows[1] then
+                for _, row in ipairs(rows) do out[#out + 1] = row end
+            else
+                out[#out + 1] = NotListedRow(key)
+            end
+        end
+    end
+    return out
+end
+
+-- Why the Gear view of "favs" or "ignored" is empty, the first case that holds: no items in it at all, none of them
+-- gear, then the Upgrades tab's own texts (no Pawn, no scale, Pawn starting, no gear data), else the search
+function FM.GearViewEmptyText(tabId)
+    local s = Settings()
+    local set = tabId == "ignored" and s.excluded or s.favorites
+    local any = false
+    for _, on in pairs(type(set) == "table" and set or {}) do
+        if on then any = true end
+    end
+    if not any then
+        return tabId == "ignored" and "No ignored items: right-click a row in any tab > Ignore this item."
+            or "No favorites yet: right-click a row in any tab > Favorize this item."
+    end
+    local _, n = GearKeys(set)
+    if n == 0 then
+        return tabId == "ignored" and "None of your ignored items is gear. Marketplace (the dropdown left of Refresh) lists them all."
+            or "None of your favorites is gear. Marketplace (the dropdown left of Refresh) lists them all."
+    end
+    local _, why = FM.UpgradeScale(FM.UpgradeScaleChoice())
+    if why or not (FM.GearSnapshot and FM.GearSnapshot()) then return FM.UpgradesEmptyText() end
+    return "Nothing here matches the search."
+end
+
+-- The footer's note after "1-4 of 4" (rows = the rows shown): "  ·  3 gear items  ·  scored with Pawn's scale ..."
+function FM.GearViewFooter(rows, short)
+    local seen, n = {}, 0
+    for _, row in ipairs(rows or {}) do
+        if row.key and not seen[row.key] then
+            seen[row.key] = true
+            n = n + 1
+        end
+    end
+    return string_format("  ·  %s gear item%s", FM.FormatCount(n), n == 1 and "" or "s") .. FM.UpgradesFooterNote(short)
+end
+
+-- The dropdown (ui/Table.lua CreateTable calls it once, after Refresh): f.viewDropdown; a choice calls
+-- FM.TableViewChanged (the table shows the tab again)
+function FM.TableViewCreate(f)
+    local dd = CreateFrame("DropdownButton", nil, f, "WowStyle1DropdownTemplate")
+    dd:SetWidth(120)
+    dd:SetPoint("RIGHT", f.refresh, "LEFT", -10, 0)
+    if dd.SetupMenu then
+        dd:SetupMenu(function(_, root)
+            local tabId = FM.TableTabShown and FM.TableTabShown()
+            local function IsSelected(value) return FM.TableViewOf(tabId) == value end
+            local function SetSelected(value)
+                if FM.SetTableView(tabId, value) and FM.TableViewChanged then FM.TableViewChanged() end
+            end
+            root:CreateRadio("Marketplace", IsSelected, SetSelected, "market")
+            root:CreateRadio("Gear", IsSelected, SetSelected, "gear")
+        end)
+    end
+    -- a dropdown: its tooltip only while Shift is held (FRV-186)
+    FM.TableTipHook(dd, function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("View")
+        GameTooltip:AddLine(VIEW_TIP, 1, 1, 1, true)
+        GameTooltip:Show()
+    end, "shift")
+    dd:Hide()
+    f.viewDropdown = dd
+end
+
+-- Shown on Favorites and Ignored only (tab: the tab shown, nil on the Profit graph), with the choice of that tab
+function FM.TableViewShow(f, tab)
+    local dd = f and f.viewDropdown
+    if not dd then return end
+    local on = (tab and tab.favs) and true or false
+    dd:SetShown(on)
+    if on and dd.GenerateMenu then dd:GenerateMenu() end -- the selection text of the tab shown
+end

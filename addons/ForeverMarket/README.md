@@ -475,7 +475,18 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
         yours, up to **Over character level cap** [5] levels above it; unchecked, a recipe above your level is hidden
       * **Over skill level** [x] (Picks, Craft, Learn; was "Above current skill"): recipes above your skill, up to
         **Over skill level cap** [10] points above it (was "Max. above current skill")
+    * **Exclude crafting** [ ] (Picks, 1.56, FRV-209): the plan crafts nothing: no Craft and sell, no Craft and wait,
+      no recipe to learn (nor a "Level for" row); the units of a crafted item you hold stay a Stock pick (listing them
+      crafts nothing), except with all three exclusions checked; "Also good, but out of scope" follows and the reason names it ("crafting is off (Exclude
+      crafting)"). In Picks' own dialog the options
+      that only matter for crafting (Include not learned recipes with its children, Exclude stock for crafting) are
+      greyed out while it is checked, their tooltip says why; in Global filters they stay on (the Craft tab uses them)
     * **Exclude vendor flips** [ ] (Picks; was "Ignore vendor"): the plan buys nothing from vendors to resell
+    * **Exclude AH flips** [ ] (Picks, 1.56, FRV-209): the plan buys nothing on the AH to list again (the Flip tab's
+      kind); "Also good, but out of scope" follows, the reason says "AH flips are off (Exclude AH flips)"
+    * With all three of them checked in the set Picks uses, Picks shows no rows and no sections, only "You've excluded
+      all kinds of profits. Include them again in filter settings to see picks." where the rows would be, also while a
+      pass runs (no "Computing...") (`FM.PicksAllExcluded` in core/Core.lua)
     * **Exclude already listed items** [ ] (Picks): an item is no pick once your listings of it (all characters, as
       the room on the AH counts them) reach both **Listed items count threshold** [1] units and **Listed items value
       threshold** [0g 0s 1c] at your listing prices (`FM.OwnListings`'s `value`: a post at its unit price, an
@@ -540,6 +551,23 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`KeptRows` in ui/Table.lua makes both), a grey "(ignored)" after each name; the label counts them
   (`FM.ExcludedCount`), the tab's tooltip says what it is. Ignored items show in no other tab and never become picks;
   its right-click menu offers "Stop ignoring this item", the other tabs "Ignore this item".
+* **Marketplace / Gear** (1.56, FRV-207): a dropdown left of Refresh on Favorites and Ignored only switches the tab
+  between **Marketplace** (the default: the table above, every item, gear included) and **Gear**; each tab keeps its
+  own choice over a `/reload` (`settings.favoritesView`, `settings.ignoredView`), its tooltip (with Shift): "Marketplace:
+  your items with the market columns. Gear: your gear with the Upgrades tab's columns." **Gear** lists the favorite (or
+  ignored) items that are gear with the Upgrades tab's columns (Item, Slot, Lvl, Price, Upgrade, Cost-Benefit), whatever
+  that tab's Level, Rarities, Slots and Best per slot say (you picked these items): one row per variant listed in the
+  latest snapshot, an item not listed one row with grey "not listed" as its price; a trinket, shirt or tabard (Pawn
+  scores none) one row per listed variant with its price and Upgrade "-". Upgrade is Pawn's % for the Spec
+  chosen on Upgrades, "-" when it is no upgrade (the row stays); Cost-Benefit the number the Upgrades tab shows for that
+  row now, "-" where it lists none (its Level, Rarities, Slots or Best per slot, no upgrade, or ignored: on Ignored
+  every row). Row
+  tooltip, clicks and menu as on Upgrades; the menu keeps "Unfavorize this item" / "Stop ignoring this item", and an
+  item not listed has nothing to buy (Shift+click links it). Favorize and Ignore stay per item ID: all variants go
+  together. The search box is the tab's own in both views; the footer says "1-4 of 4  ·  3 gear items  ·  scored with
+  Pawn's scale ..."; without Pawn or gear data the Upgrades tab's texts, without gear among the items "None of your
+  favorites is gear. Marketplace (the dropdown left of Refresh) lists them all." (ui/Upgrades.lua `FM.GearViewRows`,
+  trade/Upgrades.lua scores the items of `filter.keys` whatever the filter)
 * **Picks** (trade/Picks.lua) = what to do now, one 8h listing per pick, ranked by expected profit per gold put
   in (1.40, FRV-103; by a day's expected profit before), with the reasons in the tooltip. The formula is on the
   Confluence page [ForeverMarket Picks: the formula](https://envelopment.atlassian.net/wiki/spaces/~712020b06cd5a60c92413493fad43098103a66/pages/24182786)
@@ -920,6 +948,29 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     1.45 it bought what it could and kept the row's list price (Green Dragonscale Leggings: gold for one of the two
     at 5g 88s, listed at 8g 02s over the other one and the two at 5g 98s). Units of a flip's item you hold, when
     nothing is bought, are a Stock pick listed under the cheapest listing of others, not at the flip's price.
+  * Live check of flip picks (1.56, FRV-214): a deep scan is a look at the AH minutes before you buy, and cheap
+    listings go first (measured on the saved data: 13% of the flip picks searched about 2 minutes after their scan had
+    lost their cheap units, 73% by the next scan; [forever-api-notes](../../docs/forever-api-notes.md)). So a flip
+    pick is judged on the listings of a full AH search of its item that is newer than its snapshot when there is one
+    (any search: your click, Auctionator's, ForeverMarket's own; `FM.live`, kept for the session): confirmed, its buy
+    step reads "Buy 2 up to 3g 00s (confirmed 18:52)" and its tooltip "Confirmed by the AH search at 18:52"; when
+    that search shows none of its cheap units that earn the margin it is no pick ("its cheap listings are gone: the
+    AH search at 18:52 shows none that earn the margin"). Without such a search it is judged on the snapshot and is
+    **not confirmed yet**: its confidence is at most 85% of what it would be (never 100%), its buy step says "(not
+    confirmed yet)" and its tooltip "Seen in the deep scan of 18:51, not confirmed yet". While the AH is open,
+    ForeverMarket searches the first 6 flip picks of the plan shown itself, plan first, one search every 3 seconds at
+    most and each again after 2 minutes (`FM.FlipCheckTick` in `scan/Search.lua`, `C_AuctionHouse.SendSearchQuery`
+    as the sniper sends it; its answers update the live listings every time but go into the item's search log at most
+    once per 10 minutes, so they do not push out older records), never while the sniper searches, a deep scan or a pass runs, the AH waits for an answer,
+    its throttle is not ready, Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab, or in combat.
+    Units of the item you bought yourself since the snapshot count as the flip's own (a commodity from the purchase log,
+    an item sold per auction from your buyouts this session): your purchase is no "gone" (the reason says "you bought 2
+    since the scan: list them once they are in your bags"). A confirmation counts for 5 minutes: after that the buy
+    step says "(not confirmed since 18:52)", and the next plan cuts its confidence again (at the AH each flip pick is
+    searched again every 2 minutes). Each new answer reaches the plan
+    shown: not locked, a pass plans again as after a post (your craft picks keep their targets); locked, the pick
+    shows it in place, confirmed (its confidence back, in its tooltip and the summary too) or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
+    plans without it.")
   * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
     of scope", also on its steps line) for a flip someone else bought first. "[FM] Slayer's Skullcap: flip pick hidden
     until its listings change.", and the plan is made again without it as after Ignore (`FM.PlanPicks()`), so its gold
@@ -998,7 +1049,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   down, as on Picks): Flip is the only tab where minutes matter.
 * **Flip** (until 1.10 "AH resell"): buy the cheapest price levels of others in full and relist the units 1c under the
   cheapest listing that stays (the level above them), never above 110% of the usual price (median daily low, last
-  week, 3+ days of history). **A flip never lists above a listing of others that stays on the AH after its buy**
+  week, 3+ days of history) or, when it is higher, of today's price (the median of today's scans' cheapest) or the
+  last 2 days' (1.56, FRV-214: the report's Thunderwood, usual 4g 37s, today 5g 40s, listed at 4g 81s under the 7g
+  that stayed). When that cap, not the listing that stays, sets the price, the tooltip says why: "Under the cheapest
+  listing that stays (7g 0s 0c): a flip lists at most 110% of today's price 5g 40s 0c, an item listed far above it
+  may not sell." (`FM.FlipCapText`); the Flip tab's tooltip shows Today too. **A flip never lists above a listing of others that stays on the AH after its buy**
   (1.46, FRV-172, `FM.FlipPlan` in `trade/Calc.lua`, one rule for this tab and for Flip picks). A flip needs 15%
   profit after the 5% cut on every unit bought (buy <= list x 0.95 / 1.15), at least 1s in total, the bought units at
   most 25% of all listed (else they are the market), a real market above (the wall, the price where max(3, 10% of

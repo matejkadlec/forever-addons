@@ -144,7 +144,8 @@ end)
 -- skill" / "Max. above current skill" -> Over skill level and its cap on all three); "Ignore stock" and the new
 -- options start at their defaults (Gold of all characters, FRV-36: off), so does the global set; the old keys go
 local DEFAULTS = { learn = true, overLevel = false, overLevelCap = 5, overSkill = true, overSkillCap = 10, noVendor = false,
-    noListed = false, listedCount = 1, listedValue = 1, noStock = false, allGold = false }
+    noListed = false, listedCount = 1, listedValue = 1, noStock = false, allGold = false,
+    noCraft = false, noFlip = false } -- Exclude crafting and Exclude AH flips (FRV-209): off
 
 local function With(changes)
     local set = {}

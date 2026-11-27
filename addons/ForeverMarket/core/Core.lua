@@ -67,6 +67,10 @@ FM.DEFAULTS = {
     upgradeSlots = {},
     upgradeBestPerSlot = false,
     upgradeOwned = true, -- Upgrades: "Owned gear", the gear in your bags and bank listed too (FRV-206)
+    -- Favorites and Ignored (FRV-207): the view of each, "market" (Marketplace, their market table) or "gear" (Gear, their
+    -- gear with the Upgrades tab's columns), the dropdown left of Refresh
+    favoritesView = "market",
+    ignoredView = "market",
     snipeUniversalPct = 50, -- sniper: the budget, % of your gold when it was last refreshed that all items may spend together
     snipeConfirmClick = false, -- sniper: confirm purchases with a second wheel step (settings panel; the game may switch it on)
     snipeSound = true, -- sniper: a sound for an offer and a purchase (settings panel, FRV-45)
@@ -299,7 +303,9 @@ FM.FILTER_DEFAULTS = {
     overLevelCap = 5,
     overSkill = true,     -- Over skill level: recipes up to the cap above your skill
     overSkillCap = 10,
+    noCraft = false,      -- Exclude crafting (Picks, FRV-209): no Craft and sell, Craft and wait or recipe to learn
     noVendor = false,     -- Exclude vendor flips (Picks)
+    noFlip = false,       -- Exclude AH flips (Picks, FRV-209): no flip of the Flip tab
     noListed = false,     -- Exclude already listed items (Picks)
     listedCount = 1,      -- ... at least this many units listed
     listedValue = 1,      -- ... worth at least this much (copper) at your listing prices
@@ -313,7 +319,8 @@ local ALL_TABS = { picks = true, latest = true, learn = true }
 FM.FILTER_TABS = {
     learn = { picks = true, latest = true },
     overLevel = ALL_TABS, overLevelCap = ALL_TABS, overSkill = ALL_TABS, overSkillCap = ALL_TABS,
-    noVendor = { picks = true }, noListed = { picks = true }, listedCount = { picks = true }, listedValue = { picks = true },
+    noCraft = { picks = true }, noVendor = { picks = true }, noFlip = { picks = true },
+    noListed = { picks = true }, listedCount = { picks = true }, listedValue = { picks = true },
     noStock = { picks = true }, allGold = { picks = true },
 }
 
@@ -390,6 +397,13 @@ end
 function FM.TableFilters(tab)
     local name = FM.UsesGlobalFilters(tab) and "global" or tab
     return FM.FilterSet(name), name
+end
+
+-- Picks' filters exclude every kind of pick (FRV-209): Exclude crafting, Exclude vendor flips and Exclude AH flips are
+-- all checked in the set Picks uses, so its list shows a message in place of rows
+function FM.PicksAllExcluded()
+    local set = FM.TableFilters("picks")
+    return set.noCraft == true and set.noVendor == true and set.noFlip == true
 end
 
 -- The player's faction ("Alliance"), "?" while it cannot be read

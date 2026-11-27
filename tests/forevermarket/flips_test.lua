@@ -141,3 +141,35 @@ H.test("flip rule: on 2,000 generated ladders no listing of others is under a fl
     H.eq(flips >= 100, true, "enough of the ladders are flips for the check to mean something (" .. flips .. ")")
     H.eq(limited >= 20, true, "also with a limit on units or gold (" .. limited .. ")")
 end)
+
+-- FRV-214: the list price is at most 110% of the usual price, or of ref (today's price, the last 2 days') when that is
+-- higher, so an item whose price has risen lists under the listing that stays only up to where it sells today; when the
+-- cap, not that listing, sets the price, capped and level say so and FM.FlipCapText gives the reason. The report's
+-- Thunderwood: usual 4g 37s, today 5g 40s, 2 cheap units, the next listing 4 at 7g; it listed at 4g 81s
+local THUNDERWOOD = { { 29900, 1 }, { 30000, 1 }, { 70000, 4 }, { 75000, 4 } }
+local THUNDERWOOD_USUAL = 43700
+
+H.test("flip rule: the list price follows today's price when it is higher, the cap says why", function()
+    local FM = Load()
+    local old = FM.FlipPlan(THUNDERWOOD, 10, THUNDERWOOD_USUAL, 100)
+    H.eq(old.sell, math.floor(THUNDERWOOD_USUAL * 1.1), "without a ref: 110% of the usual price, 4g 80s 70c")
+    H.eq(old.capped, true, "under the 7g that stays because of the cap")
+    H.eq(old.level, THUNDERWOOD_USUAL, "the cap's price is the usual one")
+    local f = FM.FlipPlan(THUNDERWOOD, 10, THUNDERWOOD_USUAL, 100, nil, nil, 54000)
+    H.eq(f.sell, 59400, "today 5g 40s: at most 110% of it, 5g 94s")
+    H.eq(f.units, 2, "it buys the two cheap units")
+    H.eq(f.capped, true, "still under the listing that stays")
+    H.eq(Plain(FM.FlipCapText(f, THUNDERWOOD_USUAL, 54000)),
+        "Under the cheapest listing that stays (7g 0s 0c): a flip lists at most 110% of today's price 5g 40s 0c, an item listed far above it may not sell.",
+        "the reason in the tooltip")
+    -- today at 6g 50s: 110% is above the 7g, the flip lists just under it
+    f = FM.FlipPlan(THUNDERWOOD, 10, THUNDERWOOD_USUAL, 100, nil, nil, 65000)
+    H.eq(f.sell, 69999, "just under the cheapest listing that stays")
+    H.eq(f.capped, nil, "not capped")
+    H.eq(FM.FlipCapText(f, THUNDERWOOD_USUAL, 65000), nil, "no reason needed")
+    -- a ref under the usual price changes nothing
+    f = FM.FlipPlan(THUNDERWOOD, 10, THUNDERWOOD_USUAL, 100, nil, nil, 30000)
+    H.eq(f.sell, old.sell, "the usual price stays the floor of the cap")
+    H.eq(Plain(FM.FlipCapText(f, THUNDERWOOD_USUAL, 30000)):find("of the usual price 4g 37s", 1, true) ~= nil, true,
+        "the reason names the usual price")
+end)

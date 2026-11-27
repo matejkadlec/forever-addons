@@ -44,6 +44,7 @@ local FLIP_MAX_SHARE = 0.25 -- the cheap units are at most this share of all lis
 local FLIP_MIN_USUAL = 20
 local FLIP_MIN_PROFIT = 100
 local FLIP_MIN_QTY = 5
+local FLIP_LIST_CAP = 1.10 -- a flip lists at most at 110% of the usual price, or of today's price when that is higher
 
 FM.TRADE = { AH_CUT = AH_CUT, MARGIN = MARGIN, BATCH = BATCH }
 
@@ -722,12 +723,14 @@ local function Median(list)
     return list[math_floor(#list / 2) + 1]
 end
 
--- Median of the daily lowest prices of the last 8 days (today left out) and of the last 2 of them.
+-- Median of the daily lowest prices of the last 8 days (today left out) and of the last 2 of them, and today's: the
+-- median of today's scans' minimums so far (FRV-214, nil before today's first scan; it never counts for the usual).
 -- Per day: our scans (median of their minimums), else the daily rollup; no other source (FRV-48: Auctionator's daily
 -- lows filled the days without either until 1.32)
 local function UsualPrice(key, now)
     local today = DayOf(now)
     local ours = {}
+    local todays = {}
     local item = FM.R().items[key]
     for _, f in ipairs(FM.DetailRecords(item)) do
         local minutes = Dec(string_sub(f[1], 2))
@@ -738,6 +741,8 @@ local function UsualPrice(key, now)
                 local list = ours[day] or {}
                 ours[day] = list
                 list[#list + 1] = minPrice
+            elseif day == today then
+                todays[#todays + 1] = minPrice
             end
         end
     end
@@ -763,7 +768,7 @@ local function UsualPrice(key, now)
         end
     end
     if #values < 3 then return nil end
-    return Median(values), Median(recent)
+    return Median(values), Median(recent), todays[1] and Median(todays) or nil
 end
 FM.UsualPrice = UsualPrice
 
@@ -794,7 +799,8 @@ end
 -- The flip rule, one for the Flip tab (FlipRow below) and for Flip picks (EvaluateFlip in trade/Picks.lua), FRV-172: a
 -- flip never lists above a listing of others that stays on the AH after its buy. It buys the k cheapest price levels
 -- of others in full and lists just under the level above them, the cheapest listing that stays (never above 110% of
--- the usual price). Until 1.45 it listed just under the wall, the first price where 3 units or 10% of the listed
+-- the usual price, or of ref when that is higher: today's price and the last 2 days', FRV-214; until 1.56 the usual
+-- price alone, so an item whose price had risen listed far under the listing that stays). Until 1.45 it listed just under the wall, the first price where 3 units or 10% of the listed
 -- wait: thin levels in between stayed under the list price, and so did the rest of a level a pick could buy only
 -- part of. Every k is tried and the most profitable one wins; a k counts when
 --   * its units are at most FLIP_MAX_SHARE of all listed (else they are the market), at most maxUnits and cost at
@@ -806,10 +812,13 @@ end
 -- So a thin level is bought with the cheap ones when all of that still holds, else the list price drops under it, else
 -- there is no flip. ladder = the levels of others, cheapest first ({ unit, qty }), qty = all units listed.
 -- Returns { units, cost, top (the dearest unit bought), sell, next and nextQty (the cheapest listing that stays and
--- its units), wall, support (units of others from next up to the wall: none under the list price), profit }, or nil
-function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost)
+-- its units), wall, support (units of others from next up to the wall: none under the list price), profit, level (the
+-- price the cap is 110% of), capped (true when the cap, not the listing that stays, set the list price) }, or nil
+function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost, ref)
     if type(ladder) ~= "table" or not (usual and qty) then return nil end
     local need = math_max(3, 0.1 * qty)
+    local level = math_max(usual, type(ref) == "number" and ref or 0)
+    local cap = math_floor(level * FLIP_LIST_CAP)
     local best
     local units, cost = 0, 0
     for k = 1, #ladder - 1 do
@@ -820,13 +829,14 @@ function FM.FlipPlan(ladder, qty, usual, floor, maxUnits, maxCost)
         local wall, support = WallAbove(ladder, k, need)
         if not wall then break end
         local nextPrice = ladder[k + 1][1]
-        local sell = math_min(math_floor(usual * 1.1), nextPrice - 1)
+        local sell = math_min(cap, nextPrice - 1)
         if wall >= 0.85 * usual and sell >= (floor or 1) and ladder[k][1] <= sell * (1 - AH_CUT) / (1 + FLIP_MARGIN)
             and units <= math_max(support, 5) then
             local profit = units * sell * (1 - AH_CUT) - cost
             if profit >= FLIP_MIN_PROFIT and (not best or profit > best.profit) then
                 best = { units = units, cost = cost, top = ladder[k][1], sell = sell, next = nextPrice,
-                    nextQty = ladder[k + 1][2], wall = wall, support = support, profit = profit }
+                    nextQty = ladder[k + 1][2], wall = wall, support = support, profit = profit, level = level,
+                    capped = sell < nextPrice - 1 or nil }
             end
         end
     end
@@ -845,17 +855,33 @@ function FM.FlipNextText(f)
 end
 
 -- A row of the Flip tab: FM.FlipPlan on the item's whole ladder, when its usual price is known (median daily low, last
--- week) and has not moved to a new level in the last 2 days
+-- week) and has not moved to a new level in the last 2 days; the list price may follow today's price and the last 2
+-- days' when they are higher (FRV-214)
 local function FlipRow(key, p, now)
-    local usual, recent = UsualPrice(key, now)
+    local usual, recent, today = UsualPrice(key, now)
     if not usual or usual < FLIP_MIN_USUAL then return nil end
     if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
-    local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p))
+    local ref = math_max(recent or 0, today or 0)
+    local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p), nil, nil, ref)
     if not f then return nil end
     return { key = key, top = f.top, units = f.units, cheapQty = f.units, cost = f.cost, sell = f.sell, profit = f.profit,
-        p1g = f.profit / f.cost * 10000, usual = usual, recent = recent, wall = f.wall, support = f.support,
-        next = f.next, nextQty = f.nextQty, qty = p.qty, own = p.own,
+        p1g = f.profit / f.cost * 10000, usual = usual, recent = recent, today = today, ref = ref, level = f.level,
+        capped = f.capped, wall = f.wall, support = f.support, next = f.next, nextQty = f.nextQty, qty = p.qty, own = p.own,
         minSell = math_floor(f.cost / f.units / (1 - AH_CUT) + 0.99) }
+end
+
+-- Why a flip lists under the cheapest listing of others that stays (FRV-214), nil when it lists just under it: "Under
+-- the cheapest listing that stays (7g 00s): a flip lists at most 110% of today's price 5g 40s."
+function FM.FlipCapText(f, usual, today)
+    if not (f and f.capped and f.next and f.level) then return nil end
+    local which = "the last 2 days' price"
+    if usual and f.level <= usual then
+        which = "the usual price"
+    elseif today and f.level == today then
+        which = "today's price"
+    end
+    return string_format("Under the cheapest listing that stays (%s): a flip lists at most 110%% of %s %s, an item listed far above it may not sell.",
+        FM.FormatMoney(f.next), which, FM.FormatMoney(f.level))
 end
 
 ---------------------------------------------------------------- the pass

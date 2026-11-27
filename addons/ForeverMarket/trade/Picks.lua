@@ -1469,10 +1469,10 @@ local function EvaluateCraft(c)
     -- it since that plan counts toward it, never again as units you hold; the room, the gold share and the batch size
     -- were about that target, so the rest of it is made whatever the batch says now (your listings of its crafts take
     -- room from it)
-    local carry = c.kind ~= "level" and P.carry and P.carry[row.key] or nil
+    local carry = c.kind ~= "level" and not c.stockOnly and P.carry and P.carry[row.key] or nil
     -- an amount you set for this pick in the table (FRV-154, FM.RemakePick): it makes that many, whatever the batch,
     -- the room and its share of the gold say (your choice); the materials and your minimum profit still stop it
-    local want = c.kind ~= "level" and P.amount and P.amount.key == row.key and P.amount.n or nil
+    local want = c.kind ~= "level" and not c.stockOnly and P.amount and P.amount.key == row.key and P.amount.n or nil
     if vendorOnly and not carry and not want then batch = math_min(batch, math_max(makes, math_floor(VENDOR_LISTED_SHARE * others))) end
     if batch < 1 and not carry and not want then return nil, BatchShort(b, room, makes) end
     -- what you hold first (a recipe to level for is information only: nothing of yours goes into it)
@@ -1528,6 +1528,8 @@ local function EvaluateCraft(c)
         end
         return pick, reason
     end
+    -- Exclude crafting (FRV-209, review round 3): only the units you hold, as a Stock pick
+    if c.stockOnly then return OnlyHeld("crafting is off (Exclude crafting)") end
     local runsMax = math_floor((batch - held) / makes)
     if carry then runsMax = math_ceil(math_max(0, carry.target - crafted) / makes) end
     if want then runsMax = math_ceil(want / makes) end
@@ -1920,6 +1922,133 @@ local function FlipHidden(key, levels)
     return true
 end
 
+---------------------------------------------------------------- live listings of a flip (FRV-214)
+-- A deep scan is a look at the AH minutes before you buy, and its cheapest listings go first (measured on FRV-214: of
+-- the flip picks searched about 2 minutes after their scan, 13% had lost their cheap units; at the next scan, about 1.5
+-- hours later, 73%). So a flip pick is judged on the listings of a full AH search of its item that is newer than the
+-- snapshot when there is one (scan/Search.lua FM.live: confirmed), else on the snapshot with its confidence at most
+-- 85% of what it would be (UNCONFIRMED, the 87% still there at the first search, rounded down): never 100%.
+
+local UNCONFIRMED = 0.85
+local CONFIRM_FRESH = 300 -- a confirming search counts for 5 minutes (review round 2: 28% of the cheapest listings go
+                          -- within 5 to 10 minutes); at the AH the check searches each flip again after 2
+
+-- The live listings of others of an item newer than `since` (a snapshot's time), or nil
+function FM.FlipLive(key, since)
+    local e = FM.live and FM.live[key]
+    if type(e) == "table" and type(e.t) == "number" and e.t > (since or 0) then return e end
+    return nil
+end
+
+-- "18:52"
+local function Clock(t)
+    return date("%H:%M", t)
+end
+
+-- Units of an item this character bought since a time: commodities from trade/Cost.lua's purchase log, items sold per
+-- auction from this session's buyouts (scan/Search.lua, review round 2)
+local function BoughtSince(key, since)
+    return (FM.BoughtSince and FM.BoughtSince(key, since or 0) or 0)
+        + (FM.ItemBoughtSince and FM.ItemBoughtSince(key, since or 0) or 0)
+end
+
+-- A confirming search still counts: at most CONFIRM_FRESH old
+local function Fresh(live)
+    return live ~= nil and FM.Now() - live.t <= CONFIRM_FRESH
+end
+
+-- A flip pick of the plan shown against the newest search of its item (FRV-214): "confirmed" while that search, newer
+-- than the snapshot the pick came from, still shows the units it buys at its prices (of others, at most its highest
+-- price) or you bought them since that snapshot (review round 1: your own purchase is no "gone"), "gone" when there
+-- are fewer; nil without such a search. Also the search and the units it counts
+function FM.FlipLiveState(pick)
+    if type(pick) ~= "table" or pick.kind ~= "flip" or not pick.mainTop then return nil end
+    local live = FM.FlipLive(pick.key, pick.seenAt or 0)
+    if not live then return nil end
+    local need = math_max(1, (pick.listUnits or 0) - (pick.held or 0))
+    local have = BoughtSince(pick.key, pick.seenAt)
+    for _, level in ipairs(live.ladder or EMPTY) do
+        if level[1] > pick.mainTop then break end
+        have = have + level[2]
+    end
+    return have >= need and "confirmed" or "gone", live, have
+end
+
+-- What the buy step of a flip pick adds (ui/Table.lua's steps line): "(not confirmed yet)" until a search confirms it,
+-- "(confirmed 18:52)", "" for any other pick
+function FM.FlipBuyNote(pick)
+    if type(pick) ~= "table" or pick.kind ~= "flip" then return "" end
+    local state, live = FM.FlipLiveState(pick)
+    if state == "confirmed" then
+        -- an old confirmation says when it was (review round 2): away from the AH nothing confirms it again
+        if Fresh(live) then return " (confirmed " .. Clock(live.t) .. ")" end
+        return " (not confirmed since " .. Clock(live.t) .. ")"
+    end
+    if state == "gone" then return "" end
+    return " (not confirmed yet)"
+end
+
+-- The tooltip note of a flip pick's live state: one line of pick.reasons, marked live (review round 2: an out of scope
+-- pick gets lines put in front of its reasons, so FM.FlipSearched finds it by the mark, not by its place)
+local function LiveNote(pick, state, live, have)
+    if state == "confirmed" then
+        return { "n", string_format("Confirmed by the AH search at %s: its cheap listings are there.", Clock(live.t)), GREY,
+            live = true }
+    elseif state == "gone" then
+        return { "n", string_format("Gone: the AH search at %s shows %s of its %s cheap units. Refresh plans without it.",
+            Clock(live.t), Count(have or 0), Count(math_max(1, (pick.listUnits or 0) - (pick.held or 0)))), "|cFFFF5555",
+            live = true }
+    end
+    return { "n", string_format("Seen in the %s of %s, not confirmed yet: cheap listings go fast. While the AH is open FM searches it within seconds; confidence at most %d%% until then.",
+        pick.seenSource == "api" and "feed snapshot" or "deep scan", Clock(pick.seenAt or FM.Now()), Pct(UNCONFIRMED)), ORANGE,
+        live = true }
+end
+
+-- A search of an item came (scan/Search.lua): a flip pick of it in the plan shown follows. Not locked: the plan is made
+-- again (on the live listings). Locked: the pick shows what the search says, confirmed (its confidence back from the
+-- unconfirmed cut) or gone (grey, Refresh plans without it)
+function FM.FlipSearched(key)
+    local trade = FM.trade
+    if not (trade and trade.picks) then return end
+    local changed = false
+    for _, pick in ipairs(trade.picks) do
+        if pick.kind == "flip" and pick.key == key then
+            local state, live, have = FM.FlipLiveState(pick)
+            -- only a new answer changes anything (review round 1: a pick confirmed again plans nothing again)
+            if state and state ~= pick.liveState then
+                changed = true
+                pick.liveState = state
+                if state == "confirmed" and pick.unconfirmed then
+                    local before = pick.expected or 0
+                    pick.conf = pick.conf / UNCONFIRMED
+                    pick.score = pick.score / UNCONFIRMED
+                    pick.expected = before / UNCONFIRMED
+                    pick.unconfirmed = nil
+                    -- its tooltip's Confidence line and the plan's expected follow (review round 1)
+                    for _, line in ipairs(pick.reasons or EMPTY) do
+                        if line[1] == "l" and line[2] == "Confidence" then line[3] = string_format("%d%%", Pct(pick.conf)) end
+                    end
+                    if not pick.extra and type(trade.pickExpected) == "number" then
+                        trade.pickExpected = trade.pickExpected + pick.expected - before
+                    end
+                end
+                pick.gone = state == "gone" and live.t or nil
+                for i, line in ipairs(pick.reasons or EMPTY) do
+                    if line.live then pick.reasons[i] = LiveNote(pick, state, live, have) end
+                end
+            end
+        end
+    end
+    if not changed then return end
+    -- not locked: a pass plans again, as after a post or a bag change (FM.ComputeTrade keeps the craft picks' targets,
+    -- review round 1: FM.PlanPicks is the plan you ask for, which starts them anew)
+    if not FM.PicksLocked() and FM.ComputeTrade then
+        FM.ComputeTrade(false)
+    elseif FM.RefreshTable then
+        FM.RefreshTable()
+    end
+end
+
 -- A flip pick: the Flip tab's rule (FM.FlipPlan, FRV-172) within what this pick may buy, its batch (less what you hold)
 -- and its gold. The flip row buys every cheap level and lists under the cheapest listing that stays; a pick that can
 -- buy fewer units takes fewer whole levels and lists under the level above those, and when no such buy earns the
@@ -1934,7 +2063,12 @@ local function EvaluateFlip(c)
     if d.avgQty and row.qty > 2 * d.avgQty then return nil, "twice as many listed as usual" end
     local room, noRoom = Room(row, 1)
     if not room then return nil, noRoom end
-    local ladder = Ladder(row.key)
+    -- the listings of a search newer than the snapshot when there is one (FRV-214), else the snapshot's
+    local live = FM.FlipLive(row.key, P.view.t)
+    local ladder = live and live.ladder or Ladder(row.key)
+    local qty = live and live.qty or row.qty
+    -- the list price may follow today's price and the last 2 days' when they are higher than the usual (FRV-214)
+    local ref = math_max(row.recent or 0, d.todayMedian or 0)
     local cheapest = ladder[1] and ladder[1][1] or row.top
     local heldAll = HeldOf(row.key)
     local cap = math_min(P.perPick, P.budgetLeft)
@@ -1954,7 +2088,7 @@ local function EvaluateFlip(c)
         if b.batch < 1 and not want then return nil, BatchShort(b, room, 1) end
         -- what you hold first: the flip buys only the rest of the batch
         held = math_min(heldAll, b.batch)
-        f = FM.FlipPlan(left, row.qty, row.usual, floor, want or (b.batch - held), not want and cap or nil)
+        f = FM.FlipPlan(left, qty, row.usual, floor, want or (b.batch - held), not want and cap or nil, ref)
         if not f or f.sell == sell then break end
         sell = f.sell
     end
@@ -1965,6 +2099,16 @@ local function EvaluateFlip(c)
     local saturation = buyers > 0 and (row.qty - (row.own or 0)) / buyers or 99
     local trial = NewTrial()
     local n, cost = 0, 0
+    -- a search newer than the snapshot holds no flip any more, whatever this pick could buy: gone (FRV-214; a flip
+    -- that is only too big for its batch or gold keeps the reasons below)
+    if live and not f and held <= 0 and not FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref) then
+        -- you bought them yourself since the snapshot (review round 1): that is no "gone"
+        local mine = BoughtSince(row.key, P.view.t)
+        if mine > 0 then
+            return nil, string_format("you bought %s since the scan: list them once they are in your bags", Count(mine))
+        end
+        return nil, string_format("its cheap listings are gone: the AH search at %s shows none that earn the margin", Clock(live.t))
+    end
     if f then
         n, cost = f.units, f.cost
         trial.used[row.key], trial.top[row.key] = n, f.top
@@ -2006,6 +2150,10 @@ local function EvaluateFlip(c)
         return nil, string_format("%s cheaper listing%s would stay under %s: this pick can buy %s of the %s", Count(stay),
             stay == 1 and "" or "s", M(row.sell), Count(n), Count(stay + n))
     end
+    -- a buy not confirmed by a search newer than the snapshot, or by one more than 5 minutes old: never full confidence
+    -- (FRV-214; a Stock pick above buys nothing and keeps its own)
+    local confirmed = Fresh(live)
+    if not confirmed then conf = conf * UNCONFIRMED end
     local items = n + held
     local unitCost = cost / n
     local m = sell * (1 - AH_CUT) - unitCost
@@ -2024,7 +2172,9 @@ local function EvaluateFlip(c)
     local score = expected * conf
     if score < P.minScore and not want then return nil, TooSmall(score, conf) end
     local pick = { key = row.key, kind = "flip", score = score, conf = conf, listAt = sell, invest = cost,
-        unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf }
+        unitProfit = m, cand = c, trial = trial, held = held, listUnits = items, batch = items, expected = expected * conf,
+        seenAt = P.view.t, seenSource = P.view.source, unconfirmed = not confirmed or nil, -- the snapshot it came from (FRV-214)
+        liveState = confirmed and "confirmed" or nil }
     if want and n < want then
         pick.amountNote = "no more available for flipping"
         pick.amountWhy = string_format("Only %s can be bought now: more would leave cheaper listings under the list price or "
@@ -2057,8 +2207,11 @@ local function EvaluateFlip(c)
         { "l", "Today", d.todayMedian and M(d.todayMedian) or "?" },
         { "l", "Buyers", d.perDay and string_format("%s per day", Count(d.perDay)) or "?" },
         { "l", "Confidence", string_format("%d%%", Pct(conf)) },
-        { "n", "Cheap listings go fast: the AH search shows if they are still there.", ORANGE },
     }) do pick.reasons[#pick.reasons + 1] = line end
+    -- why it lists under the cheapest listing that stays (FRV-214), and what the AH search says of its buy
+    local capText = FM.FlipCapText and FM.FlipCapText(f, row.usual, d.todayMedian)
+    if capText then pick.reasons[#pick.reasons + 1] = { "n", capText, GREY } end
+    pick.reasons[#pick.reasons + 1] = LiveNote(pick, confirmed and "confirmed" or nil, live)
     for _, note in ipairs(notes) do pick.reasons[#pick.reasons + 1] = { "n", note, ORANGE } end
     RoomLines(pick.reasons, row, room, b, "buy", n)
     return pick
@@ -2159,6 +2312,10 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif P.filters.noCraft and (HeldOf(row.key) <= 0 or (P.filters.noVendor and P.filters.noFlip)) then
+            -- Exclude crafting (FRV-209): no craft, wait or recipe to learn; units you hold stay a Stock pick (below),
+            -- unless every kind is excluded: then the plan is empty (review round 5)
+            why[row.key] = "crafting is off (Exclude crafting)"
         elseif row.craft.specNeed then
             -- a recipe of a Leatherworking specialization you have not chosen can't be learned yet (FRV-110)
             why[row.key] = string_format("needs the %s Leatherworking specialization", row.craft.specNeed)
@@ -2173,6 +2330,9 @@ local function Candidates(out, why)
         elseif P.prof and row.craft.prof ~= P.prof then
             -- the profession dropdown limits crafts and recipes only, vendor resells and flips stay
             why[row.key] = "another profession is chosen in the table"
+        elseif P.filters.noCraft then
+            -- Exclude crafting keeps what you hold of it (review round 3): a Stock pick lists it, nothing is made or learned
+            list[#list + 1] = { kind = "craft", row = row, stockOnly = true }
         elseif row.learned then
             -- too little now, but listed later at 95% of its usual price it would earn: only a wait can make it a pick
             list[#list + 1] = { kind = "craft", row = row, dipOnly = TooLittle(row) or nil }
@@ -2213,6 +2373,9 @@ local function Candidates(out, why)
         local listedWhy = ListedOut(row.key)
         if FM.IsExcluded(row.key) then
             why[row.key] = "excluded"
+        elseif P.filters.noFlip then
+            -- Exclude AH flips (FRV-209)
+            why[row.key] = "AH flips are off (Exclude AH flips)"
         elseif listedWhy then
             why[row.key] = listedWhy
         elseif FM.HasVariants(row.key) or FM.SuffixUnknown(row.key) then

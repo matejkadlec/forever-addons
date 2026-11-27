@@ -553,6 +553,13 @@ TABS[#TABS + 1] = { id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_CO
 local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
+-- the Gear view of Favorites and Ignored (FRV-207, ui/Upgrades.lua): their gear with the Upgrades tab's columns, rows,
+-- tooltips and clicks; no tab button of its own (CurrentTab shows it while the tab's dropdown says Gear), a sort of its
+-- own, the search of its tab (gearOf)
+TAB_BY_ID.favsGear = { id = "favsGear", gearOf = "favs", label = "Favorites", columns = FM.UPGRADE_COLUMNS, favs = true,
+    upgrades = true, gearView = true, group = 1 }
+TAB_BY_ID.ignoredGear = { id = "ignoredGear", gearOf = "ignored", label = "Ignored", columns = FM.UPGRADE_COLUMNS,
+    favs = true, ignored = true, upgrades = true, gearView = true, group = 1 }
 
 local function Settings()
     return FM.GetSettings()
@@ -567,7 +574,10 @@ local function TipsOnHover()
 end
 
 local function CurrentTab()
-    return TAB_BY_ID[view.tab] or TABS[1]
+    local tab = TAB_BY_ID[view.tab] or TABS[1]
+    -- Favorites or Ignored in their Gear view (FRV-207)
+    if tab.favs and FM.TableViewOf and FM.TableViewOf(tab.id) == "gear" then return TAB_BY_ID[tab.id .. "Gear"] end
+    return tab
 end
 
 -- Sort levels of a tab: { list = { { col, desc }, ... } }, the first level decides first. Click a header to
@@ -745,13 +755,19 @@ end
 -- row up in (FRV-80): the tab's filters, not the name search, unsorted, picks without sections
 local function BuildRows(tab, lookup)
     tab = tab or CurrentTab()
+    -- Picks with every kind of pick excluded in its filters (FRV-209): no rows and no sections (also not the plan shown
+    -- while the new one is made), Render says why
+    if tab.picks and FM.PicksAllExcluded() then return {} end
     local trade = FM.trade
     local s = Settings()
-    local text = not lookup and (view.search[tab.id] or "") or ""
+    local text = not lookup and (view.search[tab.gearOf or tab.id] or "") or "" -- a Gear view searches as its tab
     local needle = text ~= "" and string_lower(text) or nil
     local source
     if tab.farm then
         source = FM.farm and FM.farm.rows or {}
+    elseif tab.gearView then
+        -- the gear among the favorites or ignored items with the Upgrades tab's numbers (FRV-207, ui/Upgrades.lua)
+        source = FM.GearViewRows and FM.GearViewRows(tab.ignored and s.excluded or s.favorites) or {}
     elseif tab.ignored then
         source = KeptRows(trade, s.excluded) -- nil before the first item is ignored: no rows
     elseif tab.favs then
@@ -1149,12 +1165,16 @@ local function FlipTooltip(row)
     Header("Sell")
     -- the cheapest listing of others that stays after the buy (FRV-172: the list price is just under it)
     Line("List at", Money(row.sell) .. GREY .. "  " .. FM.FlipNextText(row) .. "|r")
+    -- why it lists under the cheapest listing that stays (FRV-214)
+    local capText = FM.FlipCapText and FM.FlipCapText(row, row.usual, row.today)
+    if capText then Note(capText) end
     Line("Expected profit", P1g(row.profit))
     Line("PPG", P1g(row.p1g) .. GREY .. "  profit per 1g of the buy|r")
     Line("Min. price", Money(row.minSell) .. GREY .. "  break-even of your buy|r" .. DepNote(row))
     Header("Market")
     MarketLines(row)
-    Note("Cheap listings go fast: the AH search shows if they are still there.", ORANGE)
+    if row.today then Line("Today", Money(row.today)) end
+    Note("Cheap listings go fast: the deep scan saw them minutes ago. A click searches the AH; a Flip pick waits for such a search to confirm it.", ORANGE)
 end
 
 -- pick.reasons: { "h", text } heading, { "l", label, value } line, { "n", text, color } note, { "p", label } the Make
@@ -1658,7 +1678,7 @@ local function ShowRowMenu(button, row)
     MenuUtil.CreateContextMenu(button, function(_, root)
         root:CreateTitle(gear and (row.name or Name(key)) or Name(key))
         -- at the AH: the buy window looks the listing up and buys it on your click (FRV-204); gear you own has none
-        if gear and not row.owned and FM.ahOpen and FM.UpgradeBuyOpen then
+        if gear and not row.owned and not row.notListed and FM.ahOpen and FM.UpgradeBuyOpen then
             root:CreateButton("Buy this listing", function() FM.UpgradeBuyOpen(row) end)
         end
         -- an AH flip pick, also from its steps line (FRV-193): first, for a flip someone else bought first; it hides
@@ -1805,7 +1825,8 @@ local function OnRowClick(button, mouseButton)
             GameTooltip:Hide()
             ShowRowMenu(button, row)
         elseif IsShiftKeyDown and IsShiftKeyDown() then
-            if FM.ahOpen and FM.UpgradeBuyOpen then
+            -- an item of the Gear view not listed (FRV-207): nothing to buy, the link goes to the chat
+            if FM.ahOpen and FM.UpgradeBuyOpen and not row.notListed then
                 GameTooltip:Hide()
                 FM.UpgradeBuyOpen(row)
             elseif type(row.link) == "string" and ChatEdit_InsertLink then
@@ -2077,6 +2098,8 @@ end
 -- dropdowns of Vendor and Picks)
 local function ShiftHint(tab)
     -- Upgrades: the search box and the Level boxes, Rarities, Slots and Spec, Best per slot (FRV-203, FRV-205)
+    -- Favorites and Ignored: the search box and the Marketplace / Gear dropdown (FRV-207), in both views
+    if tab.favs then return "  ·  hold Shift over the search box and the dropdown for their tips" end
     if tab.picks or tab.upgrades then return "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips" end
     if tab.crafts or tab.learn then return "  ·  hold Shift over inputs and checkboxes for their tips" end
     if tab.id == "vendor" then return "  ·  hold Shift over inputs and dropdowns for their tips" end
@@ -2127,6 +2150,9 @@ local function FooterText(total, short, tab)
         -- the shorter form drops the note on the columns, never the hints
         if not short then text = text .. "  ·  # = a day's profit, Expected = one listing of all of it" end
         hint = "  ·  hover for why" .. hint
+    elseif tab.gearView then
+        -- "1-4 of 4  ·  3 gear items  ·  scored with Pawn's scale ..." (FRV-207)
+        text = text .. (FM.GearViewFooter and FM.GearViewFooter(rowsCache, short) or "")
     elseif tab.ignored then
         text = text .. (short and "  ·  right-click a row > Stop ignoring this item brings it back"
             or "  ·  hidden from the other tabs and the picks; right-click a row > Stop ignoring this item brings it back")
@@ -2291,6 +2317,10 @@ end
 -- the make step follows your crafts (FRV-104: "make 31 more"), and once the target is made ("made 51") it and the
 -- steps before it are grey: the listing is next
 local function StepsText(p)
+    -- a flip pick whose cheap listings an AH search found gone (FRV-214, a locked plan keeps it until Refresh)
+    if p.gone then
+        return GREY .. "Gone: an AH search at " .. date("%H:%M", p.gone) .. " no longer shows its cheap listings. Refresh plans without it.|r"
+    end
     local steps = p.steps or {}
     local parts = {}
     local makeText, made, buyText, bought
@@ -2305,6 +2335,8 @@ local function StepsText(p)
         if i == p.amountStep and p.amountNote then
             step = step .. (p.amountWarn and ORANGE or RED) .. " (" .. p.amountNote .. ")|r"
         end
+        -- a flip's buy: "(not confirmed yet)" until an AH search confirms it, "(confirmed 18:52)" (FRV-214)
+        if i == 1 and p.kind == "flip" and FM.FlipBuyNote then step = step .. GREY .. FM.FlipBuyNote(p) .. "|r" end
         step = i == 1 and (string.upper(step:sub(1, 1)) .. step:sub(2)) or step
         local done = (made and i <= p.makeStep) or (bought and i == p.buyStep)
         parts[i] = done and (GREY .. step .. "|r") or step
@@ -2397,6 +2429,7 @@ local function RenderGraph(tab)
         w:Hide()
     end
     if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, false) end
+    if FM.TableViewShow then FM.TableViewShow(frame, nil) end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
     for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
     FM.PerfShow(frame, true, GRAPH_GEO)
@@ -2424,8 +2457,8 @@ Render = function()
     local graph = (tab.graph and FM.PerfShow) and true or false
     frame.search:SetShown(not graph)
     -- the tab's own search text (FRV-26); not while you type in it
-    if not frame.search:HasFocus() and (frame.search:GetText() or "") ~= (view.search[tab.id] or "") then
-        frame.search:SetText(view.search[tab.id] or "")
+    if not frame.search:HasFocus() and (frame.search:GetText() or "") ~= (view.search[tab.gearOf or tab.id] or "") then
+        frame.search:SetText(view.search[tab.gearOf or tab.id] or "")
     end
     frame.headerLine:SetShown(not graph)
     frame.refresh:SetShown(not graph) -- it reads recipes and vendors again: nothing for the graph
@@ -2480,6 +2513,8 @@ Render = function()
                 local col = c <= shown and tab.columns[c] or nil
                 if col then
                     local ok, text = pcall(col.text, row)
+                    -- a flip pick found gone (FRV-214): its numbers grey
+                    if ok and row.gone then text = GREY .. tostring(text):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") .. "|r" end
                     cell:SetText(ok and text or (RED .. "err|r"))
                     -- an amount that can be set is an input in place of the text (FRV-154)
                     if col.edit and row.amountEdit then
@@ -2542,7 +2577,9 @@ Render = function()
     end
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
     -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (ui/Upgrades.lua), only on that tab
-    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, tab.upgrades and true or false) end
+    if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, (tab.upgrades and not tab.gearView) and true or false) end
+    -- Favorites and Ignored: the Marketplace / Gear dropdown left of Refresh (FRV-207)
+    if FM.TableViewShow then FM.TableViewShow(frame, tab) end
     LayoutFilters(frame)
     frame.status:SetText(StatusText())
     frame.footer:SetText(FooterText(total))
@@ -2566,13 +2603,19 @@ Render = function()
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
         if tab.upgrades and FM.UpgradesEmptyText then text = FM.UpgradesEmptyText() end
-        if tab.ignored and not busy and FM.ExcludedCount() == 0 then
+        if tab.gearView and FM.GearViewEmptyText then
+            text = FM.GearViewEmptyText(tab.gearOf) -- the Gear view (FRV-207): its own words, Pawn's from the Upgrades tab
+        elseif tab.ignored and not busy and FM.ExcludedCount() == 0 then
             text = "No ignored items: right-click a row in any tab > Ignore this item."
         elseif tab.favs and not tab.ignored and not busy then
             text = "No favorites yet: right-click a row in any tab > Favorize this item."
         end
         if tab.farm and not busy and FM.farm and FM.farm.questie == false then
             text = "No Questie mob data: the tab fills from your own kills as you farm."
+        end
+        -- Picks with every kind of pick excluded (FRV-209): this, also while a pass runs
+        if tab.picks and FM.PicksAllExcluded() then
+            text = "You've excluded all kinds of profits. Include them again in filter settings to see picks."
         end
         frame.empty:SetText(GREY .. text .. "|r")
         frame.empty:Show()
@@ -2588,6 +2631,12 @@ function FM.RefreshTable()
     if FM.PriceGraphRefresh then FM.PriceGraphRefresh() end
     -- and the sticky row tooltips, as "Lock plan after refresh" says (ui/StickyTooltip.lua)
     if FM.StickyRefresh then FM.StickyRefresh() end
+end
+
+-- Favorites or Ignored switched between Marketplace and Gear (FRV-207): the list from its top, in the other view
+function FM.TableViewChanged()
+    view.offset = 0
+    FM.RefreshTable()
 end
 
 -- A filter of a set changed (the dialog, "Use global filters"; FRV-89): the plan follows when Picks uses that set,
@@ -2657,7 +2706,7 @@ end
 function FM.TableRowsOf(tabId, search)
     local tab = TAB_BY_ID[tabId]
     if not tab then return nil end
-    if search ~= nil then view.search[tabId] = search ~= "" and search or nil end
+    if search ~= nil then view.search[tab.gearOf or tabId] = search ~= "" and search or nil end
     return BuildRows(tab)
 end
 
@@ -3129,6 +3178,8 @@ local function CreateTable()
     f.refresh = refresh -- the shown buttons line up from it to the left (LayoutFilters)
     -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (FRV-203, FRV-205; ui/Upgrades.lua)
     if FM.UpgradesCreateFilters then FM.UpgradesCreateFilters(f) end
+    -- Favorites and Ignored: Marketplace / Gear left of Refresh (FRV-207; ui/Upgrades.lua)
+    if FM.TableViewCreate then FM.TableViewCreate(f) end
     FM.TableTipHook(refresh, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Refresh")

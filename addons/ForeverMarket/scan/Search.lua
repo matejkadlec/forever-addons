@@ -8,6 +8,12 @@ local _, FM = ...
 -- Search record "s<time>,kind,full,auctions,ladder,gap,sold,soldValue,reposted,new"
 --   kind: c = commodity, i = item; full: 1 when the AH sent every auction; ladder: "u:q/..."
 -- item.a keeps the auctions of the last search: "<time>|<full>|aid:qty:buyout:secondsLeft:owner,..."
+--
+-- Live listings (FRV-214): FM.live[key] holds the listings of others of the newest full search of each item this
+-- session ({ t = FM.Now(), ladder = { { unit, qty }, ... }, qty }), also of a sniped item the log skips. A flip pick is
+-- judged on them while they are newer than the snapshot it came from (FM.FlipLive, trade/Picks.lua). While the AH is
+-- open the flip picks of the plan shown are searched here, one every few seconds, when nothing else uses the AH
+-- (FlipCheck below); a deep scan can be minutes old by the time you buy: the measurements are on FRV-214.
 
 local Enc, Dec = FM.Enc, FM.Dec
 local math_floor = math.floor
@@ -20,6 +26,7 @@ local ipairs = ipairs
 local DEBOUNCE = 0.6
 local MAX_DIFF_GAP = 24 * 3600
 local pending = {}
+FM.live = FM.live or {}
 
 local function OwnerTag(owners, containsOwner)
     if containsOwner then return "@" end
@@ -142,14 +149,44 @@ local function Save(key, kind, rows, full)
     FM.dataVersion = FM.dataVersion + 1
 end
 
+-- The listings of others of a full search (FRV-214): FM.live[key], newest first; a partial result may lack the
+-- cheapest units and changes nothing. The plan shown hears of it (FM.FlipSearched, trade/Picks.lua)
+local function Live(key, rows, full, kind)
+    if not full then return end
+    local levels, qty = {}, 0
+    local aids = kind == "i" and {} or nil -- an item's auctions of others, for your buyouts of them (review round 2)
+    for _, row in ipairs(rows) do
+        local n = row.owner ~= "@" and row.qty or (row.othersQty or 0)
+        if n > 0 then
+            local unit = FM.UnitPrice(row.qty, row.buyout)
+            levels[unit] = (levels[unit] or 0) + n
+            qty = qty + n
+            if aids and row.auctionID then aids[row.auctionID] = n end
+        end
+    end
+    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids }
+    if FM.FlipCheckAnswered then FM.FlipCheckAnswered(key) end
+    if FM.FlipSearched then FM.FlipSearched(key) end
+end
+FM.SearchLive = Live -- for the tests
+
 local function CaptureCommodity(itemID)
-    -- while sniping, a sniped item is searched every few seconds: log it once per 10 minutes only
-    if FM.SnipeSkipCapture and FM.SnipeSkipCapture(tostring(itemID)) then return end
+    -- while sniping, a sniped item is searched every few seconds: log it once per 10 minutes only (its live listings
+    -- are kept every time)
+    local skip = (FM.SnipeSkipCapture and FM.SnipeSkipCapture(tostring(itemID)))
+        or (FM.FlipCheckSkipSave and FM.FlipCheckSkipSave(tostring(itemID)))
     local ah = C_AuctionHouse
     if not (ah and ah.GetNumCommoditySearchResults and ah.GetCommoditySearchResultInfo) then return end
     local n = ah.GetNumCommoditySearchResults(itemID)
-    if type(n) ~= "number" or n <= 0 or FM.IsSecret(n) then return end
+    if type(n) ~= "number" or FM.IsSecret(n) then return end
     local full = ah.HasFullCommoditySearchResults and ah.HasFullCommoditySearchResults(itemID) or false
+    if FM.IsSecret(full) then full = false end
+    if n <= 0 then
+        -- none listed at all (review round 4): a full answer is an empty ladder for the live check of a flip pick. Not
+        -- for an item sold per auction: its search by a bare item ID's key is not yet verified in game
+        if full then Live(tostring(itemID), {}, true) end
+        return
+    end
     local rows = {}
     for i = 1, n do
         local r = ah.GetCommoditySearchResultInfo(itemID, i)
@@ -168,8 +205,11 @@ local function CaptureCommodity(itemID)
         end
     end
     if #rows > 0 then
+        Live(tostring(itemID), rows, full)
+        if skip then return end
         Save(tostring(itemID), "c", rows, full)
         if FM.SnipeCaptured then FM.SnipeCaptured(tostring(itemID)) end
+        if FM.FlipCheckSaved then FM.FlipCheckSaved(tostring(itemID)) end
     end
 end
 
@@ -205,12 +245,18 @@ local function CaptureItem(itemKey)
                 end
                 -- ForeverArtisan reads item results the same way: buyoutAmount covers the whole stack
                 rows[#rows + 1] = { aid = r.auctionID or i, qty = qty, buyout = r.buyoutAmount, left = left,
-                    owner = OwnerTag(r.owners, r.containsOwnerItem) }
+                    owner = OwnerTag(r.owners, r.containsOwnerItem),
+                    auctionID = type(r.auctionID) == "number" and not FM.IsSecret(r.auctionID) and r.auctionID or nil }
             end
         end
     end
     for key, rows in pairs(byKey) do
-        Save(key, "i", rows, full)
+        -- the answer to the flip check's own search is logged once per 10 minutes (review round 5)
+        if not (FM.FlipCheckSkipSave and FM.FlipCheckSkipSave(key)) then
+            Save(key, "i", rows, full)
+            if FM.FlipCheckSaved then FM.FlipCheckSaved(key) end
+        end
+        Live(key, rows, full, "i")
     end
 end
 
@@ -234,3 +280,178 @@ FM.On("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
             CaptureItem, itemKey)
     end
 end)
+
+---------------------------------------------------------------- live check of flip picks (FRV-214)
+-- While the AH is open, the flip picks of the plan shown (the first CHECK_PICKS of them, plan first) are searched one
+-- by one with C_AuctionHouse.SendSearchQuery (the sniper's call, no HasRestrictions; 100 a minute at most, this sends
+-- one every CHECK_GAP seconds at most), each again after CHECK_AGAIN while the AH stays open. Never while the sniper
+-- searches, a deep scan wants the AH or reads it, a pass plans, the AH waits for an answer (FM.AHBusyReason), the AH's
+-- throttle is not ready, in combat, or while Blizzard shows a Buy or Sell page, its buy dialog or its Auctions tab (a
+-- search of another item would replace that page's list). Results come back through the capture above like any search's. An item
+-- search with an item key of the bare item ID is not yet verified in game (docs/forever-api-notes.md)
+
+local CHECK_TICK = 1     -- the loop looks this often
+local CHECK_GAP = 3      -- seconds between two searches of ours
+local CHECK_WAIT = 5     -- a search of ours without results in time is given up
+local CHECK_AGAIN = 120  -- a flip pick is searched again after this long while the AH stays open
+local CHECK_PICKS = 6    -- the first this many flip picks of the plan shown
+local CHECK_SAVE_GAP = 600 -- the answer to a search of ours is logged once per 10 minutes per item (review round 5:
+                           -- an item keeps 40 search records, the check's searches every 2 minutes pushed out days)
+local check = { ticker = nil, lastSent = 0, waiting = nil, asked = {}, savedAt = {} }
+
+-- An item's search was logged (Save above): when, for the gap below
+function FM.FlipCheckSaved(key)
+    check.savedAt[key] = FM.Now()
+end
+
+-- The answer to the check's own search of this item, logged less than 10 minutes ago: its live listings are kept, the
+-- log skips it (as the sniper's own searches are logged once per 10 minutes)
+function FM.FlipCheckSkipSave(key)
+    local asked = check.asked[key]
+    if not (check.waiting and asked and FM.Now() - asked <= CHECK_WAIT) then return false end
+    local at = check.savedAt[key]
+    return at ~= nil and FM.Now() - at < CHECK_SAVE_GAP
+end
+local sorts
+
+local function Shown(frame)
+    if type(frame) ~= "table" or type(frame.IsShown) ~= "function" then return false end
+    local ok, shown = pcall(frame.IsShown, frame)
+    return ok and not FM.IsSecret(shown) and shown == true
+end
+
+-- Blizzard shows a page whose list a search of another item would replace: its Buy or Sell page, its buy dialog, its
+-- Auctions tab (its item and commodity lists follow the search results too, review round 1)
+local function PageInTheWay()
+    local ah = _G.AuctionHouseFrame
+    if type(ah) ~= "table" then return false end
+    return Shown(ah.CommoditiesBuyFrame) or Shown(ah.ItemBuyFrame) or Shown(ah.CommoditiesSellFrame)
+        or Shown(ah.ItemSellFrame) or Shown(ah.BuyDialog) or Shown(ah.AuctionsFrame)
+end
+
+-- Why no check search may go out now (nil = it may)
+local function CheckHeld(now)
+    if check.waiting and now - check.waiting < CHECK_WAIT then return "waiting for its answer" end
+    if now - check.lastSent < CHECK_GAP then return "too soon" end
+    if InCombatLockdown and InCombatLockdown() then return "in combat" end
+    if FM.SnipeIsActive and FM.SnipeIsActive() then return "the sniper searches" end
+    local state = FM.deep and FM.deep.state
+    if state == "walking" or state == "saving" or (FM.DeepScanWantsAH and FM.DeepScanWantsAH()) then return "a deep scan" end
+    if FM.TradeBusy and FM.TradeBusy() then return "a pass plans" end
+    if FM.AHBusyReason and FM.AHBusyReason() then return "the AH is busy" end
+    if PageInTheWay() then return "a Blizzard page" end
+    local ah = C_AuctionHouse
+    if not (ah and ah.SendSearchQuery and ah.MakeItemKey) then return "no search" end
+    if ah.IsThrottledMessageSystemReady and not ah.IsThrottledMessageSystemReady() then return "the AH's throttle" end
+    return nil
+end
+
+-- The next flip pick to search: one without live listings newer than its snapshot, or one checked CHECK_AGAIN ago
+local function NextFlip(nowT)
+    local trade = FM.trade
+    local seen = 0
+    for _, pick in ipairs(trade and trade.picks or {}) do
+        if pick.kind == "flip" then
+            seen = seen + 1
+            if seen > CHECK_PICKS then return nil end
+            local live = FM.FlipLive and FM.FlipLive(pick.key, pick.seenAt or 0)
+            local asked = check.asked[pick.key]
+            if not (asked and nowT - asked < CHECK_AGAIN) and not (live and nowT - live.t < CHECK_AGAIN) then
+                return pick.key
+            end
+        end
+    end
+    return nil
+end
+
+-- One step of the loop: a search of the next flip pick when nothing holds it back. Returns the key searched
+function FM.FlipCheckTick()
+    if not FM.ahOpen then return nil end
+    local now = GetTime()
+    if check.waiting and now - check.waiting >= CHECK_WAIT then check.waiting = nil end
+    if CheckHeld(now) then return nil end
+    local nowT = FM.Now()
+    local key = NextFlip(nowT)
+    local itemID = key and FM.ItemIDFromKey(key)
+    if not itemID then return nil end
+    local ah = C_AuctionHouse
+    check.asked[key] = nowT
+    check.lastSent = now
+    local ok, itemKey = pcall(ah.MakeItemKey, itemID)
+    if not ok or type(itemKey) ~= "table" then return nil end
+    if not sorts then
+        local order = Enum and Enum.AuctionHouseSortOrder and Enum.AuctionHouseSortOrder.Price or 0
+        sorts = { { sortOrder = order, reverseSort = false } }
+    end
+    if pcall(ah.SendSearchQuery, itemKey, sorts, false) then
+        check.waiting = now
+        return key
+    end
+    return nil
+end
+
+-- A search result came for this key: our wait is over
+function FM.FlipCheckAnswered(key)
+    if check.waiting and check.asked[key] then check.waiting = nil end
+end
+
+-- Your buyouts of items sold per auction this session (review round 2): trade/Cost.lua logs commodity purchases
+-- only, so an item auction you buy is noted here. PlaceBid (HasRestrictions: only hooked, never called here) names an
+-- auction an item search showed (FM.live[key].aids); AUCTION_HOUSE_PURCHASE_COMPLETED with that auction ID makes it a
+-- purchase of its units. A flip pick counts them as its own (FM.ItemBoughtSince, trade/Picks.lua)
+local bids, itemBuys, bidsHooked = {}, {}, false
+
+local function HookBids()
+    if bidsHooked or not (C_AuctionHouse and C_AuctionHouse.PlaceBid and hooksecurefunc) then return end
+    bidsHooked = true
+    hooksecurefunc(C_AuctionHouse, "PlaceBid", function(auctionID)
+        if type(auctionID) ~= "number" or FM.IsSecret(auctionID) then return end
+        for key, e in pairs(FM.live) do
+            local n = type(e) == "table" and e.aids and e.aids[auctionID]
+            if n then
+                bids[auctionID] = { key = key, qty = n }
+                return
+            end
+        end
+    end)
+end
+
+FM.On("AUCTION_HOUSE_PURCHASE_COMPLETED", function(auctionID)
+    local b = type(auctionID) == "number" and not FM.IsSecret(auctionID) and bids[auctionID]
+    if not b then return end
+    bids[auctionID] = nil
+    local list = itemBuys[b.key] or {}
+    itemBuys[b.key] = list
+    list[#list + 1] = { t = FM.Now(), qty = b.qty }
+end)
+
+-- Units of an item you bought out per auction this session since a time
+function FM.ItemBoughtSince(key, since)
+    local n = 0
+    for _, b in ipairs(itemBuys[key] or {}) do
+        if b.t >= (since or 0) then n = n + b.qty end
+    end
+    return n
+end
+
+local function StopCheck()
+    if check.ticker then
+        check.ticker:Cancel()
+        check.ticker = nil
+    end
+    check.waiting = nil
+end
+
+FM.On("AUCTION_HOUSE_SHOW", function()
+    HookBids()
+    StopCheck()
+    check.asked = {} -- a new visit searches every flip pick again
+    if C_Timer and C_Timer.NewTicker then
+        check.ticker = C_Timer.NewTicker(CHECK_TICK, function()
+            local ok, err = pcall(FM.FlipCheckTick)
+            if not ok and geterrorhandler then geterrorhandler()(err) end
+        end)
+    end
+end)
+
+FM.On("AUCTION_HOUSE_CLOSED", StopCheck)

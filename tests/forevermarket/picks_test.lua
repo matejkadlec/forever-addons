@@ -1749,6 +1749,118 @@ H.test("picks: Include not learned recipes off leaves recipes to learn out", fun
     H.eq(out.pickWhy["134"], "recipes to learn are off (Include not learned recipes)", "the reason")
 end)
 
+-- FRV-209: "Exclude crafting" and "Exclude AH flips" (Picks only, both off by default) next to "Exclude vendor flips".
+-- Rule: Exclude crafting takes no pick that crafts (Craft and sell, Craft and wait, a recipe to learn or to level for);
+-- the units of a craft you hold stay a Stock pick (review round 3: listing them crafts nothing); Exclude AH flips no
+-- flip of the Flip tab; the other kinds stay, and an
+-- excluded item's reason names the option. With all three checked the set excludes every kind (FM.PicksAllExcluded).
+local function AllKinds()
+    local vendor = { key = "104", sell = 10000, usual = 10000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 200,
+        own = 0, sold12 = 10 }
+    local flip = { key = "105", sell = 9999, usual = 10000, top = 4000, units = 5, support = 55, wall = 10000, qty = 60,
+        sold12 = 10 }
+    local view = View({
+        ["104"] = { ladder = { { 10000, 200 } }, qty = 200, own = 0 },
+        ["105"] = { ladder = { { 4000, 5 }, { 10000, 55 } }, qty = 60, own = 0 }
+    })
+    return { crafts = { Craft("100", 43), LevelRecipe("134", 0) }, vendor = { vendor }, flips = { flip } }, view
+end
+
+local KINDS_BUYERS = { ["100"] = 27, ["104"] = 27, ["105"] = 27, ["134"] = 27 }
+
+H.test("picks: all four kinds are picks with the defaults, both new options start unchecked", function()
+    local FM, env = Setup(KINDS_BUYERS)
+    local set = FM.FilterSet("picks")
+    H.eq(set.noCraft, false, "Exclude crafting off")
+    H.eq(set.noFlip, false, "Exclude AH flips off")
+    local out, view = AllKinds()
+    local picks = Compute(FM, env, out, view)
+    H.eq(picks["100"] and picks["100"].kind, "craft", "Craft and sell")
+    H.eq(picks["134"] and picks["134"].kind, "learn", "a recipe to learn")
+    H.eq(picks["104"] and picks["104"].kind, "vendor", "a vendor flip")
+    H.eq(picks["105"] and picks["105"].kind, "flip", "an AH flip")
+    H.eq(FM.PicksAllExcluded(), false, "not every kind excluded")
+end)
+
+H.test("picks: Exclude crafting leaves out crafts and recipes, vendor and AH flips stay", function()
+    local FM, env = Setup(KINDS_BUYERS)
+    FM.FilterSet("picks").noCraft = true
+    local out, view = AllKinds()
+    local picks = Compute(FM, env, out, view)
+    H.eq(picks["100"], nil, "no craft pick")
+    H.eq(picks["134"], nil, "no recipe to learn")
+    H.eq(out.pickWhy["100"], "crafting is off (Exclude crafting)", "the craft's reason")
+    H.eq(out.pickWhy["134"], "crafting is off (Exclude crafting)", "the recipe's reason")
+    H.eq(picks["104"] and picks["104"].kind, "vendor", "the vendor flip stays")
+    H.eq(picks["105"] and picks["105"].kind, "flip", "the AH flip stays")
+    -- no "Level for" information either: a recipe above your level is a crafting pick too
+    FM, env = Setup({ ["136"] = 27 })
+    env.UnitLevel = function() return 43 end
+    set = FM.FilterSet("picks")
+    set.overLevel, set.noCraft = true, true
+    out = { crafts = { LevelRecipe("136", 45) } }
+    Compute(FM, env, out)
+    H.eq(HasLevel(out, "136"), false, "no Level for row")
+    H.eq(out.pickWhy["136"], "crafting is off (Exclude crafting)", "its reason")
+end)
+
+H.test("picks: Exclude crafting keeps the Stock pick of a craft you hold, it makes nothing", function()
+    local FM, env = Setup({ ["100"] = 27 })
+    FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
+    local picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
+    H.eq(picks["100"] and picks["100"].kind, "stock", "the units you hold are a Stock pick")
+    FM, env = Setup({ ["100"] = 27 })
+    FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
+    FM.FilterSet("picks").noCraft = true
+    picks = Compute(FM, env, { crafts = { Craft("100", 43) } })
+    H.eq(picks["100"] and picks["100"].kind, "stock", "still a Stock pick: listing what you hold crafts nothing")
+    H.eq(picks["100"].makeStep, nil, "no make step")
+    -- what you do not hold is no pick
+    FM, env = Setup({ ["100"] = 27 })
+    FM.FilterSet("picks").noCraft = true
+    local out = { crafts = { Craft("100", 43) } }
+    picks = Compute(FM, env, out)
+    H.eq(picks["100"], nil, "nothing held: no pick")
+    H.eq(out.pickWhy["100"], "crafting is off (Exclude crafting)", "the reason")
+end)
+
+H.test("picks: Exclude AH flips leaves out the flip, crafts and vendor flips stay", function()
+    local FM, env = Setup(KINDS_BUYERS)
+    FM.FilterSet("picks").noFlip = true
+    local out, view = AllKinds()
+    local picks = Compute(FM, env, out, view)
+    H.eq(picks["105"], nil, "no AH flip")
+    H.eq(out.pickWhy["105"], "AH flips are off (Exclude AH flips)", "its reason")
+    H.eq(picks["100"] and picks["100"].kind, "craft", "the craft stays")
+    H.eq(picks["104"] and picks["104"].kind, "vendor", "the vendor flip stays")
+end)
+
+H.test("picks: all three exclusions leave no pick and say so, in the set Picks uses", function()
+    local FM, env = Setup(KINDS_BUYERS)
+    local set = FM.FilterSet("picks")
+    set.noCraft, set.noVendor, set.noFlip = true, true, false
+    H.eq(FM.PicksAllExcluded(), false, "two of three: not all")
+    set.noFlip = true
+    H.eq(FM.PicksAllExcluded(), true, "all three")
+    local out, view = AllKinds()
+    Compute(FM, env, out, view)
+    H.eq(#out.picks, 0, "no pick, none out of scope")
+    -- the global set counts only while Picks uses it
+    FM.GetSettings().tableUseGlobal.picks = true
+    H.eq(FM.PicksAllExcluded(), false, "the global set has none of them")
+    local global = FM.FilterSet("global")
+    global.noCraft, global.noVendor, global.noFlip = true, true, true
+    H.eq(FM.PicksAllExcluded(), true, "the global set with all three")
+    -- a craft you hold is no Stock pick then either: the plan is empty (review round 5)
+    FM, env = Setup({ ["100"] = 27 })
+    FM.Owned = function(key) if key == "100" then return 30, 30, 30, 30 end return 0, 0, 0 end
+    set = FM.FilterSet("picks")
+    set.noCraft, set.noVendor, set.noFlip = true, true, true
+    out = { crafts = { Craft("100", 43) } }
+    Compute(FM, env, out)
+    H.eq(#out.picks, 0, "units you hold: still no pick")
+end)
+
 H.test("picks: the global filters count when Picks uses them, never another tab's", function()
     local FM, env = Setup({ ["134"] = 27 })
     FM.FilterSet("latest").learn = false -- Craft's own: not Picks'
