@@ -306,6 +306,11 @@ local function Auctions(r, char, now, mailT, add, look, notes)
     -- sale's up to MAIL_LATE later (the list shows it sold until then)
     local changes, cancelled, logged = {}, {}, {}
     local oldest = math_min(lookT, listT or now) - MAIL_LATE -- a sale stays on its way until MAIL_LATE after the list
+    -- a key its character took over when it was deleted and made again (FRV-236, charInfo[key].again, core/Core.lua):
+    -- what the deleted one's lists saw change before that is not this character's, neither money nor units
+    local info = type(r.charInfo) == "table" and r.charInfo[char]
+    local again = type(info) == "table" and type(info.again) == "number" and info.again or nil
+    if again then oldest = math_max(oldest, again) end
     for _, line in ipairs(r.events or {}) do
         local f = string_find(line, named, 1, true) and FM.Split(line, ",") or {}
         local kind, t = f[3], FM.Unstamp(f[1])

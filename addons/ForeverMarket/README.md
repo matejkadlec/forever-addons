@@ -379,7 +379,9 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   deleted character's auctions are not the new one's (1.70.7): its auction list starts empty at the take-over, so
   no post of before counts as running, as held from the AH or as your listing, and the moment is kept
   (`charInfo[key].again`): a commodity post of before it is never taken as sold out because a later list lacks
-  it, it stays open with what is known to have sold (`trade/Listings.lua`, the same in `tools/fm_analyze.py`).
+  it, it stays open with what is known to have sold (`trade/Listings.lua`, the same in `tools/fm_analyze.py`), and
+  a sale or a vanished auction that the deleted character's lists saw before it is not the new character's money
+  or units on their way (1.70.8, `scan/Worth.lua`).
   Saved data of 1.70.5 and older gave such a
   character a second key and listed it twice (`/fm chars`, the Profit tab's dropdown), each with its own result: at
   every login, of the keys with one full name under different GUIDs only the logged-in character's own stays, else

@@ -141,6 +141,28 @@ H.test("held: a sale logged with its total before 1.38 counts at its post's unit
     H.eq(held, Round(12 * 514 * 0.95), "12 units at the post's 5s 14c, less the cut")
 end)
 
+-- Rule (FRV-236, review round 2 of PR 96): a character deleted and made again takes the key of its name over
+-- (core/Core.lua: its auction list starts empty then, charInfo[key].again keeps the moment). The key's event lines
+-- stay, but a sale the deleted one's list showed before that is not the new character's money on its way
+H.test("held: a sale the deleted character's list showed is no money on its way for the one made again", function()
+    local took = DAY2 + 15 * 3600 -- the take-over
+    local FM, _, _, r = Session(nil, took + 600)
+    FM.Deposit = function() return 0 end
+    local row = C.soldRows[1] -- 12 Mageweave Cloth, posted at 5s 14c a unit
+    Post(FM, r, took - 7200, row.key, row.post.qty, row.post.unit, 2, "c", row.aid)
+    -- half an hour before: the deleted character's list showed the sale, its mail was never read
+    r.events[1] = table.concat({ FM.Stamp(took - 1800), "Ada", "osold", row.key, B(row.qty), B(row.buyout), row.aid,
+        FM.Stamp(took - 2400) }, ",")
+    r.owned.Ada = { t = took, list = "", v = 2 }
+    H.eq(select(2, FM.WorthNow()), Round(12 * 514 * 0.95), "a character that was not made again: the sale is on its way")
+    FM.R().charInfo[FM.PlayerName()].again = took
+    H.eq(select(2, FM.WorthNow()), 0, "after the take-over the line of before counts nothing")
+    -- what the new character's own lists see counts as ever
+    r.events[2] = table.concat({ FM.Stamp(took + 300), "Ada", "osold", row.key, B(row.qty), B(row.buyout), row.aid,
+        FM.Stamp(took + 60) }, ",")
+    H.eq(select(2, FM.WorthNow()), Round(12 * 514 * 0.95), "a sale seen after it is on its way")
+end)
+
 H.test("held: the list of your auctions stores a sold row per unit and marks itself", function()
     local now = DAY2 + 16 * 3600
     local FM, env, _, r = Session(nil, now)
