@@ -964,11 +964,41 @@ function FM.ArtisanEntries(db)
     return { fallback }
 end
 
+-- What a character's key holds of the character itself, besides its entry, its settings, its logs and its Profit
+-- readings: what it held and knew at its last readings
+local CHAR_HELD = { "bags", "bank", "gearBank", "bankBagSlots", "windowRecipes", "mailbox", "owned", "goldLast", "sent", "pool" }
+
+-- Drops what a key's character held and knew: /fm forget (scan/Characters.lua), and a character made again under
+-- its name (FM.PlayerName below)
+function FM.DropHeld(r, key)
+    for _, field in ipairs(CHAR_HELD) do
+        if type(r[field]) == "table" then r[field][key] = nil end
+    end
+end
+
+-- The key whose character had this full name under a GUID of its own, the one seen last when several did (then the
+-- smaller key); nil without one
+local function KeyOfName(info, full)
+    local found, foundSeen
+    for key, e in pairs(info) do
+        if type(e) == "table" and e.full == full and type(e.guid) == "string" then
+            local seen = tonumber(e.seen) or 0
+            if not found or seen > foundSeen or (seen == foundSeen and key < found) then found, foundSeen = key, seen end
+        end
+    end
+    return found
+end
+
 -- The key of the logged-in character in every per-character record and log line (FRV-35): its first name, as
 -- before 1.23; a second character with the same first name on this realm and faction gets its full name. Every
 -- key remembers its character's GUID (R.charInfo[key].guid), so no key moves and old records keep theirs: a key
 -- without a GUID yet goes to the first of its characters that logs in. Until the GUID and the saved data can be
--- read, the first name
+-- read, the first name.
+-- A character deleted and made again under the same first name and surname has a new GUID (seen in game, FRV-236)
+-- and is no second character: a full name belongs to one character of a realm at a time (both names are checked
+-- together when a character is made, docs/forever-api-notes.md), so it takes the key of that name over, with the
+-- key's logs, settings and Profit readings; what the gone character held and knew goes. Without a surname nothing
+-- tells two characters apart and they stay together as before
 local charKey
 function FM.PlayerName()
     if charKey then return charKey end
@@ -984,11 +1014,21 @@ function FM.PlayerName()
             return key
         end
     end
+    local full = FM.PlayerFullName()
+    local again = full and full ~= first and KeyOfName(info, full)
+    if again then
+        info[again].guid, info[again].bagsEmpty = guid, nil
+        FM.DropHeld(r, again)
+        -- its auction list counted as your listings, its readings as your stock
+        FM.listingsVersion = (FM.listingsVersion or 0) + 1
+        FM.dataVersion = (FM.dataVersion or 0) + 1
+        charKey = again
+        return again
+    end
     local key = first
     local taken = info[first]
     if type(taken) == "table" and taken.guid and taken.guid ~= guid then
         -- the first name belongs to another character: the full name (without a surname they stay together)
-        local full = FM.PlayerFullName()
         if not full or full == first then
             charKey = first
             return first

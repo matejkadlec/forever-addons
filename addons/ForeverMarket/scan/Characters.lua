@@ -83,6 +83,36 @@ local function Touch()
     info.seen = FM.Now()
 end
 
+-- A full name belongs to one character of a realm at a time (both names are checked together when a character is
+-- made, docs/forever-api-notes.md): of the keys that carry one full name under different GUIDs only one still has
+-- it, the logged-in character's own, else the one seen last. The others are characters that were deleted (one made
+-- again under its name got a second key up to 1.70.5 and was listed twice, FRV-236; since 1.70.6 it takes the key
+-- over, FM.PlayerName) or renamed since: they are forgotten as /fm forget does it, their logs stay
+local function ForgetNamesakes()
+    local mine, me = Info()
+    if not mine then return end
+    local r = FM.R()
+    mine.full = FM.PlayerFullName() or mine.full
+    local function Named(e) return type(e) == "table" and type(e.full) == "string" and type(e.guid) == "string" end
+    local keep = {} -- [full name] = the key that still has it
+    for key, e in pairs(r.charInfo) do
+        if Named(e) then
+            local held = keep[e.full]
+            local other = held and r.charInfo[held]
+            local seen, otherSeen = tonumber(e.seen) or 0, other and tonumber(other.seen) or 0
+            if not held or key == me
+                or (held ~= me and (seen > otherSeen or (seen == otherSeen and key < held))) then
+                keep[e.full] = key
+            end
+        end
+    end
+    local gone = {}
+    for key, e in pairs(r.charInfo) do
+        if Named(e) and keep[e.full] ~= key and r.charInfo[keep[e.full]].guid ~= e.guid then gone[#gone + 1] = key end
+    end
+    for _, key in ipairs(gone) do FM.ForgetCharacter(key) end
+end
+
 local lastBagsAt = 0
 local bagsLoaded = false -- a BAG_UPDATE_DELAYED came this session: the bags are loaded for sure
 
@@ -119,12 +149,16 @@ FM.On("BAG_UPDATE_DELAYED", function()
 end)
 
 FM.On("PLAYER_LOGIN", function()
+    -- at once where the GUID can be read already, so no list of this session names a character twice
+    local ok, err = pcall(ForgetNamesakes)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
     C_Timer.After(10, function()
-        local ok, err = pcall(function()
+        local ok2, err2 = pcall(function()
             Touch()
+            ForgetNamesakes()
             SaveBags("login")
         end)
-        if not ok and geterrorhandler then geterrorhandler()(err) end
+        if not ok2 and geterrorhandler then geterrorhandler()(err2) end
     end)
 end)
 FM.On("PLAYER_LOGOUT", function()
@@ -344,11 +378,11 @@ end
 function FM.ForgetCharacter(key)
     if key == FM.PlayerName() then return false, "that is the character you are logged in with" end
     local r = FM.R()
-    local fields = { "chars", "charInfo", "bags", "bank", "gearBank", "bankBagSlots", "windowRecipes", "mailbox", "owned",
-        "goldLast", "sent", "pool", "settings" }
-    for _, field in ipairs(fields) do
+    for _, field in ipairs({ "chars", "charInfo", "settings" }) do
         if type(r[field]) == "table" then r[field][key] = nil end
     end
+    -- its bags, bank, mailbox, auction list, gold, mail on its way and pool (core/Core.lua)
+    FM.DropHeld(r, key)
     -- its auction list counted as your listings
     FM.listingsVersion = (FM.listingsVersion or 0) + 1
     FM.dataVersion = (FM.dataVersion or 0) + 1

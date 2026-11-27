@@ -371,6 +371,16 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   still found by the first name, and the mail a character logged under its first name before its key began counts
   as seen under its new key (it is not logged twice; `charInfo[key].since`); what the character that keeps the
   first name logs later stays its own
+* A character deleted and created again under the same name (1.70.6, FRV-236): it has a new GUID (seen in game) but
+  is no second character, since a full name belongs to one character of a realm at a time. It takes the key of its
+  full name over (the one seen last when several carry it): the key's log lines, its settings and its Profit
+  readings stay, what the deleted character held and knew goes (bags, bank, bank gear and bank bag slots, window
+  recipes, mailbox, auction list, last gold, mail on its way, pool). Saved data of 1.70.5 and older gave such a
+  character a second key and listed it twice (`/fm chars`, the Profit tab's dropdown), each with its own result: at
+  every login, of the keys with one full name under different GUIDs only the logged-in character's own stays, else
+  the one seen last, and the others are forgotten as `/fm forget` does it (no log line is touched). A character
+  renamed away from a name that another of yours then takes is forgotten the same way until it logs in again, under
+  a new key. Without a surname nothing tells two characters of one name apart: they share their key as before
 
 ## Marketplace (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
