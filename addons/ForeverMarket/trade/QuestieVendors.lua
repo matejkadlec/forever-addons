@@ -10,6 +10,7 @@ local _, FM = ...
 --                          recipe items (class 9) a vendor sells, read once per session in slices; nil while the read
 --                          runs (it starts with the first call), false without QuestieDB
 --   FM.QuestieVendor(id)   { npc, mapID, x, y, zone, where } of a vendor friendly to your faction, nil else
+--   FM.QuestieSells(key)   whether such a vendor sells an item at all (FRV-233: the flip rule), per item on request
 -- The read ends with FM.sources dropped and the tables computed again, so the new routes show without a /reload.
 
 local type = type
@@ -179,8 +180,33 @@ function FM.QuestieVendor(npcId)
     return out
 end
 
+-- Whether QuestieDB names a vendor friendly to your faction for an item (FRV-233: such an item is no AH flip, also
+-- while nobody opened that vendor). One row of the library per item asked, kept per session; false without QuestieDB,
+-- and not kept while the game does not say your faction yet
+local sellsCache = {}
+
+function FM.QuestieSells(key)
+    local cached = sellsCache[key]
+    if cached ~= nil then return cached end
+    local lib = Lib()
+    local id = FM.ItemIDFromKey(key)
+    if not (lib and id) then return false end
+    if not MyFaction() then return false end
+    local sells = false
+    local vendors = Field(lib.Item, "vendors", id)
+    for _, npc in ipairs(type(vendors) == "table" and vendors or {}) do
+        if type(npc) == "number" and FM.QuestieVendor(npc) then
+            sells = true
+            break
+        end
+    end
+    sellsCache[key] = sells
+    return sells
+end
+
 -- For the tests: forget the read and the vendors (a new QuestieDB stub)
 function FM.QuestieReset()
     patterns, reading = nil, false
     for k in pairs(vendorCache) do vendorCache[k] = nil end
+    for k in pairs(sellsCache) do sellsCache[k] = nil end
 end

@@ -1057,7 +1057,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     from older records (confidence 50%).
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
-    the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average).
+    the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average),
+    and an item vendors sell is never a Flip pick (1.63, FRV-233, see Flip below).
     A flip pick follows the Flip tab's rule within its own batch and gold (1.46, FRV-172, `EvaluateFlip`): when
     they buy fewer units than the flip row, it takes fewer whole price levels and lists under the level above those
     (its "List at", Expected profit, "Sells", Gold needed and steps line follow that buy), and when no such buy earns
@@ -1184,6 +1185,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   The tooltip's "List at" line names what waits above: "8g 02s 01c  next: 16 at 9g 29s", or with a thin level
   "79s 99c  next: 1 at 80s, 18 more up to 1g 05s" (`FM.FlipNextText`; "N wait at W" before, which counted the thin
   levels as waiting at the wall).
+  **An item vendors sell is never an AH flip** (1.63, FRV-233; the report: Balanced Throwing Dagger as pick #1, "Buy 3
+  up to 12s > list at 22s"): a vendor supplies it, usually cheaper and without limit, which is the Vendor tab's and
+  the vendor picks' business, and the vendor's price caps what buyers pay on the AH. An item a vendor sells without a
+  stock limit gets no row here and no Flip pick; an item whose every known vendor offer has limited stock is a flip
+  only of the price levels under the cheapest such offer (`FM.FlipPlan`'s `under`). Which items vendors sell
+  (`FM.VendorSold` in `trade/Sources.lua`): ForeverArtisan's Trade Contacts, a merchant you saw selling it without a
+  limit (`vendorSeen`), and the vendors QuestieDB names that are friendly to your faction, also while you have not
+  opened them (`FM.QuestieSells` in `trade/QuestieVendors.lua`; no price is known then, and QuestieDB does not say
+  whether stock is limited, so such an item counts as sold without limit). "Exclude vendor flips" does not bring such
+  an item back as an AH flip: the rule does not read the filters. Where the AH alone would make a flip, the item's
+  "Not in the picks" reason says "sold by vendors: a vendor flip, not an AH flip" (or "a vendor sells it for 13s 0c
+  (limited stock): an AH flip only under that price"), unless the item is a vendor resell, which keeps its own reason
+  (`FM.FlipOf`, `out.flipVendorWhy`).
   Until 1.45 the list price was 1c under the wall, so thin levels stayed under it: Recipe: Cleric's Elixir (2026-11-25:
   1g 03s 99c, 1g 04s, 1g 05s 09c, 1g 10s 98c, 1g 30s 99c, ...) read "buy 2 up to 1g 04s, list at 1g 30s" over the
   listings at 1g 05s 09c and 1g 10s 98c; with 9 listed only two units are within the 25%, and two units earn no

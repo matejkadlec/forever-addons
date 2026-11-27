@@ -1016,6 +1016,22 @@ function FM.VendorUnit(key, allowLimited)
     return nil
 end
 
+-- Whether vendors sell an item, for the flip rule (FRV-233: what a vendor supplies is a vendor flip, never an AH flip):
+--   "unlimited", unit   a vendor sells it without a stock limit: ForeverArtisan's Trade Contacts, a merchant you saw
+--                       selling it (R.vendorSeen), or a vendor QuestieDB names that nobody opened yet (no unit then:
+--                       "not visited yet" has no price, and QuestieDB does not say whether its stock is limited)
+--   "limited", unit     every offer known has limited stock: unit is the cheapest of them
+--   nil                 no vendor is known to sell it
+function FM.VendorSold(key)
+    local v = FM.Sources().vendors[key]
+    if v and v.unlimited then return "unlimited", v.unlimited.unit end
+    local seen = SeenOffer(key)
+    if seen then return "unlimited", seen.unit end
+    if v and v.best then return "limited", v.best.unit end
+    if FM.QuestieSells and FM.QuestieSells(key) then return "unlimited" end
+    return nil
+end
+
 -- Seconds one craft takes: the recipe spell's cast time plus a short gap before the next cast of "Create All";
 -- nil while the spell isn't known
 local CRAFT_GAP = 0.5
