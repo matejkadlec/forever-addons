@@ -345,7 +345,7 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
 * Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
   its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
-  auction list, inventory reading and last gold, so it counts nowhere any more (its posts, invoices, events,
+  auction list, inventory reading, last gold and its own settings (FRV-228), so it counts nowhere any more (its posts, invoices, events,
   purchases and Profit readings stay; the logged-in character is refused). Each character's bags are saved at
   logout and a few minutes after bag changes (`bags[char]`); a read at login (before the bags have loaded, read
   afresh) or at logout (the containers may be gone) that finds no item is not saved and keeps the last reading,
@@ -549,6 +549,33 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   own set, its "Global filters" button is greyed out and disabled; while it uses the global set, its "Filters"
   button is. Changing one tab's set never changes another's (until 1.28 "Not learned" was shared by Craft and Picks,
   "Above current skill" by Craft and Learn).
+  * **Per character** (1.68, FRV-228; the report: an AH character at level 1 without professions next to a hunter
+    with Leatherworking, where "Exclude crafting" set for the one turned crafting off in the other's Picks): the
+    settings that decide what a character's marketplace and plan show are that character's own. Its own:
+    * every filter set (Picks, Craft, Learn and the global one) and each tab's **Use global filters**; the Global
+      filters dialog says so in its subtitle, "Used by: Picks, Craft  ·  saved for this character"
+    * the Picks row: Picks, Invest and Profit with their % and amounts and their four checkboxes, Auto-refresh, Keep
+      edits
+    * the tabs' own filters: Continent and Zone, the profession dropdown, the Upgrades tab's Rarities, Slots, Best per
+      slot and Owned gear (its Level and scale were the character's before), the Profit tab's character
+    * the settings panel's options that feed the plan and the tabs' rows: hide outliers, the minimum profit per item,
+      "Allow picks budget over current gold", the two "% + manual" logics, the shares of C/24h, the crafting time rate
+      and the material prices' hours. Two small lines right of the panel's title say "Marketplace, Picks and material
+      options are saved per character"
+    * One value for the account, as before: the windows' places and priorities, the tooltip settings, the open tab,
+      every sort order, the views of Favorites and Ignored, Favorites and Ignored themselves, the sniper with its
+      items, the scans and the chat line.
+    * **What a character starts with:** its own saved value, else the account-wide value saved before 1.68, else the
+      default. Its own values are made at its first login with 1.68, from the account-wide ones as they are then, so
+      nothing changes for any character at the update, and a character logged in for the first time later starts
+      from the same values of before. From then on only the character's own values are written; the account-wide
+      ones stay in the saved data as they were and are only read.
+    * `ForeverMarketDB.realms[...].settings[char]` holds them, by the character's key (`FM.PlayerName`);
+      `FM.GetSettings()` (`core/Core.lua`) returns a view that reads and writes a key of `FM.CHAR_SETTINGS` there and
+      every other key in `ForeverMarketDB.settings`, so no other file knows where a setting is saved. Until the
+      character's key is certain (its GUID and the realm are known, at login) the account-wide values are used, as
+      they are for two characters nobody can tell apart (the same first name without a surname). `/fm forget <name>`
+      removes that character's settings; `/fm wipe confirm` deletes market data and keeps them.
   * The dialog: one window that shows the set the current tab uses, its title says which ("Picks filters", "Global
     filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
@@ -2127,7 +2154,8 @@ The realm is `GetRealmName()`. Since the client 1.60.1.71037 it is empty on Fore
 realm in the saved data (`FM.RealmName`): the bucket whose characters (`charInfo`) hold the logged-in character's
 GUID, else one with a character of the same server (the GUID's second part), else the only realm saved for the
 faction when nothing says it is another server (no readable GUID, or its characters have none saved), else "Server
-<id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays. A bucket the
+<id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays, and `settings`
+(the characters' own settings, FRV-228: no market data). A bucket the
 empty name made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and is removed. One that
 holds market data gives its logs too when its characters are the realm's own, the same keys with the same GUIDs
 (1.38, FRV-106: the sessions of 2026-11-20/21 wrote a night of sales there that the Profit tab never saw): AH mail,
@@ -2356,6 +2384,10 @@ Picks skip).
   item was sold on the AH after it (read that way, the line stays)
 * `bankBagSlots[char]` (1.65, FRV-222, optional, made at the first look at the bank) `t|id:n,...`: the bags in the
   character's bank bag slots at the last look with the bank open; `/fm forget` removes it
+* `settings[char]` (1.68, FRV-228, made at the character's first login) `{ [key] = value }`: the character's own
+  settings, the keys of `FM.CHAR_SETTINGS` as `ForeverMarketDB.settings` holds them for the account (filter sets,
+  the Picks row, the tabs' filters, the settings panel's plan inputs, `perfChar`). The account-wide values stay in
+  `ForeverMarketDB.settings` and are only read; `/fm forget` removes a character's, `/fm wipe confirm` keeps them
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the

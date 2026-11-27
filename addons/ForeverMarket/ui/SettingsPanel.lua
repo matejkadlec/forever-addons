@@ -19,6 +19,10 @@ local panel
 local checkboxes = {}
 local inputs = {}
 local infoText
+local charNote
+-- Which of this page's options are the logged-in character's own (FRV-228, FM.CHAR_SETTINGS in core/Core.lua): the
+-- ones that feed the marketplace's rows and the Picks plan. The rest is one value for the account
+local CHAR_NOTE = "Marketplace, Picks and material options|nare saved per character"
 
 local function GetCategoryID(category)
     if not category then return nil end
@@ -301,6 +305,8 @@ local function Refresh()
     for _, dd in ipairs(dropdowns) do
         if dd.GenerateMenu then dd:GenerateMenu() end
     end
+    -- the note only while the character's own settings are in use (its key is known at login)
+    if charNote then charNote:SetShown(FM.SettingsPerCharacter ~= nil and FM.SettingsPerCharacter()) end
     if infoText and FM.realm then
         local r = FM.realm
         local items = 0
@@ -325,6 +331,13 @@ function FM.RegisterSettingsPanel()
     local subtitle = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     subtitle:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -40)
     subtitle:SetText("Logs the Auction House over time to price, plan and snipe. Marketplace: " .. FM.SLASH_COMMAND .. ", commands: " .. FM.SLASH_COMMAND .. " help")
+
+    -- the options that feed the marketplace's rows and the Picks plan are the character's own (FRV-228): two small
+    -- lines right of the title, above the subtitle (the page has no free row)
+    charNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    charNote:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, -14)
+    charNote:SetJustifyH("RIGHT")
+    charNote:SetText(CHAR_NOTE)
 
     for index, option in ipairs(OPTIONS) do
         local checkbox = CreateFrame("CheckButton", "ForeverMarketOption" .. index, panel, "UICheckButtonTemplate")
