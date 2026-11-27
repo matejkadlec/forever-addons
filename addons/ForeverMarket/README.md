@@ -51,7 +51,26 @@ and the ones the best fit below marks). Only the latest snapshot has them: the n
 the feed reads the same numbers from the API's item auctions; a feed from an older feed program or server brings none,
 and `FM.GearSnapshot()` is nil until the next deep scan then). The extra link read costs one `GetReplicateItemLink` per gear
 auction (about 108,000 of the maintainer's 282,000 on 2026-11-25), the walk still reads 2,000 auctions per frame: `/fm
-scanlog` shows how long reading the list took, the time spent reading and the gear links read. `/fm status` counts the
+scanlog` shows how long reading the list took, the time spent reading and the gear links read.
+
+**Gear links read again** (1.61, FRV-215). A link whose name is empty (`|h[]|h`: the client has not loaded the item's
+data yet) tells nothing, and neither does a link the client does not give: in the maintainer's deep scan of 2026-11-26
+18:50, 39,952 of 71,352 gear auctions (56.0%) sat under the empty variant, where the Battle.net feed has 13.0%, so
+about 4 in 10 gear auctions were unread, and the Upgrades tab knew no suffix for them until the next feed import. Now
+the walk keeps those auctions aside (`FM.VARIANT_LATER`, `snap.unread`) and, before the snapshot is saved, asks the
+client for their items' data (`C_Item.RequestLoadItemDataByID`, 200 items per tick, none for an item already loaded:
+`C_Item.IsItemDataCachedByID`), waits for the answers (`ITEM_DATA_LOAD_RESULT` / `GET_ITEM_INFO_RECEIVED`), at most 8
+seconds, and reads each of those auctions' links once more, 2,000 per frame; the full scan's list stays in the client
+until the next one, so its indexes still name the same auctions (Auctionator's own full scan reads late links the
+same way). An auction whose link still has no name stays under the empty variant. The walk is complete before this
+second reading, so closing the Auction House during it ends only the reading: the links not read again stay under
+the empty variant and the snapshot is saved, as a finished walk always was (closing during the walk itself still
+ends the scan unsaved). `/fm scanlog` says what happened:
+"39,952 gear links unread at first (39,900 without a name, 52 no link; 31,204 of them with bonus IDs already), 39,700
+read again after 2.4 s (31,150 as their first link said), 252 still unread", or "every gear link read". The numbers in
+brackets tell whether a link without a name already carries its bonus IDs on Forever and whether they can be trusted
+(they are only counted: the variant always comes from a link with its name). Your own auctions are in no variant and
+are not read again. `/fm status` counts the
 variants of the latest snapshot ("Gear variants in the latest snapshot: 18,412 of 3,950 items": the listings of others,
 one per variant, and the gear items they belong to).
 
@@ -122,8 +141,9 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   requests, throttle events (`AUCTION_HOUSE_THROTTLED_MESSAGE_SENT` / `QUEUED` / `DROPPED` / `RESPONSE_RECEIVED`,
   `AUCTION_HOUSE_THROTTLED_SYSTEM_READY`) and AH errors (`AUCTION_HOUSE_SHOW_ERROR`) while it waited, how long
   the list took, and for a list it read (1.53, FRV-200) "read in 14.2 s (812 ms reading, 107,776 gear links)": the
-  walk's time, the time spent in its reads and the gear links it read. The last 50 are kept (`scanLog`, below), so
-  the next failure shows its cause
+  walk's time, the time spent in its reads and the gear links it read; since 1.61 (FRV-215) also the gear links that
+  could not be read at first, why, and what reading them again brought (Gear links read again, above). The last 50 are
+  kept (`scanLog`, below), so the next failure shows its cause
 
 ## In game
 
@@ -147,6 +167,51 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   stack you would make. Before 1.21 the crafted branch ("Craft cost") applied only once the marketplace had
   computed its numbers in the session (opening it or a deep scan), so after a login a crafted item showed its own
   AH price
+  * **you paid is a moving average of the units you hold** (1.62, FRV-88, trade/Pool.lua), for the units you hold
+    of any item; the two rules for "you paid" further down (your newest crafts' basis, your newest purchases) are
+    what it was until 1.61 and still what it is for an item you do not hold. Those averaged your newest purchases
+    until they covered your units, without knowing which were used, sold or vendored since, nor which units were
+    looted: 147 Small Lustrous Pearls bought lately at about 2s 30c read 2s 88c, because dearer purchases of pearls
+    long gone filled up the 147.
+    * **A pool per item and character**: the units in your bags and bank and what they cost together. No stack is
+      followed, so splitting and merging stacks changes nothing.
+    * **Units come in**: new average = (held x old average + new units x their cost) / all units.
+      * An AH purchase at its price. The price is recorded at the purchase (a won auction's when its mail is read),
+        but the units enter the pool when they reach your bags, not at the purchase: units you use or sell before
+        you collect the mail were not the bought ones. 20 in the bags at 4s, 20 bought at 2s and left in the mail,
+        the bags' 20 used in a craft, the mail collected: 20 at 2s (counting at the purchase would say 3s). They
+        come out of the mailbox: only a rise of your bags while the mailbox was open (or within 2 seconds of its
+        closing) takes waiting purchases, so 20 looted while 20 bought ones wait are looted units (a bag change
+        at the mailbox that moved no unit, an item put into another slot, does not count either). The first look
+        of a session takes them wherever they arrived (mail collected right before a `/reload` or a logout).
+      * Crafted units at their materials' basis from the craft log (below).
+      * Units back from an auction that did not sell, at what they left with (out of the mailbox, like purchases).
+      * Units from a vendor at the vendor's price (bags that changed while a merchant window was open): what that
+        merchant's list asks for the item in gold, limited stock too, else a vendor price ForeverMarket knows of
+        the item. The gold that left you is never taken for the price: it also pays repairs and AH purchases. An
+        item neither of the two prices (sold for more than gold, bought back after more than half a minute) counts
+        like the units of the next line.
+      * Anything else (looted, skinned, gathered, traded, mailed by another character) at what the craft log takes
+        for units nobody recorded: a vendor's price when one sells the item without limit, else its AH price at
+        that moment (the cheapest of others). An item without any price stays out of the pool until there is one:
+        **you paid (3 of 5)** then, "-" when none of your units has a price.
+    * **Units go out** (used in a craft, sold, vendored, destroyed, mailed, posted): the count falls, the average
+      stays.
+    * **The pool is set against what you really hold** 2 seconds after your bags or bank last changed (not in
+      combat, not in the first 10 seconds after a login): a rise is explained in the order above, a fall takes units
+      out. Units that left and are back within half a minute are the same units and come back at what they left
+      with (an item put into a mail and taken back, sold to a vendor and bought back, a bag read too early).
+    * **The start**: once per character, from the data of that moment: the units you hold at the craft log's
+      estimate (`FM.HeldLots`: your purchases and crafts less what your crafts used of them, the rest at the rule
+      for units nobody recorded), and the purchases made after your last look into the mailbox wait for their units.
+    * **Hold Shift** over the item for one more grey line under "you paid": where the units came from, "80 bought
+      this week at 2s 21c, 67 older at 3s 60c, 12 looted at 2s 40c" (bought this week, older: earlier purchases,
+      the start and returns from the AH, crafted, looted, from a vendor).
+    * Picks' basis for the units you hold (`FM.PaidBasis`) and "Sell at least" read the same average. An item you
+      can make shows **Material cost** with its materials at today's prices next to it, any other item **Cost**;
+      one group, no longer one per way your units came to you.
+    * Per character, like the purchases; what your other characters hold is not in it. The craft log's own basis of
+      a craft's materials still follows its lots (below), not these averages.
   * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
     * **today's prices** ("now" until 1.41, FRV-134): the materials of one unit at today's prices, priced the way the marketplace prices them
       (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, never under the material's 8 hour
@@ -216,11 +281,16 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
     unit counted at the item's AH price whatever you paid, so the line always sat above the AH price: the
     maintainer's crafted Turtle Scale Helm (paid 2g 40s 17c, materials today 2g 80s 17c) read 3g 19s 54c = (the
     helm's 2g 88s + its 15s 56c 8h deposit) / 0.95, over the plan's 2g 87s; now (2g 40s 17c + 15s 56c) / 0.95 =
-    2g 69s 19c. Deposit =
-    max(1s, share x vendor sell price x units), share 20% for 8h and 60% for 24h (Medium Leather sells for 50c:
-    8h 1s up to 10 units, then 10c a unit, as measured in game). `C_AuctionHouse.CalculateCommodityDeposit`
-    replaces the estimate for the stackable items in your bags whenever the AH opens (once a week,
-    `R.deposits[key][2|3] = { rate, floor }`)
+    2g 69s 19c. Deposit (`FM.Deposit`; the rule since 1.58, FRV-216, from the real deposits of the maintainer's
+    sale mails): a share of the vendor sell price, 20% for 8h and 60% for 24h. A commodity pays for the whole post,
+    max(1s, share x price x units) (Medium Leather sells for 50c: 8h 1s up to 10 units, then 10c a unit, as measured
+    in game); an item that does not stack goes up one auction per unit, and each pays its share rounded down, at
+    least 1c and without the 1s floor (a Light Leather Reagent Bag of 1s: 20c; until 1.57 the estimate was 1s per
+    such auction). `C_AuctionHouse.CalculateCommodityDeposit` gives the rate of the stackable items in your bags
+    whenever the AH opens (once a week, `R.deposits[key][2|3] = { rate, floor }`); the 1s floor counts for it too
+    (the calculator answers 50c for one Mageweave Cloth, the AH takes 1s). The vendor price and the stack size come
+    from the client, which only answers for items it has loaded: both are kept once known (`R.facts[key]` =
+    `"sell:stack"`), so a deposit is the same whatever the client has loaded (Profit tab, The numbers stand still)
 * Auctionator's price database (`scan/Auctionator.lua`, setting "Keep Auctionator's prices fed from our data"):
   every refresh of our data writes the lowest unit price and the quantity per item ID into it the way
   Auctionator's own full scan does — deep scans, Battle.net feed imports (1.16) and full item searches (1.16;
@@ -346,7 +416,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
   (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
   rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
-  filters", "Lock plan after refresh", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
+  filters", "Auto-refresh", "Keep edits", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
   over such an element shows its tooltip at once (`MODIFIER_STATE_CHANGED`), Shift released hides it, and moving onto
   it with Shift already held shows it too, while Shift over a row or a header changes nothing. A row's Amount input is
   an input inside the row: over it neither the row's tooltip nor its own shows without Shift, the rest of the row
@@ -442,7 +512,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       again when it arrives
 
     Learning a recipe, a profession window after which ForeverArtisan lists more learned recipes or that lists one it
-    does not, and such an item arriving each compute the tabs again a second later; a locked Picks plan stays, and
+    does not, and such an item arriving each compute the tabs again a second later; a held Picks plan stays, and
     Refresh's tooltip names "a recipe you learned" among what changed since the plan
   * A recipe nothing teaches (no trainer, no vendor you opened, no pattern on the AH) gets the vendors QuestieDB names
     for its pattern that are friendly to your faction: Where to get "Pratt McGrubben, Feralas, not visited yet", Cost
@@ -463,7 +533,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
     left of it when the screen ends there). Every change applies at once: the table shows it, Picks plans again
-    (also while the plan is locked). Switching tabs shows the new tab's set (a tab without filters hides it until you
+    (also while the plan is held). Switching tabs shows the new tab's set (a tab without filters hides it until you
     are back), closing the table closes it and opening the table again opens only the table, Esc closes it (with the
     table and every other ForeverMarket window, as Esc always does: they are all in `UISpecialFrames`). The
     buttons open it, a click again closes it. A child option is greyed out and disabled while its parent is
@@ -515,7 +585,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and the global set start at their defaults; the old keys (`tableLearn`, `tableIgnoreStock`, `tableIgnoreVendor`,
     `tableLearnHigher`, `tableLearnMaxAbove`) are dropped at load (`FM.MigrateFilters`). Broken values get their
     default, numbers their range (`FM.FilterClamp`).
-  * Every checkbox of the table and its dialogs has its text first, the box after it ("Lock plan after refresh [x]"),
+  * Every checkbox of the table and its dialogs has its text first, the box after it ("Keep edits [x]"),
     like the number boxes ("Picks [3]"); a click on the text toggles it too (`FM.TextCheck`). The budget row's two
     checkboxes sit after their boxes ("Invest [90] % [x]", "| [g] [s] [c] [ ]", 1.35).
 * Title bar, right: "Latest snapshot Xh Ym ago" (deep scan or Battle.net snapshot, whichever is newer).
@@ -620,12 +690,12 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   * Your bags and bank are an input of the plan (1.35, FRV-98): 2 s after the last bag event (`BAG_UPDATE_DELAYED`,
     a bank slot change) their units are compared with the last look, and a change (moving items between bags and bank,
     crafting, looting, buying, mail taken out; not sorting) counts once (`FM.stockVersion`); in combat (arrows,
-    reagents, potions used) the look waits for the end of the fight, which counts as one change. With "Lock plan after
-    refresh" off the open table or a sticky window plans again at once (a pass that is running started with the stock
-    before: one more is queued behind it), else the table when it opens next; locked, the
+    reagents, potions used) the look waits for the end of the fight, which counts as one change. With "Auto-refresh"
+    on the open table or a sticky window plans again at once (a pass that is running started with the stock
+    before: one more is queued behind it), else the table when it opens next; held (Auto-refresh off), the
     plan stays and Refresh's tooltip says your bags or bank changed. Why the maintainer's pick read "48 from your
-    bank, AH 136" with 200+ Heavy Leather in the bank (2026-11-22): the lock held a plan made with the stock of its
-    moment (until 1.34 nothing planned again for a change of your bags or bank, locked or not), and the number fits an
+    bank, AH 136" with 200+ Heavy Leather in the bank (2026-11-22): the plan was held and had been made with the stock of its
+    moment (until 1.34 nothing planned again for a change of your bags or bank, held or not), and the number fits an
     earlier pick that used the rest (another Heavy Leather craft of the saved craft log takes 5 each: with 203 held, 31
     of its crafts leave 48), which the line did not say; the counts in the saved data agree with the bank (the craft
     log's 240 held before a craft of 75 at 16:47, the bank's reading of 165 after it). The plan itself is not saved, so
@@ -739,15 +809,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       keeps its target whatever its share of the gold says now, so what was bought and crafted for it stays its own; a
       set pick done since the plan stays at its number ("made 5") until the next new plan, and the sniper buys nothing
       more for it. Units that reached your bags outside the plan are not seen (Refresh makes a new plan with them). It runs like a pass (the table shows the plan before it meanwhile; another
-      edit waits for it), also while "Lock plan after refresh" is checked: that lock is about scans, an edit is yours.
+      edit waits for it), also while "Auto-refresh" is off and the plan is held: that is about scans, an edit is yours.
     * A number set on a pick **out of scope** keeps it there with your number: that pick alone is made again (on its
       own, as the plan judged it), the plan is not, so it takes none of the plan's gold and does not change the plan,
       also when the scan moved since (its tooltip's first line says so). Emptied, it is out of scope by its own numbers
       again; Remove from Picks takes it out of the list.
     * Set picks are saved per character (`setPicks` in Data format): an alt's plan neither keeps nor changes them.
-      **Lock manual plan changes** (a checkbox under "Lock plan after refresh", at the end of the summary line,
+      **Keep edits** (1.59, FRV-221: a checkbox right of "Auto-refresh" at the right end of the budget row; "Lock
+      manual plan changes" at the end of the summary line in 1.57 and 1.58, where it covered the line's end;
       `tablePicksLockManual`, on by default): a new plan (Refresh, a change of a Picks setting, or an automatic plan
-      with "Lock plan after refresh" off) keeps every set pick with its number and in its place, in the plan or out of
+      with "Auto-refresh" on) keeps every set pick with its number and in its place, in the plan or out of
       scope, even when the scan says it is no longer pick #1, and the tab's filters (the profession, the place, a
       maximum, Exclude crafting) do not drop it, nor do the Vendor and Flip tabs' own cuts (a vendor resell that earns
       under 10c now, a flip at a new price level: it keeps your number with its status icon; a flip with nothing left
@@ -778,9 +849,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (the dialogs' alert, `Interface\DialogFrame\UI-Dialog-Icon-AlertNew`): a unit of the pick earns less than your
     minimum profit (the Profit of the budget row); hover: "Below your min. profit setting." A red cross (the ready
     check's `UI-LFG-DeclineMark` atlas, the loot roll's Pass where the client has none): the pick loses money now, its
-    Expected under 0 ("-26s 09c 8h", the minus in red; for a locked plan's pick the Expected at the price now shows
+    Expected under 0 ("-26s 09c 8h", the minus in red; for a held plan's pick the Expected at the price now shows
     then); hover: "Is not profitable as of now." A set pick can get either;
-    so can any pick of a plan held by "Lock plan after refresh" once a newer scan moved its item's price
+    so can any pick of a plan held with "Auto-refresh" off once a newer scan moved its item's price
     (`FM.PickStatus`: a craft, a vendor resell or a Stock pick read at the price its item lists at in the pass shown; a
     flip has its own AH check, a wait lists later). The icon's tooltip shows on hover (an icon, no input: FRV-186);
     its clicks are the row's. Not yet verified in game
@@ -792,7 +863,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     1.36, FRV-100, before it sat after Expected: a sort saved on it follows it, `SortState` maps a saved sort whose
     columns only moved by their titles). On AH, C/8h and C/24h have the same cells, header
     tips and sorting as on Craft, the numbers of the pick's item (the product of a craft or a recipe to learn, the item
-    of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a locked
+    of a vendor resell or a flip) in the latest pass, as its row on Craft, Vendor or Flip shows them, also while a held
     plan keeps its picks (`MarketRow` in ui/Table.lua); an item no tab holds now keeps the numbers the pick was made with
     (`pick.qty`, `own`, `sold12`, `soldWide`). The brackets are the latest
     snapshot's own units; the tooltip's "you list" (Room on the AH) also counts your posts since, so the two can differ
@@ -811,8 +882,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     yours). Evidence
     (buyers, listed, the 3 day range, notes) is only in the tooltip's Sell and Confidence sections.
   * The budget row (1.35, FRV-95; "Invest [X] % across [Y] picks" in the filter row from 1.20 to 1.34): **Picks
-    [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]** (Profit since 1.42, FRV-126), with "Lock
-    plan after refresh" at its right (the maintainer's layout after his test, 1.35.5; first "Picks: [Y] | [X] % [x] |
+    [Y] Invest [X] % [x] | [g] [s] [c] [ ] Profit [P] % [x] | [g] [s] [c] [ ]** (Profit since 1.42, FRV-126), with "Auto-refresh"
+    and "Keep edits" at its right end (1.59, FRV-221; "Lock plan after refresh" alone there from 1.35.5, the
+    maintainer's layout after his test; first "Picks: [Y] | [X] % [x] |
     Invest: [g s c] [ ]"). Y (`tableInvestPicks`, default 3, 1 to 12) is how many picks the plan has at most; fewer
     when fewer good picks exist (the summary says why). The two checkboxes of Invest and of Profit (1.42, FRV-126; one
     choice of the two until 1.41): one or both checked, a click on the last checked one of a pair is refused (it stays
@@ -820,8 +892,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (`tableInvestPctOn` / `tableInvestManual`, `tableProfitPctOn` / `tableProfitManual`; a saved choice of 1.41 stays,
     the % or the amount alone). Invest: **%** (default) = the budget is X % of your gold (`tableInvestPct`, default 90,
     1 to 90: 10% stay for deposits; an older X above 90 counts as 90), the money boxes = the amount typed in
-    (`tableInvestAmount`, copper, up to 999999g 99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed
-    to 60 / 34 / 34 px for 6 and 2 digits), capped at 90% of your gold, which the row's tooltip says; both checked,
+    (`tableInvestAmount`, copper, up to 9999g 99s 99c; the sniper's money boxes, `MoneyInputFrameTemplate`, narrowed
+    to 46 / 31 / 31 px, just wide enough for 4 and 2 digits with their coin icons, since 1.59, FRV-221; 60 / 34 / 34 px
+    and 6 digits of gold until 1.58, and a larger saved amount is clamped to 9999g 99s 99c at load), capped at 90% of your gold, which the row's tooltip says; both checked,
     the settings panel's "% + manual invest logic" decides (`tableInvestLogic`): "Both must apply" (default) = within
     both budgets, the smaller one, "Either must apply" = within one of them, the larger ("12g 40s (75% and 20g, the
     smaller)" in the summary). **Profit** is the minimum profit per item of a pick, after the AH cut, against what one
@@ -899,34 +972,38 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (half of 1,051 a day) far above the 184 listed and your 150 a day, which the 1.22 rule above stops. The same
     data puts the 25% share right for items sold per auction (you sold a median 20% of C/24h per day listed) and far
     too high for commodities (at most 4%, FRV-71). `tools/fm_analyze.py room` shows these numbers per item.
-  * "Lock plan after refresh" (1.22, FRV-63, `tablePicksLock`, on by default and for existing settings): a
-    checkbox at the right of the budget row (of the summary line until 1.34). On, Picks keeps its plan while you buy, craft and post it: only the
+  * **Auto-refresh** (1.59, FRV-221; "Lock plan after refresh" from 1.22, FRV-63, to 1.58, with the meaning turned
+    around): a checkbox at the right end of the budget row, left of "Keep edits" (of the summary line until 1.34),
+    **unchecked by default**. The saved setting is still `tablePicksLock` (true or not set: the plan is held), so a
+    choice made under the old name keeps its behaviour: "Lock plan after refresh" checked is "Auto-refresh"
+    unchecked. Unchecked, Picks keeps its plan while you buy, craft and post it: only the
     Refresh button, a change of a Picks input (below, also Ignore / Stop ignoring an item and `/fm exclude`) and the
     first view of Picks (or Learn, whose green arrows come from the plan) in a session make a new plan
     (`FM.PlanPicks`). Deep scans, feed imports, posts, newly read auction lists, changes of your bags or bank, opening
     the table and its 15 s tick compute the other tabs again and keep the plan (`FM.ComputeTrade` copies the `pick*`
     fields of the plan shown; `FM.EnsureTrade` no longer computes for a post, an auction list or a change of your
     stock). The summary line keeps the gold and budget the plan was made with and its time, "Gold: 17g 73s  ·  Budget:
-    90% of your gold = 15g 95s (locked 14:05): ..." (`pickGold`, `pickFunds`, `pickAt`); Refresh's tooltip says what
+    90% of your gold = 15g 95s: ..." (`pickGold`, `pickFunds`, `pickAt`; the time is in the line's tooltip, "Planned at
+    14:05: ...", and until 1.58 also in the line as "(locked 14:05)"); Refresh's tooltip says what
     came since ("A newer snapshot, 2 posts and a change in your bags or bank since the plan", `pickT`, `pickListings`,
     `pickStock`). The plan
-    is not saved: after a `/reload` or a login the first view plans once. Off: Picks plans again by itself as in
-    1.20.3, and turning it off plans at once (keeping what you crafted of its picks, below). An amount you set makes the
-    plan again whatever this lock says (an edit is yours), and "Lock manual plan changes" under it (1.57, FRV-188)
+    is not saved: after a `/reload` or a login the first view plans once. Checked: Picks plans again by itself as in
+    1.20.3, and checking it plans at once (keeping what you crafted of its picks, below). An amount you set makes the
+    plan again whatever this option says (an edit is yours), and "Keep edits" right of it (1.57, FRV-188)
     decides whether a new plan keeps your amounts (see Amount).
   * What you crafted counts toward a pick (1.45, FRV-104; `FM.PickProgress`, `FM.CraftedSince` in trade/Crafts.lua):
     a craft pick's Make is its plan's target, and the units of its item this character crafted since the plan was
     made (the craft log, `R.crafts`: batches started since, written again on every bag update) count toward it. The
     tooltip reads "Make: 20 / 51" (crafted / target, "0 / 51" before the first craft, "(9 crafts left)" for a recipe
     that makes several, "55 / 51, done" past it), the make step "make 31 more", and once the target is made "made 51"
-    with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With the
-    lock on the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
+    with it and the steps before it grey: the listing is next. Ctrl+click's count box takes the crafts left. With
+    Auto-refresh off the plan is held as it was made and only these lines follow your crafts (the table redraws after a change
     of your bags), and the buy step follows your AH purchases since the plan (review round 1, `FM.PickBuyStep`,
     `FM.BoughtSince` in trade/Cost.lua: the purchase log of this character; picks buying one material share those
     purchases out in their order, pick #1 first, review round 2): "buy 31 more Heavy Leather up to 2s 75c",
     grey "bought the materials" once nothing is left to buy (the plan used your stock first, so the purchases are what
     the target needs beyond it; the use step and the tooltip's material lines stay as planned). A purchase waits in
-    your mail until you take it out, and a plan made again counts it only then. With the lock off an automatic plan carries each craft pick that is in it again over
+    your mail until you take it out, and a plan made again counts it only then. With Auto-refresh on an automatic plan carries each craft pick that is in it again over
     (`FM.PickCarry`: its target, the time of its plan and what you held then): it makes only the rest, its materials to
     buy follow the rest, the crafted units you still hold go to the AH with it ("list 51 at ... (20 you hold)", the
     tooltip's "You hold: 20 in your bags, listed with them (20 crafted for this pick)") and are no units you hold that
@@ -934,7 +1011,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     shrink by them (the gold share still caps what the rest buys). Once the target is made the pick lists what you hold
     of it (a Stock pick, its make step "made 51" first); with nothing left to list it is gone ("the 51 of its plan are
     made, none left in your bags or bank to list"). A plan you ask for (Refresh, a change of a Picks input) starts new
-    targets: what you crafted is then units you hold. Switching the lock off keeps the progress. Not counted: crafts of
+    targets: what you crafted is then units you hold. Checking Auto-refresh keeps the progress. Not counted: crafts of
     another item, of another character, and of a batch started before the plan. Until 1.44 a plan made again after
     crafting counted the crafted units as yours and made the full number again (Hillman's Cloak: "make 51 > list 71 ...
     (20 you hold)" after 20 crafted).
@@ -944,7 +1021,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     and "Over character level" set which recipes to learn are "Level for" information), the profession dropdown
     limits crafts and recipes only (vendor resells and flips stay), the budget row's Profit leaves out picks that earn
     less per item (the settings panel's minimum profit per item until 1.41), the settings panel's share of C/24h sets
-    the room of every pick (1.19). Each change makes a new plan (also while it is locked, 1.22), so the ranks run 1..n without
+    the room of every pick (1.19). Each change makes a new plan (also while it is held, 1.22), so the ranks run 1..n without
     gaps. The name search only finds rows of the finished plan.
   * One plan for the budget (X % of your gold, the amount set, or both combined), up to Y picks, each with its share of what is left, chosen greedily: each pick buys from what the
     earlier ones left on the AH, craft by craft up the ladder, using your own materials first (valued at what
@@ -1008,7 +1085,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     since the scan: list them once they are in your bags"). A confirmation counts for 5 minutes: after that the buy
     step says "(not confirmed since 18:52)", and the next plan cuts its confidence again (at the AH each flip pick is
     searched again every 2 minutes). Each new answer reaches the plan
-    shown: not locked, a pass plans again as after a post (your craft picks keep their targets); locked, the pick
+    shown: not held, a pass plans again as after a post (your craft picks keep their targets); held, the pick
     shows it in place, confirmed (its confidence back, in its tooltip and the summary too) or gone (its numbers grey, its steps line "Gone: an AH search at 18:52 no longer shows its cheap listings. Refresh
     plans without it.")
   * Hide this pick (1.51, FRV-193): the first entry of a Flip pick's row menu (in the plan and in "Also good, but out
@@ -1071,9 +1148,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     shows only with Any / Any
   * **Where I am**: the map you are in (`C_Map.GetBestMapForUnit("player")`, a micro map, dungeon or cave map taken
     up to its zone), read again on `ZONE_CHANGED_NEW_AREA`, `ZONE_CHANGED`, `ZONE_CHANGED_INDOORS` and
-    `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Lock plan after refresh"
-    off (a locked plan keeps the vendors it was made for until Refresh), and when the move came while the table was
-    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a locked plan stays)
+    `PLAYER_ENTERING_WORLD`: the Vendor tab follows at once; Picks plans again only with "Auto-refresh"
+    on (a held plan keeps the vendors it was made for until Refresh), and when the move came while the table was
+    closed, as it opens (`FM.placeVersion`). Choosing the entry already chosen changes nothing (a held plan stays)
   * Vendor: a row stays when one of its vendors is in the place, at the cheapest of them there (`FM.VendorRowIn` in
     trade/Calc.lua: a copy with that offer, its Vendor price, profit, PPG and Min. price worked out again, at least
     10c of profit, or no row); its Vendor cell, row tooltip ("The cheapest of its vendors in Darnassus (1 of 3 vendors
@@ -1082,7 +1159,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     that vendor ("buy 9 at <vendor there> ..."), and an item none of whose vendors there pays is no pick ("no vendor
     in Darnassus sells it with a profit (Continent, Zone)"), except that units of it you hold stay a Stock pick (the
     place limits only what is bought); crafts and AH flips are not filtered by place, the
-    picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan locked).
+    picks out of scope follow the same rule. A change of either dropdown plans again (also with the plan held).
     While "Exclude vendor flips" is on in the set Picks uses (its own or the global one), both stay visible but are
     greyed out and disabled, and their tooltip says why
 * **Flip** columns (1.18): Item, **Profit** (the whole flip, `row.profit`, the default sort; PPG moved to the row
@@ -1160,6 +1237,32 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`tableInvestLogic`, default "Both must apply") and "% + manual profit logic" (`tableProfitLogic`, default "Either
   must apply"), how the budget row's % and amount combine with both boxes checked (see Picks); each choice's meaning
   is in its tooltip, a choice plans again at once.
+* **Window priority** (1.60, FRV-219, `ui/Layers.lua`): on the same two rows, at the panel's right edge, "Marketplace
+  window priority" (`windowMarket`) and "Sniper window priority" (`windowSniper`), each a dropdown of three choices,
+  with the small grey note "Same priority: the window you clicked last is on top." under them. A choice applies at
+  once, without a `/reload`.
+  * **Standard** (the default for both): the window behaves like the game's own windows. It sits in their layer (the
+    MEDIUM strata, the Auction House frame's) and is toplevel, so the window you click comes to the front: a click
+    on the Auction House puts the Marketplace or the Sniper window behind it, a click on them brings them back.
+  * **Above vanilla** (what the Marketplace window did until 1.59): the HIGH strata, always above the game's windows,
+    whatever you click.
+  * **Above anything** (what the Sniper window did until 1.59): the DIALOG strata, above everything a window can be
+    above; menus (FULLSCREEN_DIALOG) and tooltips (TOOLTIP) still show above it. Only a window with the same setting
+    can be above it.
+  * Between the Marketplace and the Sniper window the one you clicked last is on top, unless the other one is
+    "Above anything" and it is not. A window clicked under the other one's layer borrows that layer for as long as
+    it is the one clicked last (a Standard Sniper clicked comes above an Above vanilla Marketplace); a click on
+    another window of the game (the Auction House, your bags' window: a toplevel frame) sends it back to its own
+    layer, behind that window. A click on the world, an action bar, a menu or a tooltip changes nothing.
+  * The Marketplace's other windows (the item history, the sticky row tooltips, the filters dialogs, the upgrade buy
+    window) follow the Marketplace window's setting and stay above it: after every click on the Marketplace they are
+    raised again in the order you last used them. A click on the Sniper or on another window brings that window in
+    front of them too, and closing a window (also the Marketplace, whose sticky windows stay open) leaves them
+    behind whatever you clicked after the Marketplace.
+  * How: every mouse click is seen through `GLOBAL_MOUSE_DOWN` and `GetMouseFoci()`; the window it landed on is found
+    by walking up its parents (`FM.LayerRegister`, `FM.LayerClicked`, `FM.LayersApply`). Until 1.59 the layers were
+    fixed: the Marketplace HIGH, the Sniper and the Marketplace's other windows DIALOG, so the Sniper was always on
+    top, the Marketplace always second, and a click on the Auction House never brought it in front of them.
 * The first three are number inputs since 1.32 (FRV-86; dropdowns before), the rate one since it came (1.33): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
   25; the first batch 1 to 10, default 2, the bounds of its dropdown), the rate "[N]% more per second ..." (0 to 20,
@@ -1240,9 +1343,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   left (`tableStickyPos`, its top left corner; right of the screen's middle the first time), moved down and right
   while another open window sits there. Long content scrolls (Blizzard's `ScrollFrameTemplate`, from 520 px).
   Closing the marketplace leaves them, Esc closes them all at once (`UISpecialFrames`, which closes the table
-  too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Lock plan
-  after refresh" on only a new plan updates them (the refresh button of the table or of a window, a change of a
-  Picks input), deep scans, feed imports, posts and auction lists leave them as they are; off, every pass updates
+  too). Their content follows the table's refreshes (`FM.StickyRefresh` from `FM.RefreshTable`): with "Auto-refresh"
+  off (the default) only a new plan updates them (the refresh button of the table or of a window, a change of a
+  Picks input), deep scans, feed imports, posts and auction lists leave them as they are; on, every pass updates
   them (a Farm window also every farm pass). A window's refresh button is the table's (`FM.TableRefresh`), so all of them update. A row no longer in its
   tab after a refresh (no longer a pick, or filtered out: the tab's filters, not the name search; ignored, or no longer ignored on Ignored) keeps its last
   content with an orange note at the top. Clicking a window does nothing but raise it.
@@ -1378,19 +1481,46 @@ Your **AH result** as a line from 0 with one dot per day, week or month (**Daily
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
 
-* **The y-axis on round steps** (1.43, FRV-117; `FM.ChartSteps` / `FM.ChartStepText` in `ui/Chart.lua`, the chart's
-  `roundSteps`, which only this tab turns on: the item history keeps its 4 evenly spaced lines): the steps follow
-  the 1 - 2.5 - 5 series, 10g, 25g, 50g, 100g, 250g, 500g, 1000g, 2500g and so on up, and below 10g down to 10c (5g,
-  2.5g, 1g, 50s, 25s, 10s, ... 10c). Three lines above 0: the top one is the smallest step the highest dot does not
-  reach (strictly above it: a highest dot of exactly 100g gives 250g), and the two steps before it; the chart's top
-  is that step, so the line ends under it, and the lines sit at their real heights (+82g 42s: 100g, 50g, 25g). When
-  the line goes under 0 the negative side follows the same rule from its lowest dot (-12g: -25g, -10g, -5g), 0 is
-  always a line, and without any dot above 0 only the negative side shows. A line closer than a label's height to one
-  drawn before (0 first, then the outer steps, then inward) is left out, so labels never overlap (a dip of a few
-  silver under a line up to 100g shows no negative steps). Labels are the round value only, in the coin colors:
-  "100g", "2.5g", "1,000g", "50s", "25c". Before 1.43 the 4 lines were spaced evenly over the data's range ("30g 77s",
-  "61g 54s", "92g 31s")
-
+* **The y-axis in four equal steps** (1.58, FRV-217, replacing the round steps of 1.43, FRV-117; `FM.ChartSteps` /
+  `FM.ChartStepText` in `ui/Chart.lua`, the chart's `roundSteps`, which only this tab turns on: the item history
+  keeps its 4 evenly spaced lines): the lines above 0 are 0, s, 2s, 3s and 4s, evenly spaced. The step s is a round
+  size from 1, 2, 2.5 and 5 times a power of ten (... 10s, 20s, 25s, 50s, 1g, 2g, 2.5g, 5g, 10g, 20g, 25g, 50g, 100g,
+  200g, 250g, 500g, 1000g ...): the smallest one with 4s above the highest dot, strictly (a highest dot of exactly
+  100g gives steps of 50g up to 200g). +82g: 25g, 50g, 75g, 100g; +150g or +194g: 50g to 200g; +252g: 100g to 400g;
+  +450g: 200g to 800g; +900g: 250g to 1000g; +7g: 2g to 8g; +60s: 20s to 80s. Under 0 the same step goes on downward
+  as far as the lowest dot needs, the fewest steps whose bottom is under it (a dip to -30g under a high of 82g: -25g
+  and -50g), so every line is the same distance from the next; when the negative side is the larger one, the step
+  comes from it and the positive side goes as far as it needs. 0 is always a line, and without any dot above 0 only
+  the negative side shows. Labels are the round value only, in the coin colors: "75g", "2.5g", "1,000g", "20s".
+  From 1.43 to 1.57 the steps followed 10 - 25 - 50 - 100 - 250 with three lines above 0 (the top one the first step
+  the line did not reach, +252g under a 500g top); before 1.43 the 4 lines were spaced evenly over the data's range
+  ("30g 77s", "61g 54s", "92g 31s")
+* **The numbers stand still while nothing happens** (1.58, FRV-216). A post's deposit is worked out from the item's
+  vendor price, which only the client knows, and the client only answers for items it has loaded. Until 1.57 the tab
+  asked each time it drew: a deposit counted while its item was loaded and was 0 while it was not, so the same logs
+  gave different totals from one draw to the next (today's dot changing under the mouse while the table computed)
+  and across a `/reload` (the maintainer's total went from +252g to +194g on 2026-11-27, with the same logs).
+  Now:
+  * the vendor price and the stack size are kept in the saved data once the client has told them (`R.facts[key]`,
+    `"sell:stack"`, trade/Cost.lua), and a deposit is worked out from the kept answer: the same number whatever the
+    client has loaded, also after a `/reload`
+  * an item nobody asked about before is asked for. While a post's deposit waits for that answer (at most 10
+    seconds, `FM.DepositsPending`) the tab shows the **last finished numbers**, the header says "updating..." and a
+    dot's tooltip "Updating: these are the last finished numbers"; the first look after a login, with no finished
+    numbers yet, shows what is known so far with the same note. The answer (or the 10 seconds) ends it, and the tab
+    draws again by itself. An answer ends an item's wait for good, also one that brings no price (an item the client
+    can no longer load): its deposit counts 0 and it is not waited for again
+  * no reading of what you hold is taken during that wait (it would hold less than the next one)
+  * the deposit rule itself is corrected (trade/Cost.lua, `FM.Deposit`), from the real deposits in the maintainer's
+    1,791 sale mails: an item that does not stack pays its share of the vendor price per auction (20% for 8 hours,
+    60% for 24, rounded down, at least 1c) and no 1s floor, where the tab had counted 1s per auction (a Light
+    Leather Reagent Bag pays 20c: every unsold bag showed as a loss of 1s); a commodity pays the share for the whole
+    post and at least 1s, also where Blizzard's calculator answers less for a few units
+  * so what a reading counts changed, and the readings start again under the rule `c4`: the readings of 1.38 to 1.57
+    (`c3`) no longer count for what you held, the days before the first new reading come from the logs (below), and
+    the first new reading says again which bought units are gone
+  * a percent that is not 0 never reads "0.0%": under 0.05% in size it is "+0.1%" or "-0.1%", an exact 0 is "0.0%"
+    (`FM.PerfPercentText`)
 * **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
   once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
   **All characters** is the default. With one such character there is no switch and the tab shows that character
@@ -1442,7 +1572,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   plus the deposits out (a post's deposit, less the share each sale's mail brings back, the rest gone when the
   auction ends). The readings of 1.15 to 1.37 no longer count for what you held (they still tell your gold): they
   were sums at the usual price that counted a sold stack's money several times over, and what your bags held then
-  is not saved. The first reading of 1.38 also says which bought units are simply gone (`heldBase[char]`, and `*`
+  is not saved. Nor do those of 1.38 to 1.57 since 1.58 (FRV-216, above): their deposits depended on what the
+  client had loaded. The first reading of 1.38 also says which bought units are simply gone (`heldBase[char]`, and `*`
   for all characters: the units it held): lot units it does not find, neither held nor in a product of an
   unrecorded craft, count as gone from the moment they were bought or made (a learned pattern, a bag in use, eaten
   food, the materials of a craft whose product never sold on the AH). The step from the logs onto that reading
@@ -1454,7 +1585,10 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   last reading that counts (plus 1g or 5% of what you held) is a mistake of that reading, never a gain: it is saved
   with the mark `x` and left out of the dots, the reading of right now gets no step, and the chat says so once per
   session. Left out for 12 hours, the level is taken as it is: the next reading is marked `r`, a new baseline whose
-  step counts nothing. No reading is made while the bags read empty (their containers not loaded).
+  step counts nothing. No reading is made while the bags read empty (their containers not loaded). A won auction's
+  mail read, or a post made, in the same minute as a reading may have come after it and explains a rise too (1.58,
+  FRV-216: readings, mails and posts carry whole minutes; on 2026-11-27 a reading taken seconds before 28 won
+  auctions' mails of 39g were read made the next three readings, which held those items, count as mistakes).
 * **`/fm held`** (1.38): what "Held from the AH" is made of right now: the deposits, the sold auctions' money on its
   way, and the largest items with their units, what one cost, the value and where they are (bags, bank, mail,
   auctions, other characters; "from a craft nobody recorded" where the cost is the recipe's materials). Then the
@@ -1533,7 +1667,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
 * From the first reading at cost on, what you hold counts step by step between consecutive readings (the stored
   ones and one of right now), each step in the period of its later reading; that first reading is the baseline, and
   a step between readings that saw different things (`seen`: `h` + `b` bank + `m` mailbox + the rule the reading
-  was made by, `c3`: counted at cost; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
+  was made by, `c4`: counted at cost, `c3` until 1.57; e.g. the first look at the bank) or onto a reading marked `r` counts nothing;
   such a reading doesn't replace the earlier one of its hour, and neither does one that holds less than it (the
   line keeps the level before a fall). A reading marked `x` is skipped. Only readings of the current rule count:
   when what a reading counts changes, the rule's number does, the readings before tell their gold alone and the
@@ -1642,8 +1776,9 @@ in place of FRV-52's median and 30 / 60 days.
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step (or a click on Buy)
 per purchase.
 
-* Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, DIALOG strata, opaque: always above
-  the marketplace, which is HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
+* Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, opaque; its layer is the setting
+  "Sniper window priority" since 1.60, FRV-219, see Settings: until 1.59 always DIALOG, above the marketplace, which
+  was HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
   list's columns need it, see the list), top to bottom:
   * The banner (FRV-40), as wide as the window and colored by what sniping does: an offer to buy in large green with
     a short pulse and the sound ("Scroll or click Buy: 12 Heavy Leather for 25s 20c (2s 10c each)", a price per unit
@@ -1853,7 +1988,7 @@ per purchase.
     least a second after the plan before, so two plans of one second stay two). The same
     pick of the same plan again adds nothing: "Already sniping 2 items for Deviate Scale Belt with this plan, nothing
     added", and the row's hint reads "Shift+click: already sniped for this plan, adds nothing". Every new plan
-    (Refresh; with the lock off every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
+    (Refresh; with Auto-refresh on every automatic plan; `FM.SnipeFollowPlan` from `FM.ComputeTrade`) gives each traced
     pick that is in it (the plan or "Also good") the units its plan buys at the AH now, but the picks of an item
     together never more than they were sent with less what was bought for them (`Capped`, review rounds 1 to 3; one
     ceiling for the item, `tracedMax`, so a plan that once asked less does not lower it for good and picks cut
@@ -1990,7 +2125,10 @@ Picks skip).
   throttle at the request (`ready` / `busy` / `?`), `before` the requests of the 10 s before it, `during` / `tev` /
   `err` the requests, throttle events and AH errors while it waited, `first` seconds to the list, `n` auctions in it,
   `read` auctions read, `walk` seconds the walk took, `cpu` ms spent in its reads and `links` gear links read (1.53,
-  FRV-200), `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
+  FRV-200), `unread` gear auctions whose link could not be read in the walk, `nolink` / `noname` why (no link given,
+  a link without a name), `bonus` the nameless links that carried bonus IDs, `rwait` seconds waited for their items'
+  data, `again` links that had their name when read again, `same` of those the ones saying what their first link
+  said, `still` auctions left under the empty variant unread (1.61, FRV-215), `cut` the list still changed after 25 s, `out` the outcome (`ok` saved, `none` no answer and
   a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
   not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
   not finished), `next` the next try (seconds)
@@ -2011,8 +2149,8 @@ Picks skip).
   set (a flip's purchases count from then), the units of yours a craft listed with it, and for a vendor resell the
   units you held then, the most more of them seen since and how many of those it had when the last new plan kept it
   (`gotPlan`). An entry goes when you empty its Amount, remove it, ignore
-  or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Lock
-  manual plan changes off; the tables go once empty
+  or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Keep edits
+  off; the tables go once empty
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list
   before, 1.15.14 on; buyout is the unit price for commodities; an `osold` line written from a sold row before 1.38
   holds the sale's total there, since 1.38 it ends in `,s`: the list showed the sale; without it the auction was
@@ -2066,8 +2204,8 @@ Picks skip).
   Pawn's name of the scale chosen in the Upgrades tab's Spec dropdown, 1.54, FRV-205); `bags[char]` `t|id:all:free,...` the bags at logout and a few minutes
   after changes (1.23); `accountBank` `t|id:all:free,...` the account bank, once per realm bucket (1.23)
 * `worth[char]` readings `t,gold,held,seen,all,saw[,mark]` (about one per hour, the first that saw something new kept
-  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c3` = counted at cost (1.38: only readings of the
-  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
+  apart; `seen` = `h` + `b` bank and / or `m` mailbox + the rule, `c4` = counted at cost (1.38: only readings of the
+  current rule count for what you held; 1.38.0 wrote `c`, 1.38.1 to 1.38.3 `c2`, 1.38.4 to 1.57 `c3`); `all`, `saw` from 1.24 on, older lines end after `seen`: what all your characters held together and a
   hash of which readings that counted; `mark` (1.38) = `x` left out, it rose without a purchase to match, or `r` a new
   baseline), `bank[char]` `t|id:all:free,...` and `mailbox[char]` `t|money|id:count,...` as last seen
 * `gearBank[char]` (1.55, FRV-206, optional, made at the first close of the bank) `t|key/variant,key/variant,...`: the
@@ -2080,6 +2218,9 @@ Picks skip).
   `{ [name] = recipeID }`: the recipes the character's profession window listed as learned that ForeverArtisan does
   not list as learned; a recipe built from its pattern (FRV-199) of that name is a learned craft with that recipe ID;
   only added to, `/fm forget` drops a character's
+* `facts[key]` (1.58, FRV-216) `"sell:stack"`: what a vendor pays for one unit of the item and how many of it stack,
+  as the client last told (either part empty while unknown); a deposit is worked out from it, so it does not change
+  with what the client has loaded. One short text per item a deposit was ever asked for
 * `heldBase[char]` and `heldBase["*"]` (1.38) `t|key=units;...`: the units of the first reading at cost, of the
   character and of all of them (sold auctions' units with them), `heldRule` the rule they and `heldLog` were made by; `heldLog[char]` (1.38) the last 8 readings' parts
   for `/fm held`: `t|mark|scope|total|deposits|sold|key:units:value:places:made;...` (places = a letter and the units
@@ -2087,6 +2228,16 @@ Picks skip).
   bags, 173 in the bank)
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
+* `pool[char]` (1.62, FRV-88, trade/Pool.lua) what the units a character holds cost it, the tooltip's "you paid":
+  `t` when it started, `at` the last look, `post` the newest post line seen;
+  `items[key]` = `"units|cost|kind:t:units:cost;..."` the units held (bags and bank) and their cost in copper, then
+  where they came from (`b` bought with the purchase's time, `o` older: the start, returns from the AH and purchases
+  older than a week or beyond the 6 newest, `c` crafted, `l` looted or the like, `v` from a vendor; at most a handful
+  of parts, and an item you no longer hold has no entry); `wait` = `"t,key,units,copper,kind"` purchases whose units
+  have not reached your bags (`c` a commodity purchase, `w` a won auction; 30 days, 300 lines at most); `out[key]` =
+  `"units|cost|t"` units posted on the AH at what they left with (less every sale's mail; 30 days); `crafts["t:key"]`
+  = the units of a craft line that entered already (a day). `/fm forget <name>` drops a character's pools with its
+  other records
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
   bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
   a chat line says them): every commodity purchase sends a buyer mail with its units and real total (`invoices`;

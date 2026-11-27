@@ -144,6 +144,23 @@ H.test("stock: lock off, a change of your bags plans again once, 2 s after the l
     H.eq(computes.n, 3, "a sticky window follows")
 end)
 
+H.test("stock: the settled look tells the pool a change (FM.PoolUpdate) from bag events that moved no unit (FM.PoolSettled)", function()
+    local state = { bags = 5, bank = 0, api = 0 }
+    local FM, env = Load(state)
+    local updates, settled = 0, 0
+    FM.PoolUpdate = function() updates = updates + 1 end
+    FM.PoolSettled = function() settled = settled + 1 end
+    Moves(env, 1) -- the first look at your bags
+    H.same({ updates, settled }, { 1, 0 }, "the first look is a change")
+    Moves(env, 2) -- an item put into another slot: two bag events, the same units
+    H.same({ updates, settled }, { 1, 1 }, "no unit moved: the pool is told so, once for the settled look")
+    state.bags = 25
+    Moves(env, 1)
+    H.same({ updates, settled }, { 2, 1 }, "units came: the pool looks")
+    Moves(env, 1)
+    H.same({ updates, settled }, { 2, 2 }, "and the next event without a change is told again")
+end)
+
 H.test("stock: lock on, a change of your bags or bank computes nothing, the plan keeps its version", function()
     local state = { bags = 5, bank = 0, api = 0 }
     local FM, env = Load(state)

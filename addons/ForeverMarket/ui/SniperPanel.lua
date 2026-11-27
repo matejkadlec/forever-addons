@@ -1299,9 +1299,8 @@ local function CreateWindow()
     frame = f
     Layout(f)
     f:SetSize(W, H)
-    -- above the market table (HIGH) and fully opaque, so nothing shows through or takes its clicks
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
+    -- fully opaque, so nothing shows through or takes its clicks; its layer comes from "Sniper window priority"
+    -- (FM.LayerRegister at the end, ui/Layers.lua; always DIALOG, above the market table, until 1.59)
     local solid = f:CreateTexture(nil, "BACKGROUND", nil, -8)
     solid:SetPoint("TOPLEFT", 2, -2)
     solid:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -1404,6 +1403,8 @@ local function CreateWindow()
         FM.SnipeStop()
     end)
     f:Hide()
+    -- after its own OnShow / OnHide: the layer of "Sniper window priority", raised when clicked (FRV-219)
+    if FM.LayerRegister then FM.LayerRegister(f, "sniper", true) end
     return f
 end
 

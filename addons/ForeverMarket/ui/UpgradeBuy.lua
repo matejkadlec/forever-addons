@@ -135,7 +135,8 @@ local function Build()
     if not ok or not f then f = CreateFrame("Frame", NAME, UIParent) end
     window = f
     f:SetSize(W, H)
-    f:SetFrameStrata("DIALOG")
+    -- it follows the Marketplace window's layer and stays above it (FM.LayerRegister at the end, ui/Layers.lua,
+    -- FRV-219; always DIALOG until 1.59)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -202,6 +203,7 @@ local function Build()
     -- closed: a search still on its way is no longer listened to (a purchase on its way still is)
     f:SetScript("OnHide", function() B.search = nil end)
     f:Hide()
+    if FM.LayerRegister then FM.LayerRegister(f, "market") end
 end
 
 ---------------------------------------------------------------- the lookup

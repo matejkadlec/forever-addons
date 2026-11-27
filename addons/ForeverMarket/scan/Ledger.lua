@@ -886,6 +886,8 @@ local function ScanInbox()
                 if mail.list == "invoices" then line = line .. "," .. FM.Stamp(now) end
                 FM.Log(mail.list, line, limit)
                 logged[#logged + 1] = mail
+                -- a won auction's units are on their way into your pool, sold units no longer come back (FRV-88)
+                if mail.list == "invoices" and FM.PoolMail then FM.PoolMail(mail.record) end
             end
         end
         local keep = {}

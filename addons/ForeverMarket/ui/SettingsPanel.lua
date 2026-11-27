@@ -77,9 +77,10 @@ local function AddOverviewEntry(parentPanel, category)
     parentPanel.foreverEntries[index] = { name = CHILD_CATEGORY_NAME, button = button }
 end
 
--- The checkboxes' rows are 27 px apart (30 until 1.46, FRV-155 review round 1): with the tenth one the rows under them
--- ran past the settings canvas (about 600 px, Blizzard_SettingsPanel.xml); ten at 27 px are as tall as nine at 30
-local CHECK_PITCH = 27
+-- The checkboxes' rows are 26 px apart, their own height (30 until 1.46, FRV-155 review round 1: with the tenth one the
+-- rows under them ran past the settings canvas, about 600 px, Blizzard_SettingsPanel.xml; 27 until 1.59: the note under
+-- the window priority dropdowns needs the 10 px, FRV-219)
+local CHECK_PITCH = 26
 local OPTIONS = {
     { key = "autoDeepScan", label = "Deep scan automatically when the Auction House opens (every 15 min at most)" },
     { key = "rescanWhileOpen", label = "Deep scan again every 15 min while the Auction House stays open" },
@@ -200,13 +201,20 @@ local LOGIC_TIPS = {
     tableInvestLogic = "With both boxes of Invest checked in the Picks row (the % of your gold and the amount set). Both must apply (default): the plan stays within both budgets, so the smaller one is the budget. Either must apply: within at least one of them, so the larger one. Allow picks budget over current gold still applies to each.",
     tableProfitLogic = "With both boxes of Profit checked in the Picks row (the % of a unit's cost and the amount). Either must apply (default): a pick passes when it earns the % or the amount per item, so the lower of the two is the minimum. Both must apply: it must earn both, so the higher one.",
 }
+-- Which layer the Marketplace and the Sniper window show in (FRV-219, ui/Layers.lua): one dropdown each
+local PRIORITY_TIPS = {
+    windowMarket = "Where the Marketplace window sits among the other windows. Its own windows (item history, sticky tooltips, filters) follow it and stay above it.",
+    windowSniper = "Where the Sniper window sits among the other windows.",
+}
+local PRIORITY_CHOICES_TIP = "Standard (default): like the game's own windows, the one you click comes to the front, so a click on the Auction House puts this window behind it. Above vanilla: always above the game's windows. Above anything: above everything but menus and tooltips; only a window with the same setting can be above it."
+local PRIORITY_NOTE = "Same priority: the window you clicked last is on top."
 local dropdowns = {}
 
 -- Blizzard's dropdown (WowStyle1DropdownTemplate, as the market table's) right of the label; a choice is saved and
 -- plans the picks again at once
 local function LogicDropdown(label, text, settingKey)
     local dd = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
-    dd:SetWidth(170)
+    dd:SetWidth(150) -- 170 until 1.59: the window priority dropdowns share its rows (FRV-219)
     dd:SetPoint("LEFT", label, "RIGHT", 12, 0)
     if dd.SetupMenu then
         dd:SetupMenu(function(_, root)
@@ -220,6 +228,40 @@ local function LogicDropdown(label, text, settingKey)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(text)
         GameTooltip:AddLine(LOGIC_TIPS[settingKey], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    dd:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    dd.settingKey = settingKey
+    dropdowns[#dropdowns + 1] = dd
+    return dd
+end
+
+-- A window priority dropdown at the panel's right edge, its label left of it (FRV-219): on the rows of the two logic
+-- dropdowns, since the page has no room for rows of its own. A choice applies at once (FM.LayersApply)
+local function PriorityDropdown(text, settingKey, y)
+    local dd = CreateFrame("DropdownButton", nil, panel, "WowStyle1DropdownTemplate")
+    dd:SetWidth(126)
+    dd:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, y)
+    local label = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    label:SetPoint("RIGHT", dd, "LEFT", -10, 0)
+    label:SetText(text)
+    if dd.SetupMenu then
+        dd:SetupMenu(function(_, root)
+            local function IsSelected(value) return FM.GetSettings()[settingKey] == value end
+            local function SetSelected(value)
+                FM.GetSettings()[settingKey] = value
+                if FM.LayersApply then FM.LayersApply() end
+            end
+            for _, choice in ipairs(FM.WINDOW_PRIORITIES or {}) do root:CreateRadio(choice.text, IsSelected, SetSelected, choice.value) end
+        end)
+    end
+    -- the template has its own OnEnter / OnLeave: hooked, not replaced
+    dd:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine(text)
+        GameTooltip:AddLine(PRIORITY_TIPS[settingKey], 1, 1, 1, true)
+        GameTooltip:AddLine(PRIORITY_CHOICES_TIP, 1, 1, 1, true)
+        GameTooltip:AddLine(PRIORITY_NOTE, 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
     dd:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -264,7 +306,7 @@ local function Refresh()
         local items = 0
         for _ in pairs(r.items) do items = items + 1 end
         local last = r.last and r.last.t and (FM.FormatAge(FM.Now() - r.last.t) .. " ago") or "never"
-        infoText:SetText(string_format("Realm: %s\nItems tracked: %s\nLast deep scan: %s",
+        infoText:SetText(string_format("Realm: %s\nItems tracked: %s  ·  Last deep scan: %s",
             FM.realmKey or "?", FM.FormatCount(items), last))
     end
 end
@@ -323,9 +365,15 @@ function FM.RegisterSettingsPanel()
     InputRow("Buy a craftable material when it costs at most", PercentInput, "tableTimePct",
         "% more per second of crafting it saves")
     InputRow("Material prices: average cheapest price of the last", PercentInput, "tableMatRefHours", " hours")
-    -- the Picks row's pairs with both boxes checked (FRV-126)
+    -- the Picks row's pairs with both boxes checked (FRV-126), and right of them, at the panel's right edge, the two
+    -- window priorities with their note under them (FRV-219)
+    PriorityDropdown("Marketplace window priority", "windowMarket", y - 1)
     InputRow("% + manual invest logic", LogicDropdown, "tableInvestLogic")
+    PriorityDropdown("Sniper window priority", "windowSniper", y - 1)
     InputRow("% + manual profit logic", LogicDropdown, "tableProfitLogic")
+    local note = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    note:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, y + 2)
+    note:SetText(PRIORITY_NOTE)
     y = y - 6
 
     local tableButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
@@ -342,8 +390,9 @@ function FM.RegisterSettingsPanel()
 
     -- the realm lines right of the buttons (FRV-126: under them they ran past the settings canvas, about 600 px tall
     -- in Blizzard_SettingsPanel.xml, once the two logic dropdowns came)
+    -- two lines under the window priorities' note (three lines level with the buttons' top until 1.59)
     infoText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    infoText:SetPoint("TOPLEFT", snipeButton, "TOPRIGHT", 20, 0)
+    infoText:SetPoint("TOPLEFT", snipeButton, "TOPRIGHT", 20, -8)
     infoText:SetJustifyH("LEFT")
 
     panel:SetScript("OnShow", Refresh)

@@ -349,9 +349,8 @@ local function Create()
     -- a new frame is shown: hidden before its OnHide exists, which would take this for you closing it
     w:Hide()
     dialog = w
-    -- above the market table (HIGH), like its sticky windows and the price graph
-    w:SetFrameStrata("DIALOG")
-    w:SetToplevel(true)
+    -- above the market table, like its sticky windows and the price graph: it follows the Marketplace window's
+    -- layer (FM.LayerRegister at the end, ui/Layers.lua, FRV-219; always DIALOG until 1.59)
     w:SetMovable(true)
     w:EnableMouse(true)
     w:SetClampedToScreen(true)
@@ -378,6 +377,7 @@ local function Create()
     w.rows = {}
     for i, opt in ipairs(OPTIONS) do w.rows[i] = CreateRow(w, opt) end
     tinsert(UISpecialFrames, NAME)
+    if FM.LayerRegister then FM.LayerRegister(w, "market") end
     return w
 end
 
@@ -473,7 +473,7 @@ function FM.FiltersDialogSync(tabId)
     if opening then
         Place(w)
         w:Show()
-        w:Raise()
+        if FM.LayerShown then FM.LayerShown(w) else w:Raise() end
     end
 end
 

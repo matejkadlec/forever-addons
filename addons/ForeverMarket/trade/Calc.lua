@@ -1123,12 +1123,14 @@ local function ListedMaterials(sources, view)
     return keys
 end
 
--- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
+-- The plan is held (Picks tab, the default; FRV-63): only you make a new plan. The tab's checkbox is "Auto-refresh"
+-- since 1.59 (FRV-221), checked while this is false; "Lock plan after refresh" until then
 function FM.PicksLocked()
     return FM.GetSettings().tablePicksLock ~= false
 end
 
--- "Lock manual plan changes" (Picks tab, default on, FRV-188): a new plan keeps the amounts you set, in their places
+-- "Keep edits" (Picks tab, default on, FRV-188; "Lock manual plan changes" until 1.58): a new plan keeps the amounts
+-- you set, in their places
 function FM.PicksLockManual()
     return FM.GetSettings().tablePicksLockManual ~= false
 end

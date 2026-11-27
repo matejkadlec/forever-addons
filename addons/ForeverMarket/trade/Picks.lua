@@ -2932,7 +2932,7 @@ function FM.SaveSetPick(key, e)
     if next(r.setPicks) == nil then r.setPicks = nil end
 end
 
--- Your set picks dropped at once ("Lock manual plan changes" off: a new plan starts from its own numbers)
+-- Your set picks dropped at once ("Keep edits" off: a new plan starts from its own numbers)
 function FM.ClearSetPicks()
     local mine, r, char = SetPicksOf(false)
     if not mine then return end

@@ -4,7 +4,7 @@ local _, FM = ...
 -- opaque, movable, with an X and a refresh button at the top right and "as of HH:MM". One window per item (a mob
 -- on Farm); Alt+click on an item that has one brings it to the front. ui/Table.lua builds the lines with the same
 -- builders as its hover tooltip (FM.StickyContent) and calls FM.StickyRefresh after every refresh of its data:
---   * "Lock plan after refresh" on: a window updates only with a new plan (Refresh here or in the table, a change
+--   * "Auto-refresh" off (the plan is held; "Lock plan after refresh" on until 1.58): a window updates only with a new plan (Refresh here or in the table, a change
 --     of a Picks input); deep scans, feed imports, posts and auction lists leave it as it is
 --   * off: it updates after every pass, manual or automatic
 --   * its row gone (no longer a pick, filtered out): it keeps its last content and says so at the top
@@ -153,9 +153,8 @@ local function CreateWindow()
     -- the tooltip's own backdrop, opaque (backdropColorAlpha 1 by default)
     local w = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
     windows[i] = w
-    -- above the market table (HIGH), like the price graph
-    w:SetFrameStrata("DIALOG")
-    w:SetToplevel(true)
+    -- above the market table, like the price graph: it follows the Marketplace window's layer (FM.LayerRegister at
+    -- the end, ui/Layers.lua, FRV-219; always DIALOG until 1.59)
     w:SetMovable(true)
     w:EnableMouse(true)
     w:SetClampedToScreen(true)
@@ -199,6 +198,7 @@ local function CreateWindow()
     w.scroll:SetScrollChild(w.child)
     w.fonts = {}
     tinsert(UISpecialFrames, name)
+    if FM.LayerRegister then FM.LayerRegister(w, "market") end
     return w
 end
 
@@ -207,7 +207,8 @@ function FM.StickyOpen(id, tabId, tabLabel, lines)
     if type(id) ~= "string" or type(lines) ~= "table" then return end
     local w = byId[id]
     if w and w:IsShown() then
-        w:Raise()
+        -- to the front, and the last of the Marketplace's windows to be raised again (ui/Layers.lua)
+        if FM.LayerShown then FM.LayerShown(w) else w:Raise() end
         return w
     end
     w = nil

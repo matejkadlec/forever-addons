@@ -443,6 +443,13 @@ local function MerchantName()
     return (name:gsub("[,;]", ""))
 end
 
+-- What the merchant whose window was last open asks in gold for one unit of an item, limited stock too: a purchase
+-- there enters your pool of the item at it (trade/Pool.lua, FRV-88). Session only, emptied when a merchant opens
+local merchantUnits = {}
+function FM.MerchantUnit(key)
+    return merchantUnits[key]
+end
+
 -- Reads the open merchant's offers into R.vendorSeen; returns how many it recorded
 function FM.ReadMerchant()
     local getInfo = C_MerchantFrame and C_MerchantFrame.GetItemInfo
@@ -458,15 +465,17 @@ function FM.ReadMerchant()
             local price, stack, available = info.price, info.stackCount, info.numAvailable
             local plain = not (FM.IsSecret(price) or FM.IsSecret(stack) or FM.IsSecret(available)
                 or FM.IsSecret(info.hasExtendedCost) or FM.IsSecret(info.currencyID))
-            -- for gold, without limit
-            if plain and type(price) == "number" and price > 0 and type(available) == "number" and available < 0
-                and not info.hasExtendedCost and info.currencyID == nil then
+            -- for gold alone: what a purchase here costs (FM.MerchantUnit); without limit: an offer to keep
+            if plain and type(price) == "number" and price > 0 and not info.hasExtendedCost and info.currencyID == nil then
                 local link = GetMerchantItemLink and GetMerchantItemLink(index)
                 local key = not FM.IsSecret(link) and FM.KeyFromLink(link)
                 if key then
                     if type(stack) ~= "number" or stack < 1 then stack = 1 end
-                    seen[key] = UnitText(price / stack) .. "," .. stamp .. "," .. npc
-                    recorded = recorded + 1
+                    merchantUnits[key] = price / stack
+                    if type(available) == "number" and available < 0 then
+                        seen[key] = UnitText(price / stack) .. "," .. stamp .. "," .. npc
+                        recorded = recorded + 1
+                    end
                 end
             end
         end
@@ -493,6 +502,7 @@ FM.SeenVendorOffer = SeenOffer
 local merchantOpen = false
 FM.On("MERCHANT_SHOW", function()
     merchantOpen = true
+    merchantUnits = {} -- another merchant's prices are not this one's
     FM.ReadMerchant()
     C_Timer.After(2, function()
         if merchantOpen then FM.ReadMerchant() end
@@ -1505,12 +1515,29 @@ function FM.Owned(key)
     return bagAll + bankAll, bagFree + bankFree, bagFree, bagAll
 end
 
+-- The units of every item in your bags and bank, by item key (the bank as read this session, else as last seen):
+-- what your pools are set against (trade/Pool.lua, FRV-88)
+function FM.StockUnits()
+    local units = {}
+    local function add(index)
+        for id, e in pairs(index or {}) do
+            local key = tostring(id)
+            units[key] = (units[key] or 0) + (e.all or 0)
+        end
+    end
+    add(BagIndex())
+    -- bags that read empty: their containers are not loaded (FRV-73); nothing is told then
+    if next(units) == nil then return units end
+    add((BankReading()))
+    return units
+end
+
 ---------------------------------------------------------------- changes of what you hold (FRV-98)
 -- FM.stockVersion counts the changes of your bags and bank (what FM.Owned reads): STOCK_SETTLE seconds after the
 -- last BAG_UPDATE_DELAYED or bank slot change, their units are compared with the last look, and a change counts
 -- once (moving items within your bags does not); in combat the look waits for its end. The plan stores the version
 -- it was made with (trade/Calc.lua):
--- with "Lock plan after refresh" off the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
+-- with "Auto-refresh" on (the plan is not held) the open table or a sticky window plans Picks again at once (FM.EnsureTrade,
 -- else when the table opens next); locked, the plan stays and Refresh's tooltip says your bags or bank changed.
 local STOCK_SETTLE = 2
 FM.stockVersion = 0
@@ -1540,9 +1567,19 @@ end
 -- would return), else a sticky window alone, which has no tick, would stay one change behind
 function FM.CheckStock()
     local ok, sig = pcall(StockSignature)
-    if not ok or sig == stockSig then return false end
+    if not ok then return false end
+    if sig == stockSig then
+        -- no unit came or left: a bag event at the mailbox or a merchant explains no later rise (trade/Pool.lua)
+        if FM.PoolSettled then FM.PoolSettled() end
+        return false
+    end
     stockSig = sig
     FM.stockVersion = FM.stockVersion + 1
+    -- your pools follow what you hold (FRV-88, trade/Pool.lua): what came in, at what it cost; what left
+    if FM.PoolUpdate then
+        local done, err = pcall(FM.PoolUpdate)
+        if not done and geterrorhandler then geterrorhandler()(err) end
+    end
     -- a vendor resell whose amount you set counts the units you bought of it (FRV-188, trade/Picks.lua)
     if FM.SetPicksStock then
         local done, err = pcall(FM.SetPicksStock)

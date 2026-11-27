@@ -396,7 +396,7 @@ end
 local RANK_TIP = "#: the pick's place in the plan, by its expected profit per gold it needs (a pick needing less than a quarter of one pick's share counts as needing that quarter)."
 local INVEST_TIP = "Invest: the gold the pick needs now: what you buy on the AH and at vendors, plus a recipe or tool it still needs."
 local EXPECTED_TIP = "Expected: the profit of one 8h listing of the pick's units at its confidence: about 75% of an item's listing sells (40% of a commodity's), what doesn't sell loses its deposit. A Craft and wait or Stock, wait pick lists later, once the price is back."
-local AMOUNT_TIP = "Amount: what the pick makes (a craft's \"make N\") or buys (a vendor resell, a flip). Click the number, type yours and press Enter: the pick takes it by the plan's rules (its steps, Invest and Expected follow) and keeps its place, and the rest of the plan is made again around it with what is left of the budget. It may be more than the room on the AH, the pick's share of the gold or what earns your minimum profit (the icon after Expected says so). Set on a pick out of scope, it stays there and changes nothing. Empty it and press Enter for the plan's own number; with Lock manual plan changes on, new plans keep your numbers. A Stock pick shows the units you list, a recipe to learn none."
+local AMOUNT_TIP = "Amount: what the pick makes (a craft's \"make N\") or buys (a vendor resell, a flip). Click the number, type yours and press Enter: the pick takes it by the plan's rules (its steps, Invest and Expected follow) and keeps its place, and the rest of the plan is made again around it with what is left of the budget. It may be more than the room on the AH, the pick's share of the gold or what earns your minimum profit (the icon after Expected says so). Set on a pick out of scope, it stays there and changes nothing. Empty it and press Enter for the plan's own number; with Keep edits on, new plans keep your numbers. A Stock pick shows the units you list, a recipe to learn none."
 local CONF_TIP = "Conf.: how far the numbers can be trusted: buyer counts estimated from older records, little price history, listings far above the usual price, days of stock listed by others, estimated prices, few units of a material at its price. The row tooltip says what lowered it."
 
 -- A pick's icon and name in its quality color; the favorite mark as everywhere
@@ -432,7 +432,7 @@ local function MarketRow(p)
 end
 
 -- A pick's status as of now (FRV-188, the column after Expected): FM.PickStatus (trade/Picks.lua) with the price of its
--- item in the pass shown when that pass is newer than the plan (a plan held by Lock plan after refresh after a scan)
+-- item in the pass shown when that pass is newer than the plan (a plan held with Auto-refresh off after a scan)
 function FM.TablePickStatus(p)
     local trade = FM.trade
     if not (FM.PickStatus and type(p) == "table") then return nil end
@@ -460,7 +460,7 @@ local PICK_COLUMNS = {
     -- the pick's status (FRV-188): no header label, an icon (b.status, placed by LayoutColumns) right of Expected's
     -- numbers, which stay where they are; its 18 px came from On AH, C/8h and C/24h
     { title = "", tipTitle = "Status", status = true, width = 18, text = function() return "" end,
-        tip = "A warning sign: a unit of the pick earns less than your minimum profit (the Profit of the budget row). A red cross: the pick loses money as of now (its Expected under 0). Empty: it earns what it should. A number you set in Amount can do either, and so can a plan held by Lock plan after refresh once a scan moved the price. Hover the icon for its words.",
+        tip = "A warning sign: a unit of the pick earns less than your minimum profit (the Profit of the budget row). A red cross: the pick loses money as of now (its Expected under 0). Empty: it earns what it should. A number you set in Amount can do either, and so can a plan held with Auto-refresh off once a scan moved the price. Hover the icon for its words.",
         sort = function(p)
             local kind = FM.TablePickStatus(p)
             return kind == "loss" and 2 or (kind == "warn" and 1 or 0)
@@ -2295,20 +2295,23 @@ local SHORT_TIP = {
 
 -- Picks, above the header: "Gold: 16g 53s  ·  Budget: 75% of your gold = 12g 40s  ·  Profit: 10%:   3 of 5 picks
 -- (nothing else earns enough after these)  ·  needs 9g 80s  ·  expected +1g 64s" (a plan made before 1.35 has no
--- budget: "Plan for your 10g 22s"; one before FRV-126 no Profit; a plan that fills its slots: "5 picks")
-local function PickSummary()
+-- budget: "Plan for your 10g 22s"; one before FRV-126 no Profit; a plan that fills its slots: "5 picks"). The line
+-- has the window's width to itself (FRV-221); when a plan was made is in its tooltip, no longer in the line.
+-- short = for a line that is still too long: the budget as "Budget: 12g 40s (75%)"
+local function PickSummary(short)
     local trade = FM.trade
     if not (trade and trade.picks and trade.pickGold) then return "" end
     local n = trade.pickPlan or 0
-    local held = FM.PicksLocked() and trade.pickAt and (GREY .. " (locked " .. date("%H:%M", trade.pickAt) .. ")|r") or ""
     local sep = GREY .. "  ·  |r"
     local funds = trade.pickFunds
     local profit = (trade.pickProfit and FM.PicksProfitText) and (sep .. "Profit: " .. FM.PicksProfitText(trade.pickProfit, nil, "short")) or ""
     -- your set picks together can need more than the budget (FRV-188, your choice): said in orange right after it, where
     -- a line too long for the window does not cut it off
     local over = (trade.pickNeed or 0) > (trade.pickBudget or math.huge) + 0.5 and (ORANGE .. " over budget|r") or ""
-    local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. BudgetText(funds, true) .. over)
-        or ("Plan for your " .. Money(trade.pickGold) .. over)) .. profit .. held .. ":   "
+    local budget = funds and ((short and funds.mode ~= "manual" and funds.mode ~= "both")
+        and string_format("%s (%d%%)", Money(funds.budget), funds.pct or 0) or BudgetText(funds, true))
+    local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. budget .. over)
+        or ("Plan for your " .. Money(trade.pickGold) .. over)) .. profit .. ":   "
     if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     local count = string_format("%d pick%s", n, n == 1 and "" or "s")
     if trade.pickShort and trade.pickSlots and n < trade.pickSlots then
@@ -2498,8 +2501,8 @@ local function RenderGraph(tab)
     for _, header in ipairs(frame.headers) do header:Hide() end
     for _, button in ipairs(frame.rows) do button:Hide() end
     for _, w in ipairs({ frame.filtersButton, frame.globalButton, frame.useGlobal, frame.useGlobal.label, frame.prof,
-        frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.lock, frame.lock.label, frame.lockManual,
-        frame.lockManual.label, frame.searchAll,
+        frame.budget, frame.summaryZone, frame.empty, frame.summary, frame.autoRefresh, frame.autoRefresh.label, frame.keepEdits,
+        frame.keepEdits.label, frame.searchAll,
         frame.continent, frame.zone, frame.hiddenPicks }) do
         w:Hide()
     end
@@ -2557,14 +2560,20 @@ Render = function()
     frame.summary:SetShown((tab.picks or view.stale) and true or false)
     frame.summary:ClearAllPoints()
     frame.summary:SetPoint("LEFT", frame, "TOPLEFT", 18, tab.picks and SUMMARY_Y or LINE_Y)
-    if tab.picks then
-        -- never under Lock manual plan changes (FRV-188), which ends its line
-        frame.summary:SetPoint("RIGHT", frame.lockManual.label, "LEFT", -12, 0)
-    else
-        frame.summary:SetPoint("RIGHT", frame, "TOPRIGHT", -18, LINE_Y) -- never past the edge
-    end
+    -- never past the edge; Picks' summary has its whole line (FRV-221: both checkboxes sit in the budget row)
+    frame.summary:SetPoint("RIGHT", frame, "TOPRIGHT", -18, tab.picks and SUMMARY_Y or LINE_Y)
     frame.summaryZone:SetShown(tab.picks and true or false)
-    if tab.picks then frame.summary:SetText(PickSummary()) elseif view.stale then frame.summary:SetText(view.stale) end
+    if tab.picks then
+        frame.summary:SetText(PickSummary())
+        -- a line too long for the window is cut off at its end ("expected ..."): the budget in its short form then
+        -- (the width is documented SecretWhenAnchoringSecret: guarded, though nothing here is anchored to a secret)
+        local width = frame.summary.GetUnboundedStringWidth and frame.summary:GetUnboundedStringWidth()
+        if width and not FM.IsSecret(width) and type(width) == "number" and width > W - 36 then
+            frame.summary:SetText(PickSummary(true))
+        end
+    elseif view.stale then
+        frame.summary:SetText(view.stale)
+    end
     -- the steps line under a pick starts where the pick's name does (after its icon)
     local stepsX = tab.picks and (ColumnX(tab.columns, 2) - 14 + 22) or 24
     for i, button in ipairs(frame.rows) do
@@ -2640,12 +2649,13 @@ Render = function()
         if placeTab and dd.GenerateMenu then dd:GenerateMenu() end -- the saved place's names
     end
     frame.searchAll:SetShown((tab.favs and not tab.ignored) and true or false)
-    frame.lock:SetShown(tab.picks and true or false)
-    frame.lock.label:SetShown(tab.picks and true or false)
-    frame.lock:SetChecked(FM.PicksLocked())
-    frame.lockManual:SetShown(tab.picks and true or false)
-    frame.lockManual.label:SetShown(tab.picks and true or false)
-    frame.lockManual:SetChecked(FM.PicksLockManual())
+    -- Auto-refresh is checked while the plan is not held (FM.PicksLocked, FRV-221)
+    frame.autoRefresh:SetShown(tab.picks and true or false)
+    frame.autoRefresh.label:SetShown(tab.picks and true or false)
+    frame.autoRefresh:SetChecked(not FM.PicksLocked())
+    frame.keepEdits:SetShown(tab.picks and true or false)
+    frame.keepEdits.label:SetShown(tab.picks and true or false)
+    frame.keepEdits:SetChecked(FM.PicksLockManual())
     -- the budget row (FRV-95, FRV-126): the saved values (not in a box you type in), the checked boxes' inputs on, an
     -- unchecked one's greyed out
     frame.budget:SetShown(tab.picks and true or false)
@@ -2722,7 +2732,7 @@ function FM.RefreshTable()
     if frame and frame:IsShown() then Render() end
     -- new data or a new Min. price: the price graph follows (it draws again only when something changed)
     if FM.PriceGraphRefresh then FM.PriceGraphRefresh() end
-    -- and the sticky row tooltips, as "Lock plan after refresh" says (ui/StickyTooltip.lua)
+    -- and the sticky row tooltips, as "Auto-refresh" says (ui/StickyTooltip.lua)
     if FM.StickyRefresh then FM.StickyRefresh() end
 end
 
@@ -2912,7 +2922,7 @@ local function PlaceDropdowns(f)
         end)
     end
     Tip(continent, "Continent", "Only what vendors on this continent sell. On Picks: vendor flips buy only there; crafts and AH flips stay as they are. Saved per tab.")
-    Tip(zone, "Zone", "Only what vendors in this zone sell; a zone holds the maps inside it (Teldrassil holds Dolanaar, and Darnassus when the game's map puts it there). Where I am follows you as you travel. On Picks: vendor flips buy only there, and a locked plan keeps its vendors until Refresh. Saved per tab.")
+    Tip(zone, "Zone", "Only what vendors in this zone sell; a zone holds the maps inside it (Teldrassil holds Dolanaar, and Darnassus when the game's map puts it there). Where I am follows you as you travel. On Picks: vendor flips buy only there, and with Auto-refresh off the plan keeps its vendors until Refresh. Saved per tab.")
     continent:Hide()
     zone:Hide()
     return continent, zone
@@ -2930,7 +2940,7 @@ local function CreateTable()
     end
     frame = f
     f:SetSize(W, H)
-    f:SetFrameStrata("HIGH")
+    -- its layer comes from "Marketplace window priority" (FM.LayerRegister at the end, ui/Layers.lua; HIGH until 1.59)
     f:SetMovable(true)
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
@@ -3144,8 +3154,12 @@ local function CreateTable()
     -- one pair: "Label [X] % [x] | [g] [s] [c] [ ]" right of `after` (the maintainer's layout, 2026-11-22: the % right
     -- after the label, the money boxes behind the one separator). The money boxes are the sniper's (MoneyInputFrameTemplate,
     -- FM.MoneyInput in ui/SniperPanel.lua), narrower (the template's 70 / 48 / 48 px fit 7 digits of gold and leave
-    -- silver and copper half empty): gold up to spec.goldDigits digits (FM.SETTING_RANGE), silver and copper 2 each
+    -- silver and copper half empty): gold up to spec.goldDigits digits (FM.SETTING_RANGE; at most 4, 9999g, which its
+    -- box is just wide enough for, FRV-221), silver and copper 2 each, every box with its coin icon
     local money = FM.MoneyInput
+    -- the boxes' widths (FRV-221): gold just wide enough for 4 digits, silver and copper for 2, each with its coin
+    -- icon (13 px and its margins); 60 and 34 until 1.58. Here and not at the top: the file is at Lua's 200 locals
+    local MONEY_GOLD_W, MONEY_COIN_W = 46, 31
     local function Pair(spec)
         local w = { pair = spec.pair, pctKey = spec.pctKey, pctDefault = spec.pctDefault, amountKey = spec.amountKey }
         local label = Text(budget, "GameFontHighlight", "LEFT", 16, 0, spec.after, "RIGHT")
@@ -3185,11 +3199,11 @@ local function CreateTable()
         local manual = CreateFrame("Frame", spec.moneyName, budget, "MoneyInputFrameTemplate")
         manual:SetPoint("LEFT", sep, "RIGHT", 16, 0)
         if manual.gold and manual.silver and manual.copper then
-            manual.gold:SetWidth(60)
+            manual.gold:SetWidth(MONEY_GOLD_W)
             manual.gold:SetMaxLetters(spec.goldDigits)
-            manual.silver:SetWidth(34)
-            manual.copper:SetWidth(34)
-            manual:SetWidth(60 + 10 + 34 + 10 + 34)
+            manual.silver:SetWidth(MONEY_COIN_W)
+            manual.copper:SetWidth(MONEY_COIN_W)
+            manual:SetWidth(MONEY_GOLD_W + 10 + MONEY_COIN_W + 10 + MONEY_COIN_W)
         end
         for _, box in ipairs(money and money.Boxes(manual) or {}) do
             box:HookScript("OnEditFocusLost", function()
@@ -3230,7 +3244,7 @@ local function CreateTable()
     local INVEST_BOTH = " Both boxes checked: the settings panel's \"% + manual invest logic\" combines them (default Both must apply: the plan stays within both, the smaller budget; Either must apply: the larger)."
     f.investPair = Pair({ label = "Invest", after = slots, pair = "invest", pctKey = "tableInvestPct", pctDefault = 90, pctMin = 1,
         PctMax = function() return FM.PicksPctMax and FM.PicksPctMax() or 90 end, amountKey = "tableInvestAmount",
-        moneyName = "ForeverMarketPicksInvest", goldDigits = 6, Tip = BudgetTip,
+        moneyName = "ForeverMarketPicksInvest", goldDigits = 4, Tip = BudgetTip,
         pctTitle = "Budget: % of your gold",
         pctTip = "The budget is this share of your gold (checked, the default): 1 to 90 (default 90; the rest of your gold pays deposits), 1 to 999 with Allow picks budget over current gold (settings panel). With Gold of all characters (Filters) your gold is that of all your characters." .. INVEST_BOTH .. " Enter or click elsewhere to apply.",
         manualTitle = "Budget: set manually",
@@ -3279,7 +3293,7 @@ local function CreateTable()
         GameTooltip:AddLine("Refresh")
         GameTooltip:AddLine("Reads your recipes and vendors again (after learning a recipe) and plans Picks again from the data now.", 1, 1, 1, true)
         if FM.PicksLocked() then
-            GameTooltip:AddLine("The other tabs refresh by themselves after every deep scan; Picks keeps its plan until you refresh it (Lock plan after refresh).", 1, 1, 1, true)
+            GameTooltip:AddLine("The other tabs refresh by themselves after every deep scan; Picks keeps its plan until you refresh it (Auto-refresh is off).", 1, 1, 1, true)
             local since = SincePlan()
             if since then GameTooltip:AddLine(since .. " since the plan.", 1, 0.82, 0, true) end
         else
@@ -3356,48 +3370,52 @@ local function CreateTable()
             GameTooltip:AddLine(SHORT_TIP[short], 1, 1, 1, true)
         end
         if FM.PicksLocked() and FM.trade.pickAt then
-            GameTooltip:AddLine(string_format("Locked at %s: the plan keeps this gold and budget until you refresh it.", date("%H:%M", FM.trade.pickAt)), 0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine(string_format("Planned at %s: with Auto-refresh off the plan keeps this gold and budget until you refresh it.", date("%H:%M", FM.trade.pickAt)), 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
     end, "hover")
     summaryZone:Hide()
     f.summaryZone = summaryZone
-    -- Picks: "Lock plan after refresh" at the right of its budget row (FRV-63; the summary's line before FRV-95), its
-    -- text first (FRV-89)
-    f.lock = FM.TextCheck(f, "Lock plan after refresh")
-    f.lock.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, LINE_Y)
-    f.lock:SetScript("OnClick", function(self)
-        Settings().tablePicksLock = self:GetChecked() and true or false
-        -- off: Picks plans by itself again, from now on, keeping what you crafted of its picks (FRV-104); on: the plan
-        -- shown now is held
-        if not Settings().tablePicksLock then FM.PlanPicks(true) end
-        FM.RefreshTable()
-    end)
-    FM.TableTip(f.lock, function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Lock plan after refresh")
-        GameTooltip:AddLine("On (default): Picks keeps its plan while you buy, craft and post it. Only Refresh or a change of a Picks setting makes a new plan; deep scans, posts, your auction lists and changes of your bags or bank leave it as it was (Refresh's tooltip says what came since). The other tabs keep refreshing. Off: Picks plans again by itself after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
-        GameTooltip:Show()
-    end, "shift") -- a checkbox
-    f.lock:Hide()
-    f.lock.label:Hide()
-    -- Picks: "Lock manual plan changes" under it, at the end of the summary line (FRV-188)
-    f.lockManual = FM.TextCheck(f, "Lock manual plan changes")
-    f.lockManual.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, SUMMARY_Y)
-    f.lockManual:SetScript("OnClick", function(self)
+    -- Picks: "Auto-refresh" and "Keep edits" side by side at the right end of the budget row (FRV-221), each with its
+    -- text first (FRV-89). Until 1.58 they were "Lock plan after refresh" there and "Lock manual plan changes" at the
+    -- end of the summary line, where it covered the line's end
+    -- Keep edits (FRV-188, "Lock manual plan changes" until 1.58; tablePicksLockManual, on by default)
+    f.keepEdits = FM.TextCheck(f, "Keep edits")
+    f.keepEdits.label:SetPoint("RIGHT", f, "TOPRIGHT", -14 - 22 - 2, LINE_Y)
+    f.keepEdits:SetScript("OnClick", function(self)
         Settings().tablePicksLockManual = self:GetChecked() and true or false
         FM.RefreshTable()
     end)
-    FM.TableTip(f.lockManual, function(self)
+    FM.TableTip(f.keepEdits, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Lock manual plan changes")
-        GameTooltip:AddLine("On (default): a new plan (Refresh, a change of a Picks setting, or one after a deep scan with Lock plan after refresh off) keeps every pick whose amount you set, with your number and in its place (in the plan or out of scope), and plans the rest around it; the tab's filters do not drop it. It ends when you empty its amount, when it is done (made, or bought) or by right-click > Remove from Picks.", 1, 1, 1, true)
-        GameTooltip:AddLine("Off: a new plan starts from its own numbers, and your amounts are dropped.", 1, 1, 1, true)
+        GameTooltip:AddLine("Keep edits")
+        GameTooltip:AddLine("Checked (default): the amounts you typed into picks stay when the plan is made again, each pick with your number and in its place, until you empty the amount, the pick is done or you remove it (right-click > Remove from Picks).", 1, 1, 1, true)
+        GameTooltip:AddLine("Unchecked: the next new plan starts from its own numbers and drops yours.", 1, 1, 1, true)
         GameTooltip:Show()
     end, "shift") -- a checkbox
-    f.lockManual:Hide()
-    f.lockManual.label:Hide()
-    summaryZone:SetPoint("RIGHT", f.lockManual.label, "LEFT", -8, 0) -- the summary's tooltip ends where its line does
+    f.keepEdits:Hide()
+    f.keepEdits.label:Hide()
+    -- Auto-refresh (FRV-63, "Lock plan after refresh" until 1.58 with the meaning turned around: checked = the plan is
+    -- not held). The saved setting is still tablePicksLock (true or nil = held), so a saved choice keeps its behaviour
+    -- and the default stays held: Auto-refresh unchecked
+    f.autoRefresh = FM.TextCheck(f, "Auto-refresh")
+    f.autoRefresh.label:SetPoint("RIGHT", f.keepEdits.label, "LEFT", -14 - 22 - 2, 0)
+    f.autoRefresh:SetScript("OnClick", function(self)
+        Settings().tablePicksLock = not self:GetChecked()
+        -- checked: Picks plans by itself again, from now on, keeping what you crafted of its picks (FRV-104);
+        -- unchecked: the plan shown now is held
+        if not Settings().tablePicksLock then FM.PlanPicks(true) end
+        FM.RefreshTable()
+    end)
+    FM.TableTip(f.autoRefresh, function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Auto-refresh")
+        GameTooltip:AddLine("Unchecked (default): the plan stays as it is while you buy, craft and post it, until you press Refresh or change a Picks setting; Refresh's tooltip says what came since. The other tabs keep refreshing.", 1, 1, 1, true)
+        GameTooltip:AddLine("Checked: Picks makes a new plan by itself after every deep scan, post, read of your auctions and change of your bags or bank.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end, "shift") -- a checkbox
+    f.autoRefresh:Hide()
+    f.autoRefresh.label:Hide()
 
     -- rows
     f.rows = {}
@@ -3468,9 +3486,9 @@ local function CreateTable()
                     or ("Only " .. Count(pick.amount) .. " now: " .. tostring(pick.amountNote))), 1, 0.33, 0.33, true)
             end
             if how == "set" or (pick.amountSet and pick.amountNote) then
-                -- a set pick (FRV-188): the plan was made around it, new plans keep it while Lock manual plan changes is on
+                -- a set pick (FRV-188): the plan was made around it, new plans keep it while Keep edits is on
                 GameTooltip:AddLine("Set by you: the rest of the plan was made again around it"
-                    .. (FM.PicksLockManual() and ", and new plans keep it (Lock manual plan changes)." or ".")
+                    .. (FM.PicksLockManual() and ", and new plans keep it (Keep edits)." or ".")
                     .. " Empty it and press Enter for the plan's own number, or right-click > Remove from Picks.", 0.4, 0.75, 1, true)
             else
                 GameTooltip:AddLine("The plan's number. Type yours and press Enter: the pick takes it and the rest of the plan is made again around it.", 1, 1, 1, true)
@@ -3579,6 +3597,8 @@ local function CreateTable()
         Render()
     end)
     f:Hide()
+    -- after its own OnShow / OnHide: the layer of "Marketplace window priority", raised when clicked (FRV-219)
+    if FM.LayerRegister then FM.LayerRegister(f, "market", true) end
 end
 
 function FM.OpenTable(tab)

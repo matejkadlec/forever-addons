@@ -59,8 +59,11 @@ FM.DEFAULTS = {
     tableTimePct = 2, -- craft materials: buying one you can craft may cost this many % more per second of crafting it saves (FRV-69)
     tableMatRefHours = 8, -- craft materials: one bought on the AH costs at least the average cheapest price of others of
                           -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
-    tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
-    tablePicksLockManual = true, -- picks: "Lock manual plan changes": a new plan keeps the amounts you set (FRV-188)
+    tablePicksLock = true, -- picks: the plan is held: only Refresh or a Picks input makes a new one. The tab shows it
+    -- as "Auto-refresh" unchecked (FRV-221; "Lock plan after refresh" checked until 1.58): the key and its values stay,
+    -- so a saved choice keeps its behaviour
+    tablePicksLockManual = true, -- picks: "Keep edits" ("Lock manual plan changes" until 1.58): a new plan keeps the
+    -- amounts you set (FRV-188)
     tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
     -- Upgrades tab (FRV-203, FRV-205): the rarities listed (item quality -> checked), the slots (an equipLoc set to false
     -- is not listed: every slot by default), "Best per slot"
@@ -78,6 +81,9 @@ FM.DEFAULTS = {
     snipeAutoRefresh = true, -- sniper: "Automatically refresh budget" from your gold every time the window opens (FRV-94)
     snipeManual = false, -- sniper: "Set budget manually": the budget is snipeManualAmount instead of the % (FRV-94)
     snipeManualAmount = 0, -- sniper: the manual budget, in copper
+    windowMarket = "standard", -- "Marketplace window priority" (settings panel, FRV-219): "standard" = like the game's
+    -- own windows, "vanilla" = above them, "anything" = above everything (ui/Layers.lua); "vanilla" was built in until 1.59
+    windowSniper = "standard", -- "Sniper window priority", the same choices; "anything" was built in until 1.59
     perfMode = "day", -- Profit tab: one dot per day, week or month
     perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
     priceMode = "day" -- price graph: one dot per day, week or month
@@ -192,9 +198,10 @@ FM.SETTING_RANGE = {
     tableMatRefHours = { 0, 24 }, -- 0 = no reference price, the latest scan alone (FRV-196)
     snipeManualAmount = { 0, 9999999 * 10000 + 9999 }, -- the sniper's manual budget (its gold box takes 7 digits, FRV-94)
     -- the Picks budget row (FRV-95): the % (its box takes 3 digits; at most 90 counts without "Allow picks budget over
-    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 6 digits)
+    -- current gold", FM.PicksPctMax) and the amount set by hand (the sniper's boxes, its gold box narrowed to 4 digits,
+    -- 9999g, since FRV-221; 6 digits until 1.58: a larger saved amount is clamped to the new limit at load)
     tableInvestPct = { 1, 999 },
-    tableInvestAmount = { 0, 999999 * 10000 + 9999 },
+    tableInvestAmount = { 0, 9999 * 10000 + 9999 },
     -- the Picks row's Profit (FRV-126): the % of a unit's cost (3 digits) and the amount (999g 99s 99c, as the table's
     -- minimum profit per item)
     tableProfitPct = { 0, 999 },
@@ -208,6 +215,8 @@ FM.PICK_PAIRS = {
     profit = { pct = "tableProfitPctOn", manual = "tableProfitManual", logic = "tableProfitLogic" },
 }
 FM.PICK_LOGIC = { either = true, both = true }
+-- The choices of the two window priority settings (FRV-219, ui/Layers.lua), each with its height
+FM.WINDOW_PRIORITY = { standard = 1, vanilla = 2, anything = 3 }
 
 -- A click on one box of a pair ("pct" or "manual"): it checks or unchecks that box, but the last checked box of the
 -- pair stays checked (the click is refused). Returns true when the setting changed
@@ -280,6 +289,10 @@ function FM.InitializeSavedData()
         s[pair.pct], s[pair.manual] = s[pair.pct] == true, s[pair.manual] == true
         if not s[pair.pct] and not s[pair.manual] then s[pair.pct] = true end
         if not FM.PICK_LOGIC[s[pair.logic]] then s[pair.logic] = FM.DEFAULTS[pair.logic] end
+    end
+    -- the window priorities (FRV-219): one of the three choices
+    for _, key in ipairs({ "windowMarket", "windowSniper" }) do
+        if not FM.WINDOW_PRIORITY[db.settings[key]] then db.settings[key] = FM.DEFAULTS[key] end
     end
     if type(db.realms) ~= "table" then db.realms = {} end
     -- the bag and bank counts of watched items (R.inv) were written only for reading outside the game (FRV-85)
