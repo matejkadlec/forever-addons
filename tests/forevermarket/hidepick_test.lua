@@ -6,6 +6,8 @@
 --     listing)
 --   * a hidden flip counts for 24 hours, then it may come back; entries that old are dropped at load
 --   * the footer's click shows every hidden flip again; the item is never ignored
+--   * FRV-218: the Ignored tab lists every hidden flip that still counts with "(hidden)" (an item both ignored and hidden
+--     once, as ignored), and its menu's first entry "Show this pick again" brings that one back
 local H = require("harness")
 local F = require("fixtures")
 
@@ -214,4 +216,50 @@ H.test("hide pick: a flip held back with one pick's share and a plan pick with a
     H.eq(out.pickHidden["105"], nil, "not counted as held back")
     FM.trade = out
     H.eq(#FM.TableHiddenFlips(), 0, "the footer shows nothing")
+end)
+
+-- FRV-218: the Ignored tab lists the flip picks you hid, "(hidden)", and brings one back
+H.test("hide pick: the Ignored tab lists a hidden flip with (hidden), Show this pick again brings it back (FRV-218)", function()
+    local FM, env = Setup()
+    local pick = PlanOn(FM, env, LADDER)
+    FM.HideFlipPick(pick)
+    FM.trade = { flips = { FLIP }, picks = {} }
+    local excluded = { ["300"] = true }
+    FM.GetSettings().excluded = excluded
+    FM.IsExcluded = function(key) return excluded[key] == true end
+    FM.IsFavorite = function() return false end -- ui/Filters.lua's, not loaded here
+    FM.ExcludedCount = function() -- trade/Sources.lua's, not loaded here
+        local count = 0
+        for _ in pairs(excluded) do count = count + 1 end
+        return count
+    end
+    FM.R().hiddenPicks["300"] = { t = env.clock, top = 100, levels = { 100 } } -- hidden and ignored
+    FM.R().hiddenPicks["106"] = { t = env.clock - 2 * DAY, top = 100, levels = { 100 } } -- hidden 2 days ago: over
+    local function Rows()
+        local by, n = {}, 0
+        for _, row in ipairs(FM.TableRowsOf("ignored", "")) do by[row.key], n = row, n + 1 end
+        return by, n
+    end
+    local by, n = Rows()
+    H.same({ n, by["106"] }, { 2, nil }, "the hidden flip and the ignored item, not the one hidden 2 days ago")
+    H.eq(by["105"].hiddenFlip ~= nil, true, "the hidden flip's row")
+    H.eq(FM.TableNameMarks(by["105"]):find("(hidden)", 1, true) ~= nil, true, "\"(hidden)\" behind its name")
+    H.eq(FM.TableNameMarks(by["105"]):find("(ignored)", 1, true), nil, "not \"(ignored)\"")
+    H.same({ by["300"].hiddenFlip, FM.TableNameMarks(by["300"]):find("(ignored)", 1, true) ~= nil }, { nil, true },
+        "hidden and ignored: once, as ignored")
+    H.eq(FM.IgnoredTabCount(), 2, "the tab's label counts both")
+    -- right-click > Show this pick again: first, the entry goes, Picks plans again
+    FM.TableSelectTab("ignored")
+    local planned = 0
+    FM.PlanPicks = function() planned = planned + 1 end
+    local labels, entries = MenuOf(FM, env, by["105"])
+    H.eq(labels[1], "Show this pick again", "first: " .. table.concat(labels, " | "))
+    local printed = #env.printed
+    entries[1].fn()
+    H.same({ FM.R().hiddenPicks["105"], planned }, { nil, 1 }, "shown again, planned again")
+    H.eq(Has(env.printed[printed + 1], "flip pick shown again"), true, tostring(env.printed[printed + 1]))
+    by, n = Rows()
+    H.same({ n, by["105"], FM.IgnoredTabCount() }, { 1, nil, 1 }, "its row is gone")
+    H.eq(MenuOf(FM, env, by["300"])[1] ~= "Show this pick again", true, "an ignored row has no such entry")
+    H.eq(PlanOn(FM, env, LADDER) ~= nil, true, "the next plan picks the flip again")
 end)

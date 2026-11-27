@@ -60,6 +60,7 @@ FM.DEFAULTS = {
     tableMatRefHours = 8, -- craft materials: one bought on the AH costs at least the average cheapest price of others of
                           -- the last 8 hours (FRV-196, FM.MaterialRef; 0 = the latest scan alone)
     tablePicksLock = true, -- picks: "Lock plan after refresh": only Refresh or a Picks input makes a new plan
+    tablePicksLockManual = true, -- picks: "Lock manual plan changes": a new plan keeps the amounts you set (FRV-188)
     tableShiftTips = true, -- market table: tooltips of its inputs, dropdowns and checkboxes only while Shift is held (FRV-155, FRV-186; false = all on plain hover)
     -- Upgrades tab (FRV-203, FRV-205): the rarities listed (item quality -> checked), the slots (an equipLoc set to false
     -- is not listed: every slot by default), "Best per slot"

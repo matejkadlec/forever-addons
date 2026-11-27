@@ -97,6 +97,30 @@ H.test("purchases: another window's purchase is logged with the quote of its own
     H.eq(#FM.R().buys, 2, "no line with a price that is not its own")
 end)
 
+-- FRV-189: a purchase by hand of an item the sniper buys for picks lets those picks follow it at once
+H.test("purchases: a purchase by hand asks the sniper's picks to follow it, a sniper purchase does not (FRV-189)", function()
+    local FM, env, ah = Load()
+    local follows = {}
+    FM.SnipeFollowShown = function(key) follows[#follows + 1] = key end -- trade/Calc.lua's, not loaded here
+    ah.StartCommoditiesPurchase(THICK, 3)
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 400, 1200)
+    ah.ConfirmCommoditiesPurchase(THICK, 3)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.same(follows, { tostring(THICK) }, "bought by hand: the follow is asked for that item, after its line is logged")
+    H.eq(#FM.R().buys, 1, "the line")
+    -- the sniper's own purchase: its own count takes it off its picks
+    FM.ahOpen = true
+    FM.snipeWindowShown = true
+    FM.SnipeStart()
+    FM.SnipeSet(tostring(LEATHER), 110)
+    Offer(env, ah, LEATHER, 101, 40)
+    FM.SnipeBuyClick()
+    env.FireEvent("COMMODITY_PRICE_UPDATED", 101, 4040)
+    env.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+    H.eq(#FM.R().buys, 2, "logged by the sniper")
+    H.same(follows, { tostring(THICK) }, "no follow for it")
+end)
+
 -- A buyer mail as scan/Ledger.lua saves it: "t,char,buyer,itemName,player,qty,bid,buyout,deposit,ahCut,read"
 local function Mail(FM, sent, name, qty, money)
     local minutes = math.floor((sent - FM.EPOCH) / 60)

@@ -857,10 +857,12 @@ end
 -- A row of the Flip tab: FM.FlipPlan on the item's whole ladder, when its usual price is known (median daily low, last
 -- week) and has not moved to a new level in the last 2 days; the list price may follow today's price and the last 2
 -- days' when they are higher (FRV-214)
-local function FlipRow(key, p, now)
+-- anyLevel: a flip whose amount you set (FRV-188, review round 2 of PR 90): its row also below the Flip tab's lowest
+-- usual price and at a new price level, which only the tab leaves out
+local function FlipRow(key, p, now, anyLevel)
     local usual, recent, today = UsualPrice(key, now)
-    if not usual or usual < FLIP_MIN_USUAL then return nil end
-    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) then return nil end -- a new price level
+    if not usual or (usual < FLIP_MIN_USUAL and not anyLevel) then return nil end
+    if recent and (recent < 0.8 * usual or recent > 1.25 * usual) and not anyLevel then return nil end -- a new price level
     local ref = math_max(recent or 0, today or 0)
     local f = FM.FlipPlan(p.ladder, p.qty, usual, FM.MinListPrice(key, p), nil, nil, ref)
     if not f then return nil end
@@ -1080,9 +1082,11 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked. Every field
 -- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
 -- FRV-126, FRV-133), then when and with what it was made
+-- (pickNow, pickCarry, pickRemoved, pickListed: what the plan made again after an edit starts from; pickSetDropped: the
+-- set picks it could not plan, nil once FM.DropFailedSetPicks has dropped them; FRV-188)
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden" }
+    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden", "pickNow", "pickCarry", "pickRemoved", "pickSetDropped", "pickListed" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference
@@ -1122,6 +1126,38 @@ end
 -- "Lock plan after refresh" (Picks tab, default on): only you make a new plan (FRV-63)
 function FM.PicksLocked()
     return FM.GetSettings().tablePicksLock ~= false
+end
+
+-- "Lock manual plan changes" (Picks tab, default on, FRV-188): a new plan keeps the amounts you set, in their places
+function FM.PicksLockManual()
+    return FM.GetSettings().tablePicksLockManual ~= false
+end
+
+-- The set picks a plan could not plan at all (FRV-188, out.pickSetDropped): their numbers end, the chat says why;
+-- edited: the key just set ("Failed to set the amount of ...")
+function FM.DropFailedSetPicks(out, edited)
+    for key, why in pairs(type(out.pickSetDropped) == "table" and out.pickSetDropped or {}) do
+        if FM.SaveSetPick then FM.SaveSetPick(key, nil) end
+        if key == edited then
+            FM.PrintError("Failed to set the amount of " .. tostring(FM.GetName(key)) .. ": " .. tostring(why) .. ".")
+        else
+            FM.Print(tostring(FM.GetName(key)) .. ": the amount you set is no longer kept, " .. tostring(why) .. ".")
+        end
+    end
+    out.pickSetDropped = nil
+end
+
+-- The set picks a new plan keeps (FRV-188): the ones that did not end (done, ignored), or none with "Lock manual plan
+-- changes" off (a new plan starts from its own numbers: your amounts are dropped)
+function FM.KeptSetPicks()
+    if not FM.SetPickList then return nil end
+    if not FM.PicksLockManual() then
+        FM.ClearSetPicks()
+        return nil
+    end
+    FM.PruneSetPicks()
+    if FM.SetPicksPlanned then FM.SetPicksPlanned() end -- what a vendor resell had as of this plan
+    return FM.SetPickList()
 end
 
 -- A new Picks plan, asked for by you: the refresh button, a change of a Picks input, the first view of Picks in a
@@ -1363,10 +1399,47 @@ function FM.ComputeTrade(record, onDone)
             end)
         end,
         function(done)
+            -- the rows of your set picks the Vendor and Flip tabs left out (FRV-188, review round 2 of PR 90): a vendor
+            -- resell under the tab's 10c profit or without buyers or a usual price, a flip at a new price level, keeps your
+            -- number (its status says how it does); trade/Picks.lua's SetCandidate reads them (setFrom), no tab shows them.
+            -- A flip with no flip left on the AH at all gets none: it ends (nothing could be bought)
+            local have, rows = {}, {}
+            for _, row in ipairs(out.vendor) do have["vendor:" .. row.key] = true end
+            for _, row in ipairs(out.flips) do have["flip:" .. row.key] = true end
+            for _, e in ipairs(FM.SetPickList and FM.SetPickList() or {}) do
+                local p = (e.from == "vendor" or e.from == "flip") and not have[e.from .. ":" .. e.key] and view.Get(e.key) or nil
+                local row
+                if p and p.ladder[1] and e.from == "vendor" then
+                    local v = sources.vendors[e.key]
+                    local offer = v and v.best
+                    if offer then
+                        local floor = FM.MinListPrice(e.key, p)
+                        row = { key = e.key, offer = offer, offers = v.offers, floor = floor, vendorUnit = offer.unit, qty = p.qty,
+                            own = p.own, sell = math_max(floor, p.ladder[1][1] - 1), sellSrc = "ah", atFloor = p.ladder[1][1] - 1 < floor,
+                            minSell = offer.unit / (1 - AH_CUT) }
+                        row.usual = UsualPrice(e.key, now)
+                        if row.usual and row.usual < row.sell then row.sell, row.sellSrc = math_max(floor, math_floor(row.usual)), "usual" end
+                        row.profit = row.sell * (1 - AH_CUT) - offer.unit
+                        row.p1g = row.profit / offer.unit * 10000
+                    end
+                elseif p and p.ladder[1] then
+                    row = FlipRow(e.key, p, now, true)
+                end
+                if row then
+                    row.setFrom = e.from
+                    row.sold12, row.soldWide = Sold(e.key, WINDOW_12H)
+                    row.sold3d = Sold(e.key, HISTORY_MIN)
+                    rows[#rows + 1] = row
+                end
+            end
+            out.setRows = rows
+            done()
+        end,
+        function(done)
             -- Min item sell includes one lost deposit for a stack: 8h when 100+ units circulate in 24h, else 24h
             -- (it may well not sell in 8h); measured or estimated by trade/Cost.lua
             local seen = {}
-            for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {} }) do
+            for _, list in ipairs({ out.crafts, out.vendor, out.flips, out.learn or {}, out.setRows }) do
                 for _, row in ipairs(list) do
                     if not seen[row] then
                         seen[row] = true
@@ -1386,7 +1459,8 @@ function FM.ComputeTrade(record, onDone)
                 end
                 return done()
             end
-            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes, carry = carry }, function()
+            FM.ComputePicks(out, { view = view, sources = sources, now = now, nowMinutes = nowMinutes, carry = carry,
+                set = FM.KeptSetPicks() }, function()
                 -- when, and with which snapshot, listings and stock, this plan was made (the summary line, Refresh's
                 -- tooltip); the snapshot of the pass's start, not one a deep scan saved while it ran
                 -- pickAt also tells plans apart (the sniper's trace, FRV-143, review round 6): always later than the plan
@@ -1394,6 +1468,7 @@ function FM.ComputeTrade(record, onDone)
                 local at = math_max(now, ((held and held.pickAt) or 0) + 1)
                 out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
                 out.pickRecipes = out.recipesVersion
+                FM.DropFailedSetPicks(out)
                 done()
             end)
         end
@@ -1440,34 +1515,214 @@ end
 
 FM.TradeBusy = function() return running end
 
--- An amount you set in the Picks tab's Amount column (FRV-154): that pick of the plan shown is made again for it
--- (FM.RemakePick in trade/Picks.lua, with the latest scan's prices and as of the plan's own moment: your stock as the
--- plan read it, pickOwned), the other picks stay; amount nil puts the plan's own pick back. The plan stays the plan shown (a locked one keeps the amount through later passes: its
--- picks are held), pickEdit counts its edits so a sticky tooltip of the row follows, and the items the sniper buys
--- for this pick follow what it still has to buy (FM.PickBuysLeft) as they follow a new plan (FRV-143). Returns true
--- and the pick, or false and why
-function FM.SetPickAmount(key, amount)
-    local trade = FM.trade
+---------------------------------------------------------------- amounts you set (FRV-154, FRV-188)
+
+-- The picks of the plan shown with what each still has to buy (FM.PickBuysLeft), and the items you removed from it with
+-- nothing: what the sniper follows within the plan (FM.SnipeFollowPlan with changed = true)
+local function ShownBuysLeft(trade)
+    local list = {}
+    for _, p in ipairs(trade.picks or {}) do
+        list[#list + 1] = { key = p.key, buys = FM.PickBuysLeft and FM.PickBuysLeft(p) or {} }
+    end
+    for key in pairs(type(trade.pickRemoved) == "table" and trade.pickRemoved or {}) do
+        list[#list + 1] = { key = key, buys = {} }
+    end
+    return list
+end
+
+-- What a plan made again after an edit starts from (FRV-188): the plan's own moment (its time, its reads of your bags,
+-- bank and listings, its budget and gold, what it carried over: what you bought and crafted since stays progress), with
+-- the latest scan's prices. A craft pick of the plan shown with progress since it (crafts, or purchases of its
+-- materials) is carried with its target (keep: review round 1 of PR 90, a pick you started keeps what it bought and
+-- crafted, its gold share no longer cuts it; dropped or cut, its purchases went to another pick of the same material)
+local function ReplanContext(trade, r, view)
+    local asOf = trade.pickNow
+    if type(asOf) ~= "number" then -- a plan made before 1.57: the time of its picks
+        for _, p in ipairs(trade.picks) do asOf = asOf or p.planAt end
+        asOf = asOf or trade.pickAt
+    end
+    local carry = {}
+    for key, c in pairs(type(trade.pickCarry) == "table" and trade.pickCarry or {}) do carry[key] = c end
+    for _, p in ipairs(trade.picks) do
+        if not p.amountSet and not p.extra and type(p.target) == "number" and type(p.since) == "number" then
+            local crafted = FM.PickProgress and FM.PickProgress(p) or 0
+            local bought = false
+            local left = FM.PickBuysLeft and FM.PickBuysLeft(p) or {}
+            for i, b in ipairs(type(p.buys) == "table" and p.buys or {}) do
+                if left[i] and (left[i].ah or 0) < (b.ah or 0) then bought = true end
+            end
+            if crafted > 0 or bought then
+                carry[p.key] = { target = p.target, since = p.since, held = p.heldOwn or 0, keep = true }
+            end
+        end
+    end
+    local now = FM.Now()
+    return { view = view or FpView(r.last), sources = FM.sources or FM.BuildSources(), now = now, nowMinutes = Minutes(now),
+        carry = next(carry) and carry or nil, set = FM.SetPickList and FM.SetPickList() or nil, owned = trade.pickOwned,
+        asOf = asOf, funds = trade.pickFunds, removed = trade.pickRemoved, listed = trade.pickListed }
+end
+
+-- A pick out of the plan shown (FRV-188: a pick out of scope that is no pick now, one you removed): the ranks after it
+-- move up
+local function RemoveShown(trade, key)
+    for i = #(trade.picks or {}), 1, -1 do
+        if trade.picks[i].key == key then table.remove(trade.picks, i) end
+    end
+    trade.pickRank, trade.pickExtra = {}, {}
+    for i, p in ipairs(trade.picks) do
+        p.rank = i
+        trade.pickRank[p.key] = i
+        if p.extra then trade.pickExtra[p.key] = true end
+    end
+end
+
+-- Your amounts in the plan shown (FRV-188): the plan is made again around them (ReplanContext: as of its own moment),
+-- keeping its time (pickAt: the sniper's trace and the sticky tooltips go by it). It runs like a pass (FM.TradeBusy; the
+-- table shows the plan before it meanwhile), counts the edit (pickEdit), lets the sniper follow every pick within the
+-- plan with what each still has to buy (FM.PickBuysLeft) and draws the table. A set pick that gives no pick is dropped
+-- and the chat says why (edited: the key just set, "Failed to set the amount of ..."); a set pick done since the plan
+-- stays until a new plan (FM.PruneSetPicks(true)). extra: the edited pick is out of scope (review round 1 of PR 90):
+-- made again alone (FM.RemakeExtra, with your number or, emptied, its own), the plan untouched, and the sniper follows
+-- that pick only; a pick out of scope that is no pick now by its own numbers leaves the list. view: the scan's (the
+-- latest, as for every pass; a test gives its own). Returns true, or false and why it did not start (or, extra, failed)
+function FM.ReplanPicks(edited, view, extra)
     if running then return false, "the table is computing, try again in a moment" end
-    if not (trade and trade.picks and FM.RemakePick) then return false, "there is no plan" end
+    local trade = FM.trade
+    if not (trade and trade.picks and FM.ComputePicks) then return false, "there is no plan" end
     local r = FM.R()
     if not (r.last and r.last.t and type(r.last.fp) == "table") then return false, "there is no scan" end
-    local pick, why
-    if amount == nil then
-        pick = FM.RestorePick(trade, key)
-        if not pick then return false, "it has the plan's number" end
-    else
-        local now = FM.Now()
-        pick, why = FM.RemakePick(trade, { view = FpView(r.last), sources = FM.sources or FM.BuildSources(), now = now,
-            nowMinutes = Minutes(now) }, key, amount)
-        if not pick then return false, why end
+    if FM.PruneSetPicks then FM.PruneSetPicks(true) end
+    local ctx = ReplanContext(trade, r, view)
+    if extra then
+        local entry = FM.SetPickEntry(edited)
+        local pick, why = FM.RemakeExtra(trade, ctx, edited, entry)
+        if not pick and entry then return false, why end
+        if not pick then RemoveShown(trade, edited) end
+        trade.pickEdit = (trade.pickEdit or 0) + 1
+        if trade.pickAt and FM.SnipeFollowPlan then
+            local ok, e = pcall(FM.SnipeFollowPlan, { { key = edited, buys = pick and FM.PickBuysLeft(pick) or {} } },
+                trade.pickAt, edited)
+            if not ok and geterrorhandler then geterrorhandler()(e) end
+        end
+        if FM.RefreshTable then FM.RefreshTable() end
+        return true
     end
-    trade.pickEdit = (trade.pickEdit or 0) + 1
-    if trade.pickAt and FM.SnipeFollowPlan then
-        -- with what is still to buy for it: its units less what was bought since the plan (review round 4)
-        local ok, e = pcall(FM.SnipeFollowPlan, { { key = pick.key, buys = FM.PickBuysLeft(pick) } }, trade.pickAt, key)
-        if not ok and geterrorhandler then geterrorhandler()(e) end
+    running = true
+    trade.busy = true
+    local function Done()
+        running = false
+        trade.busy = false
+        trade.pickEdit = (trade.pickEdit or 0) + 1
+        FM.DropFailedSetPicks(trade, edited)
+        if trade.pickAt and FM.SnipeFollowPlan then
+            local ok, e = pcall(FM.SnipeFollowPlan, ShownBuysLeft(trade), trade.pickAt, true)
+            if not ok and geterrorhandler then geterrorhandler()(e) end
+        end
+        if FM.RefreshTable then FM.RefreshTable() end
+        if queued then
+            queued = false
+            FM.ComputeTrade(false)
+        end
     end
     if FM.RefreshTable then FM.RefreshTable() end
-    return true, pick
+    local ok, err = pcall(FM.ComputePicks, trade, ctx, Done)
+    if not ok then
+        running = false
+        trade.busy = false
+        if geterrorhandler then geterrorhandler()(err) end
+        if FM.RefreshTable then FM.RefreshTable() end
+        return false, "an error stopped it"
+    end
+    return true
+end
+
+-- An amount you set in the Picks tab's Amount column (FRV-154, FRV-188): that pick becomes a set pick (your number,
+-- saved for this character, FM.SaveSetPick in trade/Picks.lua) and the plan is made again around it (FM.ReplanPicks);
+-- amount nil gives the item back to the plan (its own number, the plan made again). Returns true, or false and why
+function FM.SetPickAmount(key, amount)
+    if running then return false, "the table is computing, try again in a moment" end
+    local trade = FM.trade
+    if not (trade and trade.picks and FM.SaveSetPick) then return false, "there is no plan" end
+    local pick
+    for _, p in ipairs(trade.picks) do
+        if p.key == key then pick = p end
+    end
+    if not pick then return false, "it is not in the plan shown" end
+    local old = FM.SetPickEntry(key)
+    if amount == nil then
+        if not (old or pick.amountSet) then return false, "it has the plan's number" end
+        FM.SaveSetPick(key, nil)
+        local ok, why = FM.ReplanPicks(pick.extra and key or nil, nil, pick.extra)
+        if not ok then FM.SaveSetPick(key, old) end
+        return ok, why
+    end
+    if not (pick.amountEdit and pick.from) then return false, "its amount cannot be set" end
+    amount = tonumber(amount)
+    if not amount or amount ~= amount or amount < 1 then return false, "the amount is a whole number from 1" end
+    local now = FM.Now()
+    FM.SaveSetPick(key, { n = math_floor(amount), from = pick.from, extra = pick.extra and true or nil,
+        -- its place in its section: in the plan, or among the picks out of scope
+        pos = pick.extra and math_max(1, (pick.rank or 1) - (trade.pickPlan or 0)) or (pick.rank or 1),
+        -- a number set again keeps where it counts from (your number is all of it); a new one counts a craft's crafts
+        -- from its plan, a flip's purchases and a vendor resell's units from now
+        since = old and old.since or pick.planAt or trade.pickNow or now, at = old and old.at or now,
+        held = old and old.held or pick.heldOwn or 0,
+        held0 = old and old.held0 or (FM.Owned and tonumber((FM.Owned(key))) or 0), got = old and old.got or 0,
+        gotPlan = old and old.gotPlan or nil }) -- what a vendor resell had when the plan kept it (review round 3 of PR 90)
+    -- out of scope: that pick alone (review round 1 of PR 90: the plan does not change)
+    local ok, why = FM.ReplanPicks(key, nil, pick.extra)
+    if not ok then
+        FM.SaveSetPick(key, old) -- nothing changed
+        return false, why
+    end
+    return true
+end
+
+-- "Remove from Picks" (the row menu of a set pick, FRV-188): your number goes, the pick leaves the plan shown and the
+-- plan is made again without it; a later new plan may choose the item again by itself (Ignore keeps it out for good).
+-- Returns true, or false and why
+function FM.RemoveSetPick(key)
+    if running then return false, "the table is computing, try again in a moment" end
+    local trade = FM.trade
+    if not (trade and trade.picks and FM.SaveSetPick) then return false, "there is no plan" end
+    local old = FM.SetPickEntry(key)
+    if not old then return false, "only a pick whose amount you set can be removed" end
+    FM.SaveSetPick(key, nil)
+    local before = trade.pickRemoved
+    local removed = {}
+    for k in pairs(type(before) == "table" and before or {}) do removed[k] = true end
+    removed[key] = true
+    trade.pickRemoved = removed
+    -- out of scope: it leaves the list, the plan stays as it is (it took nothing of it)
+    if old.extra then
+        RemoveShown(trade, key)
+        trade.pickEdit = (trade.pickEdit or 0) + 1
+        if trade.pickAt and FM.SnipeFollowPlan then
+            local done, e = pcall(FM.SnipeFollowPlan, { { key = key, buys = {} } }, trade.pickAt, key)
+            if not done and geterrorhandler then geterrorhandler()(e) end
+        end
+        if FM.RefreshTable then FM.RefreshTable() end
+        return true
+    end
+    local ok, why = FM.ReplanPicks()
+    if not ok then
+        FM.SaveSetPick(key, old)
+        trade.pickRemoved = before
+        return false, why
+    end
+    return true
+end
+
+-- A purchase by hand at the AH (any window but the sniper's, trade/Cost.lua) of an item the sniper buys for picks
+-- (FRV-189): the traced picks of the plan shown follow it at once, each with what its steps line still has to buy
+-- (FM.PickBuysLeft: the plan's units less the purchases since the plan, shared over its picks in their order), not only
+-- at the next new plan. The sniper's own purchases are in that count and in its own: the follow starts its trace count
+-- again from there (FM.SnipeFollowPlan), so none is counted twice; units it bought that wait in your mail stay under the
+-- item's ceiling (Capped). Your own number of the item (not a pick's) stays yours
+function FM.SnipeFollowShown(key)
+    local trade = FM.trade
+    if not (trade and trade.picks and trade.pickAt and FM.SnipeFollowPlan and FM.PickBuysLeft) then return end
+    if not (FM.IsSniped and FM.IsSniped(key) and FM.SnipeTrace and FM.SnipeTrace(key)) then return end
+    FM.SnipeFollowPlan(ShownBuysLeft(trade), trade.pickAt, true)
+    if FM.RefreshTable then FM.RefreshTable() end
 end

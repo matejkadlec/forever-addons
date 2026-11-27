@@ -591,3 +591,37 @@ H.test("snipe trace: a pick lowered to buy none of an item nothing was bought of
     FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = thick, ah = 40, top = 500 } } } }, 1000, CLOAK)
     H.same(State(FM, THICK), { 0, 100, 100 }, "its number put back: the cloak's 40 again")
 end)
+
+-- FRV-189 (and FRV-188: the plan made again around an amount you set keeps its time): every pick of the plan shown
+-- follows within it, given what its steps line still has to buy (FM.PickBuysLeft: the plan's units less every purchase
+-- since the plan, by hand or by the sniper)
+H.test("snipe trace: purchases by hand within the plan shown come off the traced picks, the sniper's own once (FRV-189)", function()
+    local FM, env, ah = Load()
+    local leather, thick = tostring(LEATHER), tostring(THICK)
+    Send(FM, CLOAK, 1000, { { key = leather, price = 275, units = 11 } })
+    H.same(State(FM, LEATHER), { 0, 11, 11 }, "11 to buy for the cloak")
+    -- all 11 bought by hand: the cloak's steps line has nothing left to buy, the plan is the same
+    env.printed = {}
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = leather, ah = 0, top = 275 } } } }, 1000, true)
+    H.eq(FM.IsSniped(leather), false, "11 fewer: nothing left and nothing bought by the sniper, the item leaves the list")
+    H.eq(Has(env.printed[1], "no pick needs"), true, tostring(env.printed[1]))
+    -- the sniper buys 4 for the belt, then 3 are bought by hand: its steps line says 4 (11 less the 7 bought)
+    Send(FM, BELT, 1000, { { key = leather, price = 275, units = 11 } })
+    Bought(FM, env, ah, LEATHER, 250, 4)
+    H.same(State(FM, LEATHER), { 4, 11, 7 }, "4 of 11 bought by the sniper")
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 4, top = 275 } } } }, 1000, true)
+    H.same(State(FM, LEATHER), { 4, 8, 4 }, "4 left to buy: the sniper's 4 are counted once")
+    H.eq(Trace(FM, LEATHER), BELT .. "=4@1000", "the belt's 4, the plan's time kept")
+    -- a click of the same plan adds nothing after it
+    Send(FM, BELT, 1000, { { key = leather, price = 275, units = 11 } })
+    H.same(State(FM, LEATHER), { 4, 8, 4 }, "the same plan's click: nothing added")
+    -- your own number of an item (not a pick's) stays yours
+    FM.SnipeSet(thick, 500, 5)
+    Send(FM, CLOAK, 1000, { { key = thick, price = 500, units = 10 } })
+    H.same(State(FM, THICK), { 0, 15, 15 }, "your 5 and the cloak's 10")
+    FM.SnipeFollowPlan({ { key = CLOAK, buys = { { key = thick, ah = 0, top = 500 } } } }, 1000, true)
+    H.same(State(FM, THICK), { 0, 5, 5 }, "the cloak's 10 bought by hand: your 5 stay")
+    -- never more than the pick was sent with, also when its steps line asks for more (units in your mail)
+    FM.SnipeFollowPlan({ { key = BELT, buys = { { key = leather, ah = 30, top = 275 } } } }, 1000, true)
+    H.same(State(FM, LEATHER), { 4, 11, 7 }, "at most the 7 it had left after the sniper's 4")
+end)
