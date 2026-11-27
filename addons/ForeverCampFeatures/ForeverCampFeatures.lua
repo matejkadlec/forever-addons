@@ -722,7 +722,7 @@ FCF:SetScript("OnEvent", function(self, event, ...)
         ns.InitDetect()
         ns.InitShare()
         ns.ApplySettings()
-        print(FormatMessage(ADDON_PREFIX, string_format(L.LOADED, ADDON_FULL_NAME, GetVersion())))
+        -- no "loaded" line of its own: JimsForeverAddOns.lua prints the one [JFA] line for every AddOn
     elseif event == "PLAYER_ENTERING_WORLD" then
         ns.ScheduleChannel()
         if db.enabled then
