@@ -17,6 +17,7 @@ body:
         - ForeverCampFeatures
         - ForeverCraftQueue
         - ForeverEnhancedMailbox
+        - ForeverGamepadRebind
         - ForeverHawkTimer
         - ForeverMarket
         - ForeverRangeIndicator
