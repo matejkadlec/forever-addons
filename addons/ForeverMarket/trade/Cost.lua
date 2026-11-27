@@ -700,6 +700,127 @@ function FM.Deposit(key, n, duration, kind)
     return math_max(DEPOSIT_FLOOR, math_floor(sell * percent * n / 100))
 end
 
+---------------------------------------------------------------- what a post's deposit was (FRV-226)
+-- The deposit of each post of R.posts where more than the rule above is known, by the line's index:
+--   * the post's own fields (scan/Ledger.lua, from 1.70): paid, the gold that left at the post, else calc, what the
+--     client's calculator said then
+--   * an older post, or one without them: from your sale mails, which name the real deposit of what sold. Each mail
+--     takes the units of the oldest post of its character and item that it can be of (posted before the mail, not
+--     ended more than 2 hours before it: the same rule as the Profit tab's lots, trade/Basis.lua). A post's sold units
+--     count at what their mails gave back; its units that did not sell at the same deposit per unit; a post none of
+--     whose units sold at the rate of the item's other posts of the same duration: for a commodity the lowest rate
+--     per unit any of them shows (a small post pays the 1s floor, which is no rate) with the 1s floor, for single
+--     auctions the deposit most of their mails name
+--   * nothing of all that: nil, and the rule (FM.Deposit) stands
+-- Built once per state of the two logs; nothing is saved.
+local POST_HOURS = { [1] = 2, [2] = 8, [3] = 24 }
+local MAIL_LATE = 2 * 3600
+local knownDeposits = setmetatable({}, { __mode = "k" }) -- r -> { sig, list }
+
+local function BuildKnownDeposits(r)
+    local out = {}
+    local posts = type(r.posts) == "table" and r.posts or {}
+    local nameKeys = FM.NameKeys and FM.NameKeys(r) or {}
+    local byOwner = {} -- "char|key" -> its posts in log order
+    local all = {}
+    for i, line in ipairs(posts) do
+        local f = FM.Split(line, ",")
+        local t = FM.Unstamp(f[1])
+        if t and f[2] and f[3] then
+            local qty = FM.Dec(f[4]) or 1
+            local duration = tonumber(f[6])
+            local post = { i = i, t = t, key = f[3], qty = qty, left = qty, sold = 0, back = 0, duration = duration,
+                single = f[7] ~= "c", ends = t + (POST_HOURS[duration or 3] or 24) * 3600,
+                paid = f[9] and f[9] ~= "" and FM.Dec(f[9]) or nil, calc = f[10] and f[10] ~= "" and FM.Dec(f[10]) or nil }
+            local id = f[2] .. "|" .. f[3]
+            byOwner[id] = byOwner[id] or {}
+            table.insert(byOwner[id], post)
+            all[#all + 1] = post
+        end
+    end
+    -- the sale mails, in the order they were sent
+    local sales = {}
+    for n, line in ipairs(type(r.invoices) == "table" and r.invoices or {}) do
+        if line:find(",seller,", 1, true) then
+            local f = FM.Split(line, ",")
+            local sent, key = FM.Unstamp(f[1]), f[4] and nameKeys[f[4]]
+            local qty = FM.Dec(f[6]) or 1
+            if f[3] == "seller" and sent and key and qty > 0 then
+                sales[#sales + 1] = { sent = sent, n = n, id = f[2] .. "|" .. key, qty = qty, deposit = FM.Dec(f[9]) or 0 }
+            end
+        end
+    end
+    table.sort(sales, function(a, b)
+        if a.sent ~= b.sent then return a.sent < b.sent end
+        return a.n < b.n
+    end)
+    for _, sale in ipairs(sales) do
+        local need = sale.qty
+        for _, post in ipairs(byOwner[sale.id] or {}) do
+            if need <= 0 then break end
+            if post.left > 0 and post.t <= sale.sent and post.ends + MAIL_LATE >= sale.sent then
+                local take = math.min(post.left, need)
+                post.left, need = post.left - take, need - take
+                post.sold, post.back = post.sold + take, post.back + sale.deposit * take / sale.qty
+                -- what each mail gave back per unit, for the deposit single auctions usually pay
+                local whole = math_floor(sale.deposit / sale.qty + 0.5)
+                post.units = post.units or {}
+                post.units[whole] = (post.units[whole] or 0) + take
+            end
+        end
+    end
+    -- what the item's posts of a duration show: a commodity's lowest deposit per unit, single auctions' usual one
+    local rates = {}
+    for _, post in ipairs(all) do
+        if post.sold > 0 then
+            local id = post.key .. "|" .. tostring(post.duration) .. (post.single and "|i" or "|c")
+            local e = rates[id] or { counts = {} }
+            rates[id] = e
+            local unit = post.back / post.sold
+            if not e.low or unit < e.low then e.low = unit end
+            for whole, n in pairs(post.units) do e.counts[whole] = (e.counts[whole] or 0) + n end
+        end
+    end
+    for _, e in pairs(rates) do
+        local best, most
+        for unit, n in pairs(e.counts) do
+            if not most or n > most or (n == most and unit < best) then best, most = unit, n end
+        end
+        e.usual = best
+    end
+    for _, post in ipairs(all) do
+        if post.paid then
+            out[post.i] = post.paid
+        elseif post.calc then
+            out[post.i] = post.calc
+        elseif post.sold > 0 then
+            out[post.i] = math_floor(post.back + (post.qty - post.sold) * post.back / post.sold + 0.5)
+        else
+            local e = rates[post.key .. "|" .. tostring(post.duration) .. (post.single and "|i" or "|c")]
+            if e and post.single then
+                out[post.i] = e.usual * post.qty
+            elseif e then
+                out[post.i] = math_max(DEPOSIT_FLOOR, math_floor(e.low * post.qty + 0.5))
+            end
+        end
+    end
+    return out
+end
+
+-- The deposit of the post at R.posts[index] where it is known (see above), nil where only the rule can say
+function FM.PostDepositKnown(r, index)
+    if type(r) ~= "table" or type(r.posts) ~= "table" then return nil end
+    local posts, invoices = r.posts, type(r.invoices) == "table" and r.invoices or {}
+    local sig = table.concat({ tostring(posts), #posts, tostring(posts[#posts]), tostring(invoices), #invoices,
+        tostring(invoices[#invoices]), tostring(FM.postsVersion) }, "\1")
+    local e = knownDeposits[r]
+    if not e or e.sig ~= sig then
+        e = { sig = sig, list = BuildKnownDeposits(r) }
+        knownDeposits[r] = e
+    end
+    return e.list[index]
+end
+
 ---------------------------------------------------------------- tooltip numbers
 
 local viewT, view

@@ -151,9 +151,11 @@ local function EachEntry(list, fn)
 end
 
 -- Deposit of a post (duration index 1 = 2h, 2 = 8h, 3 = 24h; kind = the post's kind, "c" a commodity, else single
--- auctions): measured or estimated (trade/Cost.lua), 2h as a quarter of the 8h deposit; 0 while unknown (the item's
--- data is asked for then, FM.DepositsPending)
-local function PostDeposit(key, qty, duration, kind)
+-- auctions): known = what the post itself or your sale mails say it was (FM.PostDepositKnown, trade/Cost.lua, FRV-226),
+-- which stands; else measured or estimated by the rule (trade/Cost.lua), 2h as a quarter of the 8h deposit; 0 while
+-- unknown (the item's data is asked for then, FM.DepositsPending)
+local function PostDeposit(key, qty, duration, kind, known)
+    if type(known) == "number" then return known end
     if not FM.Deposit then return 0 end
     kind = kind or "?" -- a post of a kind nobody recorded: the item's stack size decides
     if duration == 2 or duration == 3 then return FM.Deposit(key, qty, duration, kind) or 0 end
@@ -251,7 +253,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
         if not t or now - t > POSTS_BACK then break end
         if f[2] == char and f[3] then
             local post = { t = t, key = f[3], qty = Dec(f[4]) or 1, unit = Dec(f[5]), duration = tonumber(f[6]),
-                kind = f[7], aid = f[8] }
+                kind = f[7], aid = f[8], known = FM.PostDepositKnown and FM.PostDepositKnown(r, i) or nil }
             posts[#posts + 1] = post
             if post.aid and post.aid ~= "" then byAid[post.aid] = post end
         end
@@ -265,7 +267,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 local aid, key = f[1], table_concat(f, ":", 2, n - 4)
                 local qty, buyout, status, left = Dec(f[n - 3]) or 1, Dec(f[n - 2]) or 0, f[n - 1], Dec(f[n]) or 0
                 local post = byAid[aid]
-                local deposit = post and PostDeposit(key, post.qty, post.duration, post.kind) * qty / math_max(post.qty, 1) or 0
+                local deposit = post and PostDeposit(key, post.qty, post.duration, post.kind, post.known) * qty / math_max(post.qty, 1) or 0
                 inList[aid] = true
                 if status == "s" then
                     -- a sold row holds the sale's total: lists since 1.38 (v = 2) store its price per unit, older
@@ -412,7 +414,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
         -- posted after the list (minute stamps: one of the same minute may be in it already, its ID tells)
         if not (post.aid and (inList[post.aid] or cancelled[post.aid])) and (not listT or post.t >= listT - 60) then
             running[#running + 1] = { t = post.t, key = post.key, qty = post.qty,
-                deposit = PostDeposit(post.key, post.qty, post.duration, post.kind),
+                deposit = PostDeposit(post.key, post.qty, post.duration, post.kind, post.known),
                 ends = post.t + (POST_HOURS[post.duration or 3] or 24) * 3600 }
         end
     end
@@ -452,7 +454,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
             if c.sale then
                 -- the unit price (commodities) or the auction's buyout (one item), and a sold auction's deposit
                 local post = c.kind == "osold" and c.aid and byAid[c.aid]
-                local deposit = post and PostDeposit(c.key, post.qty, post.duration, post.kind) * c.open / math_max(post.qty, 1) or 0
+                local deposit = post and PostDeposit(c.key, post.qty, post.duration, post.kind, post.known) * c.open / math_max(post.qty, 1) or 0
                 local money = c.unit * c.open * (1 - AH_CUT) + deposit
                 total = total + money
                 if notes then notes.sold[#notes.sold + 1] = { key = c.key, qty = c.open, money = money } end
@@ -1163,7 +1165,9 @@ local function SpentSince(r, char, since)
         local f = FM.Split(r.posts[i], ",")
         local t = FM.Unstamp(f[1])
         if not t or t < since then break end
-        if f[3] and (not char or f[2] == char) then sum = sum + PostDeposit(f[3], Dec(f[4]) or 1, tonumber(f[6]), f[7]) end
+        if f[3] and (not char or f[2] == char) then
+            sum = sum + PostDeposit(f[3], Dec(f[4]) or 1, tonumber(f[6]), f[7], FM.PostDepositKnown and FM.PostDepositKnown(r, i) or nil)
+        end
     end
     return sum
 end

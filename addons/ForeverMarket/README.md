@@ -345,7 +345,7 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
 * Your characters (1.23, scan/Characters.lua): `/fm chars` lists the characters of this realm and faction (name in
   its class color with the surname, gold as last recorded, last seen, how old their saved bags, bank and mailbox
   are); `/fm forget <name>` removes a deleted, renamed or moved character: its entry, saved bags, bank, mailbox,
-  auction list, inventory reading and last gold, so it counts nowhere any more (its posts, invoices, events,
+  auction list, inventory reading, last gold and its own settings (FRV-228), so it counts nowhere any more (its posts, invoices, events,
   purchases and Profit readings stay; the logged-in character is refused). Each character's bags are saved at
   logout and a few minutes after bag changes (`bags[char]`); a read at login (before the bags have loaded, read
   afresh) or at logout (the containers may be gone) that finds no item is not saved and keeps the last reading,
@@ -432,8 +432,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * **Tooltips on hover, inputs with Shift** (1.48, FRV-186; 1.47, FRV-155 put every tooltip behind Shift, the
   maintainer wanted it only on the boxes): the tooltips of the marketplace and of its Filters dialogs are of two
   kinds. **On hover**, as until 1.46: the rows (the row's item tooltip with them), the column headers, the Ignored tab,
-  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH, the Profit tab's This character / All
-  characters) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
+  the buttons (Filters, Global filters, Refresh, Favorites' Search all at the AH), the Profit tab's header (where its
+  Held from the AH and Gold come from) and the summary line. **Only while Shift is held** with the mouse over them (FRV-155's rule): the inputs
   (the search box, the budget row's Picks / Invest / Profit boxes and their money boxes, the Amount inputs of the
   rows, the dialog's boxes), the dropdowns (Continent, Zone) and the checkboxes (the budget row's, "Use global
   filters", "Auto-refresh", "Keep edits", the dialog's), so a tooltip no longer covers the box you type in; Shift pressed
@@ -444,8 +444,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   hover or Shift (Shift types capitals there), so a row tooltip never opens over the box you are typing in; an input of
   another window (the chat, the sniper's item box) does not hold the tooltips back. The clicks are unchanged: Shift+click on a row still snipes at the AH or
   links the item, Shift+click on a header adds a sort level, Alt+click makes a row's tooltip sticky, and a sticky
-  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the "This character" /
-  "All characters" buttons above it show on hover), the item tooltips in your bags,
+  tooltip stays until it is closed. Not under the rule: the readout of the Profit graph's dots (the character dropdown
+  above it is a dropdown like the others: while Shift is held), the item tooltips in your bags,
   the sniper window and the settings panel. The footer of every tab with a table ends with the hint of what of that
   tab waits for Shift (the Profit tab's keeps "hover a dot"): Picks "... · hover for why · hold Shift over inputs,
   dropdowns and checkboxes for their tips", Craft and Learn "· hold Shift over inputs and checkboxes for their tips",
@@ -549,6 +549,35 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   own set, its "Global filters" button is greyed out and disabled; while it uses the global set, its "Filters"
   button is. Changing one tab's set never changes another's (until 1.28 "Not learned" was shared by Craft and Picks,
   "Above current skill" by Craft and Learn).
+  * **Per character** (1.68, FRV-228; the report: an AH character at level 1 without professions next to a hunter
+    with Leatherworking, where "Exclude crafting" set for the one turned crafting off in the other's Picks): the
+    settings that decide what a character's marketplace and plan show are that character's own. Its own:
+    * every filter set (Picks, Craft, Learn and the global one) and each tab's **Use global filters**; the Global
+      filters dialog says so in its subtitle, "Used by: Picks, Craft  ·  saved for this character"
+    * the Picks row: Picks, Invest and Profit with their % and amounts and their four checkboxes, Auto-refresh, Keep
+      edits
+    * the tabs' own filters: Continent and Zone, the profession dropdown, the Upgrades tab's Rarities, Slots, Best per
+      slot and Owned gear (its Level and scale were the character's before), the Profit tab's character
+    * the settings panel's options that feed the plan and the tabs' rows: hide outliers, the minimum profit per item,
+      "Allow picks budget over current gold", the two "% + manual" logics, the shares of C/24h, the crafting time rate
+      and the material prices' hours. Two small lines right of the panel's title say "Marketplace, Picks and material
+      options are saved per character"
+    * One value for the account, as before: the windows' places and priorities, the tooltip settings, the open tab,
+      every sort order, the views of Favorites and Ignored, Favorites and Ignored themselves, the sniper with its
+      items, the scans and the chat line.
+    * **What a character starts with:** its own saved value, else the account-wide value saved before 1.68, else the
+      default. Its own values are made at its first login with 1.68, from the account-wide ones as they are then, so
+      nothing changes for any character at the update, and a character logged in for the first time later starts
+      from the same values of before. From then on only the character's own values are written; the account-wide
+      ones stay in the saved data as they were and are only read.
+    * `ForeverMarketDB.realms[...].settings[char]` holds them, by the character's key (`FM.PlayerName`);
+      `FM.GetSettings()` (`core/Core.lua`) returns a view that reads and writes a key of `FM.CHAR_SETTINGS` there and
+      every other key in `ForeverMarketDB.settings`, so no other file knows where a setting is saved. Until the
+      character's key is known (its GUID and the realm, at login) the account-wide values are read, and what is set
+      in that time is kept for the session and becomes the character's once its key is known: the account-wide
+      values are never written. Two characters nobody can tell apart (the same first name without a surname) share
+      one key and so one set of values, like their other records. `/fm forget <name>` removes that character's
+      settings; `/fm wipe confirm` deletes market data and keeps them.
   * The dialog: one window that shows the set the current tab uses, its title says which ("Picks filters", "Global
     filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
@@ -1555,10 +1584,51 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     the first new reading says again which bought units are gone
   * a percent that is not 0 never reads "0.0%": under 0.05% in size it is "+0.1%" or "-0.1%", an exact 0 is "0.0%"
     (`FM.PerfPercentText`)
-* **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
-  once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
-  **All characters** is the default. With one such character there is no switch and the tab shows that character
-  alone, as before 1.24. Everything below describes one character; all characters together:
+* **A post's deposit as it was really paid** (1.70, FRV-226): the rule above is still an estimate, and for an auction
+  that expires the estimate was all the tab had (the "Expired deposit" loss). Now a post keeps its deposit:
+  * **With the post** (`scan/Ledger.lua`): two fields at the end of its line, `paid` and `calc`. `calc` is what the
+    client's own calculator says for the post right when it is made (`C_AuctionHouse.CalculateCommodityDeposit` with
+    the 1s a commodity post pays at least, `C_AuctionHouse.CalculateItemDeposit` for single auctions: the number the
+    AH's sell page shows). `paid` is the gold that left you after the post: every fall of your gold from the post on
+    belongs to it until the next post, 3 quiet seconds (each auction a post of several makes, and each fall, starts
+    them again), the AH closing or a logout. A post the AH answers late (a slow AH, a post it asks to confirm) is not
+    settled by the quiet seconds while its auction ID is still waited for (30 seconds, 1.70.1): the ID and the gold
+    that leaves then still reach its line. A purchase or a cancel asked for in that time leaves `paid` empty: its
+    gold cannot be told from the deposit's. So does a post of several auctions that was not seen to make all of them
+    (it still runs after a minute, or the AH closes on it): what left by then is only a part, and the calculator's
+    answer for the whole post stands (1.70.4). The 0 your gold reads while you log out is no fall. The tab takes `paid`, then `calc`. Which of the two the AH really takes
+    for every kind of post is only seen in the game (the in-game test of this version), so both are saved.
+  * **Older posts, and posts without the fields**, take their deposit from your sale mails, which name the real one
+    (`FM.PostDepositKnown` in `trade/Cost.lua`): each mail takes the units of the oldest post of its character and
+    item that it can be of (as the lots below match them). A post's sold units count at what their mails gave back,
+    its other units at the same deposit per unit (a post of 3 White Spider Meat that sold one for 33c back: 99c); a
+    post that sold nothing takes the rate of the item's other posts of the same duration (a commodity: the lowest
+    deposit per unit any of them shows, with the 1s floor, since a small post's 1s is no rate; single auctions: the
+    deposit most of their mails name); with no such mail, the rule.
+  * On the maintainer's data of 2026-11-27 (865 posts, 1,816 sale mails, 1,797 of them matched to a post): the sum of
+    the differences between the deposit booked for a sold auction and the one its mail gave back falls from 89s 76c
+    (the rule; 1,698 of 1,814 exact) to 22s 36c (1,806 exact); 796 posts get their deposit from mails, 69 keep the
+    rule. The "Expired deposit" losses of the 13 days move from 72g 89s 82c to 72g 88s 38c, the hunter's AH result
+    from 95g 25s 96c to 94g 75s 75c: the rule had charged about 50s less than the mails gave back.
+* **The character dropdown** (1.69, FRV-231; at the right end of the row of Daily / Weekly / Monthly, its right edge
+  under the Upgrades tab's): **All characters**, the default, then every known character of this realm and faction
+  (`FM.Characters`, the list of `/fm chars`), each with its full name in its class color: `Elfiehu Ntress`,
+  `Forever Marketplace`. It is always there, also with one known character. The graph, the total, the dots' tooltips
+  and their top 3 lists follow the choice (`FM.PerfWho`, `FM.PerfSetWho`, `FM.PerfSeries(mode, now, who)` in
+  `trade/Performance.lua`).
+  * **One character** is that character's own result, whether or not you are logged in with it: its own posts,
+    purchases and mails, its own Gold and Held from the AH in the header. For the character you are logged in with,
+    what it holds is read right now; for another one it is its last saved reading (`worth[char]`) and its gold as last
+    recorded, the header's second line says "as last saved for this character", and the header's tooltip says how
+    old the reading is ("Elfiehu Ntress is not logged in: what it holds is its last saved reading, taken 2h ago").
+    The title names the character ("AH result, Elfiehu Ntress").
+  * The choice is saved for the character you are logged in with, like the table's filters (`perfChar`, FRV-228: `*`
+    or a character's key). A character removed with `/fm forget` is no longer listed, and a saved choice of it falls
+    back to All characters. Until a choice is made, "This character" of the switch below stays this character.
+  * Until 1.68 two buttons, **This character** / **All characters** (1.24, FRV-37, `perfScope`), stood right of Daily /
+    Weekly / Monthly, shown only once more than one character had AH logs, and one such character was shown alone
+    without a switch. FRV-74's question, whether to offer "All characters" in more cases, is settled: always, by default.
+  Everything below describes one character; all characters together:
   * The AH's money is the money of all of them, and the lists (Sold, Bought, Real losses) hold all of them; a sale
     is "under cost" against what its units cost any of them.
   * What you hold from the AH is one number for all of them: the units of each item bought there by any character
@@ -2127,7 +2197,8 @@ The realm is `GetRealmName()`. Since the client 1.60.1.71037 it is empty on Fore
 realm in the saved data (`FM.RealmName`): the bucket whose characters (`charInfo`) hold the logged-in character's
 GUID, else one with a character of the same server (the GUID's second part), else the only realm saved for the
 faction when nothing says it is another server (no readable GUID, or its characters have none saved), else "Server
-<id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays. A bucket the
+<id>". `/fm wipe confirm` keeps the realm's `charInfo` (which characters are its), so the key stays, and `settings`
+(the characters' own settings, FRV-228: no market data). A bucket the
 empty name made ("-Alliance", "?-Alliance") gives its gold lines to the realm's bucket and is removed. One that
 holds market data gives its logs too when its characters are the realm's own, the same keys with the same GUIDs
 (1.38, FRV-106: the sessions of 2026-11-20/21 wrote a night of sales there that the Profit tab never saw): AH mail,
@@ -2206,7 +2277,11 @@ Picks skip).
   a retry follows, `gave` no answer on the last try, `closed`, `qclosed` queued until the AH closed, `empty`, `part`
   not read completely, `one` one update only, `nolist`, `inwin` a call inside the 15 minutes, `auc`, `error`, `wait`
   not finished), `next` the next try (seconds)
-* `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID]`
+* `posts` `t,char,key,qty,unit,duration(1=2h 2=8h 3=24h),kind[,auctionID[,paid,calc]]`: `paid` and `calc` (1.70,
+  FRV-226) are the post's deposit, the gold that left you after it (empty when that could not be told) and what the
+  client's calculator said (a commodity at least 1s). A line only grows at its end: the auction ID a moment after
+  the post, then both deposit fields together once the post is settled; without an auction ID its field is empty.
+  Every reader takes the fields by their place from the start (`tools/fm_analyze.py` too)
 * `plans` (1.40, FRV-103) `t,char,key,kind,batch,invest,expected,conf,rank,x`: the picks of every plan (Picks, the
   order and the plan to be measured later against what sold, FRV-125), one line each: t = when it was planned, kind
   `craft` (Craft and sell) / `wait` (Craft and wait) / `stock` / `swait` (Stock, wait) / `learn` / `vendor` / `flip`,
@@ -2356,6 +2431,10 @@ Picks skip).
   item was sold on the AH after it (read that way, the line stays)
 * `bankBagSlots[char]` (1.65, FRV-222, optional, made at the first look at the bank) `t|id:n,...`: the bags in the
   character's bank bag slots at the last look with the bank open; `/fm forget` removes it
+* `settings[char]` (1.68, FRV-228, made at the character's first login) `{ [key] = value }`: the character's own
+  settings, the keys of `FM.CHAR_SETTINGS` as `ForeverMarketDB.settings` holds them for the account (filter sets,
+  the Picks row, the tabs' filters, the settings panel's plan inputs, `perfChar`). The account-wide values stay in
+  `ForeverMarketDB.settings` and are only read; `/fm forget` removes a character's, `/fm wipe confirm` keeps them
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
@@ -2417,6 +2496,10 @@ python3 tools/fm_analyze.py flips --budget 5g
 python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
 python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5] [--older <ForeverMarket.lua copy> ...]
 ```
+
+The plan's settings (the shares of C/24h, the Profit rule) are saved per character since 1.68 (FRV-228): the tool reads
+the own settings of the character named with `--char` (its key or full name), else of the character seen last, over the
+account-wide ones (`character_settings`; 1.70.1).
 
 `listings` (1.40.3, FRV-125) measures the Picks formula of 1.40 (FRV-103) again on the days your saved variables
 hold, the analysis behind its constants (FRV-111, FRV-115; the Confluence page

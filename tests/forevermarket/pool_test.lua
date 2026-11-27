@@ -410,6 +410,26 @@ H.test("pool: units that leave without a post are not taken for posted ones, a m
     H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "a post older than a minute takes no units")
 end)
 
+-- Rule (FRV-226): a post's line grows at its end after it was written, first by its auction ID, then by its two
+-- deposit fields (an empty auction ID when none came). The line seen at the last look is still the same post
+H.test("pool: a post line that grew by its auction ID and its deposit is the same post, not a new one", function()
+    for _, grown in ipairs({ ",1naiyc,b4,b4", ",,b4,b4" }) do
+        local FM, env, state, r, Look = Started()
+        FM.LogPurchase(LEATHER, 40, 40 * 200)
+        state.Collect(LEATHER, 40)
+        r.posts[#r.posts + 1] = table.concat({ FM.Stamp(NOW), "Ada", LEATHER, FM.Enc(20), FM.Enc(450), "2", "c" }, ",")
+        state.units[LEATHER] = 20
+        Look()
+        H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "the 20 posted")
+        -- the line grows; 10 more leave a moment later without a post (vendored)
+        r.posts[#r.posts] = r.posts[#r.posts] .. grown
+        env.clock = NOW + 5
+        state.units[LEATHER] = 10
+        Look()
+        H.eq(r.pool.Ada.out[LEATHER], "20|4000|" .. NOW, "the grown line posts nothing again (" .. grown .. ")")
+    end
+end)
+
 ---------------------------------------------------------------- the start, the tooltip, the saved data
 
 H.test("pool: it starts from the units held then, at the craft log's estimate", function()

@@ -2,9 +2,11 @@ local _, FM = ...
 
 -- The Profit tab of the market table: your AH result as a line from 0 with one dot per day, week or month
 -- (trade/Performance.lua). Hover a dot for that period: the AH result so far, the change, what sold, what you
--- bought and the real losses. Daily / Weekly / Monthly sit in the filter row, and right of them "This character" /
--- "All characters" once more than one of your characters has AH logs (1.24, FRV-37). The drawing is the shared
--- chart of ui/Chart.lua (FRV-76), the price graph's too.
+-- bought and the real losses. Daily / Weekly / Monthly sit in the filter row, and at its right end, under the
+-- Upgrades tab, the character dropdown (1.69, FRV-231): "All characters" (the default) and every known character of
+-- this realm and faction, the logged-in one or not; until 1.68 two buttons, "This character" / "All characters", shown
+-- once more than one character had AH logs (1.24, FRV-37). The drawing is the shared chart of ui/Chart.lua (FRV-76),
+-- the price graph's too.
 
 local type = type
 local ipairs = ipairs
@@ -115,15 +117,51 @@ local function SetMode(id)
     if FM.RefreshTable then FM.RefreshTable() end
 end
 
--- "char" = the logged-in character alone, "all" = all your characters together
-local SCOPES = {
-    { id = "char", label = "This character", tip = "The AH result of the character you are logged in with, alone." },
-    { id = "all", label = "All characters", tip = "The AH result of all your characters of this realm and faction together: an item one of them buys and another one sells counts as that sale against that purchase." },
-}
+-- The character dropdown (FRV-231): "*" = all your characters together, else a character's key
+local ALL = "*"
+local WHO_W = 190
+local WHO_TIP = "Whose AH result the tab shows. All characters: all your characters of this realm and faction together, where an item one of them buys and another one sells counts as that sale against that purchase, and a mail between them is no loss. One character: its own result alone, from its own posts, purchases and mails; what it holds is read right now for the character you are logged in with, and is the last saved reading for another one. The choice is saved for the character you are logged in with."
 
-local function SetScope(id)
-    FM.GetSettings().perfScope = id
+local function SetWho(who)
+    if FM.PerfWho() == who then return end
+    FM.PerfSetWho(who)
     if FM.RefreshTable then FM.RefreshTable() end
+end
+
+-- A known character by its key: its entry of FM.Characters, nil for none
+local function Character(key)
+    for _, c in ipairs(FM.Characters and FM.Characters() or {}) do
+        if c.key == key then return c end
+    end
+    return nil
+end
+
+-- "Elfiehu Ntress" in its class color; the key itself for a character nobody knows any more
+local function CharacterName(key)
+    local c = Character(key)
+    return c and FM.CharacterLabel(c) or tostring(key)
+end
+
+-- The header's tooltip: where "Held from the AH" and "Gold" come from, and how old they are for a character you are
+-- not logged in with
+local function ShowSource(self)
+    if not series then return end
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:AddLine("Held from the AH and Gold", 1, 1, 1)
+    if series.all then
+        GameTooltip:AddLine("All your characters together: the character you are logged in with right now, the others from their saved bags, bank and mailbox, and their gold as last recorded (/fm chars).", 1, 0.82, 0, true)
+    elseif series.live then
+        GameTooltip:AddLine("Read right now: this is the character you are logged in with.", 1, 0.82, 0, true)
+    else
+        local age = series.heldT and (FM.FormatAge(math.max(0, FM.Now() - series.heldT)) .. " ago") or "never"
+        GameTooltip:AddLine(string_format("%s is not logged in: what it holds is its last saved reading, taken %s. Log in with it for a new one.",
+            CharacterName(series.char), age), 1, 0.82, 0, true)
+        local c = Character(series.char)
+        if c and c.goldT then
+            GameTooltip:AddLine("Gold as last recorded, " .. FM.FormatAge(math.max(0, FM.Now() - c.goldT)) .. " ago.", 1, 0.82, 0, true)
+        end
+    end
+    GameTooltip:Show()
 end
 
 local function CreatePanel(parent, geo)
@@ -134,26 +172,28 @@ local function CreatePanel(parent, geo)
 
     -- Daily / Weekly / Monthly in the table's filter row
     p.modes = FM.ChartModeButtons(p, parent, 22, geo.filterY, SetMode)
-    -- This character / All characters right of them (shown with more than one character with AH logs)
-    p.scopes = {}
-    local scopeX = 22 + #FM.PERF_MODE_ORDER * 88 + 20
-    for i, scope in ipairs(SCOPES) do
-        local b = CreateFrame("Button", nil, p, "UIPanelButtonTemplate")
-        b:SetSize(118, 22)
-        b:SetText(scope.label)
-        b:SetPoint("TOPLEFT", parent, "TOPLEFT", scopeX + (i - 1) * 122, geo.filterY)
-        b:SetScript("OnClick", function() SetScope(scope.id) end)
-        -- the scope shown is the disabled button: its tooltip shows too
-        b:SetMotionScriptsWhileDisabled(true)
-        -- a tooltip of the market table window: a button, so on hover (FRV-186, FM.TableTip in ui/Filters.lua)
-        FM.TableTip(b, function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:AddLine(scope.label, 1, 1, 1)
-            GameTooltip:AddLine(scope.tip, 1, 0.82, 0, true)
-            GameTooltip:Show()
-        end, "hover")
-        p.scopes[scope.id] = b
+    -- the character dropdown at the row's right end, its right edge under the Upgrades tab's (FRV-231): Blizzard's
+    -- dropdown, as the table's other ones; always there, also with one known character
+    local who = CreateFrame("DropdownButton", nil, p, "WowStyle1DropdownTemplate")
+    who:SetWidth(WHO_W)
+    who:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -16, geo.filterY)
+    if who.SetupMenu then
+        who:SetupMenu(function(_, root)
+            local function IsSelected(key) return FM.PerfWho() == key end
+            root:CreateRadio("All characters", IsSelected, SetWho, ALL)
+            for _, c in ipairs(FM.Characters and FM.Characters() or {}) do
+                root:CreateRadio(FM.CharacterLabel(c), IsSelected, SetWho, c.key)
+            end
+        end)
     end
+    -- a dropdown's tooltip: while Shift is held, like the table's other inputs (FM.TableTipHook in ui/Filters.lua)
+    FM.TableTipHook(who, function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Character", 1, 1, 1)
+        GameTooltip:AddLine(WHO_TIP, 1, 0.82, 0, true)
+        GameTooltip:Show()
+    end, "shift")
+    p.who = who
 
     -- header: the AH result over the dots shown, what you hold from the AH, your gold
     p.title = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -166,6 +206,13 @@ local function CreatePanel(parent, geo)
     p.split = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     p.split:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -4)
     p.split:SetJustifyH("RIGHT")
+
+    -- over the header's right-hand text: where its two numbers come from (the age of another character's reading)
+    p.source = CreateFrame("Frame", nil, p)
+    p.source:SetPoint("TOPRIGHT", p, "TOPRIGHT", -4, -2)
+    p.source:SetSize(420, 28)
+    p.source:EnableMouse(true)
+    FM.TableTip(p.source, ShowSource, "hover")
 
     p.empty = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     p.empty:SetPoint("CENTER", p, "CENTER", 0, 0)
@@ -191,13 +238,10 @@ local function Render()
     local mode = FM.GetSettings().perfMode
     if not (FM.PERF_MODES[mode]) then mode = "day" end
     FM.ChartShowMode(p.modes, mode)
-    -- one character or all of them: a choice only with more than one character with AH logs
-    local scope, choice = FM.PerfScope()
-    for id, b in pairs(p.scopes) do
-        b:SetShown(choice)
-        b:SetEnabled(id ~= scope)
-    end
-    series = FM.PerfSeries(mode, nil, scope)
+    -- all your characters or one of them (FRV-231): the dropdown shows the choice, its list the characters known now
+    local who = FM.PerfWho()
+    if p.who.GenerateMenu then p.who:GenerateMenu() end
+    series = FM.PerfSeries(mode, nil, who)
     local periods = series.periods
 
     -- header: the AH result over the dots shown, what you hold from the AH and your gold
@@ -206,11 +250,16 @@ local function Render()
     p.value:SetTextColor(c[1], c[2], c[3])
     p.change:SetText(GREY .. "over the " .. #periods .. " " .. (mode == "day" and "day" or mode) .. (#periods == 1 and "" or "s")
         .. " shown" .. (series.updating and "  ·  updating..." or "") .. "|r")
-    p.title:SetText(series.all and "AH result, all characters" or "AH result")
+    p.title:SetText(series.all and "AH result, all characters" or ("AH result, " .. CharacterName(series.char)))
+    -- another character's numbers are its last saved ones: the second line says so, the tooltip how old they are
+    local what = "items bought there or crafted from them (at cost) and your auctions' deposits"
+    if series.all then
+        what = "items your characters bought there or crafted from them (at cost) and their auctions' deposits"
+    elseif not series.live then
+        what = "as last saved for this character: it is not the one you are logged in with"
+    end
     p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%s%s|r",
-        series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY,
-        series.all and "items your characters bought there or crafted from them (at cost) and their auctions' deposits"
-            or "items bought there or crafted from them (at cost) and your auctions' deposits"))
+        series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY, what))
     p.empty:Hide()
 
     -- the line from 0 at the plot's left edge (green when the range went up, red when down), dots colored by their
@@ -253,7 +302,11 @@ function FM.PerfFooter()
     local mode = series and series.mode or "day"
     local per = mode == "week" and "week (Monday on)" or mode == "month" and "month" or "day"
     local parts = { string_format("one dot per %s, the last %d", per, FM.PERF_MODES[mode].count) }
-    if series and series.all then parts[#parts + 1] = "all your characters together" end
+    if series and series.all then
+        parts[#parts + 1] = "all your characters together"
+    elseif series and series.char then
+        parts[#parts + 1] = (Character(series.char) and Character(series.char).name or series.char) .. " alone"
+    end
     parts[#parts + 1] = "AH only: sales after the cut, less what the sold units cost you and lost deposits; buying, crafting and posting move gold into items"
     parts[#parts + 1] = "% of what you had spent on the AH by the dot plus the result before"
     if series and series.heldSince then parts[#parts + 1] = "held items since " .. date("%m/%d/%Y", series.heldSince) end

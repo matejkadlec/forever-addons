@@ -4,7 +4,11 @@ local _, FM = ...
 -- sale invoices from the mailbox and your gold. This is the ground truth for "how fast does my
 -- stuff sell at which price".
 --
--- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID]"    kind: i item, c commodity, b bid only
+-- R.posts    "t,char,key,qty,unit,duration,kind[,auctionID[,paid,calc]]"    kind: i item, c commodity, b bid only
+--            paid, calc (1.70, FRV-226) = the post's deposit: paid the gold that left you after the post (empty when
+--            that could not be told), calc what the client's calculator said at the post (with the 1s floor for a
+--            commodity). A line only grows at its end (trade/Pool.lua's mark of the newest post relies on it): the
+--            auction ID, then both deposit fields together; without an auction ID its field is empty
 -- R.events   "t,char,kind,..."
 --              chat:  sold | expired | removed | won | outbid  ,itemName
 --              owned: osold | ocancel | ogone ,key,qty,buyout,auctionID,prev[,s[,nth[,mail]]]  (prev = the list
@@ -54,14 +58,198 @@ end
 
 local pendingPosts = {} -- indexes into R.posts waiting for their auction ID
 
+-- What a post's deposit really was (FRV-226). Until 1.69 every deposit was worked out by a rule (FM.Deposit: a share
+-- of the vendor price), which the sale mails showed to be off for about one auction in nine. Two numbers are kept
+-- with the post instead:
+--   * calc: what the client's own calculator says for the post right when it is made (the number Blizzard's sell
+--     page shows): C_AuctionHouse.CalculateCommodityDeposit with the 1s the AH takes at least for a commodity post
+--     (FRV-216: the calculator answers less for a cheap unit), C_AuctionHouse.CalculateItemDeposit for single auctions
+--   * paid: the gold that left you after the post: every fall of your gold (PLAYER_MONEY) from the post on belongs to
+--     it, until the next post, 3 quiet seconds (a post of several auctions makes them one after another: each new
+--     auction and each fall starts the 3 s again), the AH closing or a logout. A purchase or a cancel asked for in
+--     that time (FM.AHTrafficCount) ends it without a number: its gold cannot be told from the deposit's
+-- Which of the two the AH really takes is only seen in the game, so both are saved and the readers take paid, then
+-- calc (FM.PostDepositKnown, trade/Cost.lua). The line's fields are appended when the post is settled.
+-- The auction ID comes first (review round 1 of PR 94): the AH can answer a post late (a slow AH, a post it asks to
+-- confirm), and the ID is what the auction list is matched by. While a post still waits for its ID (ID_WAIT, as
+-- before 1.70) the quiet seconds settle nothing; a post that the next one overtakes before its ID came keeps
+-- waiting for it and gets no deposit fields (the mails and the rule say its deposit); only the wait's end, the AH
+-- closing or a logout write the fields behind an empty ID.
+local POST_QUIET = 3   -- seconds without a new auction or a fall of your gold before a post's deposit is settled
+local POST_LONGEST = 60 -- and at most this long after the post
+local ID_WAIT = 30     -- seconds a post's auction ID is waited for (AUCTION_HOUSE_AUCTION_CREATED)
+local DEPOSIT_FLOOR = 100 -- 1s: the least a commodity post pays (trade/Cost.lua)
+local moneyLast -- your gold at the last PLAYER_MONEY (or at the last post)
+local openPost  -- the post the next falls belong to: { index, base, at, touched, paid, calc, buys, cancels, aid, mixed }
+
+local function Money()
+    local money = GetMoney and GetMoney()
+    if type(money) ~= "number" or FM.IsSecret(money) then return nil end
+    return money
+end
+
+-- The calculator's answer for a post, nil when it gives none
+local function CalculatedDeposit(itemLocation, key, duration, quantity, kind)
+    local ah = C_AuctionHouse
+    if not ah or type(duration) ~= "number" then return nil end
+    local ok, value
+    if kind == "c" then
+        local id = FM.ItemIDFromKey(key)
+        if not (id and ah.CalculateCommodityDeposit) then return nil end
+        ok, value = pcall(ah.CalculateCommodityDeposit, id, duration, quantity)
+    else
+        if not (itemLocation and ah.CalculateItemDeposit) then return nil end
+        ok, value = pcall(ah.CalculateItemDeposit, itemLocation, duration, quantity)
+    end
+    if not ok or type(value) ~= "number" or FM.IsSecret(value) or value ~= value or value < 0 then return nil end
+    value = math_floor(value + 0.5)
+    if kind == "c" and value < DEPOSIT_FLOOR then value = DEPOSIT_FLOOR end
+    return value
+end
+
+-- The open post's line in R.posts: where it was written, else (the log was capped since) the newest line that begins
+-- with its first seven fields
+local function PostLine(posts, p)
+    local function Is(line)
+        return type(line) == "string" and (line == p.base or line:sub(1, #p.base + 1) == p.base .. ",")
+    end
+    if Is(posts[p.index]) then return p.index end
+    for i = #posts, math.max(1, #posts - 50), -1 do
+        if Is(posts[i]) then return i end
+    end
+    return nil
+end
+
+-- Where the post still waits for its auction ID in pendingPosts, nil once the ID is in its line
+local function WaitsForID(p)
+    for i, e in ipairs(pendingPosts) do
+        if e.index == p.index then return i end
+    end
+    return nil
+end
+
+-- Settles the open post: it takes no more gold, and its two deposit fields go to the end of its line, after the
+-- auction ID. final = no ID can come any more (the wait is over, the AH closed, a logout): the fields then follow an
+-- empty one. Not final and still waiting for its ID: nothing is written, so the ID can still take its place
+local function ClosePost(final)
+    local p = openPost
+    openPost = nil
+    if not p then return end
+    local paid = (not p.mixed and p.paid and p.paid > 0) and p.paid or nil
+    -- a post of several auctions that was not seen to make all of them: what left so far is no whole deposit
+    if p.total and (p.created or 0) < p.total then paid = nil end
+    if not (paid or p.calc) then return end
+    local waiting = WaitsForID(p)
+    if waiting and final ~= true and GetTime() - p.at < ID_WAIT then return end
+    local posts = FM.R().posts
+    local i = PostLine(posts, p)
+    if not i then return end
+    -- only a line without them yet: seven fields, or eight with the auction ID
+    local _, commas = posts[i]:gsub(",", "")
+    if commas > 7 then return end
+    -- no auction ID can follow the deposit fields: the post no longer waits for one
+    if waiting then table.remove(pendingPosts, waiting) end
+    posts[i] = posts[i] .. (commas == 6 and "," or "") .. "," .. (paid and Enc(paid) or "") .. "," .. (p.calc and Enc(p.calc) or "")
+    FM.postsVersion = (FM.postsVersion or 0) + 1
+    FM.dataVersion = (FM.dataVersion or 0) + 1
+    if FM.PerfChanged then FM.PerfChanged() end
+end
+FM.ClosePost = ClosePost
+
+-- Something of the open post happened (it was made, an auction of it was created, gold left): it is settled after
+-- POST_QUIET seconds without another such moment, unless it still waits for its auction ID (its answer is late: the
+-- ID and the gold are still to come). One timer per moment, which acts only when it is still the last
+local function TouchPost()
+    local p = openPost
+    if not p then return end
+    p.touched = GetTime()
+    if not (C_Timer and C_Timer.After) then return end
+    C_Timer.After(POST_QUIET, function()
+        if openPost ~= p or GetTime() - p.touched < POST_QUIET - 0.05 then return end
+        if WaitsForID(p) and GetTime() - p.at < ID_WAIT then return end
+        -- a post of several auctions still makes them (its next step comes later than the quiet seconds)
+        if p.total and (p.created or 0) < p.total and GetTime() - p.at < POST_LONGEST then return end
+        ClosePost()
+    end)
+end
+
+-- Whether the open post may still take a fall of your gold: not after a purchase or a cancel was asked for, and not
+-- after POST_LONGEST (a post of several auctions that still runs then: what left before is only a part). Either way
+-- its number is dropped (mixed) and the line keeps the calculator's answer alone (review round 4 of PR 94: the time
+-- limit used to keep the partial sum)
+local function PostTakes(p)
+    if FM.AHTrafficCount and (FM.AHTrafficCount("buy") ~= p.buys or FM.AHTrafficCount("cancel") ~= p.cancels) then
+        p.mixed = true
+        return false
+    end
+    if GetTime() - p.at > POST_LONGEST then
+        p.mixed = true
+        return false
+    end
+    return true
+end
+
+FM.On("PLAYER_MONEY", function()
+    local money = Money()
+    -- 0 is what GetMoney answers while the character logs out (the gold log skips it too): no fall of your gold
+    if not money or money == 0 then return end
+    local fall = moneyLast and (moneyLast - money) or 0
+    moneyLast = money
+    local p = openPost
+    if not p or fall <= 0 then return end
+    if not PostTakes(p) then
+        ClosePost()
+        return
+    end
+    p.paid = (p.paid or 0) + fall
+    TouchPost()
+end)
+-- a post of several auctions: each one made keeps the post open, and how many of how many are made tells whether
+-- the gold that left is the whole deposit (created, total: ClosePost and the quiet timer read them)
+FM.On("AUCTION_MULTISELL_UPDATE", function(created, total)
+    local p = openPost
+    if p and type(created) == "number" and type(total) == "number" and not FM.IsSecret(created) and not FM.IsSecret(total) then
+        p.created, p.total = created, total
+    end
+    TouchPost()
+end)
+-- it ended early: no more auctions come, what left is all that left
+FM.On("AUCTION_MULTISELL_FAILURE", function()
+    local p = openPost
+    if p and p.total then p.total = p.created or 0 end
+    TouchPost()
+end)
+FM.On("AUCTION_HOUSE_CLOSED", function() ClosePost(true) end)
+FM.On("PLAYER_LOGOUT", function() ClosePost(true) end)
+
 local function RecordPost(itemLocation, duration, quantity, unit, kind)
     local link = C_Item and C_Item.GetItemLink and itemLocation and C_Item.GetItemLink(itemLocation)
     local key = FM.KeyFromLink(link)
     if not key or type(quantity) ~= "number" or type(unit) ~= "number" then return end
+    -- the post before this one is settled: the gold that leaves from now on is this one's
+    ClosePost()
     local posts = FM.R().posts
-    posts[#posts + 1] = table_concat({ FM.Stamp(), FM.PlayerName(), key, Enc(quantity), Enc(unit),
+    local base = table_concat({ FM.Stamp(), FM.PlayerName(), key, Enc(quantity), Enc(unit),
         tostring(duration or ""), kind }, ",")
+    posts[#posts + 1] = base
     pendingPosts[#pendingPosts + 1] = { index = #posts, at = GetTime() }
+    moneyLast = Money() or moneyLast
+    openPost = { index = #posts, base = base, at = GetTime(), calc = CalculatedDeposit(itemLocation, key, duration, quantity, kind),
+        buys = FM.AHTrafficCount and FM.AHTrafficCount("buy") or 0, cancels = FM.AHTrafficCount and FM.AHTrafficCount("cancel") or 0 }
+    TouchPost()
+    -- a post whose auction ID never comes is settled when the wait for it is over. Only such a post: one that has
+    -- its ID is the quiet timer's, which leaves a post of several auctions open while it still makes them (review
+    -- round 5 of PR 94: this timer closed such a post at 30 s and its later falls were lost)
+    local p = openPost
+    if C_Timer and C_Timer.After then
+        C_Timer.After(ID_WAIT, function()
+            if openPost == p and WaitsForID(p) and GetTime() - p.at >= ID_WAIT - 0.05
+                and GetTime() - p.touched >= POST_QUIET - 0.05 then
+                ClosePost(true)
+            end
+        end)
+    end
+    FM.postsVersion = (FM.postsVersion or 0) + 1
     -- your listings are an input of the picks: the table plans again on its next tick or opening (FM.EnsureTrade)
     FM.listingsVersion = (FM.listingsVersion or 0) + 1
     FM.CapList(posts, FM.LIMITS.postsMax)
@@ -94,9 +282,12 @@ FM.On("AUCTION_HOUSE_AUCTION_CREATED", function(auctionID)
         local p = table.remove(pendingPosts, 1)
         if GetTime() - p.at < 30 and posts[p.index] then
             posts[p.index] = posts[p.index] .. "," .. Enc(auctionID)
+            FM.postsVersion = (FM.postsVersion or 0) + 1
+            TouchPost() -- an auction of the open post was made: its gold may still be on its way
             return
         end
     end
+    TouchPost()
 end)
 
 ---------------------------------------------------------------- your auctions

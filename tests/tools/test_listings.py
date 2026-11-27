@@ -81,6 +81,50 @@ def realm_of(case):
     return r, checks
 
 
+class SettingsTest(unittest.TestCase):
+    """The plan's settings are saved per character since 1.68 (FRV-228): the tool reads a character's own over the
+    account-wide ones, which stay as they were before"""
+
+    ACCOUNT = {"tableCircPct": 25, "tableFirstPct": 2, "tableProfitPct": 10, "chatSummary": True}
+    REALM = {
+        "charInfo": {"Ada": {"full": "Ada Lovelace", "seen": 100}, "Bee": {"full": "Bee Keeper", "seen": 200},
+                     "Cyd": {"seen": 300}},
+        "settings": {"Ada": {"tableCircPct": 40}, "Bee": {"tableCircPct": 15, "tableProfitPct": 5}},
+    }
+
+    def test_the_character_seen_last_by_default(self):
+        settings, key = fa.character_settings(self.ACCOUNT, self.REALM)
+        self.assertEqual(key, "Bee")  # Cyd was seen later but has no settings of its own
+        self.assertEqual((settings["tableCircPct"], settings["tableProfitPct"], settings["tableFirstPct"]), (15, 5, 2))
+        self.assertTrue(settings["chatSummary"])
+
+    def test_a_character_by_key_or_full_name(self):
+        self.assertEqual(fa.character_settings(self.ACCOUNT, self.REALM, "ada")[0]["tableCircPct"], 40)
+        settings, key = fa.character_settings(self.ACCOUNT, self.REALM, "Ada Lovelace")
+        self.assertEqual((key, settings["tableCircPct"], settings["tableProfitPct"]), ("Ada", 40, 10))
+
+    def test_data_from_before_has_only_the_account_wide_values(self):
+        settings, key = fa.character_settings(self.ACCOUNT, {"charInfo": {"Ada": {"seen": 1}}})
+        self.assertEqual((key, settings), (None, self.ACCOUNT))
+        self.assertEqual(self.ACCOUNT["tableCircPct"], 25)  # never changed in place
+
+    def test_an_unknown_character_ends_with_the_known_ones(self):
+        with self.assertRaises(SystemExit) as stop:
+            fa.character_settings(self.ACCOUNT, self.REALM, "Zed")
+        self.assertIn("Ada, Bee", str(stop.exception))
+
+    def test_an_older_copy_is_read_without_a_character(self):
+        """Review round 2 of PR 94: `listings --older` passed the newest file's character to every older copy, and
+        a copy with settings of other characters only ended the run. The older copies' settings are never read"""
+        import inspect
+        source = inspect.getsource(fa.cmd_listings)
+        self.assertIn("Market(path, m.realm_key)", source)
+        self.assertNotIn("m.char)", source)
+        # such a copy alone: no character named, the one it has settings of
+        older = {"charInfo": {"Ada": {"seen": 100}}, "settings": {"Ada": {"tableCircPct": 40}}}
+        self.assertEqual(fa.character_settings(self.ACCOUNT, older)[1], "Ada")
+
+
 class ListingsTest(unittest.TestCase):
     def test_cases(self):
         all_cases = cases()

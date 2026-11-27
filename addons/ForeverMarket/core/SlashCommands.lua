@@ -238,10 +238,11 @@ local function HandleSlash(msg)
     elseif command == "wipe" then
         if arg == "confirm" then
             -- which characters are this realm's (charInfo, no market data) stays: with GetRealmName() empty the realm
-            -- is found by them (FM.RealmName, FRV-92), so the key and the feed import stay the same
+            -- is found by them (FM.RealmName, FRV-92), so the key and the feed import stay the same. Their own
+            -- settings (FRV-228: filters, the Picks row) are no market data either and stay
             local old = FM.R()
             local key = FM.realmKey
-            FM.db.realms[key] = { charInfo = old and old.charInfo or {} }
+            FM.db.realms[key] = { charInfo = old and old.charInfo or {}, settings = old and old.settings or nil }
             FM.realm = nil
             FM.R()
             FM.ResetSignatures()

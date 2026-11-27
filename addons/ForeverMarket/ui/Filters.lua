@@ -7,7 +7,9 @@ local _, FM = ...
 -- closing the table closes it. Every change applies at once (FM.TableFiltersChanged: Picks plans again). Opaque,
 -- movable, an X; Esc closes it (UISpecialFrames, like the table). It opens where it was last closed
 -- (tableFiltersPos, the screen position of its top left corner), the first time beside the table. A child option is
--- greyed out while its parent is unchecked. The values live in core/Core.lua (FM.FilterSet, FM.FilterClamp).
+-- greyed out while its parent is unchecked. The values live in core/Core.lua (FM.FilterSet, FM.FilterClamp), per
+-- character since 1.68 (FRV-228: every set and "Use global filters"; the global set's subtitle ends in "saved for
+-- this character"), while the dialog's place stays one for the account.
 
 local type = type
 local ipairs = ipairs
@@ -87,10 +89,11 @@ end
 ---------------------------------------------------------------- tooltips on hover or while Shift is held (FRV-155, FRV-186)
 -- One rule for every tooltip of the market table and its dialogs, in two kinds that every element chooses:
 --   * "hover": the rows (their item tooltip too), the column headers, the tabs, the buttons (Filters, Global filters,
---     Refresh, Search all at the AH, the Profit tab's scope buttons) and the summary line show their tooltip on hover,
---     as until 1.46
+--     Refresh, Search all at the AH), the Profit tab's header (where its Held from the AH and Gold come from) and the
+--     summary line show their tooltip on hover, as until 1.46
 --   * "shift": the inputs (the search box, the budget row's boxes, the Amount inputs of the rows, the dialog's boxes),
---     the dropdowns and the checkboxes show theirs only while Shift is held with the mouse over them, so a tooltip never
+--     the dropdowns (the Profit tab's character dropdown too, FRV-231) and the checkboxes show theirs only while Shift
+--     is held with the mouse over them, so a tooltip never
 --     covers the box you type in (FRV-155). Shift pressed over such an element shows it at once, Shift released hides
 --     it, the mouse leaving hides it as before
 -- While an input of the table or of this dialog has the keyboard focus nothing shows, hover or Shift (Shift types
@@ -393,8 +396,10 @@ local function Layout(w, tabId, setName)
         for _, id in ipairs(TAB_ORDER) do
             if FM.UsesGlobalFilters(id) then users[#users + 1] = TAB_NAME[id] end
         end
+        -- the values are this character's own (FRV-228), which the subtitle says once they are
+        local own = FM.SettingsPerCharacter and FM.SettingsPerCharacter() and "  ·  saved for this character" or ""
         w.used:SetText(GREY .. (users[1] and ("Used by: " .. table.concat(users, ", "))
-            or "Used by no tab yet: check Use global filters on a tab") .. "|r")
+            or "Used by no tab yet: check Use global filters on a tab") .. own .. "|r")
         w.used:Show()
         top = top + 18
     else

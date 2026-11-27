@@ -85,7 +85,9 @@ FM.DEFAULTS = {
     -- own windows, "vanilla" = above them, "anything" = above everything (ui/Layers.lua); "vanilla" was built in until 1.59
     windowSniper = "standard", -- "Sniper window priority", the same choices; "anything" was built in until 1.59
     perfMode = "day", -- Profit tab: one dot per day, week or month
-    perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
+    perfScope = "all", -- Profit tab until 1.68: the switch "All characters" / "This character" ("char"). Since 1.69 the
+    -- character dropdown's choice is perfChar, the logged-in character's own (FRV-231, FM.PerfWho): "*" = all of them,
+    -- else a character's key; a "char" saved here stays this character until a choice is made
     priceMode = "day" -- price graph: one dot per day, week or month
 }
 
@@ -302,8 +304,192 @@ function FM.InitializeSavedData()
     FM.db = db
 end
 
+---------------------------------------------------------------- settings per character (FRV-228)
+-- The settings that decide what a character's marketplace and plan show are that character's own: an AH character
+-- and a crafter of one account no longer share "Exclude crafting", the Picks row or a tab's filters. Everything else
+-- stays one value for the account (windows and their places, tooltips, the open tab, sort orders, Favorites, Ignored,
+-- the sniper, the scans).
+--   * R.settings[char] = { [key] = value } in the realm and faction bucket, by the character's key (FM.PlayerName)
+--   * a character's table is made at its first login with this version, from the account-wide values as they are
+--     then (tables copied), so nothing changes for it; from then on only its own table is written. The account-wide
+--     values in ForeverMarketDB.settings are kept and only read: a character met later starts from them
+--   * a key the table does not hold (one added by a later version, a broken value dropped at load) reads the
+--     account-wide value, then the default; a table among them is copied into the character's table first, so the
+--     account's is never changed in place. Where nothing is a choice (FM.CHAR_NIL: the profession dropdown's "all")
+--     a character's nothing stays nothing
+--   * FM.GetSettings() is the one way in and out, for every key: it returns a view that reads and writes a key of
+--     FM.CHAR_SETTINGS in the character's table and every other key in the account's. No file reads
+--     ForeverMarketDB.settings itself (tests/forevermarket/charsettings_test.lua checks that)
+--   * until the character's key is known (its GUID and the realm, from PLAYER_LOGIN on) the account-wide values are read, and
+--     a key set in that time is kept for the session and moved into the character's table once it is found: the
+--     account-wide values are never written through the view (review round 1 of PR 94). Once found, the
+--     character's table is used for the rest of the session. Two characters nobody can tell apart (the same first
+--     name without a surname) share one key and so one table, like their other records
+FM.CHAR_SETTINGS = {
+    -- the filters dialogs: each tab's own set, the global set, "Use global filters"
+    tableFilters = true, tableUseGlobal = true,
+    -- the Picks row
+    tableInvestPicks = true, tableInvestPct = true, tableInvestPctOn = true, tableInvestManual = true, tableInvestAmount = true,
+    tableProfitPct = true, tableProfitPctOn = true, tableProfitAmount = true, tableProfitManual = true,
+    tablePicksLock = true, tablePicksLockManual = true,
+    -- the tabs' own filters: Continent and Zone, the profession dropdown, the Upgrades tab's rarities, slots, "Best
+    -- per slot" and "Owned gear" (its Level range and scale are the character's already, R.charInfo)
+    tablePlace = true, tableProf = true,
+    upgradeRarities = true, upgradeSlots = true, upgradeBestPerSlot = true, upgradeOwned = true,
+    -- the Profit tab's character dropdown (FRV-231)
+    perfChar = true,
+    -- the settings panel's inputs of the plan and of the tabs' rows
+    tableNoOutliers = true, tableMinProfit = true, tablePicksOverGold = true, tableInvestLogic = true, tableProfitLogic = true,
+    tableCircPct = true, tableFirstPct = true, tableTimePct = true, tableMatRefHours = true,
+}
+
+-- The keys of a character's settings where nil is a value it chose
+FM.CHAR_NIL = { tableProf = true }
+
+local function CopyValue(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for k, v in pairs(value) do copy[k] = CopyValue(v) end
+    return copy
+end
+
+local FillFilterSet -- below (the filters section)
+
+-- A character's saved settings as the rest of the code expects them, like the account's at load: numbers within
+-- their ranges, the Picks pairs as booleans with one box checked, a logic of the two choices, tables as tables with
+-- every filter set filled in. A value of the wrong kind goes: the account-wide one, or the default, is read then
+local function NormalizeCharSettings(own)
+    for key in pairs(FM.SETTING_RANGE) do
+        if FM.CHAR_SETTINGS[key] and own[key] ~= nil then own[key] = FM.SettingClamp(key, own[key]) end
+    end
+    for _, pair in pairs(FM.PICK_PAIRS) do
+        if own[pair.pct] ~= nil or own[pair.manual] ~= nil then
+            own[pair.pct], own[pair.manual] = own[pair.pct] == true, own[pair.manual] == true
+            if not own[pair.pct] and not own[pair.manual] then own[pair.pct] = true end
+        end
+        if own[pair.logic] ~= nil and not FM.PICK_LOGIC[own[pair.logic]] then own[pair.logic] = nil end
+    end
+    for _, key in ipairs({ "tableFilters", "tableUseGlobal", "tablePlace", "upgradeRarities", "upgradeSlots" }) do
+        if own[key] ~= nil and type(own[key]) ~= "table" then own[key] = nil end
+    end
+    if own.tableFilters then
+        for _, name in ipairs(FM.FILTER_SETS) do own.tableFilters[name] = FillFilterSet(own.tableFilters[name]) end
+    end
+    for key, default in pairs(FM.DEFAULTS) do
+        if FM.CHAR_SETTINGS[key] and type(default) == "boolean" and own[key] ~= nil and type(own[key]) ~= "boolean" then
+            own[key] = nil
+        end
+    end
+end
+
+-- What the view holds while the character's table is not found yet: the keys set in that time (earlyWrites, NONE
+-- for a key set to nil), moved into the table once it is found, and the copies of the account's tables it handed out
+-- (earlyReads: a caller may change such a table in place, which must never reach the account's)
+local NONE = {}
+local earlyWrites, earlyReads = {}, {}
+
+-- The logged-in character's own settings, nil until its key is known: FM.PlayerName is the character's key for good
+-- once its GUID can be read and the realm is known (two characters nobody can tell apart, the same first name without
+-- a surname, share that key and so this table, like their other records). Found once, it stays for the session.
+-- Never before PLAYER_LOGIN (loggedIn): the realm and faction are known from then on and FM.R() creates the bucket
+-- then (ForeverMarket.lua); a setting read while the AddOn loads (the settings panel's first refresh) must not ask
+-- for the bucket earlier (review round 3 of PR 94)
+local charSettings
+local loggedIn = false
+local function CharSettings()
+    if charSettings then return charSettings end
+    if not loggedIn then return nil end
+    local guid = FM.db and FM.PlayerGUID and FM.PlayerGUID()
+    if not guid then return nil end
+    local r = FM.R()
+    if not r or FM.realm ~= r then return nil end
+    local key = FM.PlayerName()
+    if type(key) ~= "string" or key == "" then return nil end
+    if type(r.settings) ~= "table" then r.settings = {} end
+    local own = r.settings[key]
+    if type(own) ~= "table" then
+        -- its first login with this version: the account-wide values as they are now (a table handed out before the
+        -- key was known is that copy)
+        own = {}
+        for name in pairs(FM.CHAR_SETTINGS) do
+            local value = FM.db.settings[name]
+            if value ~= nil then own[name] = earlyReads[name] or CopyValue(value) end
+        end
+        r.settings[key] = own
+    end
+    -- what was set before the key was known is the character's
+    for name, value in pairs(earlyWrites) do
+        if value == NONE then own[name] = nil else own[name] = value end
+    end
+    earlyWrites, earlyReads = {}, {}
+    NormalizeCharSettings(own)
+    charSettings = own
+    return own
+end
+
+-- Whether the logged-in character's own settings are in use (the filters dialog and the settings panel say so)
+function FM.SettingsPerCharacter()
+    return CharSettings() ~= nil
+end
+
+-- A character's own settings table by its key, nil while it has none
+function FM.CharSettingsOf(key)
+    local r = FM.R()
+    local all = r and type(r.settings) == "table" and r.settings or nil
+    return all and type(all[key]) == "table" and all[key] or nil
+end
+
+local settingsView = setmetatable({}, {
+    __index = function(_, key)
+        if FM.CHAR_SETTINGS[key] then
+            local own = CharSettings()
+            if own then
+                local value = own[key]
+                if value ~= nil or FM.CHAR_NIL[key] then return value end
+                -- none of its own: the account-wide value, a table as the character's copy (the callers change
+                -- such tables in place)
+                local shared = FM.db.settings[key]
+                if type(shared) == "table" then
+                    shared = CopyValue(shared)
+                    own[key] = shared
+                end
+                return shared
+            end
+            -- the character's table is not found yet: what was set meanwhile, else the account-wide value (a table
+            -- as a copy for the session)
+            local early = earlyWrites[key]
+            if early ~= nil then
+                if early == NONE then return nil end
+                return early
+            end
+            local shared = FM.db.settings[key]
+            if type(shared) == "table" then
+                earlyReads[key] = earlyReads[key] or CopyValue(shared)
+                return earlyReads[key]
+            end
+            return shared
+        end
+        return FM.db.settings[key]
+    end,
+    __newindex = function(_, key, value)
+        if FM.CHAR_SETTINGS[key] then
+            local own = CharSettings()
+            if own then
+                own[key] = value
+            elseif value == nil then
+                earlyWrites[key] = NONE
+            else
+                earlyWrites[key] = value
+            end
+            return
+        end
+        FM.db.settings[key] = value
+    end,
+})
+
 function FM.GetSettings()
-    return FM.db and FM.db.settings or FM.DEFAULTS
+    if not FM.db then return FM.DEFAULTS end
+    return settingsView
 end
 
 ---------------------------------------------------------------- filters of the Picks, Craft and Learn tabs (FRV-89)
@@ -352,7 +538,7 @@ function FM.FilterClamp(key, value)
 end
 
 -- A set filled in: missing or broken values get their default, numbers their range
-local function FillFilterSet(set)
+FillFilterSet = function(set)
     if type(set) ~= "table" then set = {} end
     for key, default in pairs(FM.FILTER_DEFAULTS) do
         local value = set[key]
@@ -867,4 +1053,12 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
             if handler then handler(err) end
         end
     end
+end)
+
+-- A character's own settings (FRV-228) are found at PLAYER_LOGIN, never earlier (this handler is the first of the
+-- AddOn's, so the other files' login handlers read the character's values): its table is there from its first login
+-- on, whether or not the marketplace is opened. While its GUID cannot be read yet, a later read finds it
+FM.On("PLAYER_LOGIN", function()
+    loggedIn = true
+    FM.SettingsPerCharacter()
 end)

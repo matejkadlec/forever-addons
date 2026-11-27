@@ -347,7 +347,8 @@ H.test("shift tooltips: the window's elements have the kinds of FRV-186", functi
         "Table.lua status \"hover\"",            -- a pick's status icon after Expected (FRV-188): an icon, no input
         "Table.lua hiddenPicks \"hover\"",       -- Picks' footer: the flip picks you hid (FRV-193)
         "Filters.lua frame \"shift\"",           -- the dialog's boxes and checkboxes (Tip)
-        "Performance.lua b \"hover\"",           -- This character / All characters
+        "Performance.lua who \"shift\"",         -- the character dropdown (FRV-231)
+        "Performance.lua p.source \"hover\"",    -- the header's Held from the AH / Gold: where they come from
         "Upgrades.lua widget \"shift\"",         -- Upgrades: the Level boxes, Rarities, Slots, Spec, Best per slot (Tip)
         "Upgrades.lua dd \"shift\"",             -- Favorites and Ignored: the Marketplace / Gear dropdown (FRV-207)
     }, "every helper call and its kind")
