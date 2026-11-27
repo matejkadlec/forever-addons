@@ -1654,6 +1654,27 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   its price; bought one day and worn another: the first shows its cost gained, the second the same lost;
   bought and worn before your first reading: nothing moves). Item IDs match whatever you wear: an item looted and
   worn while you hold a bought one of the same ID for resale marks the bought one.
+* **Bags as own gear** (1.65, FRV-222, scan/Worth.lua; the report: a Traveler's Backpack bought for 18g and put into
+  a bag slot showed as a loss of its day): a bag bought on the AH and put into a bag slot is own gear the same way,
+  and its purchase leaves the tab (its day's Bought list, the day's total, the period total, what you hold). The bag
+  slots are the character's own (the four bag slots and the reagent bag slot: `C_Container.ContainerIDToInventoryID`,
+  then `GetInventoryItemID`, as Blizzard's container frames read them) and its bank's: Forever's bank has bag slots
+  to buy, and the bag in slot n is item n of `Enum.BagIndex.Characterbanktab`, read while the bank is open
+  (`C_Bank.FetchPurchasedBankTabIDs`, `C_Container.GetContainerItemID`; not yet verified in game); the last reading
+  is kept per character (`bankBagSlots`), so the bank's bags count while it is closed. The account bank's bag slots
+  are left out: every character sees them, so who put a bag there is not known. Matched like equipped gear, by item
+  ID against the purchases not sold or marked yet, the oldest first, one unit per bag placed: the bags of an item in
+  the slots (the character's and its bank's together) against the marks of it, so moving a bag between slots, also
+  between the bags and the bank, or taking it out and putting it back marks nothing more. **A bag does not bind**:
+  once a unit of the item is sold on the AH after the mark (a sale mail of any of your characters), the mark no
+  longer counts, each sold unit taking the oldest mark made before it, and the purchase and the sale both count again
+  (it was a flip after all); the mark stays in the saved data and is only read that way. A bag still in a slot then
+  gets a new mark on the next oldest purchase (units count oldest first, as everywhere). Checked with the gear:
+  5 s after login (bags placed before 1.65 are found then, and past days are computed again), a second after
+  `BAG_CONTAINER_UPDATE`, `PLAYER_EQUIPMENT_CHANGED` and, at the bank, `BANKFRAME_OPENED` and
+  `PLAYERBANKSLOTS_CHANGED` (the bank's slots are read at once, they are gone when it closes). A bag found in a slot
+  (by the login check, or during the first visit to the bank that reads its bag slots) was placed at a moment nobody
+  saw: none of its steps is taken back, as for gear found worn.
 * Your auctions: the last list of them plus what you posted after it, less what your mail sold, returned or cancelled
   since (oldest first). What the lists saw change (`osold`, `opart`, `ocancel`, `ogone`) is matched to the mails you
   read of the item (sent after the list before it and by the list that saw it, a sale's up to 2 hours later): a
@@ -2309,7 +2330,11 @@ Picks skip).
   per mark, the newest 2000 to 2100: t = when it was marked, wearer = the character wearing it, id = the equipped
   item, value = what one unit counted for in the readings of what you hold then (0 where none counted it), ref = the
   purchase (`b<t>,<char>` a `buys` line, `i<sent>,<char>` a won auction's mail), item = its key or the mail's name,
-  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it)
+  how = `e` seen equipped or `l` found worn by the login check (no step of what you held is taken back for it); a bag
+  in a bag slot (1.65, FRV-222): `b` seen placed, `bl` found placed. A bag's mark stops counting once a unit of its
+  item was sold on the AH after it (read that way, the line stays)
+* `bankBagSlots[char]` (1.65, FRV-222, optional, made at the first look at the bank) `t|id:n,...`: the bags in the
+  character's bank bag slots at the last look with the bank open; `/fm forget` removes it
 * `crafts` `t,key,units,crafts,char,spell,mats` the craft log (1.21): one line per Create / Create All batch, t =
   its start (epoch seconds), key = the product, units made, crafts done, char = the crafting character, spell =
   the recipe ID; `mats` = `key:units:copper:held` per material joined by `/`, copper = the used units' basis at the
