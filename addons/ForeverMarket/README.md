@@ -1167,6 +1167,30 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   (`tableInvestLogic`, default "Both must apply") and "% + manual profit logic" (`tableProfitLogic`, default "Either
   must apply"), how the budget row's % and amount combine with both boxes checked (see Picks); each choice's meaning
   is in its tooltip, a choice plans again at once.
+* **Window priority** (1.60, FRV-219, `ui/Layers.lua`): on the same two rows, at the panel's right edge, "Marketplace
+  window priority" (`windowMarket`) and "Sniper window priority" (`windowSniper`), each a dropdown of three choices,
+  with the small grey note "Same priority: the window you clicked last is on top." under them. A choice applies at
+  once, without a `/reload`.
+  * **Standard** (the default for both): the window behaves like the game's own windows. It sits in their layer (the
+    MEDIUM strata, the Auction House frame's) and is toplevel, so the window you click comes to the front: a click
+    on the Auction House puts the Marketplace or the Sniper window behind it, a click on them brings them back.
+  * **Above vanilla** (what the Marketplace window did until 1.59): the HIGH strata, always above the game's windows,
+    whatever you click.
+  * **Above anything** (what the Sniper window did until 1.59): the DIALOG strata, above everything a window can be
+    above; menus (FULLSCREEN_DIALOG) and tooltips (TOOLTIP) still show above it. Only a window with the same setting
+    can be above it.
+  * Between the Marketplace and the Sniper window the one you clicked last is on top, unless the other one is
+    "Above anything" and it is not. A window clicked under the other one's layer borrows that layer for as long as
+    it is the one clicked last (a Standard Sniper clicked comes above an Above vanilla Marketplace); a click on
+    another window of the game (the Auction House, your bags' window: a toplevel frame) sends it back to its own
+    layer, behind that window. A click on the world, an action bar, a menu or a tooltip changes nothing.
+  * The Marketplace's other windows (the item history, the sticky row tooltips, the filters dialogs, the upgrade buy
+    window) follow the Marketplace window's setting and stay above it: after every click on the Marketplace they are
+    raised again in the order you last used them.
+  * How: every mouse click is seen through `GLOBAL_MOUSE_DOWN` and `GetMouseFoci()`; the window it landed on is found
+    by walking up its parents (`FM.LayerRegister`, `FM.LayerClicked`, `FM.LayersApply`). Until 1.59 the layers were
+    fixed: the Marketplace HIGH, the Sniper and the Marketplace's other windows DIALOG, so the Sniper was always on
+    top, the Marketplace always second, and a click on the Auction House never brought it in front of them.
 * The first three are number inputs since 1.32 (FRV-86; dropdowns before), the rate one since it came (1.33): minimum profit "[X]g [Y]s [Z]c" like the AH's
   price inputs (default 0g 0s 1c, silver and copper 0 to 99, gold up to 999), the two shares "[N]%" (1 to 100, default
   25; the first batch 1 to 10, default 2, the bounds of its dropdown), the rate "[N]% more per second ..." (0 to 20,
@@ -1679,8 +1703,9 @@ in place of FRV-52's median and 30 / 60 days.
 Buys commodities the moment someone lists them at or under your price, one mouse wheel step (or a click on Buy)
 per purchase.
 
-* Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, DIALOG strata, opaque: always above
-  the marketplace, which is HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
+* Window (1.34, FRV-39: one frame of 620 × 428, `BasicFrameTemplateWithInset`, opaque; its layer is the setting
+  "Sniper window priority" since 1.60, FRV-219, see Settings: until 1.59 always DIALOG, above the marketplace, which
+  was HIGH; the whole window drags; since 1.43, FRV-128, at least 620 wide and wider when the
   list's columns need it, see the list), top to bottom:
   * The banner (FRV-40), as wide as the window and colored by what sniping does: an offer to buy in large green with
     a short pulse and the sound ("Scroll or click Buy: 12 Heavy Leather for 25s 20c (2s 10c each)", a price per unit

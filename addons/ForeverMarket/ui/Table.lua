@@ -2940,7 +2940,7 @@ local function CreateTable()
     end
     frame = f
     f:SetSize(W, H)
-    f:SetFrameStrata("HIGH")
+    -- its layer comes from "Marketplace window priority" (FM.LayerRegister at the end, ui/Layers.lua; HIGH until 1.59)
     f:SetMovable(true)
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
@@ -3597,6 +3597,8 @@ local function CreateTable()
         Render()
     end)
     f:Hide()
+    -- after its own OnShow / OnHide: the layer of "Marketplace window priority", raised when clicked (FRV-219)
+    if FM.LayerRegister then FM.LayerRegister(f, "market", true) end
 end
 
 function FM.OpenTable(tab)

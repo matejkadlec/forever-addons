@@ -81,6 +81,9 @@ FM.DEFAULTS = {
     snipeAutoRefresh = true, -- sniper: "Automatically refresh budget" from your gold every time the window opens (FRV-94)
     snipeManual = false, -- sniper: "Set budget manually": the budget is snipeManualAmount instead of the % (FRV-94)
     snipeManualAmount = 0, -- sniper: the manual budget, in copper
+    windowMarket = "standard", -- "Marketplace window priority" (settings panel, FRV-219): "standard" = like the game's
+    -- own windows, "vanilla" = above them, "anything" = above everything (ui/Layers.lua); "vanilla" was built in until 1.59
+    windowSniper = "standard", -- "Sniper window priority", the same choices; "anything" was built in until 1.59
     perfMode = "day", -- Profit tab: one dot per day, week or month
     perfScope = "all", -- Profit tab: all your characters together ("char": this one) when several have AH logs
     priceMode = "day" -- price graph: one dot per day, week or month
@@ -212,6 +215,8 @@ FM.PICK_PAIRS = {
     profit = { pct = "tableProfitPctOn", manual = "tableProfitManual", logic = "tableProfitLogic" },
 }
 FM.PICK_LOGIC = { either = true, both = true }
+-- The choices of the two window priority settings (FRV-219, ui/Layers.lua), each with its height
+FM.WINDOW_PRIORITY = { standard = 1, vanilla = 2, anything = 3 }
 
 -- A click on one box of a pair ("pct" or "manual"): it checks or unchecks that box, but the last checked box of the
 -- pair stays checked (the click is refused). Returns true when the setting changed
@@ -284,6 +289,10 @@ function FM.InitializeSavedData()
         s[pair.pct], s[pair.manual] = s[pair.pct] == true, s[pair.manual] == true
         if not s[pair.pct] and not s[pair.manual] then s[pair.pct] = true end
         if not FM.PICK_LOGIC[s[pair.logic]] then s[pair.logic] = FM.DEFAULTS[pair.logic] end
+    end
+    -- the window priorities (FRV-219): one of the three choices
+    for _, key in ipairs({ "windowMarket", "windowSniper" }) do
+        if not FM.WINDOW_PRIORITY[db.settings[key]] then db.settings[key] = FM.DEFAULTS[key] end
     end
     if type(db.realms) ~= "table" then db.realms = {} end
     -- the bag and bank counts of watched items (R.inv) were written only for reading outside the game (FRV-85)

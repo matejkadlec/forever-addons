@@ -44,7 +44,7 @@ end
 -- 5 = first batch, 6 = the buy or craft rate (FRV-69), 7 = the hours of the materials' reference price (FRV-196).
 -- plans() = how often the picks planned again
 local function Load(saved)
-    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "ui/Filters.lua" })
+    local FM, env = H.LoadAddon("addons/ForeverMarket", { "core/Core.lua", "ui/Layers.lua", "ui/Filters.lua" })
     env.ForeverMarketDB = saved
     FM.InitializeSavedData()
     local boxes = EditBoxes(env)
@@ -162,19 +162,22 @@ H.test("settings panel: Esc shows the saved value again and saves nothing", func
     H.eq(plans(), 0, "nothing planned")
 end)
 
+-- The choices a dropdown offers: { text, IsSelected, SetSelected, value } per radio
+local function Radios(dd)
+    local list = {}
+    dd.generator(dd, { CreateRadio = function(_, text, IsSelected, SetSelected, value)
+        list[#list + 1] = { text = text, IsSelected = IsSelected, SetSelected = SetSelected, value = value }
+    end })
+    return list
+end
+
 -- FRV-126: "% + manual invest logic" and "% + manual profit logic", each "Either must apply" / "Both must apply"; a
 -- choice is saved (it survives a /reload with the saved variables) and plans the picks again at once
 H.test("settings panel: the two logic dropdowns save their choice and plan the picks again", function()
     local FM, boxes, plans = Load(nil)
-    H.eq(#boxes.dropdowns, 2, "two dropdowns")
-    local function Radios(dd)
-        local list = {}
-        dd.generator(dd, { CreateRadio = function(_, text, IsSelected, SetSelected, value)
-            list[#list + 1] = { text = text, IsSelected = IsSelected, SetSelected = SetSelected, value = value }
-        end })
-        return list
-    end
-    local invest, profit = Radios(boxes.dropdowns[1]), Radios(boxes.dropdowns[2])
+    -- the window priority dropdowns (FRV-219) share the logic dropdowns' rows: Marketplace, Invest, Sniper, Profit
+    H.eq(#boxes.dropdowns, 4, "four dropdowns")
+    local invest, profit = Radios(boxes.dropdowns[2]), Radios(boxes.dropdowns[4])
     H.same({ invest[1].text, invest[2].text }, { "Either must apply", "Both must apply" }, "the choices")
     H.same({ invest[1].IsSelected(invest[1].value), invest[2].IsSelected(invest[2].value) }, { false, true },
         "Invest: Both must apply by default")
@@ -187,4 +190,25 @@ H.test("settings panel: the two logic dropdowns save their choice and plan the p
     H.eq(plans(), 1, "the same choice again changes nothing")
     invest[1].SetSelected(invest[1].value)
     H.same({ FM.GetSettings().tableInvestLogic, plans() }, { "either", 2 }, "Invest: Either must apply")
+end)
+
+-- FRV-219: "Marketplace window priority" and "Sniper window priority", each Standard / Above vanilla / Above anything,
+-- Standard by default; a choice is saved and applies at once (no /reload), without planning the picks again
+H.test("settings panel: the two window priority dropdowns save their choice and apply it at once", function()
+    local FM, boxes, plans = Load(nil)
+    local applied = 0
+    FM.LayersApply = function() applied = applied + 1 end
+    local market, sniper = Radios(boxes.dropdowns[1]), Radios(boxes.dropdowns[3])
+    H.same({ market[1].text, market[2].text, market[3].text }, { "Standard", "Above vanilla", "Above anything" }, "the choices")
+    H.same({ sniper[1].text, sniper[2].text, sniper[3].text }, { "Standard", "Above vanilla", "Above anything" }, "the same for the sniper")
+    H.eq(market[1].IsSelected(market[1].value), true, "Marketplace: Standard by default")
+    H.eq(sniper[1].IsSelected(sniper[1].value), true, "Sniper: Standard by default")
+    market[2].SetSelected(market[2].value)
+    H.eq(FM.GetSettings().windowMarket, "vanilla", "Marketplace: Above vanilla saved")
+    H.eq(applied, 1, "applied at once")
+    sniper[3].SetSelected(sniper[3].value)
+    H.eq(FM.GetSettings().windowSniper, "anything", "Sniper: Above anything saved")
+    H.eq(FM.GetSettings().windowMarket, "vanilla", "the other one untouched")
+    H.eq(applied, 2, "applied at once")
+    H.eq(plans(), 0, "no plan is made again for it")
 end)

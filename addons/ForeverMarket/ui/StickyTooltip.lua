@@ -153,9 +153,8 @@ local function CreateWindow()
     -- the tooltip's own backdrop, opaque (backdropColorAlpha 1 by default)
     local w = CreateFrame("Frame", name, UIParent, "TooltipBackdropTemplate")
     windows[i] = w
-    -- above the market table (HIGH), like the price graph
-    w:SetFrameStrata("DIALOG")
-    w:SetToplevel(true)
+    -- above the market table, like the price graph: it follows the Marketplace window's layer (FM.LayerRegister at
+    -- the end, ui/Layers.lua, FRV-219; always DIALOG until 1.59)
     w:SetMovable(true)
     w:EnableMouse(true)
     w:SetClampedToScreen(true)
@@ -199,6 +198,7 @@ local function CreateWindow()
     w.scroll:SetScrollChild(w.child)
     w.fonts = {}
     tinsert(UISpecialFrames, name)
+    if FM.LayerRegister then FM.LayerRegister(w, "market") end
     return w
 end
 

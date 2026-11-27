@@ -51,10 +51,28 @@ function Stubs.NewEnvironment()
     -- (every other frame method is a no-op)
     -- Show / Hide / IsShown keep a shown state (Hide runs OnHide); a font string is a stub frame that measures 0;
     -- a named frame is a global of that name, as in the client
+    -- A frame keeps its parent, and where it sits among the others (ui/Layers.lua): its strata ("MEDIUM" until set),
+    -- whether it is toplevel, and z, the order of the Raise and Lower calls (a higher z is further in front within
+    -- a strata; nil until either was called)
     local frames = {}
-    env.CreateFrame = function(_, name)
+    local zTop, zBottom = 0, 0
+    env.CreateFrame = function(_, name, parent)
         local frame = setmetatable({ scripts = {}, events = {} }, frameMeta)
         if type(name) == "string" then env[name] = frame end
+        frame.parent = parent
+        function frame:GetParent() return self.parent end
+        function frame:SetFrameStrata(strata) self.strata = strata end
+        function frame:GetFrameStrata() return self.strata or "MEDIUM" end
+        function frame:SetToplevel(on) self.toplevel = on and true or false end
+        function frame:IsToplevel() return self.toplevel == true end
+        function frame:Raise()
+            zTop = zTop + 1
+            self.z = zTop
+        end
+        function frame:Lower()
+            zBottom = zBottom - 1
+            self.z = zBottom
+        end
         function frame:SetScript(name, fn) self.scripts[name] = fn end
         function frame:RegisterEvent(event) self.events[event] = true end
         -- the unit filter is not kept: a test fires only the units it means

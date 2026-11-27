@@ -345,9 +345,8 @@ local function CreateWindow()
     end
     window = f
     f:SetSize(W, H)
-    -- above the market table (HIGH), which stays usable next to it
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
+    -- above the market table, which stays usable next to it: it follows the Marketplace window's layer
+    -- (FM.LayerRegister at the end, ui/Layers.lua, FRV-219; always DIALOG until 1.59)
     f:SetMovable(true)
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
@@ -445,6 +444,7 @@ local function CreateWindow()
     f.footer:SetPoint("BOTTOMRIGHT", f.legend, "TOPRIGHT", 0, 3)
     f.footer:SetJustifyH("LEFT")
     f.footer:SetWordWrap(false)
+    if FM.LayerRegister then FM.LayerRegister(f, "market") end
     return f
 end
 
