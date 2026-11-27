@@ -167,12 +167,16 @@ function FM.LayerShown(frame)
     FM.LayerClicked(frame)
 end
 
--- A window of ours was hidden: a layer borrowed from it, or by it, is given back
+-- A window of ours was hidden: a layer borrowed from it, or by it, is given back. The Marketplace's other windows
+-- are raised only while the Marketplace was the one clicked last: after a click on the Sniper or on another window
+-- of the game they keep their place behind it (closing the Marketplace leaves its sticky windows open)
 function FM.LayerHidden(frame)
     local which = group[frame]
     if not which then return end
+    local raise = front == "market"
     if frame == main[which] and front == which then front = nil end
-    FM.LayersApply()
+    Apply()
+    if raise then RaiseStack() end
 end
 
 -- Register a window: which = "market" or "sniper", isMain = the Marketplace or the Sniper window itself (else one

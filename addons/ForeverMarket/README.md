@@ -1255,7 +1255,9 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     layer, behind that window. A click on the world, an action bar, a menu or a tooltip changes nothing.
   * The Marketplace's other windows (the item history, the sticky row tooltips, the filters dialogs, the upgrade buy
     window) follow the Marketplace window's setting and stay above it: after every click on the Marketplace they are
-    raised again in the order you last used them.
+    raised again in the order you last used them. A click on the Sniper or on another window brings that window in
+    front of them too, and closing a window (also the Marketplace, whose sticky windows stay open) leaves them
+    behind whatever you clicked after the Marketplace.
   * How: every mouse click is seen through `GLOBAL_MOUSE_DOWN` and `GetMouseFoci()`; the window it landed on is found
     by walking up its parents (`FM.LayerRegister`, `FM.LayerClicked`, `FM.LayersApply`). Until 1.59 the layers were
     fixed: the Marketplace HIGH, the Sniper and the Marketplace's other windows DIALOG, so the Sniper was always on

@@ -2922,7 +2922,7 @@ local function PlaceDropdowns(f)
         end)
     end
     Tip(continent, "Continent", "Only what vendors on this continent sell. On Picks: vendor flips buy only there; crafts and AH flips stay as they are. Saved per tab.")
-    Tip(zone, "Zone", "Only what vendors in this zone sell; a zone holds the maps inside it (Teldrassil holds Dolanaar, and Darnassus when the game's map puts it there). Where I am follows you as you travel. On Picks: vendor flips buy only there, and a locked plan keeps its vendors until Refresh. Saved per tab.")
+    Tip(zone, "Zone", "Only what vendors in this zone sell; a zone holds the maps inside it (Teldrassil holds Dolanaar, and Darnassus when the game's map puts it there). Where I am follows you as you travel. On Picks: vendor flips buy only there, and with Auto-refresh off the plan keeps its vendors until Refresh. Saved per tab.")
     continent:Hide()
     zone:Hide()
     return continent, zone

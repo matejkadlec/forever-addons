@@ -197,6 +197,44 @@ H.test("layers: a click on the world, a bar, a menu or a tooltip changes nothing
     H.eq(Above(w.sniper, w.market), true, "a click on nothing at all: still above")
 end)
 
+H.test("layers: closing a window never brings the Marketplace's other windows in front of what was clicked later", function()
+    local FM, w = Setup("standard", "standard")
+    local function Close(frame)
+        frame:Hide()
+        FM.LayerHidden(frame)
+    end
+    w.Click(w.market)
+    w.Click(w.sniper)
+    H.eq(Above(w.sniper, w.sticky) and Above(w.sniper, w.history), true, "the Sniper clicked last: above the side windows")
+    -- the Marketplace closed with its key: its sticky windows stay open, and stay where they are
+    Close(w.market)
+    H.eq(Above(w.sniper, w.sticky) and Above(w.sniper, w.history), true, "the Marketplace closed: they stay under the Sniper")
+    w.market:Show()
+    FM.LayerShown(w.market)
+    H.eq(Above(w.market, w.sniper) and Above(w.sticky, w.market), true, "opened again: in front, its windows above it")
+    -- the Auction House clicked to the front, then the Sniper closed
+    w.Click(w.ah)
+    Close(w.sniper)
+    H.eq(Above(w.ah, w.market) and Above(w.ah, w.sticky) and Above(w.ah, w.history), true,
+        "the Sniper closed: nothing of the Marketplace comes in front of the AH")
+    H.eq(Above(w.sticky, w.market) and Above(w.history, w.market), true, "and its windows are still above it")
+    -- one of the side windows closed while the Sniper is in front
+    w.sniper:Show()
+    FM.LayerShown(w.sniper)
+    Close(w.history)
+    H.eq(Above(w.sniper, w.sticky), true, "the item history closed: the sticky window stays under the Sniper")
+    -- the Marketplace clicked last and closed while it borrows the Sniper's layer: its windows that stay open go
+    -- back to their own layer and are in front there
+    FM.GetSettings().windowSniper = "vanilla"
+    FM.LayersApply()
+    w.Click(w.ah)
+    w.Click(w.market)
+    H.eq(w.sticky:GetFrameStrata(), "HIGH", "clicked last: the Marketplace's windows borrow the Sniper's layer")
+    Close(w.market)
+    H.eq(w.sticky:GetFrameStrata(), "MEDIUM", "the Marketplace closed: its sticky window is back in its own layer")
+    H.eq(Above(w.sticky, w.ah), true, "and in front of the AH there, as it was")
+end)
+
 H.test("layers: a window that is hidden gives a borrowed layer back, a saved value that is no choice is Standard", function()
     local FM, w = Setup("vanilla", "standard")
     w.Click(w.sniper)

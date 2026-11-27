@@ -53,7 +53,7 @@ H.test("picks row: no text of the AddOn names the options by their old names", f
     local found = {}
     for _, file in ipairs(files) do
         local code = Code(ADDON .. "/" .. file):lower()
-        for _, old in ipairs({ "lock plan after refresh", "lock manual plan changes" }) do
+        for _, old in ipairs({ "lock plan after refresh", "lock manual plan changes", "a locked plan", "locked plan keeps" }) do
             if code:find(old, 1, true) then found[#found + 1] = file .. ": " .. old end
         end
     end
