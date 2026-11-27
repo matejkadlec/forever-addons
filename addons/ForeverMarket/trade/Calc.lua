@@ -1080,10 +1080,11 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- What one plan of the Picks tab is made of: an automatic pass keeps these while the plan is locked. Every field
 -- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
 -- FRV-126, FRV-133), then when and with what it was made
--- (pickNow, pickCarry, pickRemoved: what the plan made again after an edit starts from, FRV-188)
+-- (pickNow, pickCarry, pickRemoved: what the plan made again after an edit starts from; pickSetDropped: the set picks it
+-- could not plan, nil once FM.DropFailedSetPicks has dropped them; FRV-188)
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden", "pickNow", "pickCarry", "pickRemoved" }
+    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden", "pickNow", "pickCarry", "pickRemoved", "pickSetDropped" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference
@@ -1128,6 +1129,20 @@ end
 -- "Lock manual plan changes" (Picks tab, default on, FRV-188): a new plan keeps the amounts you set, in their places
 function FM.PicksLockManual()
     return FM.GetSettings().tablePicksLockManual ~= false
+end
+
+-- The set picks a plan could not plan at all (FRV-188, out.pickSetDropped): their numbers end, the chat says why;
+-- edited: the key just set ("Failed to set the amount of ...")
+function FM.DropFailedSetPicks(out, edited)
+    for key, why in pairs(type(out.pickSetDropped) == "table" and out.pickSetDropped or {}) do
+        if FM.SaveSetPick then FM.SaveSetPick(key, nil) end
+        if key == edited then
+            FM.PrintError("Failed to set the amount of " .. tostring(FM.GetName(key)) .. ": " .. tostring(why) .. ".")
+        else
+            FM.Print(tostring(FM.GetName(key)) .. ": the amount you set is no longer kept, " .. tostring(why) .. ".")
+        end
+    end
+    out.pickSetDropped = nil
 end
 
 -- The set picks a new plan keeps (FRV-188): the ones that did not end (done, ignored), or none with "Lock manual plan
@@ -1413,6 +1428,7 @@ function FM.ComputeTrade(record, onDone)
                 local at = math_max(now, ((held and held.pickAt) or 0) + 1)
                 out.pickAt, out.pickT, out.pickListings, out.pickStock = at, out.t, out.listingsVersion, out.stockVersion
                 out.pickRecipes = out.recipesVersion
+                FM.DropFailedSetPicks(out)
                 done()
             end)
         end
@@ -1478,9 +1494,9 @@ end
 -- of your bags and bank, its budget and gold, what it carried over: what you bought and crafted since stays progress),
 -- with the latest scan's prices, keeping its time (pickAt: the sniper's trace and the sticky tooltips go by it). It runs
 -- like a pass (FM.TradeBusy; the table shows the plan before it meanwhile), counts the edit (pickEdit), lets the sniper
--- follow every pick within the plan with what each still has to buy (FM.PickBuysLeft) and draws the table. edited: the
--- key just set; a number that gives no pick is dropped again and the chat says why. view: the scan's (the latest, as
--- for every pass; a test gives its own). Returns true, or false and why it did not start
+-- follow every pick within the plan with what each still has to buy (FM.PickBuysLeft) and draws the table. A set pick
+-- that gives no pick is dropped and the chat says why (edited: the key just set, "Failed to set the amount of ...").
+-- view: the scan's (the latest, as for every pass; a test gives its own). Returns true, or false and why it did not start
 function FM.ReplanPicks(edited, view)
     if running then return false, "the table is computing, try again in a moment" end
     local trade = FM.trade
@@ -1496,18 +1512,14 @@ function FM.ReplanPicks(edited, view)
     local now = FM.Now()
     local ctx = { view = view or FpView(r.last), sources = FM.sources or FM.BuildSources(), now = now, nowMinutes = Minutes(now),
         carry = trade.pickCarry, set = FM.SetPickList and FM.SetPickList() or nil, owned = trade.pickOwned, asOf = asOf,
-        funds = trade.pickFunds, removed = trade.pickRemoved, edited = edited }
+        funds = trade.pickFunds, removed = trade.pickRemoved }
     running = true
     trade.busy = true
     local function Done()
         running = false
         trade.busy = false
         trade.pickEdit = (trade.pickEdit or 0) + 1
-        if edited and trade.pickEditFailed then
-            FM.SaveSetPick(edited, nil)
-            FM.PrintError("Failed to set the amount of " .. tostring(FM.GetName(edited)) .. ": " .. tostring(trade.pickEditFailed) .. ".")
-        end
-        trade.pickEditFailed = nil
+        FM.DropFailedSetPicks(trade, edited)
         if trade.pickAt and FM.SnipeFollowPlan then
             local ok, e = pcall(FM.SnipeFollowPlan, ShownBuysLeft(trade), trade.pickAt, true)
             if not ok and geterrorhandler then geterrorhandler()(e) end

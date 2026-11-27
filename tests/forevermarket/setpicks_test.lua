@@ -12,7 +12,8 @@
 --     its own numbers and your amounts are dropped
 --   * a set pick ends when you empty its input (the plan's own pick, the rest planned again), when it is done (made, or
 --     for a flip or vendor resell bought: the next new plan no longer keeps it), by Remove from Picks (it leaves the
---     plan at once, a later plan may choose it again) and by Ignore
+--     plan at once, a later plan may choose it again) and by Ignore; one a plan cannot plan at all ends there with a
+--     chat line (shown nowhere, it could neither be emptied nor removed)
 --   * set picks belong to the character that set them: an alt's plan neither keeps nor changes them
 --   * the status: a warning when a unit earns less than your minimum profit, a red cross when the pick loses money (a
 --     set pick, or a pick of a plan held by Lock plan after refresh once a scan moved the price)
@@ -88,6 +89,7 @@ local function NewPlan(FM, env, out)
     FM.ComputePicks(out, ctx, function() done = true end)
     env.FlushTimers()
     H.eq(done, true, "the pass finished")
+    FM.DropFailedSetPicks(out) -- as FM.ComputeTrade does after every new plan
     FM.trade = out
     out.t, out.pickAt, out.pickT = env.clock, env.clock, env.clock
     FM.R().last = { t = env.clock, fp = {} }
@@ -201,6 +203,19 @@ H.test("set picks: one done is no longer kept by the next new plan", function()
     crafted = 5
     out = NewPlan(FM, env, Rows())
     H.same({ FM.SetPickEntry("201"), PickOf(out, "201").amountSet }, { nil, nil }, "X is a pick like any other again")
+end)
+
+H.test("set picks: one a new plan cannot plan at all ends there, the chat says why", function()
+    local FM, env = Setup()
+    NewPlan(FM, env, Rows())
+    Set(FM, env, "201", 5)
+    -- the next scan has no row of X (no craft of it in the numbers now): your number could be shown nowhere
+    local printed = #env.printed
+    local out = NewPlan(FM, env, { crafts = { Craft("202", 155000), Craft("203", 15 * G) } })
+    H.eq(FM.SetPickEntry("201"), nil, "your number is dropped")
+    H.eq(env.printed[printed + 1] ~= nil and env.printed[printed + 1]:find("the amount you set is no longer kept", 1, true) ~= nil,
+        true, tostring(env.printed[printed + 1]))
+    H.eq(Shape(out), "202 2, 203 2", "the plan without it")
 end)
 
 H.test("set picks: a flip or a vendor resell is done once its units are bought", function()

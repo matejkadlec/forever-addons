@@ -3093,7 +3093,7 @@ local function StartPass(ctx)
 end
 
 -- ctx = { view, sources, now, nowMinutes, carry (FRV-104), set = FM.SetPickList() (FRV-188), and for a plan made again
--- after an edit asOf, owned, funds, removed, edited (the key just set) }
+-- after an edit asOf, owned, funds, removed }
 function FM.ComputePicks(out, ctx, done)
     local funds, gold = StartPass(ctx)
     out.pickGold = gold
@@ -3102,7 +3102,8 @@ function FM.ComputePicks(out, ctx, done)
     -- what a plan made again after an edit starts from (FRV-188): this plan's moment, what it carried over, what you
     -- removed from it
     out.pickNow, out.pickCarry, out.pickRemoved = P.asOf or P.now, ctx.carry, P.removed
-    out.pickEditFailed = nil
+    -- the set picks this pass could not plan at all: their numbers end (trade/Calc.lua drops them and says why)
+    out.pickSetDropped = {}
 
     local why = {}
     local candidates = Candidates(out, why)
@@ -3118,14 +3119,16 @@ function FM.ComputePicks(out, ctx, done)
         end
     end
     -- the set picks (FRV-188): candidates of their own, your number in P.want; their items are no choice of the plan
-    -- (one pick per item), whatever the tab's filters say, also while one cannot be planned now (it stays yours)
+    -- (one pick per item), whatever the tab's filters say. One the numbers now have no row for ends here (shown nowhere,
+    -- it could be neither emptied nor removed): the plan may pick the item by its own numbers
     local setIn, setOut, setItem = {}, {}, {}
     for _, e in ipairs(type(ctx.set) == "table" and ctx.set or EMPTY) do
         local left, doneSince = FM.SetPickLeft(e, P.asOf)
         if left >= 1 and not setItem[e.key] and not P.removed[e.key] then
-            setItem[e.key] = true
             local c = SetCandidate(out, e)
+            if not c then out.pickSetDropped[e.key] = "the numbers now have no such pick of it" end
             if c then
+                setItem[e.key] = true
                 c.set, c.left = e, left
                 P.want[e.key] = left
                 -- a craft's crafts since you set it count toward your number (FRV-104's carry: listed with it); what it
@@ -3186,6 +3189,17 @@ function FM.ComputePicks(out, ctx, done)
         return best
     end
 
+    -- A set pick that gives no pick ends (out.pickSetDropped: trade/Calc.lua drops your number and says why): its
+    -- number and carry undone, its item's candidates back for the plan
+    local function SetFailed(c, reason)
+        out.pickSetDropped[c.set.key] = reason or "it is no pick now"
+        P.want[c.set.key] = nil
+        if c.set.from == "craft" then P.carry[c.set.key] = c.carryWas end
+        for i, d in ipairs(candidates) do
+            if d.row.key == c.set.key and not P.removed[d.row.key] then taken[i] = nil end
+        end
+    end
+
     -- A set pick for your number: nil and why when it is none (or only lists what you hold: nothing to set)
     local function SetPick(c)
         local ok, pick, reason = pcall(Evaluate, c)
@@ -3210,8 +3224,8 @@ function FM.ComputePicks(out, ctx, done)
             local pick, reason = SetPick(c)
             if pick then
                 setExtra[#setExtra + 1] = pick
-            elseif c.set.key == ctx.edited then
-                out.pickEditFailed = reason
+            else
+                SetFailed(c, reason)
             end
         end
         for i, c in ipairs(setIn) do
@@ -3236,15 +3250,9 @@ function FM.ComputePicks(out, ctx, done)
             Commit(pick, #chosen + 1)
             chosen[#chosen + 1] = pick
             setChosen[#setChosen + 1] = pick
-        elseif c.set.key == ctx.edited then
-            -- the number you just set gives no pick: the plan may pick the item by its own numbers (FM.ReplanPicks drops
-            -- your number and says why)
-            out.pickEditFailed = reason
-            P.want[c.set.key] = nil
-            if c.set.from == "craft" then P.carry[c.set.key] = c.carryWas end
-            for i, d in ipairs(candidates) do
-                if d.row.key == c.set.key and not P.removed[d.row.key] then taken[i] = nil end
-            end
+        else
+            -- your number gives no pick: the plan may pick the item by its own numbers
+            SetFailed(c, reason)
         end
     end
 

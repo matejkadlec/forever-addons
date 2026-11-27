@@ -711,8 +711,10 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       `FM.AmountShown`) and the steps line ends the step it is about with a short red note (`pick.amountNote`): "(no
       more available for flipping)", "(the vendor has no more)", "(no more materials on the AH at a usable price)";
       the input's tooltip has the full reason (`pick.amountWhy`, "Set by you: 2. Only 1 can be bought now: ..."). When
-      nothing at all can be made for it, your number is dropped, the plan picks the item by its own numbers and a chat
-      line says why.
+      nothing at all can be made or bought for it, at the edit or at a later plan (its cheap listings gone, no craft of
+      it in the numbers now), your number ends, the plan picks the item by its own numbers and a chat line says why
+      ("Failed to set the amount of ...", "...: the amount you set is no longer kept, ..."): shown nowhere, it could
+      neither be emptied nor removed.
     * It **keeps its place** (changing an amount never changes the order), and the plan's other picks are chosen again
       with the same "Picks N" (the set picks count in it) and what is left of the budget: the gold your set picks need
       is kept for them first, so raising a number takes budget from every other pick and lowering it gives budget back.
