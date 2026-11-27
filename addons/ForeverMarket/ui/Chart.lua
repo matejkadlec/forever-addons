@@ -23,7 +23,7 @@ local INSET = 14 -- first and last dot from the plot's edges
 local DASH, DASH_GAP = 6, 4 -- the dashed line's pieces
 local BAR_SHARE = 0.3 -- the highest bar reaches this share of the plot's height
 local MARK = 5 -- a mark's size; marks stack above their dot
-local STEP_LABEL_GAP = 12 -- round steps (FRV-117): lines closer than this (a label's height) keep only the first one
+local STEP_LABEL_GAP = 12 -- round steps (FRV-217): lines closer than this (a label's height) keep only the first one
 local HOLE_RGB = { 0.05, 0.05, 0.05 } -- the inside of a hollow dot: the dark of the frames' inset
 local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
@@ -43,45 +43,50 @@ function FM.ChartCoins(copper, parts, plain)
     return table.concat(out, " ")
 end
 
----------------------------------------------------------------- round steps (FRV-117)
+---------------------------------------------------------------- round steps (FRV-117, FRV-217)
 
--- The Profit tab's y-axis steps the 1 - 2.5 - 5 series in copper: ... 10c, 25c, 50c, 1s, 2.5s, ... 10g, 25g, 50g,
--- 100g, 250g ... Step k = 0 is 10c, the smallest top line; the two lines under a top line may go below it (5c, 2.5c)
-local STEP_MULT = { 1, 2.5, 5 }
-local STEP_MAX = 60 -- k far past any gold amount (a guard against a value that never ends the search)
+-- The Profit tab's y-axis has four equal steps above 0 (FRV-217; FRV-117's ladder of 10 - 25 - 50 - 100 - 250 put a
+-- result of 252g under a 500g top with uneven lines): 0, s, 2s, 3s, 4s. The step s is a round size in copper from
+-- 1, 2, 2.5, 5 x 10^n (... 10s, 20s, 25s, 50s, 1g, 2g, 2.5g, 5g, 10g ...); step k = 0 is 1c
+local STEP_MULT = { 1, 2, 2.5, 5 }
+local STEP_COUNT = 4 -- steps from 0 to the top line
+local STEP_MAX = 80 -- k far past any gold amount (a guard against a value that never ends the search)
 
 local function StepAt(k)
-    return 10 ^ (math_floor(k / 3) + 1) * STEP_MULT[k % 3 + 1]
+    return 10 ^ math_floor(k / 4) * STEP_MULT[k % 4 + 1]
 end
 
--- The smallest step strictly above v (v >= 0): its k
-local function StepAbove(v)
+-- The smallest step with four of them strictly above v (v >= 0): a highest dot of exactly 100g gets 50g, not 25g
+local function StepFor(v)
     local k = 0
-    while k < STEP_MAX and StepAt(k) <= v do k = k + 1 end
-    return k
+    while k < STEP_MAX and STEP_COUNT * StepAt(k) <= v do k = k + 1 end
+    return StepAt(k)
 end
 
--- The y range and the grid lines for values from lo to hi (0 included): the top is the smallest step the highest
--- value does not reach, with the two steps before it; when a value goes under 0, the same mirrored below it; 0 is
--- always a line. Without any value above 0 only the negative side shows, without any value at all the smallest
--- steps. lines are in the order they keep their label when two would meet: 0, the outer steps, then inward
+-- How many steps of s a side needs: the fewest whose end lies beyond v (v >= 0), none for a side without a value
+local function StepsBeyond(v, s)
+    if v <= 0 then return 0 end
+    local n = math_floor(v / s) + 1
+    return math_min(n, STEP_COUNT)
+end
+
+-- The y range and the grid lines for values from lo to hi (0 included): the step comes from the larger of the
+-- highest value and the depth of the lowest, so that side has its four steps; the other side goes on in the same
+-- step as far as its value needs, so every line is the same distance from the next. 0 is always a line. With no
+-- value under 0 the range starts at 0, with none above it ends there. lines are in the order they keep their label
+-- when two would meet: 0, the outer steps, then inward
 function FM.ChartSteps(lo, hi)
     lo, hi = math_min(lo or 0, 0), math_max(hi or 0, 0)
-    local up, down = {}, {}
-    if hi > 0 or lo >= 0 then
-        local k = StepAbove(hi)
-        for j = 0, 2 do up[#up + 1] = StepAt(k - j) end
-    end
-    if lo < 0 then
-        local k = StepAbove(-lo)
-        for j = 0, 2 do down[#down + 1] = -StepAt(k - j) end
-    end
+    local s = StepFor(math_max(hi, -lo))
+    -- the larger side always has all four steps (also a chart with no value at all: 0 to four of the smallest)
+    local up = (hi >= -lo) and STEP_COUNT or StepsBeyond(hi, s)
+    local down = (-lo > hi) and STEP_COUNT or StepsBeyond(-lo, s)
     local lines = { 0 }
-    for j = 1, 3 do
-        if up[j] then lines[#lines + 1] = up[j] end
-        if down[j] then lines[#lines + 1] = down[j] end
+    for j = STEP_COUNT, 1, -1 do
+        if j <= up then lines[#lines + 1] = j * s end
+        if j <= down then lines[#lines + 1] = -j * s end
     end
-    return { lo = down[1] or 0, hi = up[1] or 0, lines = lines }
+    return { lo = -down * s, hi = up * s, step = s, lines = lines }
 end
 
 -- A step's label: the round value only, "100g", "2.5g", "1,000g", "50s", "25c", "-25g" (the coin letters colored)
@@ -283,7 +288,7 @@ end
 --   lineColor = { r, g, b }; yText(v) -> a grid label
 --   startValue = the line starts at the plot's left edge at this value (Profit: 0), nil = at the first dot
 --   withZero = 0 stays in the y range, minSpan = the smallest range shown (copper)
---   roundSteps = the y range and its lines on round steps (FM.ChartSteps, FRV-117: the Profit tab), labeled by
+--   roundSteps = the y range and its lines in equal round steps (FM.ChartSteps, FRV-217: the Profit tab), labeled by
 --     FM.ChartStepText; a line too close to one already labeled is left out. Without it 4 evenly spaced lines
 --   ref = { value, text, color = { r, g, b } } a dashed horizontal line with its label, nil = none
 --   refs = { { value, text, color, solid } } more of them (solid: a thin solid line)
@@ -310,7 +315,7 @@ function Chart:Draw(spec)
     if not lo then lo, hi = 0, 0 end
     local steps
     if spec.roundSteps then
-        -- the top and bottom are round steps themselves, so the line ends under the top one (FRV-117)
+        -- the top and bottom are steps themselves, so the line ends under the top one (FRV-117, FRV-217)
         steps = FM.ChartSteps(lo, hi)
         lo, hi = steps.lo, steps.hi
     else

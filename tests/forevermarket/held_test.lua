@@ -857,7 +857,8 @@ end)
 
 -- Rule: a reading counts only under the rule it was made by. 1.38.0, a build of this pull request that ran in the
 -- maintainer's game, wrote readings with "c", a base and readings' parts, 1.38.1 to 1.38.3 with "c2"; what a
--- reading counts changed after 1.38.0 and after 1.38.2
+-- reading counts changed after 1.38.0 and after 1.38.2, and again with 1.58.0 ("c4", FRV-216: a running auction's
+-- deposit no longer depends on what the client has loaded, and an item that does not stack pays per auction)
 H.test("held: readings, the base and the parts of an earlier rule do not count, the first reading takes them again", function()
     local FM, env, state, r = Session(nil, DAY2 + 12 * 3600)
     local key = C.bracers.leather.key
@@ -879,8 +880,8 @@ H.test("held: readings, the base and the parts of an earlier rule do not count, 
     H.eq(r.heldRule, FM.HELD_RULE, "the bucket's rule")
     H.eq(r.heldBase.Ada, FM.Stamp(env.clock) .. "|" .. key .. "=" .. B(77) .. ";6948=1", "the base, taken again")
     H.eq(#r.heldLog.Ada, 1, "the parts start again")
-    H.eq(FM.HELD_RULE, "c3", "the rule of 1.38.4")
-    H.eq(FM.Split(r.worth.Ada[4], ",")[4], "hmc3", "the new reading (bags and mailbox seen) carries the rule")
+    H.eq(FM.HELD_RULE, "c4", "the rule of 1.58.0 (FRV-216)")
+    H.eq(FM.Split(r.worth.Ada[4], ",")[4], "hmc4", "the new reading (bags and mailbox seen) carries the rule")
     H.same(Days(FM, env), { { 0, 0 }, 0 }, "and nothing moved")
 end)
 

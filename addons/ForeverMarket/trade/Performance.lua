@@ -194,7 +194,7 @@ local function Purchases(r, char, from)
 end
 
 -- Your posts since from, of char or without one of all your characters, by character and item:
--- who -> key -> { { t, qty, duration }, ... } (an expired mail belongs to a post of its own character)
+-- who -> key -> { { t, qty, duration, kind }, ... } (an expired mail belongs to a post of its own character)
 local function Posts(r, char, from)
     local byChar = {}
     for _, line in ipairs(type(r.posts) == "table" and r.posts or {}) do
@@ -206,7 +206,7 @@ local function Posts(r, char, from)
                 local byKey = byChar[f[2]]
                 byKey[f[3]] = byKey[f[3]] or {}
                 local list = byKey[f[3]]
-                list[#list + 1] = { t = t, qty = Dec(f[4]) or 1, duration = tonumber(f[6]) }
+                list[#list + 1] = { t = t, qty = Dec(f[4]) or 1, duration = tonumber(f[6]), kind = f[7] }
             end
         end
     end
@@ -372,7 +372,7 @@ local function Intake(r, char, cover)
     for _, byKey in pairs(posts) do
         for key, list in pairs(byKey) do
             for _, post in ipairs(list) do
-                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration) or 0
+                post.deposit = FM.PostDeposit and FM.PostDeposit(key, post.qty, post.duration, post.kind) or 0
             end
         end
     end
@@ -657,11 +657,27 @@ function FM.PerfScope()
     return FM.GetSettings().perfScope == "char" and "char" or "all", true
 end
 
-local cache = {} -- scope and mode -> { sig, series }
+local cache = {} -- scope and mode -> { r, char, sig, series, waiting, shown }
+
+-- The percent of a change as the tab shows it (FRV-216): one decimal under 10%, none from there on, with its sign.
+-- A result that is not 0 never reads as 0.0%: under 0.05% in size it is "+0.1%" or "-0.1%"; an exact 0 is "0.0%";
+-- nil (no capital to set it against) is ""
+function FM.PerfPercentText(pct)
+    if type(pct) ~= "number" or pct ~= pct then return "" end
+    if pct == 0 then return "0.0%" end
+    local size = math_abs(pct)
+    local sign = pct > 0 and "+" or "-"
+    if size < 0.05 then return sign .. "0.1%" end
+    if size < 9.95 then return sign .. string.format("%.1f%%", size) end
+    return sign .. string.format("%.0f%%", size)
+end
 
 -- { mode, all, periods = { { from, to, value, change, pct, flow, heldDelta, gold, sold, bought, expired, losses,
--- lossTotal } }, change, since, heldSince, heldNow, goldNow }: value = the AH result since the first dot's start; the
--- last period ends now with a live reading. scope = "char" or "all" (default: FM.PerfScope)
+-- lossTotal } }, change, since, heldSince, heldNow, goldNow, updating }: value = the AH result since the first dot's
+-- start; the last period ends now with a live reading. scope = "char" or "all" (default: FM.PerfScope).
+-- updating (FRV-216) = numbers are on their way: a post's deposit waits for its item's data (trade/Cost.lua). Until
+-- they are there (a few seconds at most) the series is the last finished one, so a dot never shows a value that is
+-- about to change; without a finished one yet (the first look after a login) it is what is known so far
 function FM.PerfSeries(modeId, now, scope)
     now = now or FM.Now()
     local mode = MODES[modeId] and modeId or "day"
@@ -672,13 +688,19 @@ function FM.PerfSeries(modeId, now, scope)
     local sig = Signature(r, char, mode, Start(mode, now))
     local id = (all and "all:" or "char:") .. mode
     local c = cache[id]
-    local series
-    if c and c.r == r and c.char == char and c.sig == sig then
-        series = c.series
-    else
-        series = Build(r, char, mode, now)
-        cache[id] = { r = r, char = char, sig = sig, series = series }
+    if not (c and c.r == r and c.char == char and c.sig == sig) then
+        local built = Build(r, char, mode, now)
+        local waiting = FM.DepositsPending and FM.DepositsPending() or false
+        local same = c and c.r == r and c.char == char
+        c = { r = r, char = char, sig = sig, series = built, waiting = waiting,
+            shown = (not waiting) and built or (same and c.shown or nil), liveStep = same and c.liveStep or nil }
+        cache[id] = c
+    elseif c.waiting and not (FM.DepositsPending and FM.DepositsPending()) then
+        -- the wait is over without a new answer (one that never comes): what is known counts
+        c.waiting, c.shown = false, c.series
     end
+    local series = c.shown or c.series
+    series.updating = c.waiting or nil
     local periods = series.periods
     local last = periods[#periods]
     -- the last period: the AH's money until now, and a reading of right now as one more step after the last one
@@ -686,6 +708,10 @@ function FM.PerfSeries(modeId, now, scope)
     local liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts
     if FM.WorthNow then liveGold, liveHeld, liveSeen, liveAll, liveSaw, liveParts = FM.WorthNow(true) end
     if all then liveHeld, liveSeen = liveAll, liveSaw end
+    -- a live reading made while a deposit is still unknown holds less than the next one will: the step of the last
+    -- finished one stands until then, so the dot stays where it was
+    local liveWaits = FM.DepositsPending and FM.DepositsPending() or false
+    if liveWaits then series.updating = true end
     -- own gear equipped since the last reading: its drop in the live step is taken back (series.liveFix, FRV-93)
     local liveStep = (liveGold and series.lastSaw and series.lastSaw == liveSeen)
         and (liveHeld - series.lastHeld + (series.liveFix or 0)) or 0
@@ -700,6 +726,7 @@ function FM.PerfSeries(modeId, now, scope)
             series.liveLeftOut = nil
         end
     end
+    if liveWaits then liveStep = c.liveStep or 0 else c.liveStep = liveStep end
     if all then
         -- your gold: this character's right now, the others' as last recorded
         local gold = liveGold

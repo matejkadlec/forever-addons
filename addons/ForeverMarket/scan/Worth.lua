@@ -12,7 +12,7 @@ local _, FM = ...
 --   held = of each item with lots (bought on the AH or crafted from what you bought, not sold since: FM.BasisBook)
 --   the units you still hold (bags, bank, mailbox, purchases still in the mail, your auctions) at what they cost,
 --   plus the deposits of your running auctions and the money of sold ones still on its way by mail;
---   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + the rule the reading was made by (FM.HELD_RULE, "c3":
+--   seen = "h" + "b" (the bank seen) + "m" (the mailbox seen) + the rule the reading was made by (FM.HELD_RULE, "c4":
 --   counted at cost, 1.38; only readings of the current rule count for what you held): held counts in a change only
 --   between readings that saw the same, so the first look at the bank is no gain (readings without "h" are from
 --   1.15.0-1.15.1);
@@ -53,8 +53,11 @@ local table_sort = table.sort
 -- counts changes after a build ran on real saved variables: 1.38.0, a build of this pull request that was synced into
 -- the maintainer's game, wrote "c" (an auction gone from a list still counted as sold there); 1.38.1 to 1.38.3 wrote
 -- "c2" (until 1.38.2 an auction gone although it could not have run out lost its units at the next look into the
--- mailbox); "c3" since 1.38.4
-local RULE = "c3"
+-- mailbox); "c3" 1.38.4 to 1.57.7; "c4" since 1.58.0 (FRV-216): until then a running auction's deposit counted only
+-- while the client had its item loaded (so a reading after a /reload held less, and the next one "rose" back and was
+-- left out), and an item that does not stack counted 1s per auction where the AH takes its share of the vendor
+-- price (trade/Cost.lua)
+local RULE = "c4"
 FM.HELD_RULE = RULE
 
 local FAIR_HOURS = 72 -- the usual price looks at the snapshots of this many hours before a moment
@@ -147,12 +150,14 @@ local function EachEntry(list, fn)
     end
 end
 
--- Deposit of a post (duration index 1 = 2h, 2 = 8h, 3 = 24h): measured or estimated (trade/Cost.lua), 2h as a
--- quarter of the 8h deposit; 0 when unknown
-local function PostDeposit(key, qty, duration)
+-- Deposit of a post (duration index 1 = 2h, 2 = 8h, 3 = 24h; kind = the post's kind, "c" a commodity, else single
+-- auctions): measured or estimated (trade/Cost.lua), 2h as a quarter of the 8h deposit; 0 while unknown (the item's
+-- data is asked for then, FM.DepositsPending)
+local function PostDeposit(key, qty, duration, kind)
     if not FM.Deposit then return 0 end
-    if duration == 2 or duration == 3 then return FM.Deposit(key, qty, duration) or 0 end
-    local d8 = FM.Deposit(key, qty, 2)
+    kind = kind or "?" -- a post of a kind nobody recorded: the item's stack size decides
+    if duration == 2 or duration == 3 then return FM.Deposit(key, qty, duration, kind) or 0 end
+    local d8 = FM.Deposit(key, qty, 2, kind)
     return d8 and d8 * (POST_HOURS[duration or 1] or 2) / 8 or 0
 end
 FM.PostDeposit = PostDeposit
@@ -260,7 +265,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
                 local aid, key = f[1], table_concat(f, ":", 2, n - 4)
                 local qty, buyout, status, left = Dec(f[n - 3]) or 1, Dec(f[n - 2]) or 0, f[n - 1], Dec(f[n]) or 0
                 local post = byAid[aid]
-                local deposit = post and PostDeposit(key, post.qty, post.duration) * qty / math_max(post.qty, 1) or 0
+                local deposit = post and PostDeposit(key, post.qty, post.duration, post.kind) * qty / math_max(post.qty, 1) or 0
                 inList[aid] = true
                 if status == "s" then
                     -- a sold row holds the sale's total: lists since 1.38 (v = 2) store its price per unit, older
@@ -407,7 +412,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
         -- posted after the list (minute stamps: one of the same minute may be in it already, its ID tells)
         if not (post.aid and (inList[post.aid] or cancelled[post.aid])) and (not listT or post.t >= listT - 60) then
             running[#running + 1] = { t = post.t, key = post.key, qty = post.qty,
-                deposit = PostDeposit(post.key, post.qty, post.duration),
+                deposit = PostDeposit(post.key, post.qty, post.duration, post.kind),
                 ends = post.t + (POST_HOURS[post.duration or 3] or 24) * 3600 }
         end
     end
@@ -447,7 +452,7 @@ local function Auctions(r, char, now, mailT, add, look, notes)
             if c.sale then
                 -- the unit price (commodities) or the auction's buyout (one item), and a sold auction's deposit
                 local post = c.kind == "osold" and c.aid and byAid[c.aid]
-                local deposit = post and PostDeposit(c.key, post.qty, post.duration) * c.open / math_max(post.qty, 1) or 0
+                local deposit = post and PostDeposit(c.key, post.qty, post.duration, post.kind) * c.open / math_max(post.qty, 1) or 0
                 local money = c.unit * c.open * (1 - AH_CUT) + deposit
                 total = total + money
                 if notes then notes.sold[#notes.sold + 1] = { key = c.key, qty = c.open, money = money } end
@@ -930,7 +935,7 @@ local HELD_LOG_ITEMS = 12 -- items kept of each
 local PLACES = { { "bags", "b" }, { "bank", "k" }, { "mail", "m" }, { "auctions", "a" }, { "others", "o" } }
 FM.HELD_PLACES = PLACES
 
--- What a reading line saw: this character's "hbmc3" and the hash of all of them together ("" before 1.24)
+-- What a reading line saw: this character's "hbmc4" and the hash of all of them together ("" before 1.24)
 local function Saw(line)
     local f = FM.Split(line, ",")
     return (f[4] or "") .. "," .. (f[6] or "")
@@ -943,7 +948,10 @@ local function Mark(line)
 end
 
 -- What can make what you hold rise since a moment: your AH purchases, the won auctions' mails you read and the
--- deposits of your posts (of char, or of all your characters)
+-- deposits of your posts (of char, or of all your characters). since is a reading's time, a whole minute, and so
+-- are a mail's read time and a post's time: one of the reading's own minute may have come after it and counts
+-- (FRV-216: the maintainer's reading of 2026-11-27 13:53 was taken seconds before 28 won auctions' mails of 39g
+-- were read in the same minute; the next readings, which held their items, were left out for three hours)
 local function SpentSince(r, char, since)
     local sum = 0
     for i = #(r.buys or {}), 1, -1 do
@@ -955,13 +963,13 @@ local function SpentSince(r, char, since)
         local f = FM.Split(r.invoices[i], ",")
         local read = FM.Unstamp(f[11]) or FM.Unstamp(f[1])
         if not read or read < since - 86400 then break end -- the log is in the order the mails were read
-        if f[3] == "buyer" and read > since and (not char or f[2] == char) then sum = sum + (Dec(f[7]) or 0) end
+        if f[3] == "buyer" and read >= since and (not char or f[2] == char) then sum = sum + (Dec(f[7]) or 0) end
     end
     for i = #(r.posts or {}), 1, -1 do
         local f = FM.Split(r.posts[i], ",")
         local t = FM.Unstamp(f[1])
-        if not t or t <= since then break end
-        if f[3] and (not char or f[2] == char) then sum = sum + PostDeposit(f[3], Dec(f[4]) or 1, tonumber(f[6])) end
+        if not t or t < since then break end
+        if f[3] and (not char or f[2] == char) then sum = sum + PostDeposit(f[3], Dec(f[4]) or 1, tonumber(f[6]), f[7]) end
     end
     return sum
 end
@@ -1046,6 +1054,13 @@ function FM.RecordWorth(force, atLogout)
     if not force and now - lastAt < MIN_GAP then return end
     local gold, held, seen, all, saw, parts = FM.WorthNow(true)
     if not gold then return end
+    -- nor while a running auction's deposit waits for its item's data (trade/Cost.lua asks the client, FRV-216): a
+    -- reading without it would hold less, and the next one would rise back by it. Once more in a few seconds; the
+    -- wait ends by itself (FM.DepositsPending)
+    if FM.DepositsPending and FM.DepositsPending() then
+        if not atLogout and C_Timer and C_Timer.After then C_Timer.After(3, function() FM.RecordWorth(force) end) end
+        return
+    end
     local _
     -- right after login GetMoney() can still answer 0
     if gold == 0 and FM.loginAt and now - FM.loginAt < 30 then return end

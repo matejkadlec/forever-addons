@@ -1378,19 +1378,45 @@ Your **AH result** as a line from 0 with one dot per day, week or month (**Daily
 **Monthly** in the filter row, the last 30 days / 26 weeks / 12 months, from the first AH money on; weeks start on
 Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flights never move it.
 
-* **The y-axis on round steps** (1.43, FRV-117; `FM.ChartSteps` / `FM.ChartStepText` in `ui/Chart.lua`, the chart's
-  `roundSteps`, which only this tab turns on: the item history keeps its 4 evenly spaced lines): the steps follow
-  the 1 - 2.5 - 5 series, 10g, 25g, 50g, 100g, 250g, 500g, 1000g, 2500g and so on up, and below 10g down to 10c (5g,
-  2.5g, 1g, 50s, 25s, 10s, ... 10c). Three lines above 0: the top one is the smallest step the highest dot does not
-  reach (strictly above it: a highest dot of exactly 100g gives 250g), and the two steps before it; the chart's top
-  is that step, so the line ends under it, and the lines sit at their real heights (+82g 42s: 100g, 50g, 25g). When
-  the line goes under 0 the negative side follows the same rule from its lowest dot (-12g: -25g, -10g, -5g), 0 is
-  always a line, and without any dot above 0 only the negative side shows. A line closer than a label's height to one
-  drawn before (0 first, then the outer steps, then inward) is left out, so labels never overlap (a dip of a few
-  silver under a line up to 100g shows no negative steps). Labels are the round value only, in the coin colors:
-  "100g", "2.5g", "1,000g", "50s", "25c". Before 1.43 the 4 lines were spaced evenly over the data's range ("30g 77s",
-  "61g 54s", "92g 31s")
-
+* **The y-axis in four equal steps** (1.58, FRV-217, replacing the round steps of 1.43, FRV-117; `FM.ChartSteps` /
+  `FM.ChartStepText` in `ui/Chart.lua`, the chart's `roundSteps`, which only this tab turns on: the item history
+  keeps its 4 evenly spaced lines): the lines above 0 are 0, s, 2s, 3s and 4s, evenly spaced. The step s is a round
+  size from 1, 2, 2.5 and 5 times a power of ten (... 10s, 20s, 25s, 50s, 1g, 2g, 2.5g, 5g, 10g, 20g, 25g, 50g, 100g,
+  200g, 250g, 500g, 1000g ...): the smallest one with 4s above the highest dot, strictly (a highest dot of exactly
+  100g gives steps of 50g up to 200g). +82g: 25g, 50g, 75g, 100g; +150g or +194g: 50g to 200g; +252g: 100g to 400g;
+  +450g: 200g to 800g; +900g: 250g to 1000g; +7g: 2g to 8g; +60s: 20s to 80s. Under 0 the same step goes on downward
+  as far as the lowest dot needs, the fewest steps whose bottom is under it (a dip to -30g under a high of 82g: -25g
+  and -50g), so every line is the same distance from the next; when the negative side is the larger one, the step
+  comes from it and the positive side goes as far as it needs. 0 is always a line, and without any dot above 0 only
+  the negative side shows. Labels are the round value only, in the coin colors: "75g", "2.5g", "1,000g", "20s".
+  From 1.43 to 1.57 the steps followed 10 - 25 - 50 - 100 - 250 with three lines above 0 (the top one the first step
+  the line did not reach, +252g under a 500g top); before 1.43 the 4 lines were spaced evenly over the data's range
+  ("30g 77s", "61g 54s", "92g 31s")
+* **The numbers stand still while nothing happens** (1.58, FRV-216). A post's deposit is worked out from the item's
+  vendor price, which only the client knows, and the client only answers for items it has loaded. Until 1.57 the tab
+  asked each time it drew: a deposit counted while its item was loaded and was 0 while it was not, so the same logs
+  gave different totals from one draw to the next (today's dot changing under the mouse while the table computed)
+  and across a `/reload` (the maintainer's total went from +252g to +194g on 2026-11-27, with the same logs).
+  Now:
+  * the vendor price and the stack size are kept in the saved data once the client has told them (`R.facts[key]`,
+    `"sell:stack"`, trade/Cost.lua), and a deposit is worked out from the kept answer: the same number whatever the
+    client has loaded, also after a `/reload`
+  * an item nobody asked about before is asked for. While a post's deposit waits for that answer (at most 10
+    seconds, `FM.DepositsPending`) the tab shows the **last finished numbers**, the header says "updating..." and a
+    dot's tooltip "Updating: these are the last finished numbers"; the first look after a login, with no finished
+    numbers yet, shows what is known so far with the same note. The answer (or the 10 seconds) ends it, and the tab
+    draws again by itself
+  * no reading of what you hold is taken during that wait (it would hold less than the next one)
+  * the deposit rule itself is corrected (trade/Cost.lua, `FM.Deposit`), from the real deposits in the maintainer's
+    1,791 sale mails: an item that does not stack pays its share of the vendor price per auction (20% for 8 hours,
+    60% for 24, rounded down, at least 1c) and no 1s floor, where the tab had counted 1s per auction (a Light
+    Leather Reagent Bag pays 20c: every unsold bag showed as a loss of 1s); a commodity pays the share for the whole
+    post and at least 1s, also where Blizzard's calculator answers less for a few units
+  * so what a reading counts changed, and the readings start again under the rule `c4`: the readings of 1.38 to 1.57
+    (`c3`) no longer count for what you held, the days before the first new reading come from the logs (below), and
+    the first new reading says again which bought units are gone
+  * a percent that is not 0 never reads "0.0%": under 0.05% in size it is "+0.1%" or "-0.1%", an exact 0 is "0.0%"
+    (`FM.PerfPercentText`)
 * **This character** / **All characters** (1.24, FRV-37; right of Daily / Weekly / Monthly, `perfScope`): shown
   once more than one character of this realm and faction has AH logs (posts, purchases or AH mail), and then
   **All characters** is the default. With one such character there is no switch and the tab shows that character
@@ -1442,7 +1468,8 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   plus the deposits out (a post's deposit, less the share each sale's mail brings back, the rest gone when the
   auction ends). The readings of 1.15 to 1.37 no longer count for what you held (they still tell your gold): they
   were sums at the usual price that counted a sold stack's money several times over, and what your bags held then
-  is not saved. The first reading of 1.38 also says which bought units are simply gone (`heldBase[char]`, and `*`
+  is not saved. Nor do those of 1.38 to 1.57 since 1.58 (FRV-216, above): their deposits depended on what the
+  client had loaded. The first reading of 1.38 also says which bought units are simply gone (`heldBase[char]`, and `*`
   for all characters: the units it held): lot units it does not find, neither held nor in a product of an
   unrecorded craft, count as gone from the moment they were bought or made (a learned pattern, a bag in use, eaten
   food, the materials of a craft whose product never sold on the AH). The step from the logs onto that reading
@@ -1454,7 +1481,10 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
   last reading that counts (plus 1g or 5% of what you held) is a mistake of that reading, never a gain: it is saved
   with the mark `x` and left out of the dots, the reading of right now gets no step, and the chat says so once per
   session. Left out for 12 hours, the level is taken as it is: the next reading is marked `r`, a new baseline whose
-  step counts nothing. No reading is made while the bags read empty (their containers not loaded).
+  step counts nothing. No reading is made while the bags read empty (their containers not loaded). A won auction's
+  mail read, or a post made, in the same minute as a reading may have come after it and explains a rise too (1.58,
+  FRV-216: readings, mails and posts carry whole minutes; on 2026-11-27 a reading taken seconds before 28 won
+  auctions' mails of 39g were read made the next three readings, which held those items, count as mistakes).
 * **`/fm held`** (1.38): what "Held from the AH" is made of right now: the deposits, the sold auctions' money on its
   way, and the largest items with their units, what one cost, the value and where they are (bags, bank, mail,
   auctions, other characters; "from a craft nobody recorded" where the cost is the recipe's materials). Then the

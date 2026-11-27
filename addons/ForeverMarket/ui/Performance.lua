@@ -9,7 +9,6 @@ local _, FM = ...
 local type = type
 local ipairs = ipairs
 local math_min = math.min
-local math_abs = math.abs
 local math_ceil = math.ceil
 local string_format = string.format
 
@@ -37,10 +36,10 @@ local function Signed(copper, plain)
     return Coins(0, nil, plain)
 end
 
+-- " (+2.4%)": the percent as trade/Performance.lua words it (a result that is not 0 never reads 0.0%, FRV-216)
 local function Percent(pct)
-    if type(pct) ~= "number" then return "" end
-    local text = math_abs(pct) < 10 and string_format("%.1f%%", pct) or string_format("%.0f%%", pct)
-    return " (" .. (pct > 0 and "+" or "") .. text .. ")"
+    local text = FM.PerfPercentText(pct)
+    return text ~= "" and (" (" .. text .. ")") or ""
 end
 
 local function ChangeColor(change)
@@ -104,6 +103,8 @@ local function ShowPeriod(owner, p, mode)
     if #p.sold + #p.bought == 0 and p.lossTotal < 0.5 then
         tip:AddLine("Nothing sold or bought", 0.62, 0.62, 0.62)
     end
+    -- numbers on their way (a post's deposit waits for its item's data): these are the last finished ones (FRV-216)
+    if series.updating then tip:AddLine("Updating: these are the last finished numbers", 0.62, 0.62, 0.62) end
     tip:Show()
 end
 
@@ -204,7 +205,7 @@ local function Render()
     p.value:SetText(Signed(series.change))
     p.value:SetTextColor(c[1], c[2], c[3])
     p.change:SetText(GREY .. "over the " .. #periods .. " " .. (mode == "day" and "day" or mode) .. (#periods == 1 and "" or "s")
-        .. " shown|r")
+        .. " shown" .. (series.updating and "  ·  updating..." or "") .. "|r")
     p.title:SetText(series.all and "AH result, all characters" or "AH result")
     p.split:SetText(string_format("Held from the AH %s  ·  Gold %s|n%s%s|r",
         series.heldNow and Coins(series.heldNow) or "-", series.goldNow and Coins(series.goldNow) or "-", GREY,
@@ -213,7 +214,7 @@ local function Render()
     p.empty:Hide()
 
     -- the line from 0 at the plot's left edge (green when the range went up, red when down), dots colored by their
-    -- change, 0 always in the scale; the y-axis on round steps up to the first one the line does not reach (FRV-117)
+    -- change, 0 always in the scale; the y-axis in four equal round steps above 0, the same step under it (FRV-217)
     local values = {}
     for i, per in ipairs(periods) do values[i] = per.value end
     p.chart:Draw({
@@ -225,6 +226,11 @@ local function Render()
         withZero = true,
         roundSteps = true,
     })
+end
+
+-- While numbers are on their way the tab draws again a moment later: the wait ends with the item's data or by itself
+local function Again()
+    if series and series.updating and panel and panel:IsVisible() and FM.PerfChanged then FM.PerfChanged() end
 end
 
 -- Show or hide the tab's panel (geo: where it sits in the table frame); renders when shown
@@ -239,6 +245,7 @@ function FM.PerfShow(parent, show, geo)
     if not panel then panel = CreatePanel(parent, geo) end
     panel:Show()
     Render()
+    Again()
 end
 
 -- The table's footer line on this tab
@@ -265,6 +272,7 @@ local function Changed()
         if panel and panel:IsVisible() and FM.RefreshTable then FM.RefreshTable() end
     end)
 end
+FM.PerfChanged = Changed -- trade/Cost.lua: a post's deposit became known
 FM.On("PLAYER_MONEY", Changed)
 FM.On("BAG_UPDATE_DELAYED", Changed)
 FM.On("PLAYER_EQUIPMENT_CHANGED", Changed)

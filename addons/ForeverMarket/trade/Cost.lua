@@ -8,9 +8,15 @@ local _, FM = ...
 --     in its own handler of the quote event); COMMODITY_PURCHASE_SUCCEEDED makes it real. Until 1.36 the confirm took
 --     the latest quote seen, and the sniper confirms inside its own handler of that event, before this file had seen
 --     it: sniper purchases were logged with the quote before (or not at all), FM.RepairBuys mends the saved log
---   * the deposit of an auction: max(1s, share x vendor sell price x quantity), share 20% for 8h and 60% for 24h
---     (Medium Leather sells to vendors for 50c: 10c a unit for 8h, 1s up to 10 units, as measured in game);
---     Blizzard's deposit calculator replaces the estimate for the stackable items in your bags when the AH opens
+--   * the deposit of an auction, share 20% of the vendor sell price for 8h and 60% for 24h. A commodity (an item
+--     that stacks) pays max(1s, share x price x quantity) for the whole post (Medium Leather sells to vendors for
+--     50c: 10c a unit for 8h, 1s up to 10 units, as measured in game); an item that does not stack goes up one
+--     auction per unit and each pays the share of its price, at least 1c and without the 1s floor (FRV-216: the
+--     maintainer's sale mails of 2026-11-27, 288 of 308 Light Leather Reagent Bags at 20c each, Fine Leather Pants
+--     at 1s 65c of a 8s 29c price). Blizzard's deposit calculator gives the rate of the stackable items in your
+--     bags when the AH opens. The vendor price and the stack size come from the client, which only answers for
+--     items it has loaded: both are kept in the saved data once known (R.facts), so a deposit no longer changes
+--     with what the client happens to have loaded (FRV-216: the Profit tab moved by 57g across a /reload)
 --   * per item: what your units cost now and what you paid for them, and the lowest price per unit for listing all
 --     your units for 8h / 24h that still nets their AH value (latest price x units) after the cut and one lost
 --     deposit (it comes back when the auction sells): a guard against selling under price by mistake
@@ -22,6 +28,8 @@ local _, FM = ...
 --             lines before 1.15.5 have no character and count for every character; mended once from your AH mail
 --             (1.36.3, FRV-102: r.buysRepair, r.buysRepaired)
 -- R.deposits [key] = { t = seconds, [2] = { rate, floor }, [3] = { rate, floor } }  (duration 2 = 8h, 3 = 24h)
+-- R.facts    [key] = "sell:stack"  what a vendor pays for one unit and how many stack, as the client last told
+--             (either part empty while unknown; FRV-216)
 
 local type = type
 local pairs = pairs
@@ -41,8 +49,10 @@ local PENDING_AGE = 60     -- a confirm without the server's answer after this i
 local MEASURE_AGE = 7 * 86400 -- deposits are measured again after a week
 local PROBE = 1000         -- units for the per unit rate (far above any floor)
 local DURATIONS = { 2, 3 } -- 8h, 24h on Forever (1 = 2h)
-local DEPOSIT_SHARE = { [2] = 0.2, [3] = 0.6 } -- of the vendor sell price per unit and duration
-local DEPOSIT_FLOOR = 100 -- 1s
+local DEPOSIT_PERCENT = { [2] = 20, [3] = 60 } -- of the vendor sell price per unit and duration
+local DEPOSIT_FLOOR = 100 -- 1s: the least a commodity post pays
+local FACTS_WAIT = 10 -- seconds a post's deposit waits for its item's data before it counts as unknown
+local FACTS_SETTLE = 0.5 -- item data arrives in bursts: one refresh after this long without more
 local OUTLIER_DROP = 0.75 -- a cheapest price under 75% of the scan before counts only once a later scan shows it too
 local CONFIRM_GAP = 5 * 60 -- a confirming scan is at least 5 min older than the one it confirms
 local CONFIRM_AGE = 2 * 86400 -- scans older than 2 days confirm nothing (prices move)
@@ -575,32 +585,107 @@ FM.On("AUCTION_HOUSE_SHOW", function()
     end)
 end)
 
--- What a vendor pays for one unit (0 = nothing), nil while the item isn't cached
-local function VendorSell(id)
+-- What the client says of an item, kept in the saved data once it answered (R.facts[key] = "sell:stack", FRV-216):
+-- what a vendor pays for one unit (0 = nothing) and how many of it stack. The client only answers for items it has
+-- loaded, and what it has loaded changes within a session and from one /reload to the next; asking also makes it
+-- load the item (GET_ITEM_INFO_RECEIVED follows). Returns sell, stack: the client's answer, else the saved one,
+-- else nil
+local function Facts(key, id)
+    local r = FM.R()
+    if type(r.facts) ~= "table" then r.facts = {} end
+    local saved = r.facts[key]
+    local sell, stack
+    if type(saved) == "string" then
+        local a, b = saved:match("^(%d*):(%d*)$")
+        sell, stack = tonumber(a), tonumber(b)
+    end
+    if not id then return sell, stack end
     local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
-    if not getInfo then return nil end
-    local ok, _, _, _, _, _, _, _, _, _, _, price = pcall(getInfo, id)
-    if ok and IsNumber(price) then return price end
-    return nil
+    if getInfo then
+        local ok, _, _, _, _, _, _, _, _, _, _, price = pcall(getInfo, id)
+        if ok and IsNumber(price) then sell = price end
+    end
+    local getStack = C_Item and C_Item.GetItemMaxStackSizeByID
+    if getStack then
+        local ok, n = pcall(getStack, id)
+        if ok and IsNumber(n) and n > 0 then stack = n end
+    end
+    local text = (sell and tostring(sell) or "") .. ":" .. (stack and tostring(stack) or "")
+    if text ~= ":" and text ~= saved then r.facts[key] = text end
+    return sell, stack
 end
 
--- Deposit of one auction of n units for a duration index (2 = 8h, 3 = 24h): measured at the AH, else from the
--- vendor sell price; nil when neither is known
-function FM.Deposit(key, n, duration)
+-- The items a post's deposit could not be worked out for yet (itemID -> { key, at }): the client was asked and has
+-- not answered. While one of them is younger than FACTS_WAIT the Profit tab's numbers are not final
+-- (FM.DepositsPending, trade/Performance.lua shows the last finished ones and scan/Worth.lua takes no reading); the
+-- answer makes everything that used a deposit count again
+local waiting = {}
+local settling = false
+
+local function FactsChanged()
+    settling = false
+    FM.dataVersion = (FM.dataVersion or 0) + 1
+    if FM.PerfChanged then FM.PerfChanged() end
+end
+
+local function OnFacts(itemID, success)
+    local w = waiting[itemID]
+    if not w then return end
+    waiting[itemID] = nil
+    if success ~= false then Facts(w.key, itemID) end
+    -- also an item that turned out not to exist ends its wait: the numbers that waited for it are final now
+    if not settling and C_Timer and C_Timer.After then
+        settling = true
+        C_Timer.After(FACTS_SETTLE, FactsChanged)
+    end
+end
+FM.On("GET_ITEM_INFO_RECEIVED", OnFacts)
+FM.On("ITEM_DATA_LOAD_RESULT", OnFacts)
+
+-- Whether a post's deposit still waits for its item's data (asked less than FACTS_WAIT ago)
+function FM.DepositsPending()
+    local now = FM.Now()
+    for _, w in pairs(waiting) do
+        if now - w.at < FACTS_WAIT then return true end
+    end
+    return false
+end
+
+-- Deposit of one post of n units for a duration index (2 = 8h, 3 = 24h); nil while the item's vendor price is not
+-- known (the client is asked then). kind = the post's kind when it is known ("c" a commodity, "i" or "b" single
+-- auctions; R.posts keeps it), else the item's stack size decides.
+--   * single auctions (an item that does not stack): each unit pays its share of the vendor price, at least 1c
+--   * a commodity: its rate as measured at the AH, else its share of the vendor price, times n, at least 1s for the
+--     post and at least what the calculator said for one unit (it answers under 1s for a cheap unit where the AH
+--     takes 1s: Mageweave Cloth 1 unit 50c against the 1s of its sale mail)
+function FM.Deposit(key, n, duration, kind)
     local id = FM.ItemIDFromKey(key)
-    -- items that don't stack (gear) go up one auction each, so each pays at least the floor
-    local stack = id and C_Item and C_Item.GetItemMaxStackSizeByID and C_Item.GetItemMaxStackSizeByID(id)
-    local single = IsNumber(stack) and stack == 1 and n > 1
+    local percent = DEPOSIT_PERCENT[duration]
+    if not percent then return nil end
+    local sell, stack = Facts(key, id)
+    local single
+    if kind == "c" then
+        single = false
+    elseif kind == "i" or kind == "b" then
+        single = true
+    else
+        single = stack == 1
+    end
     local entry = Deposits()[key]
     local d = type(entry) == "table" and entry[duration]
-    if type(d) == "table" and d[1] then
-        if single then return n * math_max(d[2] or 0, d[1]) end
-        return math_max(d[2] or 0, d[1] * n)
+    if not single and type(d) == "table" and IsNumber(d[1]) then
+        -- d[2] = what the calculator said for one unit: a floor of its own where it is above 1s
+        return math_max(DEPOSIT_FLOOR, IsNumber(d[2]) and d[2] or 0, math_floor(d[1] * n + 1e-6))
     end
-    local sell = id and VendorSell(id)
-    if not sell then return nil end
-    if single then return n * math_max(DEPOSIT_FLOOR, DEPOSIT_SHARE[duration] * sell) end
-    return math_max(DEPOSIT_FLOOR, DEPOSIT_SHARE[duration] * sell * n)
+    if not sell then
+        -- asked just now (Facts): the answer comes with an event. Only a post's deposit waits for it (kind): the
+        -- table's rows ask for thousands of items and take what is known
+        if kind and id and not waiting[id] then waiting[id] = { key = key, at = FM.Now() } end
+        return nil
+    end
+    if id then waiting[id] = nil end
+    if single then return n * math_max(1, math_floor(sell * percent / 100)) end
+    return math_max(DEPOSIT_FLOOR, math_floor(sell * percent * n / 100))
 end
 
 ---------------------------------------------------------------- tooltip numbers
