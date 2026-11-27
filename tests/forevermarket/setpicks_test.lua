@@ -96,7 +96,7 @@ local function NewPlan(FM, env, out)
     FM.sources = ctx.sources
     if not FM.replanWrapped then
         local replan = FM.ReplanPicks
-        FM.ReplanPicks = function(edited, view) return replan(edited, view or View()) end
+        FM.ReplanPicks = function(edited, view, extra) return replan(edited, view or View(), extra) end
         FM.replanWrapped = true
     end
     return out
@@ -154,7 +154,9 @@ H.test("set picks: a number that takes the whole budget sends the others out of 
     H.eq(Shape(out), "201 9, x202 2, x203 2", "your 9 for 90g: allowed")
     H.eq(out.pickNeed, 90 * G, "the plan needs 90g")
     local summary = FM.TablePickSummary()
-    H.eq(summary:find("|cFFFF9933over budget|r", 1, true) ~= nil, true, "the summary says over budget in orange: " .. Plain(summary))
+    H.eq(summary:find("|cFFFF9933 over budget|r", 1, true) ~= nil, true, "the summary says over budget in orange: " .. Plain(summary))
+    H.eq(Plain(summary):find("(set manually) over budget", 1, true) ~= nil, true, "right after the budget, where the line is never cut: "
+        .. Plain(summary))
 end)
 
 H.test("set picks: a number set on a pick out of scope keeps it there and does not change the plan", function()

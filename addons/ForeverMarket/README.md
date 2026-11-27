@@ -721,7 +721,7 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       Picks are placed in rank order: a pick ranked before a set pick takes its materials first, as in the plan (it may
       already have crafted with them), your number takes what it leaves, the picks after it get the rest. Picks that no
       longer fit go to "Also good, but out of scope"; set picks together over the budget are allowed, and the summary
-      line says "over budget" in orange.
+      line says "over budget" in orange right after the budget (and in its tooltip).
     * The plan is made again **as of its own moment** (review round 3 of PR 69): with the latest scan's prices, but
       with your bags and bank as the plan read them (`pickOwned`), its budget and gold (`pickFunds`), what it carried
       over (`pickCarry`) and its time (`pickNow`: every pick's `planAt` and a new craft's `since`, `pickAt` stays). So
@@ -729,11 +729,16 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       the plan's order: with both picks' 11 Heavy Leather bought, the first set to 15 and the second to 12, the two
       together ask for the 5 that are missing. A craft's number counts from its plan (crafts before it that an
       automatic plan carried do not count against it); a material the plan never looked at is read as of the plan too
-      (your units now less what was bought of it since). Units that reached your bags outside the plan are not seen
-      (Refresh makes a new plan with them). It runs like a pass (the table shows the plan before it meanwhile; another
+      (your units now less what was bought of it since), and your listings are the plan's too (a pick whose crafts you
+      posted since keeps its batch). A craft pick with progress since the plan (crafted, or materials bought for it)
+      keeps its target whatever its share of the gold says now, so what was bought and crafted for it stays its own; a
+      set pick done since the plan stays at its number ("made 5") until the next new plan, and the sniper buys nothing
+      more for it. Units that reached your bags outside the plan are not seen (Refresh makes a new plan with them). It runs like a pass (the table shows the plan before it meanwhile; another
       edit waits for it), also while "Lock plan after refresh" is checked: that lock is about scans, an edit is yours.
-    * A number set on a pick **out of scope** keeps it there with your number: it takes none of the plan's gold and
-      does not change the plan (its tooltip's first line says so).
+    * A number set on a pick **out of scope** keeps it there with your number: that pick alone is made again (on its
+      own, as the plan judged it), the plan is not, so it takes none of the plan's gold and does not change the plan,
+      also when the scan moved since (its tooltip's first line says so). Emptied, it is out of scope by its own numbers
+      again; Remove from Picks takes it out of the list.
     * Set picks are saved per character (`setPicks` in Data format): an alt's plan neither keeps nor changes them.
       **Lock manual plan changes** (a checkbox under "Lock plan after refresh", at the end of the summary line,
       `tablePicksLockManual`, on by default): a new plan (Refresh, a change of a Picks setting, or an automatic plan
@@ -765,7 +770,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     (the dialogs' alert, `Interface\DialogFrame\UI-Dialog-Icon-AlertNew`): a unit of the pick earns less than your
     minimum profit (the Profit of the budget row); hover: "Below your min. profit setting." A red cross (the ready
     check's `UI-LFG-DeclineMark` atlas, the loot roll's Pass where the client has none): the pick loses money now, its
-    Expected under 0 ("-26s 09c 8h", the minus in red); hover: "Is not profitable as of now." A set pick can get either;
+    Expected under 0 ("-26s 09c 8h", the minus in red; for a locked plan's pick the Expected at the price now shows
+    then); hover: "Is not profitable as of now." A set pick can get either;
     so can any pick of a plan held by "Lock plan after refresh" once a newer scan moved its item's price
     (`FM.PickStatus`: a craft, a vendor resell or a Stock pick read at the price its item lists at in the pass shown; a
     flip has its own AH check, a wait lists later). The icon's tooltip shows on hover (an icon, no input: FRV-186);

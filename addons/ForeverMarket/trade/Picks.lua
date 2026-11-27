@@ -1511,7 +1511,9 @@ local function EvaluateCraft(c)
     end
     local toolCost, toolConf, toolsToBuy = Tools(row.craft, reasons)
     cap = cap - toolCost
-    if c.kind == "level" or want then cap = math.huge end
+    -- (a pick with progress since its plan, carried into the plan made again after an edit: FRV-188, review round 1 of
+    -- PR 90, keep: its target stands, the gold is spent already or due)
+    if c.kind == "level" or want or (carry and carry.keep) then cap = math.huge end
     -- a Stock pick when what you hold covers the batch or nothing more can be made ("Stock, wait" in a dip); a carried
     -- pick keeps its progress there: the make step comes first, done once its target is reached (FRV-104)
     local function OnlyHeld(why)
@@ -2941,9 +2943,11 @@ function FM.SetPickList()
 end
 
 -- What a set pick still makes or buys of your number, and what it did since you set it: a craft its crafts since its
--- plan time (since; asOf: a plan made again as of its moment counts only those before it, the later ones are its
--- progress in the plan, FM.PickProgress), a flip its AH purchases since you set it (the purchase log, and this
--- session's buyouts of an item sold per auction), a vendor resell the most units more you held since (got)
+-- plan time (since), a flip its AH purchases since you set it (the purchase log, and this session's buyouts of an item
+-- sold per auction), a vendor resell the most units more you held since (got). asOf: a plan made again as of its moment
+-- (FRV-188) counts only what was done before it; what came after is its progress in that plan (a craft's
+-- FM.PickProgress, what a flip's sniper still buys), so a set pick done since stays at its number until a new plan
+-- (review round 1 of PR 90: dropped, the plan's own number came back and the sniper bought its materials again)
 function FM.SetPickLeft(e, asOf)
     local n = math_floor(tonumber(e.n) or 0)
     local done
@@ -2952,22 +2956,29 @@ function FM.SetPickLeft(e, asOf)
         done = FM.CraftedSince and FM.CraftedSince(e.key, since) or 0
         if asOf and FM.CraftedSince then done = done - FM.CraftedSince(e.key, math_max(since, asOf)) end
     elseif e.from == "flip" then
+        local function Bought(since)
+            return (FM.BoughtSince and FM.BoughtSince(e.key, since) or 0) + (FM.ItemBoughtSince and FM.ItemBoughtSince(e.key, since) or 0)
+        end
         local at = tonumber(e.at) or 0
-        done = (FM.BoughtSince and FM.BoughtSince(e.key, at) or 0) + (FM.ItemBoughtSince and FM.ItemBoughtSince(e.key, at) or 0)
+        done = Bought(at)
+        if asOf then done = done - Bought(math_max(at, asOf)) end
     else
+        -- no log of vendor purchases: as of a plan made before you set it, none
         done = tonumber(e.got) or 0
+        if asOf and (tonumber(e.at) or 0) >= asOf then done = 0 end
     end
     done = math_max(0, math_floor(done))
     return n - done, done
 end
 
--- Before a plan: the set picks that ended go (done, ignored, malformed). Returns how many went
-function FM.PruneSetPicks()
+-- Before a plan: the set picks that ended go (done, ignored, malformed); keepDone: a plan made again after an edit
+-- keeps the done ones (they end at the next new plan, FRV-188 item 5). Returns how many went
+function FM.PruneSetPicks(keepDone)
     local mine = SetPicksOf(false)
     if not mine then return 0 end
     local keep = {}
     for _, e in ipairs(FM.SetPickList()) do
-        if FM.SetPickLeft(e) >= 1 and not FM.IsExcluded(e.key) then keep[e.key] = true end
+        if (keepDone or FM.SetPickLeft(e) >= 1) and not FM.IsExcluded(e.key) then keep[e.key] = true end
     end
     local gone = 0
     for key in pairs(mine) do
@@ -3027,6 +3038,25 @@ function FM.PickStatus(pick, sellNow, rule)
     return nil, expected, unit
 end
 
+-- A set pick as the table shows it (FRV-188): your number (amountSet, amountWant), what it reaches (amount: what it did
+-- since you set it and what it makes or buys now; a craft's target the same: its make step "make 30" when the materials
+-- allow only 30 of your 100), and for a set flip in a plan made again as of its moment what you bought of it since (by
+-- hand or by the sniper) off what it still buys (review round 1 of PR 90; the sniper follows these units). c = its
+-- candidate (c.set, c.left); P is the pass's
+local function ShowSet(p, c)
+    p.amountSet, p.amountWant = true, c.set.n
+    p.amount = c.set.n - c.left + (p.amount or 0)
+    if p.target then p.target = p.amount end
+    if P.asOf and c.set.from == "flip" then
+        local since = math_max(c.set.at or 0, P.asOf)
+        local bought = (FM.BoughtSince and FM.BoughtSince(p.key, since) or 0)
+            + (FM.ItemBoughtSince and FM.ItemBoughtSince(p.key, since) or 0)
+        for _, b in ipairs(bought > 0 and p.buys or EMPTY) do
+            if b.key == p.key then b.ah = math_max(0, (b.ah or 0) - bought) end
+        end
+    end
+end
+
 -- The state of one pass (P) from its context: the view, the sources, your listings, the Picks filters and the budget
 -- over the picks the plan has at most. Returns the budget (funds, with whose gold) and the gold. A plan made again after
 -- an edit (FRV-188, FM.ReplanPicks) is made as of the plan's own moment: ctx.asOf (its time: purchases and crafts since
@@ -3037,12 +3067,17 @@ local function StartPass(ctx)
     -- your auctions seen before the latest snapshot are checked against it (Yours)
     local lag = ctx.view.source == "api" and FEED_LAG or SNAPSHOT_LAG
     local listings, listInfo = FM.OwnListings(ctx.view.t and ctx.view.t - lag or nil)
+    -- a plan made again after an edit (FRV-188, review round 1 of PR 90): your listings as the plan read them (a pick
+    -- whose crafts you posted since must not lose its batch to its own listing)
+    local listed = type(ctx.listed) == "table" and type(ctx.listed.listings) == "table" and ctx.listed or nil
+    if listed then listings, listInfo = listed.listings, listed.info end
     -- the Picks filters (its own or the global ones) are inputs of the plan: a change plans again (FM.PlanPicks)
     local filters = FM.TableFilters("picks")
     local gold, chars = FM.PicksGold(filters.allGold)
     P = { view = ctx.view, sources = ctx.sources, now = ctx.now, nowMinutes = ctx.nowMinutes, today = DayOf(ctx.now),
         demand = {}, owned = {}, stockLeft = {}, taken = {}, used = {}, toolsBought = {}, listings = listings,
-        listInfo = listInfo, yours = {}, book = FM.ListingsRecord(ctx.nowMinutes), usual = {}, deposits = DepositShares(),
+        listInfo = listInfo, yours = listed and type(listed.yours) == "table" and listed.yours or {},
+        book = FM.ListingsRecord(ctx.nowMinutes), usual = {}, deposits = DepositShares(),
         filters = filters, noStock = filters.noStock and true or false, level = FM.PlayerLevel(), prof = s.tableProf,
         place = FM.PlaceResolve(FM.PlaceOf("picks")), -- where its vendor flips buy (FRV-99): "Any" / "Any" = anywhere
         profit = FM.PicksProfit(s), -- the minimum profit per item: the Picks row's Profit (FRV-126)
@@ -3064,7 +3099,7 @@ local function StartPass(ctx)
         for key, c in pairs(ctx.carry) do
             local done = FM.CraftedSince and FM.CraftedSince(key, c.since) or 0
             if P.asOf and FM.CraftedSince then done = math_max(0, done - FM.CraftedSince(key, math_max(c.since, P.asOf))) end
-            P.carry[key] = { target = c.target, since = c.since, held = c.held or 0, done = done }
+            P.carry[key] = { target = c.target, since = c.since, held = c.held or 0, done = done, keep = c.keep }
         end
     end
     -- the budget (FM.PicksBudget) over Y = the picks the plan has at most; Step gives each pick its share of what
@@ -3102,6 +3137,7 @@ function FM.ComputePicks(out, ctx, done)
     -- what a plan made again after an edit starts from (FRV-188): this plan's moment, what it carried over, what you
     -- removed from it
     out.pickNow, out.pickCarry, out.pickRemoved = P.asOf or P.now, ctx.carry, P.removed
+    out.pickListed = { listings = P.listings, info = P.listInfo, yours = P.yours } -- your listings as this plan read them
     -- the set picks this pass could not plan at all: their numbers end (trade/Calc.lua drops them and says why)
     out.pickSetDropped = {}
 
@@ -3351,15 +3387,9 @@ function FM.ComputePicks(out, ctx, done)
         local picks = {}
         for _, p in ipairs(plan) do picks[#picks + 1] = p end
         for _, p in ipairs(Placed(outside, setExtra)) do picks[#picks + 1] = p end
-        -- a set pick shows your number: what it did since you set it and what it makes or buys now (FRV-188); a craft's
-        -- target is the same (its make step: "make 30" when the materials allow only 30 of your 100)
+        -- a set pick shows your number (FRV-188, ShowSet)
         for _, p in ipairs(picks) do
-            local c = p.cand
-            if c and c.set then
-                p.amountSet, p.amountWant = true, c.set.n
-                p.amount = c.set.n - c.left + (p.amount or 0)
-                if p.target then p.target = p.amount end
-            end
+            if p.cand and p.cand.set then ShowSet(p, p.cand) end
         end
         out.pickShort = ShortReason(candidates, taken, chosen)
         local levelTop = {}
@@ -3415,6 +3445,84 @@ function FM.ComputePicks(out, ctx, done)
         done()
     end
     Step()
+end
+
+-- A pick out of scope made again on its own (FRV-188, review round 1 of PR 90): with your number (e, its set pick entry)
+-- or by its own numbers (e nil: your number taken away), judged as the plan judged it (on its own, with one pick's share
+-- of the gold), as of the plan's own moment, in its place among the picks out of scope. The plan is not made again: a
+-- number set out of scope takes nothing and changes nothing, also when the scan or your listings moved since the plan.
+-- ctx as FM.ComputePicks takes it for a plan made again (FM.ReplanPicks builds it). Returns the new pick (already in
+-- out.picks), or nil and why
+function FM.RemakeExtra(out, ctx, key, e)
+    local index, old
+    for i, p in ipairs(type(out) == "table" and out.picks or EMPTY) do
+        if p.key == key then index, old = i, p end
+    end
+    if not (old and old.extra) then return nil, "it is not out of scope in the plan shown" end
+    StartPass(ctx)
+    local ok, pick, reason = pcall(function()
+        P.perPick = P.budget / math_max(1, P.slots) -- on its own: one pick's share of the plan's gold
+        local c
+        if e then
+            local left, doneSince = FM.SetPickLeft(e, P.asOf)
+            if left < 1 then return nil, "it is done already" end
+            c = SetCandidate(out, e)
+            if not c then return nil, "the numbers now have no such pick of it" end
+            c.set, c.left = e, left
+            P.want[key] = left
+            if e.from == "craft" then
+                P.carry = P.carry or {}
+                P.carry[key] = { target = e.n, since = e.since, held = e.held, done = doneSince }
+            end
+        else
+            for _, d in ipairs(Candidates(out, {})) do
+                if d.row.key == key and d.kind == old.from then
+                    c = d
+                    break
+                end
+            end
+            if not c then return nil, "the numbers now have no such pick of it" end
+        end
+        local p, why = Evaluate(c)
+        if not p then return nil, why end
+        if e and not p.amountEdit then return nil, "nothing more of it can be made or bought now" end
+        p.rate = Rate(p)
+        if p.useStep and p.trial and p.steps then p.steps[p.useStep] = UseStep(p.trial, true) or p.steps[p.useStep] end
+        p.extra = true
+        if e then
+            ShowSet(p, c)
+            local logged, err = pcall(LogPlan, { p }, true) -- one "xe" line: the plan's own lines stay
+            if not logged and geterrorhandler then geterrorhandler()(err) end
+        end
+        return p
+    end)
+    P = nil
+    if not ok then
+        if geterrorhandler then geterrorhandler()(pick) end
+        return nil, "an error stopped it"
+    end
+    if not pick then return nil, reason or "it is no pick now" end
+    -- why it is out of scope: the plan's own lines of it are kept for the pick it becomes again (ownNotes)
+    local own = old.ownNotes
+    if not own and not old.amountSet and old.outNotes and old.reasons then
+        own = {}
+        for i = 1, old.outNotes do own[i] = old.reasons[i] end
+    end
+    pick.reasons = pick.reasons or {}
+    if e then
+        table.insert(pick.reasons, 1, { "n", "Out of scope with the amount you set: it takes none of the plan's gold and "
+            .. "does not change the plan.", GREY })
+        pick.outNotes, pick.ownNotes = 1, own
+    else
+        local lines = own or { { "n", "Out of scope: judged on its own with one pick's share of the gold, as if the plan did "
+            .. "not exist; it can take the place of a plan pick.", GREY } }
+        for i = #lines, 1, -1 do table.insert(pick.reasons, 1, lines[i]) end
+        pick.outNotes = #lines
+    end
+    Finish(pick)
+    pick.rank, pick.listPos = old.rank, old.listPos
+    out.picks[index] = pick
+    return pick
 end
 
 -- A pick's AH purchases with what is still to buy of each: its plan's units less what was bought for it since the plan

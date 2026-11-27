@@ -401,10 +401,12 @@ local function PickName(p)
     return text
 end
 
--- Expected: the better listing of the two (pick.expected) with its length grey behind it
+-- Expected: the better listing of the two (pick.expected) with its length grey behind it; with the red cross of a loss
+-- as of now (FRV-188, the status column) what it reads at the price now, its minus red
 local function ExpectedCell(p)
     if type(p.expected) ~= "number" then return GREY .. "-|r" end
-    return P1g(p.expected) .. GREY .. string_format(" %dh", p.listHours or 8) .. "|r"
+    local kind, now = FM.TablePickStatus(p)
+    return P1g(kind == "loss" and now or p.expected) .. GREY .. string_format(" %dh", p.listHours or 8) .. "|r"
 end
 
 -- A pick's item in the pass shown (FRV-67): a locked plan keeps its pick objects through later passes, but On AH, C/8h
@@ -431,7 +433,7 @@ function FM.TablePickStatus(p)
     if not (FM.PickStatus and type(p) == "table") then return nil end
     local newer = trade and trade.t and trade.pickT and trade.t ~= trade.pickT
     local row = newer and MarketRow(p) or nil
-    return (FM.PickStatus(p, row and row ~= p and row.sell or nil, trade and trade.pickProfit))
+    return FM.PickStatus(p, row and row ~= p and row.sell or nil, trade and trade.pickProfit)
 end
 
 -- 11 columns in 932 px (FRV-67, FRV-154, FRV-188): the steps line under a pick spans the whole row, so the Pick column gave up
@@ -2266,16 +2268,17 @@ local function PickSummary()
     local sep = GREY .. "  ·  |r"
     local funds = trade.pickFunds
     local profit = (trade.pickProfit and FM.PicksProfitText) and (sep .. "Profit: " .. FM.PicksProfitText(trade.pickProfit, nil, "short")) or ""
-    local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. BudgetText(funds, true))
-        or ("Plan for your " .. Money(trade.pickGold))) .. profit .. held .. ":   "
+    -- your set picks together can need more than the budget (FRV-188, your choice): said in orange right after it, where
+    -- a line too long for the window does not cut it off
+    local over = (trade.pickNeed or 0) > (trade.pickBudget or math.huge) + 0.5 and (ORANGE .. " over budget|r") or ""
+    local text = (funds and ("Gold: " .. GoldText(funds) .. sep .. "Budget: " .. BudgetText(funds, true) .. over)
+        or ("Plan for your " .. Money(trade.pickGold) .. over)) .. profit .. held .. ":   "
     if n == 0 then return text .. GREY .. "no pick fits these parameters now|r" end
     local count = string_format("%d pick%s", n, n == 1 and "" or "s")
     if trade.pickShort and trade.pickSlots and n < trade.pickSlots then
         count = string_format("%d of %d picks", n, trade.pickSlots) .. GREY .. " (" .. (SHORT_TEXT[trade.pickShort] or trade.pickShort) .. ")|r"
     end
-    -- your set picks together can need more than the budget (FRV-188, your choice): said in orange
-    local over = (trade.pickNeed or 0) > (trade.pickBudget or math.huge) + 0.5 and (sep .. ORANGE .. "over budget|r") or ""
-    return text .. count .. sep .. "needs " .. Money(trade.pickNeed) .. over .. sep .. "expected " .. P1g(trade.pickExpected)
+    return text .. count .. sep .. "needs " .. Money(trade.pickNeed) .. sep .. "expected " .. P1g(trade.pickExpected)
 end
 FM.TablePickSummary = PickSummary -- for the tests
 
@@ -3302,6 +3305,10 @@ local function CreateTable()
         -- width and lose its end (FRV-126, FRV-133)
         if (FM.trade.pickPlan or 0) > 0 then
             GameTooltip:AddDoubleLine("Needs", Money(FM.trade.pickNeed), 1, 0.82, 0, 1, 1, 1)
+            -- over budget with your set picks (FRV-188)
+            if (FM.trade.pickNeed or 0) > (FM.trade.pickBudget or math.huge) + 0.5 then
+                GameTooltip:AddLine("Over budget: the amounts you set need more than the budget (your choice).", 1, 0.6, 0.2, true)
+            end
             GameTooltip:AddDoubleLine("Expected", P1g(FM.trade.pickExpected), 1, 0.82, 0, 1, 1, 1)
         end
         -- fewer picks than "Picks [Y]" (FRV-133): why

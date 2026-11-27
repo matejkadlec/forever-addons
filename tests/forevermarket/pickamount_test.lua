@@ -119,7 +119,7 @@ local function Shown(FM, env, out, ladders, carry)
     FM.R().last = { t = env.clock, fp = {} }
     FM.sources = ctx.sources
     local replan = FM.ReplanPicks
-    FM.ReplanPicks = function(edited, view) return replan(edited, view or ctx.view) end
+    FM.ReplanPicks = function(edited, view, extra) return replan(edited, view or ctx.view, extra) end
     return ctx
 end
 
@@ -251,7 +251,7 @@ H.test("amount: 0, a negative number, no number and a pick not in the plan are r
     -- no materials at all for it now: your number is dropped and the chat says why
     Set(FM, env, "100", nil)
     local replan = FM.ReplanPicks
-    FM.ReplanPicks = function(edited) return replan(edited, View({ ["900"] = { ladder = {}, qty = 0, own = 0 } })) end
+    FM.ReplanPicks = function(edited, _, extra) return replan(edited, View({ ["900"] = { ladder = {}, qty = 0, own = 0 } }), extra) end
     local printed = #env.printed
     H.eq((Set(FM, env, "100", 5)), true, "asked for")
     H.eq(FM.SetPickEntry("100"), nil, "your number is dropped")
@@ -364,18 +364,36 @@ H.test("amount: a pick out of scope stays out of scope, takes nothing and change
     Shown(FM, env, out)
     local extra = PickOf(out, "204")
     H.same({ extra.extra, extra.rank, extra.amount }, { true, 4, 3 }, "the fourth: out of scope, make 3")
+    local notes = extra.outNotes
+    H.eq(notes >= 1, true, "it has its out of scope lines")
     local need = out.pickNeed
     local before = {}
     for i = 1, 3 do before[i] = { out.picks[i].key, out.picks[i].amount, out.picks[i].invest } end
+    local lines = #FM.R().plans
+    -- the scan moved since the plan (the material costs 50% more): the plan picks would change if planned again
+    local replan = FM.ReplanPicks
+    FM.ReplanPicks = function(edited, _, extra)
+        return replan(edited, View({ ["900"] = { ladder = { { 1500, 100000 } }, qty = 100000, own = 0 } }), extra)
+    end
     local _, _, pick = Set(FM, env, "204", 6)
-    H.same({ pick.extra, pick.rank, pick.amount, pick.invest }, { true, 4, 6, 6000 }, "make 6, still out of scope at rank 4")
+    H.same({ pick.extra, pick.rank, pick.amount, pick.invest }, { true, 4, 6, 9000 }, "make 6 at the 15s the material costs now, still out of scope at rank 4")
     H.eq(out.pickNeed, need, "the plan's totals do not count it")
     for i = 1, 3 do H.same({ out.picks[i].key, out.picks[i].amount, out.picks[i].invest }, before[i], "plan pick " .. i .. " is the same") end
     H.same({ pick.outNotes, Has(pick.reasons[1][2], "Out of scope with the amount you set") }, { 1, true }, "its note says why")
     H.eq(FM.SetPickEntry("204").extra, true, "saved out of scope")
     local plans = FM.R().plans
+    H.eq(#plans, lines + 1, "the plan is not made again: one line, its own (review round 1 of PR 90)")
     H.eq(plans[#plans]:match(",([^,]*)$"), "xe", "the plan log marks it out of scope and set by you")
-    H.eq(plans[#plans - 1]:match(",([^,]*)$"), "r", "the plan's picks, planned again, are marked too")
+    -- emptied: its own numbers again, out of scope, with the lines that say why; the plan still the same
+    local _, _, back = Set(FM, env, "204", nil)
+    H.same({ back.extra, back.rank, back.amountSet, back.outNotes }, { true, 4, nil, notes }, "out of scope by its own numbers")
+    for i = 1, notes do H.eq(back.reasons[i], extra.reasons[i], "line " .. i .. " is the plan's own again") end
+    for i = 1, 3 do H.same({ out.picks[i].key, out.picks[i].amount, out.picks[i].invest }, before[i], "plan pick " .. i .. " still the same") end
+    -- set again, then removed: it leaves the list, the plan stays
+    Set(FM, env, "204", 5)
+    H.same({ FM.RemoveSetPick("204") }, { true }, "removed")
+    H.same({ PickOf(out, "204"), #out.picks, FM.SetPickEntry("204") }, { nil, 3, nil }, "it left the list")
+    for i = 1, 3 do H.same({ out.picks[i].key, out.picks[i].amount, out.picks[i].invest }, before[i], "plan pick " .. i .. " untouched") end
 end)
 
 H.test("amount: FM.SetPickAmount makes the plan again like a pass, counts the edit, lets the sniper follow it and draws the table", function()
@@ -652,6 +670,43 @@ H.test("amount: a material the plan never read is read as of the plan, and that 
         "6 in your bags, 4 of them bought since: the 2 that were yours go to the first pick, the second buys its 7")
 end)
 
+-- Review round 1 of pull request 90: what happened since the plan stays with the pick it happened for
+
+H.test("amount: a number you set that is made already stays, the next edit keeps it at its target", function()
+    local FM, env, out, _, state = TwoPicks(0)
+    local first, second = out.picks[1], out.picks[2]
+    -- 8 of the first pick's 11 are made: you stop it there
+    state.crafted[first.key] = 8
+    local _, _, pick = Set(FM, env, first.key, 8)
+    H.same({ pick.amount, pick.amountSet, FM.SetPickEntry(first.key) ~= nil }, { 8, true, true }, "your 8 stays, saved")
+    H.same({ FM.PickMakeStep(pick) }, { "made 8", true }, "made 8: done")
+    -- lowered to 5 and made: an edit of the second pick keeps it at 5, made, and the sniper buys nothing more for it
+    state.crafted[first.key], state.bought = 5, 5
+    Set(FM, env, first.key, 5)
+    Set(FM, env, second.key, 15)
+    pick = PickOf(out, first.key)
+    H.same({ pick.amount, pick.amountSet, pick.rank }, { 5, true, 1 }, "still your 5, first")
+    H.same({ FM.PickMakeStep(pick) }, { "made 5", true }, "made 5")
+    H.eq(FM.PickBuysLeft(pick)[1].ah, 0, "its 5 materials bought: nothing more to snipe for it")
+    -- a new plan no longer keeps it: it is done
+    H.eq(#FM.KeptSetPicks(), 1, "only the second pick's 15 is kept by a new plan")
+end)
+
+H.test("amount: a pick you started keeps its purchases when another is set, also once you posted its crafts", function()
+    local FM, env, out, _, state = TwoPicks(0)
+    local first, second = out.picks[1], out.picks[2]
+    -- the first pick's 11 materials are bought, its 11 crafted and posted: your listings now hold them
+    state.bought, state.crafted[first.key] = 11, 11
+    FM.OwnListings = function()
+        return { [first.key] = { n = 11, list = 0, posts = 11, old = 0, value = 11 * 10000, t = env.clock } }, {}
+    end
+    local _, _, pick = Set(FM, env, second.key, 15)
+    local kept = PickOf(out, first.key)
+    H.same({ kept and kept.extra, kept and kept.rank }, { nil, 1 }, "the first pick stays first in the plan")
+    H.same({ kept.target, BuyStep(FM, kept) }, { 11, "bought the materials" }, "with its 11 and the 11 bought for it")
+    H.eq(BuyStep(FM, pick):find("^buy 15 ") ~= nil, true, "the second buys its own 15: " .. BuyStep(FM, pick))
+end)
+
 -- Review rounds 5 and 6 of pull request 69: a flip has no progress in its steps line, so it takes no part in the
 -- sharing of purchases and its number counts from the edit
 H.test("amount: a flip's units stay whole for the sniper, its number counts from the edit", function()
@@ -867,6 +922,20 @@ H.test("amount: a purchase by hand of a traced pick's material comes off what th
     FM.SnipeSet("777", 500, 5)
     FM.SnipeFollowShown("777")
     H.eq(FM.SnipeSaved("777").n, 5, "your own number of another item stays")
+end)
+
+-- Review round 1 of pull request 90: a follow within the plan keeps what the sniper bought for a pick, which a click
+-- on another pick of the same material gives back (FRV-185's TracedBought)
+H.test("amount: after a purchase by hand the next pick's click still gets back what the sniper bought for the other", function()
+    local FM, _, out, _, state = SnipedPicks()
+    local first, second = out.picks[1], out.picks[2]
+    FM.TableRowClick({ row = second }, "LeftButton") -- pick #2 sends its 11
+    FM.SnipeSaved("900").got, state.bought = 8, 8 -- the sniper buys 8 for it, in your mail
+    state.bought = 9 -- and you buy 1 on Blizzard's buy page
+    FM.SnipeFollowShown("900")
+    H.eq(SniperLeft(FM), 3, "pick #2: 3 left of what it was sent with (the 8 wait in the mail)")
+    FM.TableRowClick({ row = first }, "LeftButton")
+    H.eq(SniperLeft(FM), 13, "13 still to buy: what the two steps lines need (2 + 11)")
 end)
 
 -- FRV-194: the row menu's Reset amount

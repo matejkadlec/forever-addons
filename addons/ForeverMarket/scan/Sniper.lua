@@ -440,7 +440,11 @@ local function Retrace(saved, wanted, at, keep)
         else
             local units = math_max(0, math_floor(tonumber(shares[t.id]) or 0))
             if units >= 1 or math_floor(tonumber(asked) or 0) >= 1 or (keep and keep[t.id]) then
-                picks[t.id] = TraceEntry(t.id, t.pick, units, at, me or t.char, units)
+                -- within the plan it was sent for (an amount you set, a purchase by hand: FRV-188, FRV-189), what the
+                -- sniper bought for it stays in its sent (review round 1 of PR 90: FRV-185's TracedBought reads it)
+                local sent = units
+                if t.at == at and t.sent then sent = units + math_max(0, t.sent - t.left) end
+                picks[t.id] = TraceEntry(t.id, t.pick, units, at, me or t.char, sent)
             else
                 ceil = ceil - t.left
             end
