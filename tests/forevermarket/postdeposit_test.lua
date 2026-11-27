@@ -163,11 +163,47 @@ H.test("post deposit: a post whose auction ID never came has an empty one before
     env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 3, 20, 450)
     state.Pay(1200)
     state.Wait(3)
+    H.eq(#Fields(r.posts[1]), 7, "3 quiet seconds: the auction ID may still come, nothing is written")
+    state.Wait(28)
+    env.FireEvent("AUCTION_HOUSE_CLOSED")
     local f = Fields(r.posts[1])
-    H.same({ #f, f[8], f[9], f[10] }, { 10, "", B(1200), B(400) }, "the fields keep their places")
+    H.same({ #f, f[8], f[9], f[10] }, { 10, "", B(1200), B(400) }, "once no ID can come the fields keep their places")
     -- an auction ID that comes now is not put behind them
     env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 55)
     H.eq(#Fields(r.posts[1]), 10, "the line is settled")
+    -- the wait for the ID over (30 s) settles it too
+    local FM2, env2, state2, r2 = Session(nil)
+    env2.C_AuctionHouse.PostCommodity(CLOTH_LOC, 3, 20, 450)
+    state2.Pay(1200)
+    state2.Wait(31)
+    H.same({ #Fields(r2.posts[1]), Fields(r2.posts[1])[8], Fields(r2.posts[1])[9] }, { 10, "", B(1200) }, "after 30 s without an ID")
+end)
+
+-- Review round 1 of PR 94: the AH answers a post late (a slow AH, a post it asks to confirm). The auction ID and the
+-- gold come after the 3 quiet seconds: both still reach the line
+H.test("post deposit: an answer later than 3 seconds still brings the auction ID and the gold that left", function()
+    local FM, env, state, r = Session(nil)
+    env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 20, 450)
+    state.Wait(5)
+    H.eq(#Fields(r.posts[1]), 7, "5 s without an answer: the post still waits")
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 4711)
+    state.Pay(400)
+    state.Wait(3)
+    local f = Fields(r.posts[1])
+    H.same({ f[8], f[9], f[10] }, { B(4711), B(400), B(400) }, "the ID, then the gold that left and the calculator's answer")
+    -- a post the next one overtakes before its ID came keeps waiting for the ID and gets no deposit fields
+    env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 6, 450)
+    env.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 7, 450)
+    H.eq(#Fields(r.posts[2]), 7, "overtaken: nothing written yet")
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 4712)
+    H.same({ #Fields(r.posts[2]), Fields(r.posts[2])[8] }, { 8, B(4712) }, "its ID still takes its place")
+    -- and a post without a calculator or a fall keeps taking its ID after the quiet seconds
+    local FM3, env3, state3, r3 = Session(nil)
+    env3.C_AuctionHouse.CalculateCommodityDeposit = nil
+    env3.C_AuctionHouse.PostCommodity(CLOTH_LOC, 2, 20, 450)
+    state3.Wait(5)
+    env3.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 9)
+    H.same({ #Fields(r3.posts[1]), Fields(r3.posts[1])[8] }, { 8, B(9) }, "nothing known of its deposit: the ID alone")
 end)
 
 H.test("post deposit: without a calculator and without a fall the line stays as it was", function()

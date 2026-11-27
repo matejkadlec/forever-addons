@@ -573,9 +573,11 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     * `ForeverMarketDB.realms[...].settings[char]` holds them, by the character's key (`FM.PlayerName`);
       `FM.GetSettings()` (`core/Core.lua`) returns a view that reads and writes a key of `FM.CHAR_SETTINGS` there and
       every other key in `ForeverMarketDB.settings`, so no other file knows where a setting is saved. Until the
-      character's key is certain (its GUID and the realm are known, at login) the account-wide values are used, as
-      they are for two characters nobody can tell apart (the same first name without a surname). `/fm forget <name>`
-      removes that character's settings; `/fm wipe confirm` deletes market data and keeps them.
+      character's key is known (its GUID and the realm, at login) the account-wide values are read, and what is set
+      in that time is kept for the session and becomes the character's once its key is known: the account-wide
+      values are never written. Two characters nobody can tell apart (the same first name without a surname) share
+      one key and so one set of values, like their other records. `/fm forget <name>` removes that character's
+      settings; `/fm wipe confirm` deletes market data and keeps them.
   * The dialog: one window that shows the set the current tab uses, its title says which ("Picks filters", "Global
     filters" with the tabs that use it). Opaque, an X, movable anywhere; it opens where it was last closed
     (`settings.tableFiltersPos`, the screen position of its top left corner; the first time right of the table, or
@@ -1589,7 +1591,9 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     the 1s a commodity post pays at least, `C_AuctionHouse.CalculateItemDeposit` for single auctions: the number the
     AH's sell page shows). `paid` is the gold that left you after the post: every fall of your gold from the post on
     belongs to it until the next post, 3 quiet seconds (each auction a post of several makes, and each fall, starts
-    them again), the AH closing or a logout. A purchase or a cancel asked for in that time leaves `paid` empty: its
+    them again), the AH closing or a logout. A post the AH answers late (a slow AH, a post it asks to confirm) is not
+    settled by the quiet seconds while its auction ID is still waited for (30 seconds, 1.70.1): the ID and the gold
+    that leaves then still reach its line. A purchase or a cancel asked for in that time leaves `paid` empty: its
     gold cannot be told from the deposit's. The tab takes `paid`, then `calc`. Which of the two the AH really takes
     for every kind of post is only seen in the game (the in-game test of this version), so both are saved.
   * **Older posts, and posts without the fields**, take their deposit from your sale mails, which name the real one
@@ -2490,6 +2494,10 @@ python3 tools/fm_analyze.py flips --budget 5g
 python3 tools/fm_analyze.py room ["Barbaric Bracers" ...] [--days 7] [--share 25]
 python3 tools/fm_analyze.py listings [--rows 40] [--resamples 1000] [--plans 5] [--older <ForeverMarket.lua copy> ...]
 ```
+
+The plan's settings (the shares of C/24h, the Profit rule) are saved per character since 1.68 (FRV-228): the tool reads
+the own settings of the character named with `--char` (its key or full name), else of the character seen last, over the
+account-wide ones (`character_settings`; 1.70.1).
 
 `listings` (1.40.3, FRV-125) measures the Picks formula of 1.40 (FRV-103) again on the days your saved variables
 hold, the analysis behind its constants (FRV-111, FRV-115; the Confluence page

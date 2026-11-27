@@ -70,8 +70,14 @@ local pendingPosts = {} -- indexes into R.posts waiting for their auction ID
 --     that time (FM.AHTrafficCount) ends it without a number: its gold cannot be told from the deposit's
 -- Which of the two the AH really takes is only seen in the game, so both are saved and the readers take paid, then
 -- calc (FM.PostDepositKnown, trade/Cost.lua). The line's fields are appended when the post is settled.
+-- The auction ID comes first (review round 1 of PR 94): the AH can answer a post late (a slow AH, a post it asks to
+-- confirm), and the ID is what the auction list is matched by. While a post still waits for its ID (ID_WAIT, as
+-- before 1.70) the quiet seconds settle nothing; a post that the next one overtakes before its ID came keeps
+-- waiting for it and gets no deposit fields (the mails and the rule say its deposit); only the wait's end, the AH
+-- closing or a logout write the fields behind an empty ID.
 local POST_QUIET = 3   -- seconds without a new auction or a fall of your gold before a post's deposit is settled
 local POST_LONGEST = 60 -- and at most this long after the post
+local ID_WAIT = 30     -- seconds a post's auction ID is waited for (AUCTION_HOUSE_AUCTION_CREATED)
 local DEPOSIT_FLOOR = 100 -- 1s: the least a commodity post pays (trade/Cost.lua)
 local moneyLast -- your gold at the last PLAYER_MONEY (or at the last post)
 local openPost  -- the post the next falls belong to: { index, base, at, touched, paid, calc, buys, cancels, aid, mixed }
@@ -114,24 +120,33 @@ local function PostLine(posts, p)
     return nil
 end
 
--- Settles the open post: its two deposit fields go to the end of its line (after the auction ID, an empty one when
--- none came), and it takes no more gold
-local function ClosePost()
+-- Where the post still waits for its auction ID in pendingPosts, nil once the ID is in its line
+local function WaitsForID(p)
+    for i, e in ipairs(pendingPosts) do
+        if e.index == p.index then return i end
+    end
+    return nil
+end
+
+-- Settles the open post: it takes no more gold, and its two deposit fields go to the end of its line, after the
+-- auction ID. final = no ID can come any more (the wait is over, the AH closed, a logout): the fields then follow an
+-- empty one. Not final and still waiting for its ID: nothing is written, so the ID can still take its place
+local function ClosePost(final)
     local p = openPost
     openPost = nil
     if not p then return end
-    -- no auction ID can follow the deposit fields: the post no longer waits for one
-    for i = #pendingPosts, 1, -1 do
-        if pendingPosts[i].index == p.index then table.remove(pendingPosts, i) end
-    end
     local paid = (not p.mixed and p.paid and p.paid > 0) and p.paid or nil
     if not (paid or p.calc) then return end
+    local waiting = WaitsForID(p)
+    if waiting and final ~= true and GetTime() - p.at < ID_WAIT then return end
     local posts = FM.R().posts
     local i = PostLine(posts, p)
     if not i then return end
     -- only a line without them yet: seven fields, or eight with the auction ID
     local _, commas = posts[i]:gsub(",", "")
     if commas > 7 then return end
+    -- no auction ID can follow the deposit fields: the post no longer waits for one
+    if waiting then table.remove(pendingPosts, waiting) end
     posts[i] = posts[i] .. (commas == 6 and "," or "") .. "," .. (paid and Enc(paid) or "") .. "," .. (p.calc and Enc(p.calc) or "")
     FM.postsVersion = (FM.postsVersion or 0) + 1
     FM.dataVersion = (FM.dataVersion or 0) + 1
@@ -140,14 +155,17 @@ end
 FM.ClosePost = ClosePost
 
 -- Something of the open post happened (it was made, an auction of it was created, gold left): it is settled after
--- POST_QUIET seconds without another such moment. One timer per moment, which acts only when it is still the last
+-- POST_QUIET seconds without another such moment, unless it still waits for its auction ID (its answer is late: the
+-- ID and the gold are still to come). One timer per moment, which acts only when it is still the last
 local function TouchPost()
     local p = openPost
     if not p then return end
     p.touched = GetTime()
     if not (C_Timer and C_Timer.After) then return end
     C_Timer.After(POST_QUIET, function()
-        if openPost == p and GetTime() - p.touched >= POST_QUIET - 0.05 then ClosePost() end
+        if openPost ~= p or GetTime() - p.touched < POST_QUIET - 0.05 then return end
+        if WaitsForID(p) and GetTime() - p.at < ID_WAIT then return end
+        ClosePost()
     end)
 end
 
@@ -177,8 +195,8 @@ FM.On("PLAYER_MONEY", function()
 end)
 -- a post of several auctions: each one made keeps the post open
 FM.On("AUCTION_MULTISELL_UPDATE", TouchPost)
-FM.On("AUCTION_HOUSE_CLOSED", ClosePost)
-FM.On("PLAYER_LOGOUT", ClosePost)
+FM.On("AUCTION_HOUSE_CLOSED", function() ClosePost(true) end)
+FM.On("PLAYER_LOGOUT", function() ClosePost(true) end)
 
 local function RecordPost(itemLocation, duration, quantity, unit, kind)
     local link = C_Item and C_Item.GetItemLink and itemLocation and C_Item.GetItemLink(itemLocation)
@@ -195,6 +213,15 @@ local function RecordPost(itemLocation, duration, quantity, unit, kind)
     openPost = { index = #posts, base = base, at = GetTime(), calc = CalculatedDeposit(itemLocation, key, duration, quantity, kind),
         buys = FM.AHTrafficCount and FM.AHTrafficCount("buy") or 0, cancels = FM.AHTrafficCount and FM.AHTrafficCount("cancel") or 0 }
     TouchPost()
+    -- a post whose auction ID never comes is settled when the wait for it is over
+    local p = openPost
+    if C_Timer and C_Timer.After then
+        C_Timer.After(ID_WAIT, function()
+            if openPost == p and GetTime() - p.at >= ID_WAIT - 0.05 and GetTime() - p.touched >= POST_QUIET - 0.05 then
+                ClosePost(true)
+            end
+        end)
+    end
     FM.postsVersion = (FM.postsVersion or 0) + 1
     -- your listings are an input of the picks: the table plans again on its next tick or opening (FM.EnsureTrade)
     FM.listingsVersion = (FM.listingsVersion or 0) + 1

@@ -363,8 +363,37 @@ def parse_ladder(s):
     return out
 
 
+def character_settings(account, realm, char=None):
+    """The settings the AddOn's plan reads for one character (1.68, FRV-228): the account-wide ones
+    (ForeverMarketDB.settings, kept as they were before 1.68) with that character's own on top
+    (realms[...].settings[char]: filters, the Picks row, the shares of C/24h, the Profit rule). char = its key or
+    full name, any case; without one the character with settings that was seen last. Returns (settings, key or None)"""
+    settings = dict(account or {})
+    own = realm.get('settings') if isinstance(realm, dict) else None
+    if not isinstance(own, dict) or not own:
+        return settings, None
+    info = realm.get('charInfo') if isinstance(realm.get('charInfo'), dict) else {}
+    key = None
+    if char:
+        want = char.lower()
+        for k in own:
+            full = (info.get(k) or {}).get('full') if isinstance(info.get(k), dict) else None
+            if k.lower() == want or (isinstance(full, str) and full.lower() == want):
+                key = k
+        if key is None:
+            sys.exit('No settings of the character %s, known: %s' % (char, ', '.join(sorted(own))))
+    else:
+        def seen(k):
+            e = info.get(k)
+            return (e.get('seen') or 0) if isinstance(e, dict) else 0
+        key = max(sorted(own), key=seen)
+    if isinstance(own.get(key), dict):
+        settings.update(own[key])
+    return settings, key
+
+
 class Market:
-    def __init__(self, sv_path, realm=None):
+    def __init__(self, sv_path, realm=None, char=None):
         self.sv_path = sv_path
         self.sv_dir = os.path.dirname(sv_path)
         self.saved_at = os.path.getmtime(sv_path)
@@ -383,7 +412,7 @@ class Market:
                 return stamp_to_epoch(scans[-1].split(',')[0][1:]) if scans else 0
             self.realm_key = max(realms, key=last_scan)
         self.r = realms[self.realm_key]
-        self.settings = data.get('settings') or {}
+        self.settings, self.char = character_settings(data.get('settings'), self.r, char)
         self.items = self.r.get('items') or {}
         self.names = {k: fix_text(v) for k, v in (self.r.get('names') or {}).items()}
         self.watch = self.r.get('watch') or {}
@@ -2247,7 +2276,7 @@ def cmd_listings(m, args):
     book = ListingsBook(realm, now, since=start)
     older = []
     for path in sorted(args.older or [], key=os.path.getmtime, reverse=True):
-        older.append(Market(path, m.realm_key))
+        older.append(Market(path, m.realm_key, m.char))
     settings = m.settings or {}
     room = (settings.get('tableCircPct') or 25) / 100
     first_share = (settings.get('tableFirstPct') or 2) / 100
@@ -2394,6 +2423,8 @@ def main(argv=None):
     ap.add_argument('--sv', help='path to WTF/.../SavedVariables/ForeverMarket.lua')
     ap.add_argument('--addon', help='path to Interface/AddOns/ForeverMarket')
     ap.add_argument('--realm', help='realm-faction filter')
+    ap.add_argument('--char', help="the character whose own settings count (1.68: the plan's settings are saved per "
+                                   'character); default: the one seen last')
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('summary')
     p = sub.add_parser('item')
@@ -2439,7 +2470,7 @@ def main(argv=None):
 
     addon, sv = find_paths(args)
     args.addon, args.sv = addon, sv
-    market = Market(sv, args.realm)
+    market = Market(sv, args.realm, args.char)
     {'summary': cmd_summary, 'item': cmd_item, 'price': cmd_price, 'movers': cmd_movers, 'sales': cmd_sales,
      'craft': cmd_craft, 'flips': cmd_flips, 'room': cmd_room, 'listings': cmd_listings}[args.cmd](market, args)
 

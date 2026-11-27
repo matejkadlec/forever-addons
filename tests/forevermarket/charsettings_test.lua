@@ -10,7 +10,9 @@
 --     values as they are then, so nothing changes for it
 --   * FM.GetSettings() is the one way in and out: no file reads ForeverMarketDB.settings itself
 --   * /fm forget removes a character's settings; /fm wipe confirm (market data) keeps them
---   * until the character's key is certain (its GUID is known) the account-wide values are read and written, as before
+--   * until the character's key is known (its GUID can be read) the account-wide values are read; what is set in that
+--     time is kept for the session and becomes the character's once the key is known, never the account's
+--   * two characters nobody can tell apart (the same first name without a surname) share one key and one set of values
 local H = require("harness")
 
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Snapshot.lua", "scan/Characters.lua",
@@ -30,21 +32,20 @@ local function Session(saved, first, guid)
     return FM, env, env.ForeverMarketDB
 end
 
--- The saved variables of a version before 1.68: one set of values for the account
+-- The saved variables of a version before 1.68: one set of values for the account, as that version wrote them into
+-- ForeverMarketDB.settings (the view of 1.68 never writes a character's key there)
 local function Before()
     local FM, _, db = Session(nil, "Ada", nil)
-    local s = FM.GetSettings()
+    local s = db.settings
     s.tableInvestPicks, s.tableProf, s.tableCircPct = 4, "LW", 30
-    FM.FilterSet("global").noVendor = true
-    FM.FilterSet("picks").listedCount = 7
+    s.tableFilters.global.noVendor = true
+    s.tableFilters.picks.listedCount = 7
     s.tableUseGlobal.picks = true
     s.upgradeRarities[2] = false
-    FM.SetExcluded = nil
     s.tablePos = { "TOPRIGHT", "TOPRIGHT", -100, -100 }
     s.windowMarket = "vanilla"
     H.eq(db.realms["TestRealm-Alliance"] == nil or db.realms["TestRealm-Alliance"].settings == nil, true,
-        "no character's key is certain: nothing per character is saved")
-    H.eq(db.settings.tableInvestPicks, 4, "the account-wide values are written, as before 1.68")
+        "no character's key is known: nothing per character is saved")
     return db
 end
 
@@ -168,6 +169,64 @@ H.test("char settings: a broken value of a character's own goes, its filter sets
     H.eq(type(s.tableUseGlobal), "table", "Use global filters is a table again")
     H.same({ FM.FilterSet("global").noCraft, FM.FilterSet("global").listedCount }, { false, 999 }, "a filter set is filled in and in range")
     H.eq(FM.FilterSet("learn").overSkillCap, 10, "a missing set gets its defaults")
+end)
+
+-- Review round 1 of PR 94: the account-wide values are only read. Before the character's key is known (its GUID cannot
+-- be read yet) a key that is set is kept for the session and becomes the character's once the key is known
+H.test("char settings: what is set before the character's key is known never reaches the account-wide values", function()
+    local db = Before()
+    local guid = nil
+    local FM, env = H.LoadAddon("addons/ForeverMarket", FILES)
+    env.ForeverMarketDB = db
+    env.UnitName = function() return "Ada" end
+    env.UnitNameUnmodified = function() return "Ada" end
+    env.UnitGUID = function() return guid end
+    FM.InitializeSavedData()
+    local s = FM.GetSettings()
+    H.eq(FM.SettingsPerCharacter(), false, "the key is not known yet")
+    H.same({ s.tableInvestPicks, s.tableProf }, { 4, "LW" }, "the account-wide values are read")
+    s.tableInvestPicks, s.tableProf = 9, nil
+    FM.FilterSet("global").noCraft = true
+    s.windowMarket = "anything"
+    H.same({ s.tableInvestPicks, s.tableProf, FM.FilterSet("global").noCraft }, { 9, nil, true }, "what was set holds for the session")
+    H.same({ db.settings.tableInvestPicks, db.settings.tableProf, db.settings.tableFilters.global.noCraft }, { 4, "LW", false },
+        "the account-wide values are untouched")
+    H.eq(db.settings.windowMarket, "anything", "an account-wide key is written as ever")
+    -- the GUID can be read now: the character's table takes what was set
+    guid = "G-A"
+    H.eq(FM.SettingsPerCharacter(), true, "the key is known")
+    H.same({ s.tableInvestPicks, s.tableProf, FM.FilterSet("global").noCraft }, { 9, nil, true }, "it is the character's own now")
+    local own = FM.CharSettingsOf("Ada")
+    H.same({ own.tableInvestPicks, own.tableProf, own.tableFilters.global.noCraft }, { 9, nil, true }, "saved in its table")
+    H.same({ db.settings.tableInvestPicks, db.settings.tableProf, db.settings.tableFilters.global.noCraft }, { 4, "LW", false },
+        "and still not in the account-wide values")
+    -- a character that already has a table keeps it: only what was set before the key was known is added
+    local db2 = Before()
+    Session(db2, "Ada", "G-A").GetSettings().tableInvestPicks = 6
+    local guid2 = nil
+    local FM2, env2 = H.LoadAddon("addons/ForeverMarket", FILES)
+    env2.ForeverMarketDB = db2
+    env2.UnitName = function() return "Ada" end
+    env2.UnitNameUnmodified = function() return "Ada" end
+    env2.UnitGUID = function() return guid2 end
+    FM2.InitializeSavedData()
+    H.eq(FM2.FilterSet("global").noVendor, true, "read before the key is known: the account's filters, as a copy")
+    FM2.GetSettings().tableCircPct = 50
+    guid2 = "G-A"
+    H.same({ FM2.GetSettings().tableInvestPicks, FM2.GetSettings().tableCircPct }, { 6, 50 }, "her own 6 picks stay, the 50% set early is added")
+end)
+
+H.test("char settings: two characters nobody can tell apart share one set of values, not the account-wide ones", function()
+    local db = Before()
+    -- two characters named Ada without a surname: the second keeps the first's key
+    Session(db, "Ada", "G-A").GetSettings().tableInvestPicks = 5
+    local FM = Session(db, "Ada", "G-A2")
+    H.eq(FM.PlayerName(), "Ada", "the same key")
+    H.eq(FM.SettingsPerCharacter(), true, "which has a table")
+    H.eq(FM.GetSettings().tableInvestPicks, 5, "the values of that key")
+    FM.GetSettings().tableInvestPicks = 8
+    H.eq(db.settings.tableInvestPicks, 4, "the account-wide value of before stays")
+    H.eq(Session(db, "Ada", "G-A").GetSettings().tableInvestPicks, 8, "shared between the two, like their other records")
 end)
 
 H.test("char settings: /fm forget removes a character's settings, the logged-in one is refused", function()

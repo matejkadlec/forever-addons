@@ -320,8 +320,11 @@ end
 --   * FM.GetSettings() is the one way in and out, for every key: it returns a view that reads and writes a key of
 --     FM.CHAR_SETTINGS in the character's table and every other key in the account's. No file reads
 --     ForeverMarketDB.settings itself (tests/forevermarket/charsettings_test.lua checks that)
---   * until the character's key is certain (its GUID and the realm are known, at login) the account-wide values are
---     read and written, as before 1.68; once found, the character's table is used for the rest of the session
+--   * until the character's key is known (its GUID and the realm, at login) the account-wide values are read, and
+--     a key set in that time is kept for the session and moved into the character's table once it is found: the
+--     account-wide values are never written through the view (review round 1 of PR 94). Once found, the
+--     character's table is used for the rest of the session. Two characters nobody can tell apart (the same first
+--     name without a surname) share one key and so one table, like their other records
 FM.CHAR_SETTINGS = {
     -- the filters dialogs: each tab's own set, the global set, "Use global filters"
     tableFilters = true, tableUseGlobal = true,
@@ -379,9 +382,15 @@ local function NormalizeCharSettings(own)
     end
 end
 
--- The logged-in character's own settings, nil until its key is certain: the realm is known and R.charInfo holds the
--- key with this character's GUID (two characters nobody can tell apart, the same first name without a surname, share
--- the account-wide values). Found once, it stays for the session
+-- What the view holds while the character's table is not found yet: the keys set in that time (earlyWrites, NONE
+-- for a key set to nil), moved into the table once it is found, and the copies of the account's tables it handed out
+-- (earlyReads: a caller may change such a table in place, which must never reach the account's)
+local NONE = {}
+local earlyWrites, earlyReads = {}, {}
+
+-- The logged-in character's own settings, nil until its key is known: FM.PlayerName is the character's key for good
+-- once its GUID can be read and the realm is known (two characters nobody can tell apart, the same first name without
+-- a surname, share that key and so this table, like their other records). Found once, it stays for the session
 local charSettings
 local function CharSettings()
     if charSettings then return charSettings end
@@ -390,19 +399,24 @@ local function CharSettings()
     local r = FM.R()
     if not r or FM.realm ~= r then return nil end
     local key = FM.PlayerName()
-    local info = type(key) == "string" and type(r.charInfo) == "table" and r.charInfo[key]
-    if type(info) ~= "table" or info.guid ~= guid then return nil end
+    if type(key) ~= "string" or key == "" then return nil end
     if type(r.settings) ~= "table" then r.settings = {} end
     local own = r.settings[key]
     if type(own) ~= "table" then
-        -- its first login with this version: the account-wide values as they are now
+        -- its first login with this version: the account-wide values as they are now (a table handed out before the
+        -- key was known is that copy)
         own = {}
         for name in pairs(FM.CHAR_SETTINGS) do
             local value = FM.db.settings[name]
-            if value ~= nil then own[name] = CopyValue(value) end
+            if value ~= nil then own[name] = earlyReads[name] or CopyValue(value) end
         end
         r.settings[key] = own
     end
+    -- what was set before the key was known is the character's
+    for name, value in pairs(earlyWrites) do
+        if value == NONE then own[name] = nil else own[name] = value end
+    end
+    earlyWrites, earlyReads = {}, {}
     NormalizeCharSettings(own)
     charSettings = own
     return own
@@ -436,6 +450,19 @@ local settingsView = setmetatable({}, {
                 end
                 return shared
             end
+            -- the character's table is not found yet: what was set meanwhile, else the account-wide value (a table
+            -- as a copy for the session)
+            local early = earlyWrites[key]
+            if early ~= nil then
+                if early == NONE then return nil end
+                return early
+            end
+            local shared = FM.db.settings[key]
+            if type(shared) == "table" then
+                earlyReads[key] = earlyReads[key] or CopyValue(shared)
+                return earlyReads[key]
+            end
+            return shared
         end
         return FM.db.settings[key]
     end,
@@ -444,8 +471,12 @@ local settingsView = setmetatable({}, {
             local own = CharSettings()
             if own then
                 own[key] = value
-                return
+            elseif value == nil then
+                earlyWrites[key] = NONE
+            else
+                earlyWrites[key] = value
             end
+            return
         end
         FM.db.settings[key] = value
     end,
