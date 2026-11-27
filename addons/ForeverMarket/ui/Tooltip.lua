@@ -117,10 +117,15 @@ local function GroupLines(lines, group, total, single)
     -- each row says what it is based on (FRV-134): today's prices of the AH (crafted: of the materials), what you paid
     lines[#lines + 1] = Row("today's prices", group.now, NowColor(group.now, group.paid))
     local label = "you paid"
-    if group.kind == "crafted" and group.paid and group.paidN < group.n then
+    if (group.kind == "crafted" or group.pool) and group.paid and group.paidN < group.n then
         label = string_format("you paid (%s of %s)", FM.FormatCount(group.paidN), FM.FormatCount(group.n))
     end
     lines[#lines + 1] = Row(label, group.paid, WHITE)
+    -- Shift: where your pool's units came from (FRV-88): "80 bought this week at 2s 21c, 67 older at 3s 60c"
+    if group.parts and FM.PoolText and IsShiftKeyDown and IsShiftKeyDown() then
+        local text = FM.PoolText(group)
+        if text then lines[#lines + 1] = { INDENT .. INDENT .. text, note = true, wrap = true } end
+    end
     if group.missing and group.missing[1] then
         local names = {}
         for i, key in ipairs(group.missing) do names[i] = FM.GetName(key) end
@@ -130,7 +135,9 @@ end
 
 -- { label, value, color } lines of the cost section (a group header has no value, a note line only text), or false
 local function CostLines(key)
-    local entry = costCache[key]
+    -- with Shift held the section has one more line (where the units came from): kept apart
+    local id = key .. ((IsShiftKeyDown and IsShiftKeyDown()) and "+" or "")
+    local entry = costCache[id]
     if entry and GetTime() - entry.at <= COST_AGE then return entry.lines end
     local lines = false
     local info = FM.CostInfo and FM.CostInfo(key)
@@ -158,7 +165,7 @@ local function CostLines(key)
         lines[#lines + 1] = Row("8h listing", info.min8, WHITE, true)
         lines[#lines + 1] = Row("24h listing", info.min24, WHITE, true)
     end
-    costCache[key] = { lines = lines, at = GetTime() }
+    costCache[id] = { lines = lines, at = GetTime() }
     return lines
 end
 
@@ -204,7 +211,7 @@ local function OnItemTooltip(tooltip, data)
         for _, line in ipairs(cost) do
             local c = line[3]
             if line.note then
-                tooltip:AddLine(line[1], NONE[1], NONE[2], NONE[3])
+                tooltip:AddLine(line[1], NONE[1], NONE[2], NONE[3], line.wrap)
             elseif line[2] then
                 tooltip:AddDoubleLine(line[1], line[2], ROW[1], ROW[2], ROW[3], c[1], c[2], c[3])
             else

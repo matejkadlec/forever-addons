@@ -93,6 +93,8 @@ function FM.LogPurchase(key, qty, total)
     local buys = Buys()
     buys[#buys + 1] = string.format("%d,%s,%d,%d,%s", FM.Now(), key, qty, math_floor(total + 0.5), FM.PlayerName())
     Prune()
+    -- its units enter your pool of the item when they reach your bags (trade/Pool.lua, FRV-88)
+    if FM.PoolBought then FM.PoolBought(key, qty, math_floor(total + 0.5), "c") end
 end
 
 -- Units of an item this character bought on the AH since `since` (time()): what a Picks plan made then has bought of
@@ -826,6 +828,17 @@ end
 -- withNow = false leaves out `now` (FM.PaidBasis needs only what you paid)
 local function Groups(key, n, owned, withNow)
     local recipe = FM.RecipeOf and FM.RecipeOf(key)
+    -- the units you hold: one group at your pool's moving average (FRV-88, trade/Pool.lua), with where its units came
+    -- from (parts, the tooltip's Shift line). An item you can make shows its materials' prices of today next to it.
+    -- Units the pool does not hold (no price was known when they came) have no basis: "you paid (3 of 5)"
+    if owned and FM.PoolActive and FM.PoolActive() then
+        local p = FM.PoolOf(key)
+        local paidN = p and math.min(n, math_floor(p.n + 0.5)) or 0
+        return { { kind = recipe and "crafted" or "cost", n = n,
+            now = withNow and (recipe and CraftNow(recipe, n) or BuyNow(key, n)) or nil,
+            paid = paidN > 0 and p.unit or nil, paidN = paidN > 0 and paidN or nil, parts = paidN > 0 and p.parts or nil,
+            pool = true } }
+    end
     local u = FM.UnitsBasis and FM.UnitsBasis(key, n, not owned)
     local crafted = u and (u.crafted + (recipe and u.uncovered or 0)) or 0
     if crafted == 0 then

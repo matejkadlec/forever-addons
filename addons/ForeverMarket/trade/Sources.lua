@@ -1505,6 +1505,23 @@ function FM.Owned(key)
     return bagAll + bankAll, bagFree + bankFree, bagFree, bagAll
 end
 
+-- The units of every item in your bags and bank, by item key (the bank as read this session, else as last seen):
+-- what your pools are set against (trade/Pool.lua, FRV-88)
+function FM.StockUnits()
+    local units = {}
+    local function add(index)
+        for id, e in pairs(index or {}) do
+            local key = tostring(id)
+            units[key] = (units[key] or 0) + (e.all or 0)
+        end
+    end
+    add(BagIndex())
+    -- bags that read empty: their containers are not loaded (FRV-73); nothing is told then
+    if next(units) == nil then return units end
+    add((BankReading()))
+    return units
+end
+
 ---------------------------------------------------------------- changes of what you hold (FRV-98)
 -- FM.stockVersion counts the changes of your bags and bank (what FM.Owned reads): STOCK_SETTLE seconds after the
 -- last BAG_UPDATE_DELAYED or bank slot change, their units are compared with the last look, and a change counts
@@ -1543,6 +1560,11 @@ function FM.CheckStock()
     if not ok or sig == stockSig then return false end
     stockSig = sig
     FM.stockVersion = FM.stockVersion + 1
+    -- your pools follow what you hold (FRV-88, trade/Pool.lua): what came in, at what it cost; what left
+    if FM.PoolUpdate then
+        local done, err = pcall(FM.PoolUpdate)
+        if not done and geterrorhandler then geterrorhandler()(err) end
+    end
     -- a vendor resell whose amount you set counts the units you bought of it (FRV-188, trade/Picks.lua)
     if FM.SetPicksStock then
         local done, err = pcall(FM.SetPicksStock)

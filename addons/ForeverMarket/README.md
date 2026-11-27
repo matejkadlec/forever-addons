@@ -164,6 +164,44 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   stack you would make. Before 1.21 the crafted branch ("Craft cost") applied only once the marketplace had
   computed its numbers in the session (opening it or a deep scan), so after a login a crafted item showed its own
   AH price
+  * **you paid is a moving average of the units you hold** (1.62, FRV-88, trade/Pool.lua), for the units you hold
+    of any item; the two rules for "you paid" further down (your newest crafts' basis, your newest purchases) are
+    what it was until 1.61 and still what it is for an item you do not hold. Those averaged your newest purchases
+    until they covered your units, without knowing which were used, sold or vendored since, nor which units were
+    looted: 147 Small Lustrous Pearls bought lately at about 2s 30c read 2s 88c, because dearer purchases of pearls
+    long gone filled up the 147.
+    * **A pool per item and character**: the units in your bags and bank and what they cost together. No stack is
+      followed, so splitting and merging stacks changes nothing.
+    * **Units come in**: new average = (held x old average + new units x their cost) / all units.
+      * An AH purchase at its price. The price is recorded at the purchase (a won auction's when its mail is read),
+        but the units enter the pool when they reach your bags, not at the purchase: units you use or sell before
+        you collect the mail were not the bought ones. 20 in the bags at 4s, 20 bought at 2s and left in the mail,
+        the bags' 20 used in a craft, the mail collected: 20 at 2s (counting at the purchase would say 3s).
+      * Crafted units at their materials' basis from the craft log (below).
+      * Units back from an auction that did not sell, at what they left with.
+      * Units from a vendor at the vendor's price (the merchant window open; the price ForeverMarket knows of the
+        item, else your gold spent when one item rose).
+      * Anything else (looted, skinned, gathered, traded, mailed by another character) at what the craft log takes
+        for units nobody recorded: a vendor's price when one sells the item without limit, else its AH price at
+        that moment (the cheapest of others). An item without any price stays out of the pool until there is one:
+        **you paid (3 of 5)** then, "-" when none of your units has a price.
+    * **Units go out** (used in a craft, sold, vendored, destroyed, mailed, posted): the count falls, the average
+      stays.
+    * **The pool is set against what you really hold** 2 seconds after your bags or bank last changed (not in
+      combat, not in the first 10 seconds after a login): a rise is explained in the order above, a fall takes units
+      out. Units that left and are back within half a minute are the same units and come back at what they left
+      with (an item put into a mail and taken back, sold to a vendor and bought back, a bag read too early).
+    * **The start**: once per character, from the data of that moment: the units you hold at the craft log's
+      estimate (`FM.HeldLots`: your purchases and crafts less what your crafts used of them, the rest at the rule
+      for units nobody recorded), and the purchases made after your last look into the mailbox wait for their units.
+    * **Hold Shift** over the item for one more grey line under "you paid": where the units came from, "80 bought
+      this week at 2s 21c, 67 older at 3s 60c, 12 looted at 2s 40c" (bought this week, older: earlier purchases,
+      the start and returns from the AH, crafted, looted, from a vendor).
+    * Picks' basis for the units you hold (`FM.PaidBasis`) and "Sell at least" read the same average. An item you
+      can make shows **Material cost** with its materials at today's prices next to it, any other item **Cost**;
+      one group, no longer one per way your units came to you.
+    * Per character, like the purchases; what your other characters hold is not in it. The craft log's own basis of
+      a craft's materials still follows its lots (below), not these averages.
   * **Material cost (n pcs)** when your n units are crafted (Turtle Scale Bracers, Cured Thick Hide, food):
     * **today's prices** ("now" until 1.41, FRV-134): the materials of one unit at today's prices, priced the way the marketplace prices them
       (`FM.MaterialUnit`: the vendor or the AH ladder for that many crafts, never under the material's 8 hour
@@ -2169,6 +2207,16 @@ Picks skip).
   bags, 173 in the bank)
 * `sent[char]` lines `t|id:count,...`: the items of the mails your other characters sent to `char`, until its
   mailbox shows all its mail (1.24)
+* `pool[char]` (1.62, FRV-88, trade/Pool.lua) what the units a character holds cost it, the tooltip's "you paid":
+  `t` when it started, `at` the last look, `money` the gold then, `post` the newest post line seen;
+  `items[key]` = `"units|cost|kind:t:units:cost;..."` the units held (bags and bank) and their cost in copper, then
+  where they came from (`b` bought with the purchase's time, `o` older: the start, returns from the AH and purchases
+  older than a week or beyond the 6 newest, `c` crafted, `l` looted or the like, `v` from a vendor; at most a handful
+  of parts, and an item you no longer hold has no entry); `wait` = `"t,key,units,copper,kind"` purchases whose units
+  have not reached your bags (`c` a commodity purchase, `w` a won auction; 30 days, 300 lines at most); `out[key]` =
+  `"units|cost|t"` units posted on the AH at what they left with (less every sale's mail; 30 days); `crafts["t:key"]`
+  = the units of a craft line that entered already (a day). `/fm forget <name>` drops a character's pools with its
+  other records
 * `buys` `t,key,qty,total,char` commodity purchases (epoch seconds, a year; no `char` before 1.15.5). Mended once per
   bucket (FRV-102, `buysRepair` = 2 since 1.36.5, the counts in `buysRepaired` = { t, fixed, added, capped, crafts },
   a chat line says them): every commodity purchase sends a buyer mail with its units and real total (`invoices`;

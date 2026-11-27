@@ -215,6 +215,8 @@ local function UnrecordedUnit(key)
     return nil, "x"
 end
 
+FM.UnrecordedUnit = UnrecordedUnit -- trade/Pool.lua: what a unit nobody recorded enters your pool at (FRV-88)
+
 -- The units of an item you hold, oldest first: { { qty, unit|nil, src }, ... } covering `held` units.
 -- The lots the logs still hold cover them newest first; what they leave is the oldest, at UnrecordedUnit.
 function FM.HeldLots(key, held)
