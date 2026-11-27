@@ -84,6 +84,8 @@ local function Load(options)
     env.cvars = options.cvars or ClientCVars()
     env.perCharacter = options.perCharacter or {}
     env.refused = options.refused or {}
+    env.locked = options.locked or {}
+    env.cvarsLoaded = options.cvarsLoaded ~= false
     env.guid = options.guid or PLAYER_GUID
     env.combat = false
     env.InCombatLockdown = function() return env.combat end
@@ -94,8 +96,9 @@ local function Load(options)
             local value = env.cvars[name]
             if value == nil then return nil end
             local perCharacter = env.perCharacter[name] == true
-            return value, "0", not perCharacter, perCharacter, false, false, false
+            return value, "0", not perCharacter, perCharacter, env.locked[name] == true, false, false
         end,
+        AreCVarsLoaded = function() return env.cvarsLoaded end,
         SetCVar = function(name, value)
             if env.refused[name] or env.cvars[name] == nil then return false end
             env.cvars[name] = value
@@ -261,6 +264,48 @@ H.test("a CVar the game keeps per character is saved and restored for each chara
     ns3.ApplyAll()
     H.eq(env3.cvars.nameplateShowFriendlyPlayers, "1", "restored at that character's login")
     H.eq(env3.ForeverTweaksDB.anonCVars, nil, "nothing left saved")
+end)
+
+H.test("no CVar is read or set before the client has loaded them (VARIABLES_LOADED)", function()
+    -- the first character's own CVar waits saved, it logs in with the mode off; before VARIABLES_LOADED the client
+    -- still answers its default, which equals the saved value
+    local perCharacter = { nameplateShowFriendlyPlayers = true }
+    local db = { anonMode = false, anonCVars = { chars = { [PLAYER_GUID] = { nameplateShowFriendlyPlayers = "1" } } } }
+    local ns, env = Load({ perCharacter = perCharacter, db = db, cvarsLoaded = false })
+    ns.ApplyAll()
+    H.same(env.ForeverTweaksDB.anonCVars, { chars = { [PLAYER_GUID] = { nameplateShowFriendlyPlayers = "1" } } },
+        "the saved value is not dropped at PLAYER_ENTERING_WORLD")
+
+    -- the character's own value arrives: 0, as the mode left it
+    env.cvars.nameplateShowFriendlyPlayers = "0"
+    env.cvarsLoaded = true
+    env.FireEvent("VARIABLES_LOADED")
+    H.eq(env.cvars.nameplateShowFriendlyPlayers, "1", "restored once the CVars are loaded")
+    H.eq(env.ForeverTweaksDB.anonCVars, nil, "nothing left saved")
+
+    -- an alt with the mode on: its early value is not taken as its own
+    local ns2, env2 = Load({ db = { anonMode = true }, cvarsLoaded = false })
+    ns2.ApplyAll()
+    H.eq(env2.cvars.UnitNameOwn, "1", "nothing hidden before the CVars are loaded")
+    H.eq(env2.ForeverTweaksDB.anonCVars, nil, "nothing saved before the CVars are loaded")
+    env2.cvars.UnitNameOwn = "2"
+    env2.cvarsLoaded = true
+    env2.FireEvent("VARIABLES_LOADED")
+    H.eq(env2.cvars.UnitNameOwn, "0", "hidden once loaded")
+    H.eq(env2.ForeverTweaksDB.anonCVars.account.UnitNameOwn, "2", "the loaded value is the one saved")
+end)
+
+H.test("a saved CVar that is locked when the mode turns off keeps its value for a later try", function()
+    local ns, env = Load()
+    ns.SetAnonymousMode(true)
+    env.locked.UnitNameOwn = true
+    ns.SetAnonymousMode(false)
+    H.eq(env.cvars.UnitNameOwn, "0", "a locked CVar is not set")
+    H.same(env.ForeverTweaksDB.anonCVars, { account = { UnitNameOwn = "1" } }, "its value stays saved")
+    env.locked.UnitNameOwn = nil
+    ns.ApplyAll()
+    H.eq(env.cvars.UnitNameOwn, "1", "restored at the next apply")
+    H.eq(env.ForeverTweaksDB.anonCVars, nil, "nothing left saved")
 end)
 
 H.test("in combat the CVars wait for the end of combat and the chat says so, the frames change at once", function()

@@ -5,7 +5,8 @@ local addonName, FTW = ...
 --   * Floating names and friendly player nameplates are CVars the client saves. Each one is read before it is set
 --     to 0 and its value is kept in ForeverTweaksDB.anonCVars (per character for the CVars the game keeps per
 --     character, else for the account), so a /reload, relog or crash with the mode on still restores the values
---     from before. CVars are changed out of combat only; a change in combat waits for PLAYER_REGEN_ENABLED.
+--     from before. CVars are read and changed only once the client has loaded them (VARIABLES_LOADED) and only out
+--     of combat; a change in combat waits for PLAYER_REGEN_ENABLED.
 --   * Names on unit frames and nameplates, the chat windows and player tooltips only get alpha 0 (and undocked chat
 --     tabs Hide, they have no scripts): no Blizzard script runs and nothing is written onto Blizzard frames, so
 --     nothing is tainted, also in combat. It is not saved by the client and is applied again at every load.
@@ -67,7 +68,12 @@ local hookedTabs = {} -- chat tabs with our OnShow hook
 local hiddenTooltips = {} -- tooltips this mode made invisible (alpha 0)
 local hooksInstalled = false
 local cvarsPending = false -- a CVar change waits for the end of combat
+local worldEntered = false -- the first apply ran (PLAYER_ENTERING_WORLD)
+local cvarsLoaded = false -- the client has loaded the saved CVars (VARIABLES_LOADED)
 local eventFrame = CreateFrame("Frame")
+-- Blizzard's settings read these CVars only after both VARIABLES_LOADED and PLAYER_ENTERING_WORLD
+-- (Blizzard_SettingsRegistrar.lua): a value read earlier may not be the character's own yet
+eventFrame:RegisterEvent("VARIABLES_LOADED")
 
 -- Whether the mode is on right now (it is off while ForeverTweaks is disabled)
 function FTW.IsAnonymousModeActive()
@@ -191,8 +197,10 @@ local function RestoreCVars(dryRun)
         if bucket then
             for name, saved in pairs(bucket) do
                 local value = GetCVarState(name)
-                if value == nil or value == saved then
-                    -- gone, locked, or already back: nothing to set
+                if value == nil then
+                    -- missing or locked right now: the saved value waits for a later try
+                elseif value == saved then
+                    -- already back: nothing to set
                     if not dryRun then
                         bucket[name] = nil
                     end
@@ -215,8 +223,19 @@ local function RestoreCVars(dryRun)
     return changes, failed
 end
 
+-- Whether the CVars can be read and set: in the world and loaded (VARIABLES_LOADED runs UpdateCVars when it comes)
+local function CVarsReady()
+    if not cvarsLoaded and C_CVar.AreCVarsLoaded and C_CVar.AreCVarsLoaded() then
+        cvarsLoaded = true
+    end
+    return worldEntered and cvarsLoaded
+end
+
 -- Bring the CVars in step with the mode; in combat only notes that a change waits. True when it ran now.
 local function UpdateCVars()
+    if not CVarsReady() then
+        return false
+    end
     local work = IsActive() and HideCVars or RestoreCVars
     if InCombatLockdown() then
         cvarsPending = work(true) > 0
@@ -508,9 +527,15 @@ local function InstallHooks()
     eventFrame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 end
 
+-- The saved CVars are loaded: bring them in step now if the world is entered already.
 -- A nameplate that appears: hide or restore its names (plates are reused for other units)
 eventFrame:SetScript("OnEvent", function(_, event, unit)
-    if event == "NAME_PLATE_UNIT_ADDED" and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
+    if event == "VARIABLES_LOADED" then
+        cvarsLoaded = true
+        if worldEntered then
+            UpdateCVars()
+        end
+    elseif event == "NAME_PLATE_UNIT_ADDED" and C_NamePlate and C_NamePlate.GetNamePlateForUnit then
         local plate = C_NamePlate.GetNamePlateForUnit(unit)
         if plate then
             UpdatePlate(plate, unit)
@@ -519,6 +544,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit)
 end)
 
 local function ApplyAnonymousMode()
+    -- only called from PLAYER_ENTERING_WORLD on and from the player's own changes
+    worldEntered = true
     local active = IsActive()
     if active then
         InstallHooks()
