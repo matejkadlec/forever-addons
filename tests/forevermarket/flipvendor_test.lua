@@ -13,6 +13,7 @@
 --   * the rule does not read the filters: "Exclude vendor flips" does not bring such an item back as an AH flip
 -- The prices are copper.
 local H = require("harness")
+local F = require("fixtures")
 
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Ledger.lua", "trade/Places.lua", "trade/Sources.lua",
     "trade/QuestieVendors.lua", "trade/Calc.lua" }
@@ -147,8 +148,11 @@ local function PickSetup(noVendor)
     return FM, env
 end
 
-local function Compute(FM, env, out)
-    local view = { Get = function() return { ladder = { { 2500, 40 } }, qty = 40, own = 0 } end }
+-- ladders: [key] = what the market holds of an item (else 40 units at 25s)
+local function Compute(FM, env, out, ladders)
+    local view = { Get = function(key)
+        return ladders and ladders[key] or { ladder = { { 2500, 40 } }, qty = 40, own = 0 }
+    end }
     local done = false
     FM.ComputePicks(out, { view = view, sources = { profs = {} }, now = env.clock, nowMinutes = NOW_MINUTES },
         function() done = true end)
@@ -174,4 +178,52 @@ H.test("flip vendor rule: a vendor resell of the item keeps its own reason", fun
     local out = { vendor = { vendor }, flipVendorWhy = { ["301"] = "sold by vendors: a vendor flip, not an AH flip" } }
     Compute(FM, env, out)
     H.eq(out.pickWhy["301"], "vendor resells are off (Exclude vendor flips)", "the vendor row's reason stays")
+end)
+
+-- Four deep scan records, 6h apart, each with `perInterval` units bought at the lowest price (as picks_test.lua):
+-- 4 x perInterval buyers a day
+local function Records(perInterval)
+    local B = F.Base36
+    local list = {}
+    for i = 3, 0, -1 do
+        local f = {}
+        for k = 1, 22 do f[k] = "" end
+        f[1] = "r" .. B(NOW_MINUTES - i * 360)
+        f[2], f[3] = B(10000), B(50)
+        f[9] = B(360)
+        f[10], f[11] = B(perInterval), B(3)
+        f[22] = B(perInterval)
+        list[#list + 1] = table.concat(f, ",")
+    end
+    return table.concat(list, ";")
+end
+
+-- Review round 1 of PR 93: the pick plans with its own ladder (a newer search, what earlier picks leave), so the
+-- vendor's price must reach its own run of the flip rule too (row.under)
+H.test("flip vendor rule: a Flip pick of an item with limited vendor stock buys only under the vendor's price", function()
+    -- 2 at 40s, 2 at 80s, 16 at 1g 05s; a vendor with limited stock asks 60s
+    local market = { ["302"] = { ladder = { { 4000, 2 }, { 8000, 2 }, { 10500, 16 } }, qty = 20, own = 0 } }
+    local function Pick(under)
+        local FM, env = PickSetup(false)
+        env.GetMoney = function() return 40000 end -- 4g: gold for all four units, and a pick's profit is worth it
+        FM.R().items["302"] = { d = Records(27) }
+        FM.GetSettings().tableInvestPicks = 1
+        -- the flip row as FM.FlipOf makes it with the vendor (the 40s level, listed under 80s) and without (both levels)
+        local row = under and { key = "302", sell = 7999, usual = 10000, top = 4000, units = 2, support = 18, wall = 10500,
+            qty = 20, sold12 = 10, under = under }
+            or { key = "302", sell = 10499, usual = 10000, top = 8000, units = 4, support = 16, wall = 10500, qty = 20, sold12 = 10 }
+        local out = { flips = { row } }
+        Compute(FM, env, out, market)
+        local pick = out.picks[1]
+        H.eq(pick ~= nil and pick.key, "302", "a pick: " .. tostring(out.pickWhy and out.pickWhy["302"]))
+        return pick, FM
+    end
+    local pick, FM = Pick(6000)
+    H.eq(pick.invest, 2 * 4000, "it buys the 2 units at 40s, never the 80s level a vendor undercuts")
+    H.eq(pick.listAt, 7999, "and lists them under the 80s that stays")
+    H.eq(pick.steps[1], "buy 2 up to " .. FM.FormatMoney(4000), "its buy step")
+    -- the same market without a vendor: both levels
+    local free = Pick(nil)
+    H.eq(free.invest, 2 * 4000 + 2 * 8000, "without the vendor the pick buys all four")
+    H.eq(free.listAt, 10499, "listed under the 1g 05s")
 end)
