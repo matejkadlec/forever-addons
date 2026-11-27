@@ -9,6 +9,7 @@
 #   mail <key> <ago> <total>                       a sale mail of one unit
 #   expiry <key> <ago> [count]                     an expiry mail ("item:<key> (count)")
 #   list <ago> [aid:key:units:buyout:status:secondsLeft ...]   your auction list, read then
+#   again <ago>                                     the character was deleted and made again then: it took the key over (FRV-236)
 #   expect <key> <n> sold <units> expired <units> cancelled <units> open <0|1>   the n-th post of the key, in log order
 #   proven <key> <units> <ranOut 0|1> sold72 <units>
 
@@ -186,3 +187,16 @@ event ocancel 871 1300 5 500 c2 1310
 list 30
 expect 870 1 sold 10 expired 0 cancelled 0 open 0
 expect 871 1 sold 5 expired 0 cancelled 5 open 0
+
+case commodity-of-a-character-made-again
+# FRV-236: 856 was posted by the character that was then deleted; the one made again under its name took the key
+# over (its auction list starts empty then) and read its own list after 856 was over. The new character's lists
+# never held 856, so the list says nothing about it: open with what is known to have sold, never sold out. 857 is
+# the new character's own post, over before its list was read: sold out as ever
+post 1800 856 100 500 24 c c5
+event opart 856 1700 30 500 c5 1710
+again 200
+post 150 857 10 500 2 c c6
+list 20
+expect 856 1 sold 30 expired 0 cancelled 0 open 1
+expect 857 1 sold 10 expired 0 cancelled 0 open 0

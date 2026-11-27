@@ -1017,8 +1017,15 @@ function FM.PlayerName()
     local full = FM.PlayerFullName()
     local again = full and full ~= first and KeyOfName(info, full)
     if again then
+        local now = FM.Now()
         info[again].guid, info[again].bagsEmpty = guid, nil
         FM.DropHeld(r, again)
+        -- the key's posts stay its log, but the deleted character's auctions are not this one's: its auction list
+        -- starts empty as of now, so no post of before counts as running or listed (scan/Worth.lua, scan/Ledger.lua),
+        -- and the moment is kept: those posts can no longer be seen to end, a later list that lacks them does not
+        -- make them sold out (charInfo[key].again, trade/Listings.lua)
+        info[again].again = now
+        if type(r.owned) == "table" then r.owned[again] = { t = now, list = "", v = 2 } end
         -- its auction list counted as your listings, its readings as your stock
         FM.listingsVersion = (FM.listingsVersion or 0) + 1
         FM.dataVersion = (FM.dataVersion or 0) + 1

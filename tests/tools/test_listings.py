@@ -76,6 +76,8 @@ def realm_of(case):
                                          "item:" + w[1] + (" (%s)" % w[3] if len(w) > 3 else "")]))
         elif w[0] == "list":
             r["owned"]["Tester"] = {"t": fa.EPOCH + (NOW - int(w[1])) * 60, "list": ",".join(w[2:]), "v": 2}
+        elif w[0] == "again":
+            r.setdefault("charInfo", {})["Tester"] = {"again": fa.EPOCH + (NOW - int(w[1])) * 60}
         else:
             checks.append(w)
     return r, checks

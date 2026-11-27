@@ -339,9 +339,11 @@ H.test("characters: a character made again under the same name takes its key ove
     r = FM.R()
     H.eq(r.charInfo.Tester.guid, "Player-1-Z", "the key is this character's now")
     H.eq(r.charInfo["Tester Surname"], nil, "no second key")
-    for _, field in ipairs({ "bags", "bank", "mailbox", "owned", "goldLast", "sent", "pool" }) do
+    for _, field in ipairs({ "bags", "bank", "mailbox", "goldLast", "sent", "pool" }) do
         H.eq(r[field].Tester, nil, field .. ": what the gone character held is dropped")
     end
+    H.same(r.owned.Tester, { t = NOW, list = "", v = 2 }, "its auction list starts empty as of the take-over")
+    H.eq(r.charInfo.Tester.again, NOW, "the moment of the take-over is kept with the key")
     H.eq(r.charInfo.Tester.bagsEmpty, nil, "the note of its last empty read too")
     H.eq(r.posts[1], "1,Tester,2589,1,1,3,i", "the key's posts stay")
     H.same(r.worth.Tester, { "1,1,1,h" }, "its Profit readings stay")
@@ -350,6 +352,41 @@ H.test("characters: a character made again under the same name takes its key ove
     H.eq(FM.GetSettings().tableInvestPicks, 5, "its settings stay")
     H.same(Names(FM), { "Tester" }, "listed once")
     H.eq(r.charInfo.Tester.guid, "Player-1-Z", "and the key stays its own at the next reads")
+end)
+
+-- Rule (FRV-236, review round 1 of PR 96): the key's post lines stay its log, but the deleted character's auctions
+-- are not the new one's. A character without an auction list counts every post that can still run as listed
+-- (FM.OwnListings, scan/Ledger.lua), so the take-over starts the key's list empty: no post of before counts
+H.test("characters: what the deleted character posted is not listed as the made-again one's auctions", function()
+    local files = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Characters.lua", "scan/Ledger.lua" }
+    local function Session(saved, guid)
+        local FM, env = H.LoadAddon("addons/ForeverMarket", files)
+        env.clock = NOW
+        env.UnitName = function() return "Tester", "Surname" end
+        env.UnitNameUnmodified = function() return "Tester", "Surname" end
+        env.UnitGUID = function() return guid end
+        env.ForeverMarketDB = saved
+        FM.InitializeSavedData()
+        return FM, env
+    end
+    -- the first character of the name: 40 units posted an hour ago for 24 hours, after its last auction list
+    local FM, env = Session(nil, nil)
+    local r = FM.R()
+    r.charInfo.Tester = { guid = "Player-1-A", full = "Tester Surname", seen = NOW - 600 }
+    r.owned.Tester = { t = NOW - 7200, list = "", v = 2 }
+    r.posts[1] = table.concat({ FM.Stamp(NOW - 3600), "Tester", "2589", B(40), B(500), "3", "c", "a1" }, ",")
+    FM, env = Session(env.ForeverMarketDB, "Player-1-A")
+    H.eq(FM.PlayerName(), "Tester", "the first one")
+    H.eq((FM.OwnListings())["2589"].n, 40, "its post counts as listed while it is this character's")
+    -- deleted and made again
+    FM, env = Session(env.ForeverMarketDB, "Player-1-Z")
+    H.eq(FM.PlayerName(), "Tester", "the made-again one takes the key over")
+    H.eq((FM.OwnListings())["2589"], nil, "the deleted one's post is not its auction")
+    H.eq(#FM.R().posts, 1, "the post line stays in the log")
+    -- what the new one posts counts as ever
+    r = FM.R()
+    r.posts[2] = table.concat({ FM.Stamp(NOW), "Tester", "2589", B(7), B(500), "3", "c", "a2" }, ",")
+    H.eq((FM.OwnListings())["2589"].n, 7, "its own post counts")
 end)
 
 H.test("characters: saved data with a made-again character under two keys keeps the logged-in one's key", function()
