@@ -746,7 +746,8 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
       scope, even when the scan says it is no longer pick #1, and the tab's filters (the profession, the place, a
       maximum, Exclude crafting) do not drop it, nor do the Vendor and Flip tabs' own cuts (a vendor resell that earns
       under 10c now, a flip at a new price level: it keeps your number with its status icon; a flip with nothing left
-      to buy on the AH ends); a craft's crafts since you set it count toward your number ("Make 3 /
+      to buy on the AH ends), nor an item that circulates too little now or has no sales known (the formula's room and
+      batch: your number is the listing then); a craft's crafts since you set it count toward your number ("Make 3 /
       5", listed with it), a flip's AH purchases since you set it, a vendor resell's units you hold more than then.
       Off, a new plan starts from its own numbers and your amounts are dropped.
     * A set pick ends when you empty its input and press Enter, or the row menu's Reset amount (1.49, FRV-194): the
@@ -1996,11 +1997,12 @@ Picks skip).
   the plan's own line stays as it was. Since 1.57 (FRV-188) the plan made again around your amounts is logged whole:
   your set picks `e` / `xe`, the picks planned around them `r` / `xr` (also in a new plan that keeps set picks in the
   plan); `tools/fm_analyze.py` leaves both out of measuring the formula
-* `setPicks` (1.57, FRV-188) `{ [character] = { [key] = { key, n, from, pos, extra, since, at, held, held0, got } } }`: the
+* `setPicks` (1.57, FRV-188) `{ [character] = { [key] = { key, n, from, pos, extra, since, at, held, held0, got, gotPlan } } }`: the
   picks whose amount you set, per character: your number, the candidate's kind (`craft`, `vendor`, `flip`), its place
   in its section (in the plan, or out of scope with `extra`), the plan time a craft's crafts count from, when it was
   set (a flip's purchases count from then), the units of yours a craft listed with it, and for a vendor resell the
-  units you held then and the most more of them seen since. An entry goes when you empty its Amount, remove it, ignore
+  units you held then, the most more of them seen since and how many of those it had when the last new plan kept it
+  (`gotPlan`). An entry goes when you empty its Amount, remove it, ignore
   or hide its item, when it is done (before the next plan), or for every entry of a character at a new plan with Lock
   manual plan changes off; the tables go once empty
 * `events` `t,char,kind,...`: owned `osold|opart|ocancel|ogone,key,qty,buyout,auctionID,prev` (prev = the list

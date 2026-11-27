@@ -1667,7 +1667,8 @@ function FM.SetPickAmount(key, amount)
         -- from its plan, a flip's purchases and a vendor resell's units from now
         since = old and old.since or pick.planAt or trade.pickNow or now, at = old and old.at or now,
         held = old and old.held or pick.heldOwn or 0,
-        held0 = old and old.held0 or (FM.Owned and tonumber((FM.Owned(key))) or 0), got = old and old.got or 0 })
+        held0 = old and old.held0 or (FM.Owned and tonumber((FM.Owned(key))) or 0), got = old and old.got or 0,
+        gotPlan = old and old.gotPlan or nil }) -- what a vendor resell had when the plan kept it (review round 3 of PR 90)
     -- out of scope: that pick alone (review round 1 of PR 90: the plan does not change)
     local ok, why = FM.ReplanPicks(key, nil, pick.extra)
     if not ok then

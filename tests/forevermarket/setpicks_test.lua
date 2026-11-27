@@ -381,3 +381,44 @@ H.test("set picks: a vendor resell set before the plan and bought since stays at
     H.same({ FM.SetPickLeft(entry, env.clock) }, { 6, 0 }, "as of the plan: none bought yet, your 6 to plan")
     H.same({ FM.SetPickLeft(entry) }, { 0, 6 }, "for the next new plan: done")
 end)
+
+-- Review round 3 of pull request 90: an item that circulates too little now, or has no sales known, keeps your number
+H.test("set picks: a set craft or vendor resell that circulates too little now keeps your number", function()
+    local FM, env = Setup()
+    local out = NewPlan(FM, env, Rows())
+    Set(FM, env, "201", 5)
+    -- the next scan: X barely circulates (C/24h 2, your 25% share is half a unit) and has no sales known
+    local rows = Rows()
+    rows.crafts[1].sold12 = 1
+    FM.R().items["201"] = nil
+    local printed = #env.printed
+    out = NewPlan(FM, env, rows)
+    local x = PickOf(out, "201")
+    H.same({ x and x.amount, x and x.amountSet, x and x.rank }, { 5, true, 1 }, "X kept at 5, first")
+    H.eq(env.printed[printed + 1], nil, "no chat line: your number is not dropped")
+    -- a vendor resell with no circulation known at all
+    local vendor = { key = "301", sell = 20000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 50, own = 0,
+        setFrom = "vendor" }
+    FM.SaveSetPick("301", { n = 4, from = "vendor", pos = 2, at = env.clock })
+    out = NewPlan(FM, env, { crafts = rows.crafts, setRows = { vendor } })
+    local v = PickOf(out, "301")
+    H.same({ v and v.amount, v and v.amountSet }, { 4, true }, "the vendor resell kept at 4")
+    H.same({ FM.SetPickEntry("201") ~= nil, FM.SetPickEntry("301") ~= nil }, { true, true }, "both saved")
+end)
+
+H.test("set picks: a vendor resell set again after it was bought keeps what it had at the plan", function()
+    local FM, env = Setup()
+    local row = { key = "301", sell = 20000, vendorUnit = 1000, offer = { where = "Vendor, Zone" }, qty = 50, own = 0, sold12 = 10 }
+    FM.R().items["301"] = { d = Records(27) }
+    FM.SaveSetPick("301", { n = 6, from = "vendor", pos = 1, at = env.clock - 600, held0 = 0 })
+    env.clock = env.clock + 60
+    local out = NewPlan(FM, env, { vendor = { row } }) -- the new plan keeps it: nothing bought by then
+    H.eq(FM.SetPickEntry("301").gotPlan, 0, "what it had when the plan kept it")
+    local held = 6
+    FM.Owned = function(key) if key == "301" then return held, held, held, held end return 0, 0, 0, 0 end
+    FM.SetPicksStock() -- the 6 bought at the vendor
+    Set(FM, env, "301", 6) -- typed again
+    H.eq(FM.SetPickEntry("301").gotPlan, 0, "set again: still what it had at the plan")
+    local v = PickOf(out, "301")
+    H.same({ v and v.amount, v and v.amountSet }, { 6, true }, "still your 6 in the plan made again")
+end)

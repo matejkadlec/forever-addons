@@ -334,14 +334,15 @@ end
 -- sold12 x 2; the share is the settings panel's "share of C/24h"): the upper limit of every batch (Batch, where what
 -- you list already comes off). firstCap: the settings panel's first batch share of C/24h, the upper limit of a
 -- commodity's first batch (FRV-71). need = one craft's units, or 1.
--- Returns { circ, cap, pct, firstCap, firstPct }, or nil and why the item is no pick
-local function Room(row, need)
-    if type(row.sold12) ~= "number" then return nil, "circulation not known yet (C/24h)" end
-    local circ = row.sold12 * 2
+-- Returns { circ, cap, pct, firstCap, firstPct }, or nil and why the item is no pick. any: an amount you set (FRV-188,
+-- review round 3 of PR 90): the room as it is, also none (your number does not end because the item circulates little)
+local function Room(row, need, any)
+    if type(row.sold12) ~= "number" and not any then return nil, "circulation not known yet (C/24h)" end
+    local circ = (tonumber(row.sold12) or 0) * 2
     local pct = math_floor(P.circShare * 100 + 0.5)
     local share = circ * P.circShare
     -- the share itself must reach one craft or one unit: half a unit a day is not rounded up to a pick
-    if share < need then
+    if share < need and not any then
         -- not rounded: "is 5, one craft makes 5" would contradict itself
         local shown = share < 1 and "<1" or (string_format("%.1f", math_floor(share * 10) / 10):gsub("%.0$", ""))
         return nil, string_format("too little circulation: C/24h %s, your share (%d%%) is %s%s", Count(circ), pct, shown,
@@ -473,8 +474,9 @@ end
 -- rest), what you list already off. m = the margin of a unit that sells (after the cut), dep = its 8h deposit
 -- (Deposit8), room = Room's. Returns b = { batch (floor(cap - listed)), cap, base, source ("proven" | "first"), eco
 -- (0.5 | 1 | 2), limit (what set the cap: "base" | "room" | "first" | "most"), most, listed, own (OwnRecord), b8 (the
--- buyers of 8h), m, dep, commodity, key }, or nil and why the item is no pick
-local function Batch(row, d, m, dep, room)
+-- buyers of 8h), m, dep, commodity, key }, or nil and why the item is no pick. any: an amount you set (FRV-188, review
+-- round 3 of PR 90): without sales known a batch of none (source "none"), so your number does not end there
+local function Batch(row, d, m, dep, room, any)
     local own = OwnRecord(row.key)
     local B = (d.perDay and d.trusted) and d.perDay or nil
     local b = { own = own, b8 = B and B * LISTING_HOURS / 24, m = m, dep = dep, commodity = d.commodity, key = row.key }
@@ -484,6 +486,8 @@ local function Batch(row, d, m, dep, room)
     elseif b.b8 then
         b.source = "first"
         b.base = d.commodity and FIRST_COMMODITY_SHARE * b.b8 or math_max(FIRST_ITEM_SHARE * b.b8, FIRST_ITEM_MIN)
+    elseif any then
+        b.source, b.base, b.b8 = "none", 0, 0
     else
         return nil, "too few scans with sales of it yet (needs 3 intervals with buys)"
     end
@@ -516,6 +520,7 @@ local function CapText(b, room)
     end
     local eco = (b.eco == ECO_HALF and ", half: the margin is under the deposit")
         or (b.eco == ECO_TWICE and ", twice: the margin is 4 deposits or more") or ""
+    if b.source == "none" then return "no sales of it known: none (your number decides)" end
     if b.source == "proven" then
         return string_format("one listing sells %s (%s x the %s you sold within 8h%s)", Units(b.cap),
             Factor(b.own.ranOut and GROW or HOLD), Units(b.own.proven), eco)
@@ -544,7 +549,10 @@ end
 local function RoomLines(list, row, room, b, verb, n)
     list[#list + 1] = { "h", "Room on the AH" }
     local own = b.own
-    if b.source == "proven" then
+    if b.source == "none" then
+        -- an amount you set on an item without sales known (FRV-188): the formula has no batch, your number is the batch
+        list[#list + 1] = { "n", "No sales of it known yet: the formula has no batch, the number you set is the listing.", WHITE }
+    elseif b.source == "proven" then
         list[#list + 1] = { "n", string_format("Proven: %s sold within 8h (%s), %s: one listing %s (x %s)", Units(own.proven),
             own.at and date("%d.%m. %H:%M", FM.EPOCH + own.at * 60) or "?",
             own.ranOut and "your units ran out" or "units were left", Units(b.base), Factor(own.ranOut and GROW or HOLD)), WHITE }
@@ -1445,7 +1453,11 @@ local function EvaluateCraft(c)
     local row = c.row
     local makes = row.craft.makes or 1
     local d = Demand(row.key)
-    local room, noRoom = Room(row, makes)
+    -- an amount you set for this pick in the table (FRV-154, FRV-188: P.want, what it still makes of your number): it
+    -- makes that many, whatever the room, the batch, its share of the gold, the stock listed and your minimum profit say
+    -- (your choice; under your minimum profit or at a loss its status says so, FM.PickStatus); the materials still stop it
+    local want = c.kind ~= "level" and not c.stockOnly and P.want[row.key] or nil
+    local room, noRoom = Room(row, makes, want)
     if not room then return nil, noRoom end
     local others = row.qty - (row.own or 0)
     local sellNet = row.sell * (1 - AH_CUT)
@@ -1457,12 +1469,8 @@ local function EvaluateCraft(c)
     -- a craft that earns too little at the price now is a pick only as a wait
     if c.dipOnly and not waiting then return nil, UnderProfit(tableCost) end
     -- the batch's margin is the one of the price it lists at (a wait lists at its target)
-    local b, noBatch = Batch(row, d, (waiting and waiting.T * (1 - AH_CUT) or sellNet) - tableCost, dep, room)
+    local b, noBatch = Batch(row, d, (waiting and waiting.T * (1 - AH_CUT) or sellNet) - tableCost, dep, room, want)
     if not b then return nil, noBatch end
-    -- an amount you set for this pick in the table (FRV-154, FRV-188: P.want, what it still makes of your number): it
-    -- makes that many, whatever the batch, the room, its share of the gold, the stock listed and your minimum profit say
-    -- (your choice; under your minimum profit or at a loss its status says so, FM.PickStatus); the materials still stop it
-    local want = c.kind ~= "level" and not c.stockOnly and P.want[row.key] or nil
     local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 and not want then return nil, "over 7 days of stock listed by others" end
@@ -1735,16 +1743,16 @@ end
 local function EvaluateVendor(c)
     local row = c.row
     local d = Demand(row.key)
-    local room, noRoom = Room(row, 1)
+    -- an amount you set for this pick in the table (FRV-154, FRV-188: P.want, what it still buys of your number): it
+    -- buys that many, whatever the room, the batch, its share of the gold, the stock listed and your minimum profit say;
+    -- a vendor's limited stock still holds
+    local want = P.want[row.key]
+    local room, noRoom = Room(row, 1, want)
     if not room then return nil, noRoom end
     local others = row.qty - (row.own or 0)
     local unit = row.vendorUnit
-    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - unit, Deposit8(row.key, row.sell), room)
+    local b, noBatch = Batch(row, d, row.sell * (1 - AH_CUT) - unit, Deposit8(row.key, row.sell), room, want)
     if not b then return nil, noBatch end
-    -- an amount you set for this pick in the table (FRV-154, FRV-188: P.want, what it still buys of your number): it
-    -- buys that many, whatever the batch, the room, its share of the gold, the stock listed and your minimum profit say;
-    -- a vendor's limited stock still holds
-    local want = P.want[row.key]
     local buyers = BuyersPerDay(d, b)
     local saturation = buyers > 0 and others / buyers or 99
     if saturation > 7 and not want then return nil, "over 7 days of stock listed by others" end
@@ -2073,7 +2081,7 @@ local function EvaluateFlip(c)
     -- the usual price must still hold today: no falling price, no flood of new listings
     if d.todayMedian and d.todayMedian < 0.8 * row.usual and not want then return nil, "price falling today" end
     if d.avgQty and row.qty > 2 * d.avgQty and not want then return nil, "twice as many listed as usual" end
-    local room, noRoom = Room(row, 1)
+    local room, noRoom = Room(row, 1, want)
     if not room then return nil, noRoom end
     -- the listings of a search newer than the snapshot when there is one (FRV-214), else the snapshot's
     local live = FM.FlipLive(row.key, P.view.t)
@@ -2092,7 +2100,7 @@ local function EvaluateFlip(c)
     local sell = row.sell
     local b, noBatch, held, f
     for _ = 1, 4 do
-        b, noBatch = Batch(row, d, sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, sell), room)
+        b, noBatch = Batch(row, d, sell * (1 - AH_CUT) - cheapest, Deposit8(row.key, sell), room, want)
         if not b then return nil, noBatch end
         if b.batch < 1 and not want then return nil, BatchShort(b, room, 1) end
         -- what you hold first: the flip buys only the rest of the batch
@@ -2872,7 +2880,8 @@ end
 -- for the sniper's trace): { n = your number, from = its candidate's kind (craft, vendor, flip), pos = its place in its
 -- section, extra = true when out of scope, since = the plan time its crafts count from, at = when it was set (a
 -- flip's purchases count from then), held = the units of yours a craft listed with it then, held0 and got = the units
--- of a vendor resell you held then and the most more of them seen since (no log tells vendor purchases) }. A set pick
+-- of a vendor resell you held then and the most more of them seen since (no log tells vendor purchases), gotPlan = its
+-- got when the last new plan kept it (FM.SetPicksPlanned) }. A set pick
 -- ends when you empty its input (the plan picks the item again by its own numbers), when it is done (FM.SetPickLeft:
 -- made, or for a flip or vendor resell bought), by "Remove from Picks" (the row menu: out of the plan, a later plan may
 -- choose it again) and by Ignore.
