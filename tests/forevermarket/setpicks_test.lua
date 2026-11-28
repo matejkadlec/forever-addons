@@ -144,6 +144,18 @@ H.test("set picks: his example, 70g and Picks 3, X set from 2 to 5 gives X 5, Y 
     H.eq(FM.SetPickEntry("201"), nil, "your number gone")
 end)
 
+H.test("set picks: with places left empty your number stays exactly, only the plan's own picks get their shares", function()
+    -- Picks 5 with X, Y and Z: three picks, so the plan is planned again with 3 places (FRV-240): the 70g as with Picks 3
+    local FM, env = Setup()
+    FM.GetSettings().tableInvestPicks = 5
+    local out = NewPlan(FM, env, Rows())
+    H.eq(Shape(out), "201 2, 202 2, 203 3", "X 2, Y 2, Z 3: 70g over the 3 places found, not 14g each")
+    -- X set to 1: Y and Z share the 60g left (first 60g / 4 places: one craft each, then 60g / 2)
+    Set(FM, env, "201", 1)
+    H.eq(Shape(out), "201 1, 202 3, 203 3", "your 1, Y and Z 3 each")
+    H.same({ out.picks[1].amountSet, out.picks[1].invest, out.pickNeed }, { true, 10 * G, 70 * G }, "your 1 for 10g, within the 70g")
+end)
+
 H.test("set picks: a number that takes the whole budget sends the others out of scope, more says over budget", function()
     local FM, env = Setup()
     local out = NewPlan(FM, env, Rows())
@@ -217,7 +229,8 @@ H.test("set picks: one a new plan cannot plan at all ends there, the chat says w
     H.eq(FM.SetPickEntry("201"), nil, "your number is dropped")
     H.eq(env.printed[printed + 1] ~= nil and env.printed[printed + 1]:find("the amount you set is no longer kept", 1, true) ~= nil,
         true, tostring(env.printed[printed + 1]))
-    H.eq(Shape(out), "202 2, 203 2", "the plan without it")
+    -- two picks for Picks 3 (FRV-240): planned again with 2 places, 35g each: Y makes 3, Z gets the 40g left and makes 4
+    H.eq(Shape(out), "202 3, 203 4", "the plan without it")
 end)
 
 H.test("set picks: a flip or a vendor resell is done once its units are bought", function()
@@ -250,7 +263,8 @@ H.test("set picks: Remove from Picks takes it out of the plan at once, a later p
     Set(FM, env, "201", 5)
     H.same({ FM.RemoveSetPick("201") }, { true }, "removed")
     env.FlushTimers()
-    H.eq(Shape(out), "202 2, 203 2", "X has left the plan, Y and Z planned again with the 70g")
+    -- two picks for Picks 3: the share of X's empty place goes to them (FRV-240), Y 3 of 35g, Z 4 of the 40g left
+    H.eq(Shape(out), "202 3, 203 4", "X has left the plan, Y and Z planned again with the 70g")
     H.eq(out.pickWhy["201"], "removed from Picks by you: a new plan may choose it again", "why it is not there")
     H.eq(FM.SetPickEntry("201"), nil, "your number gone")
     -- an edit of another pick of the same plan keeps it out

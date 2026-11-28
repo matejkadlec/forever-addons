@@ -11,7 +11,8 @@
 --   * /fm chars lists the characters; /fm forget <name> removes a character's records and readings, keeps its
 --     logs, refuses the logged-in character and answers an unknown name with the standard error
 --   * a character deleted and made again under the same first name and surname is listed once: the deleted one's
---     key is forgotten at login (FRV-236, the rules stand with its tests below)
+--     key is forgotten at login (FRV-236, the rules stand with its tests below), said once in the chat with the full
+--     name it had (FRV-241); a login with nothing to forget says nothing
 
 local H = require("harness")
 local F = require("fixtures")
@@ -351,6 +352,30 @@ H.test("characters: a character made again under the same name is listed once, t
     H.eq(#FM.StockElsewhere("2589"), 0, "what the deleted one held counts as stock nowhere")
     env.FlushTimers()
     H.same(Names(FM), { "Tester Surname" }, "the same after the later check")
+end)
+
+-- The chat lines about forgotten keys (FRV-241), without their colors
+local function ForgotLines(env)
+    local list = {}
+    for _, line in ipairs(env.printed) do
+        local plain = line:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        if plain:find("Forgot", 1, true) then list[#list + 1] = plain end
+    end
+    return list
+end
+
+H.test("characters: a key forgotten at login is said once in the chat with the name it had, nothing to forget says nothing", function()
+    local FM, env = Next(TwoKeys(), "Player-1-NEW", "Trader", "Market")
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers() -- the check 10 s later finds nothing more
+    H.same(ForgotLines(env), { "[FM] Forgot Trader (an earlier character named Trader Market, deleted or renamed since: its "
+        .. "saved bags, bank, mailbox, auctions, gold and settings; its logs stay)" }, "one line for the forgotten key")
+    -- the next login: the key is gone, nothing to forget and nothing said
+    FM, env = Next(env.ForeverMarketDB, "Player-1-NEW", "Trader", "Market")
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
+    H.same(ForgotLines(env), {}, "no line at a later login")
+    H.same(Names(FM), { "Main", "Trader Market" }, "the characters as they were")
 end)
 
 H.test("characters: saved data with a made-again character under two keys keeps the logged-in one's key", function()

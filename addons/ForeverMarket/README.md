@@ -378,7 +378,11 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   dropdown), each entry with its own result. A full name belongs to one character of a realm at a time, so at
   login, once the logged-in character's own key is known, of the keys with one full name under different GUIDs
   only the logged-in character's own stays, else the one seen last; the others are forgotten as `/fm forget`
-  does it (their entry, readings and settings; no log line is touched). What follows is what follows a
+  does it (their entry, readings and settings; no log line is touched). Each forgotten key says so once in the
+  chat (1.71, FRV-241), in the words of `/fm forget` with the full name it had: "[FM] Forgot Tester (an earlier
+  character named Tester Surname, deleted or renamed since: its saved bags, bank, mailbox, auctions, gold and
+  settings; its logs stay)"; the key is gone, so no later login says it again, and a login with nothing to forget
+  says nothing. What follows is what follows a
   `/fm forget`, here without being asked for: in the Profit tab the forgotten key's posts, mails and purchases
   count in "All characters" only. Its auction list goes with it, and a character without a list counts as
   never looked at, so for a while the deleted character's posts read on the cautious side: they count as your
@@ -988,7 +992,17 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     applies on Enter or a lost focus, Esc shows the saved value again, a change plans again; every part's tooltip
     shows the budget in use. Each pick gets a fair share of what is left, the budget left divided by the picks still
     open (`P.perPick` in `Step`), so what one does not use (the C/24h cap, the margin) goes to the later ones; 1 puts
-    everything into the best pick. From 1.14 to 1.19 the one box "% to invest" was the most of your gold one pick
+    everything into the best pick. When the plan finds fewer picks than Picks with gold left, the shares of the
+    empty places go to the picks it found (1.71, FRV-240): it is planned again, a frame later, with the places it
+    filled (budget 10g, Picks 5, 3 found: up to 3g 33s each, not 2g). A pick that could not use more than it got (its
+    batch, the room on the AH, the units listed, what you hold, its minimum profit: judged again with all the gold
+    left, `CanUseMore`) keeps its size and the others share the rest wherever it ranks (one held at 1g, two more:
+    4g 50s each); this repeats while places stay empty or another pick reaches what it can use, at most 4 passes,
+    and the table says "computing" until the last. A plan that fills its places is the plan of before. Your set
+    amounts keep their numbers and places; the order keeps its floor of a quarter of one share of Picks, and a pick
+    still needs 1% of one share of Picks; the summary keeps "3 of 5 picks" with the first pass's reason; the picks
+    out of scope are judged with the share of the last pass (`pickShare`, also when one is made again on its own).
+    A pass that finds no pick at all stays as it is. From 1.14 to 1.19 the one box "% to invest" was the most of your gold one pick
     may use and the number of picks fell out by itself: a saved value under 90 now limits the whole plan.
     The Picks filters ("Exclude vendor flips" and the others, Filters above) are inputs of the plan too. All of them
     recompute the picks.
@@ -1134,8 +1148,18 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
     from older records (confidence 50%).
   * Learn picks need a known price and an exact skill requirement (trainer, vendor, pattern tooltip), the
     price is in the plan and must pay back within 3 days of sales. Missing tools (Tanning Rack) are bought into
-    the plan. Flips skip falling prices and floods (today under 80% of usual, listed over 2x the 3 day average),
-    and an item vendors sell is never a Flip pick (1.63, FRV-233, see Flip below).
+    the plan. Flips skip falling prices and floods (listed over 2x the 3 day average), and an item vendors sell is
+    never a Flip pick (1.63, FRV-233, see Flip below). "Price falling today" is judged on what stays after the
+    flip's buy, never on the cheap listings it buys (1.71, FRV-239, `FM.FlipFalling`): a scan's record keeps only its
+    cheapest price, and while those listings are on the AH they are the cheapest of every scan, so until 1.70 the
+    median of today's cheapest prices under 80% of the usual refused every dip that lasted a few scans (Truesilver
+    Champion: 2 at 5g 0s 90c, the usual price 10g 89s, the Flip tab at +7g 08s, Picks "price falling today"). Now a
+    flip is refused when the cheapest listing of others above the dearest unit it buys (the Flip tab's rule on the
+    listings left, `FM.FlipPlan`) is under 80% of the usual price ("price falling today: what stays after its buy
+    starts at 7g 50s, 69% of the usual price"), or when today's scans whose cheapest price was above that unit had a
+    median cheapest price under it ("today's scans above its buy were at ..."). The tooltip's "Today" line is still
+    the median of today's cheapest prices, the flip's own listings included, and the list price still follows it
+    only where it is higher (as on the Flip tab), so the Flip tab's numbers do not change.
     A flip pick follows the Flip tab's rule within its own batch and gold (1.46, FRV-172, `EvaluateFlip`): when
     they buy fewer units than the flip row, it takes fewer whole price levels and lists under the level above those
     (its "List at", Expected profit, "Sells", Gold needed and steps line follow that buy), and when no such buy earns

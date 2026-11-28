@@ -26,7 +26,9 @@ local _, FM = ...
 --     then), or both (1.42, FRV-126: the smaller by default, a setting); with "Gold of all characters" (FRV-36) your
 --     gold counts your other characters' as last recorded). Picks are chosen greedily, each
 --     gets a fair share of the budget that is left (left / picks still open), so what one does not use goes to the
---     later ones; each buys
+--     later ones; a plan that fills fewer places than Y with gold left is planned again with the places it filled
+--     (1.71, FRV-240), a pick that cannot use more keeping its size, so the gold of the empty places goes to the
+--     picks it found; each buys
 --     from what the earlier ones left on the AH, materials are priced craft by craft (the ladder gets
 --     dearer), crafting stops where a craft no longer earns its margin
 --   * your position first: units you already list count against the buyers; units of the pick's item you hold are
@@ -452,6 +454,7 @@ local function Demand(key)
     end
     d.avgQty = qtyN > 0 and qtySum / qtyN or nil
     d.todayMedian = Median(todayMins)
+    d.todayMins = todayMins -- each of today's scans' minimum, for a flip's falling price (FM.FlipFalling, FRV-239)
     -- a commodity (FRV-71: it stacks) sells from one auction per post; Forever hides sellers, so every cancel and relist
     -- of its cheapest stacks looks like a purchase: its buyers run far above anyone's sales
     d.commodity = (FM.ItemStacks and FM.ItemStacks(key, P.view.Get(key))) and true or false
@@ -1177,9 +1180,10 @@ local function LearnStep(c)
 end
 
 -- Why a candidate got no gold in its first reading: one pick's share of the plan does not pay for one unit of it
--- (the reasons are kept from the first pass, where nothing is spent yet)
+-- (the reasons are kept from the first pass, where nothing is spent yet; a plan planned again with the places it filled,
+-- FRV-240, names its larger share)
 local function NoGold()
-    if P.slots > 1 then
+    if P.places > 1 then
         return string_format("one pick's share (%s) does not pay for it: fewer picks or a bigger budget in the Picks row", M(P.perPick))
     end
     return string_format("the plan's gold (%s) does not pay for it", M(P.budgetLeft))
@@ -2075,6 +2079,35 @@ function FM.FlipSearched(key)
     end
 end
 
+-- Whether a flip's price falls today (FRV-239): judged on what stays after the flip's buy, never on the cheap listings
+-- it buys, which are the minimum of every scan while they are listed (until 1.70 the median of today's scans' minimums
+-- refused every dip that lasted a few scans). left = the listings of others left for it, top = the dearest unit the
+-- flip buys (the Flip tab's rule on them). Falling when the cheapest listing that stays above top is under 80% of the
+-- usual price, or when today's scans whose minimum was above top (a scan that shows the market under the dip: the
+-- records keep only their minimum, not the ladder) had a median minimum under it. todayMins = each of today's scans'
+-- minimum (Demand). Returns the reason ("price falling today: what stays after its buy starts at 7g 50s, 69% of the
+-- usual price"), or nil. A field, not a local: the file's main chunk is at Lua's 200 locals
+function FM.FlipFalling(left, top, usual, todayMins)
+    local falling = 0.8 * usual
+    local price, what
+    for _, level in ipairs(left) do
+        if level[1] > top then
+            if level[1] < falling then price, what = level[1], "what stays after its buy starts at" end
+            break
+        end
+    end
+    if not price then
+        local above = {}
+        for _, minPrice in ipairs(todayMins or EMPTY) do
+            if minPrice > top then above[#above + 1] = minPrice end
+        end
+        local today = Median(above)
+        if today and today < falling then price, what = today, "today's scans above its buy were at" end
+    end
+    if not price then return nil end
+    return string_format("price falling today: %s %s, %d%% of the usual price", what, M(price), Pct(price / usual))
+end
+
 -- A flip pick: the Flip tab's rule (FM.FlipPlan, FRV-172) within what this pick may buy, its batch (less what you hold)
 -- and its gold. The flip row buys every cheap level and lists under the cheapest listing that stays; a pick that can
 -- buy fewer units takes fewer whole levels and lists under the level above those, and when no such buy earns the
@@ -2088,23 +2121,29 @@ local function EvaluateFlip(c)
     local want = P.want[row.key]
     if Yours(row.key) > 0 and not want then return nil, "you list it yourself" end
     local d = Demand(row.key)
-    -- the usual price must still hold today: no falling price, no flood of new listings
-    if d.todayMedian and d.todayMedian < 0.8 * row.usual and not want then return nil, "price falling today" end
-    if d.avgQty and row.qty > 2 * d.avgQty and not want then return nil, "twice as many listed as usual" end
-    local room, noRoom = Room(row, 1, want)
-    if not room then return nil, noRoom end
     -- the listings of a search newer than the snapshot when there is one (FRV-214), else the snapshot's
     local live = FM.FlipLive(row.key, P.view.t)
     local ladder = live and live.ladder or Ladder(row.key)
     local qty = live and live.qty or row.qty
-    -- the list price may follow today's price and the last 2 days' when they are higher than the usual (FRV-214)
+    -- the list price may follow today's price and the last 2 days' when they are higher than the usual (FRV-214). A
+    -- today's price the flip's own cheap listings pull down only leaves the reference at the last 2 days' (FRV-239: a
+    -- maximum, as on the Flip tab, whose rule this is)
     local ref = math_max(row.recent or 0, d.todayMedian or 0)
-    local cheapest = ladder[1] and ladder[1][1] or row.top
-    local heldAll = HeldOf(row.key)
-    local cap = math_min(P.perPick, P.budgetLeft)
     -- the listings left for this pick: without the units earlier picks of the plan buy
     local left = LadderAfter(ladder, P.used[row.key] or 0)
     local floor = FM.MinListPrice and FM.MinListPrice(row.key, P.view.Get(row.key)) or 1
+    -- the Flip tab's rule on them, without this pick's batch and gold: the levels a flip of the item buys
+    local whole = FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref, row.under)
+    -- the usual price must still hold today: no falling price (judged on what stays after the flip's buy, FRV-239), no
+    -- flood of new listings
+    local falling = not want and FM.FlipFalling(left, whole and whole.top or row.top or 0, row.usual, d.todayMins)
+    if falling then return nil, falling end
+    if d.avgQty and row.qty > 2 * d.avgQty and not want then return nil, "twice as many listed as usual" end
+    local room, noRoom = Room(row, 1, want)
+    if not room then return nil, noRoom end
+    local cheapest = ladder[1] and ladder[1][1] or row.top
+    local heldAll = HeldOf(row.key)
+    local cap = math_min(P.perPick, P.budgetLeft)
     -- the batch depends on the margin at the list price, and the list price on how many units the batch allows: a
     -- smaller buy lists lower, which can halve the batch again (its eco factor has three values, so this settles)
     local sell = row.sell
@@ -2128,7 +2167,7 @@ local function EvaluateFlip(c)
     local n, cost = 0, 0
     -- a search newer than the snapshot holds no flip any more, whatever this pick could buy: gone (FRV-214; a flip
     -- that is only too big for its batch or gold keeps the reasons below)
-    if live and not f and held <= 0 and not FM.FlipPlan(left, qty, row.usual, floor, nil, nil, ref, row.under) then
+    if live and not f and held <= 0 and not whole then
         -- you bought them yourself since the snapshot (review round 1): that is no "gone"
         local mine = BoughtSince(row.key, P.view.t)
         if mine > 0 then
@@ -2467,9 +2506,10 @@ local function Evaluate(c)
 end
 
 -- The order of the plan (FRV-103): the score per gold the pick puts in; one that needs less than a quarter of one
--- pick's share counts as needing that quarter (a pick of 10c does not jump the queue)
+-- pick's share counts as needing that quarter (a pick of 10c does not jump the queue). The share of Y picks
+-- (P.rateShare): a plan planned again with fewer places (FRV-240) keeps the order's floor
 local function Rate(pick)
-    return pick.score / math_max(pick.invest or 0, RATE_FLOOR * P.perPick, 1)
+    return pick.score / math_max(pick.invest or 0, RATE_FLOOR * (P.rateShare or P.perPick), 1)
 end
 
 -- A pick's kind as the plan log and the Type column name it
@@ -2634,10 +2674,11 @@ end
 -- The first note of a pick out of scope: why it is not in the plan. drop (from Step) = { why, after = the plan picks
 -- before the step it dropped out at, tried = what it would buy then }: the plan picks before it that take what it
 -- uses, what it would pay for that after them when dearer, and why it was no pick then. Without a drop it was a pick
--- to the end: the plan's picks earned more per gold, or they used the budget up
+-- to the end: the plan's picks earned more per gold (they filled the places of the pass, FRV-240), or they used the
+-- budget up
 local function OutsideNote(p, drop, chosen)
     if not drop then
-        if #chosen >= P.slots then
+        if #chosen >= P.places then
             return string_format("Not in the plan: its %d pick%s more per gold put in.", #chosen,
                 #chosen == 1 and " earns" or "s earn")
         end
@@ -3161,7 +3202,16 @@ local function StartPass(ctx)
     P.budgetLeft = P.budget
     local slots = tonumber(s.tableInvestPicks)
     P.slots = slots and math_max(1, math_min(MAX_PICKS, math_floor(slots))) or PICK_SLOTS
-    P.perPick = P.budget / P.slots
+    -- the places this pass shares the budget over (FRV-240): Y, or for a plan planned again the places the pass before
+    -- filled; keep = its picks that could not use more, by key, with what they invested (they keep their size)
+    local again = type(ctx.again) == "table" and ctx.again or nil
+    P.pass = again and again.pass or 1
+    P.places = again and math_max(1, math_min(P.slots, again.places or P.slots)) or P.slots
+    P.keep = again and type(again.keep) == "table" and again.keep or {}
+    P.limited = {} -- this pass's own picks that could not use more gold (CanUseMore)
+    P.perPick = P.budget / P.places
+    P.rateShare = P.budget / P.slots -- the order's floor (Rate) stays one share of Y in every pass
+    -- the smallest score stays 1% of one share of Y: a plan planned again keeps the picks it found
     P.minScore = math_max(MIN_SCORE, 0.01 * P.budget / P.slots)
     -- "share of C/24h" (settings panel): the most of an item's daily circulation one pick may add to the AH
     local circPct = tonumber(s.tableCircPct)
@@ -3173,7 +3223,9 @@ local function StartPass(ctx)
 end
 
 -- ctx = { view, sources, now, nowMinutes, carry (FRV-104), set = FM.SetPickList() (FRV-188), and for a plan made again
--- after an edit asOf, owned, funds, removed }
+-- after an edit asOf, owned, funds, removed }. A plan that fills fewer places than Y with gold left is planned again
+-- (FRV-240): this function once more, a frame later, with ctx.again = { pass, places (the places it filled), keep (its
+-- picks that could not use more), short (why the first pass had fewer picks than Y) }; done() runs after the last pass
 function FM.ComputePicks(out, ctx, done)
     local funds, gold = StartPass(ctx)
     out.pickGold = gold
@@ -3192,6 +3244,36 @@ function FM.ComputePicks(out, ctx, done)
     local chosen, levels = {}, {}
     local taken = {}
     local judged = false -- the first readings are taken: each candidate on its own, with one pick's share of the gold
+    local chosenKey = {} -- the items of this pass's picks so far
+
+    -- The next pick's share (P.perPick): the gold left, less what your set picks to come keep (gold, ahead: Ahead), over
+    -- the places still open. A plan planned again (FRV-240) also keeps for each pick of the pass before that could not
+    -- use more (P.keep) what it invested, until its place comes: the others share the rest, so what it leaves goes to
+    -- them wherever it ranks. The order's floor (P.rateShare) counts the places of Y, as the first pass does
+    local function Shares(gold, ahead)
+        local open = P.places - #chosen - ahead
+        local kept, keptN = 0, 0
+        for key, invest in pairs(P.keep) do
+            if not chosenKey[key] then kept, keptN = kept + invest, keptN + 1 end
+        end
+        if open > keptN then
+            P.perPick = math_max(0, P.budgetLeft - gold - kept) / (open - keptN)
+        else
+            P.perPick = math_max(0, P.budgetLeft - gold) / math_max(1, open)
+        end
+        P.rateShare = math_max(0, P.budgetLeft - gold) / math_max(1, P.slots - #chosen - ahead)
+    end
+
+    -- Whether a pick the plan chose could use more gold than its share (FRV-240): judged again with all the gold left as
+    -- its share. One that cannot (its batch, the room, the units listed, what you hold, its minimum profit) keeps its size
+    -- when the plan is planned again
+    local function CanUseMore(c, pick)
+        local share, tried = P.perPick, P.tried
+        P.perPick = P.budgetLeft
+        local ok, more = pcall(Evaluate, c)
+        P.perPick, P.tried = share, tried
+        return ok and more ~= nil and (more.invest or 0) > (pick.invest or 0) + 1
+    end
     -- the items you removed from this plan (Remove from Picks): none of them until a new plan
     for i, c in ipairs(candidates) do
         if P.removed[c.row.key] then
@@ -3233,6 +3315,7 @@ function FM.ComputePicks(out, ctx, done)
     -- a later one keeps the step a good candidate dropped out at (FRV-133)
     local function Look()
         local reading = not judged
+        if reading then P.readShare = P.perPick end -- the share the picks out of scope are judged with
         local best
         for i, c in ipairs(candidates) do
             if not taken[i] then
@@ -3299,7 +3382,7 @@ function FM.ComputePicks(out, ctx, done)
     -- until its place comes, so a number you raise takes budget from every other pick, one you lower gives it back)
     local setChosen, setExtra, reserved, setNext = {}, {}, {}, 1
     if setIn[1] or setOut[1] then
-        P.perPick = P.budgetLeft / math_max(1, P.slots)
+        Shares(0, 0)
         Look()
         for _, c in ipairs(setOut) do
             local pick, reason = SetPick(c)
@@ -3325,11 +3408,12 @@ function FM.ComputePicks(out, ctx, done)
     local function PlaceSet()
         local c = setIn[setNext]
         setNext = setNext + 1
-        P.perPick = math_max(0, P.budgetLeft) / math_max(1, P.slots - #chosen)
+        Shares(0, 0)
         local pick, reason = SetPick(c)
         if pick then
             Commit(pick, #chosen + 1)
             chosen[#chosen + 1] = pick
+            chosenKey[pick.key] = true
             setChosen[#setChosen + 1] = pick
         else
             -- your number gives no pick: the plan may pick the item by its own numbers
@@ -3349,16 +3433,20 @@ function FM.ComputePicks(out, ctx, done)
         -- the next pick's share: the gold left, less what your set picks to come keep, over the places still open for
         -- the plan's own picks (the first pass: one pick's share of all)
         local gold, ahead = Ahead()
-        P.perPick = (P.budgetLeft - gold) / math_max(1, P.slots - #chosen - ahead)
+        Shares(gold, ahead)
         local best = Look()
-        if best and #chosen + ahead < P.slots and P.budgetLeft - gold > 0 then
+        if best and #chosen + ahead < P.places and P.budgetLeft - gold > 0 then
             -- one pick per item
             for i, d in ipairs(candidates) do
                 if d.row.key == candidates[best].row.key then taken[i] = true end
             end
-            Commit(cache[best], #chosen + 1)
-            chosen[#chosen + 1] = cache[best]
-            if #chosen < P.slots and P.budgetLeft > 0 or setIn[setNext] then
+            local pick = cache[best]
+            -- one that could not use more keeps its size if the plan is planned again (FRV-240)
+            if not CanUseMore(candidates[best], pick) then P.limited[pick.key] = pick.invest or 0 end
+            Commit(pick, #chosen + 1)
+            chosen[#chosen + 1] = pick
+            chosenKey[pick.key] = true
+            if #chosen < P.places and P.budgetLeft > 0 or setIn[setNext] then
                 C_Timer.After(0, Step)
                 return
             end
@@ -3389,6 +3477,33 @@ function FM.ComputePicks(out, ctx, done)
     end
 
     Finished = function()
+        -- FRV-240: a pass that left places empty with gold unplanned is planned again with the places it filled, while one
+        -- of its own picks could use more; its picks that could not keep their size (P.keep of the next pass). A later
+        -- pass plans again when places stayed empty or another pick reached what it can use, at most 4 passes in all
+        -- (each in frames of its own: done() follows the last one). Your set picks keep their numbers and places
+        local isSet = {}
+        for _, p in ipairs(setChosen) do isSet[p] = true end
+        local own, more = 0, false
+        for _, p in ipairs(chosen) do
+            if not isSet[p] then
+                own = own + 1
+                if P.limited[p.key] == nil then more = true end
+            end
+        end
+        local changed = #chosen < P.places
+        if not changed and P.pass > 1 then
+            for key in pairs(P.limited) do
+                if P.keep[key] == nil then changed = true end
+            end
+        end
+        if P.pass < 4 and own > 0 and more and changed and P.budgetLeft > 0 and P.budgetLeft >= 0.01 * P.budget then
+            local short = ctx.again and ctx.again.short or ShortReason(candidates, taken, chosen)
+            local again = setmetatable({ funds = funds, owned = P.owned, listed = out.pickListed,
+                again = { pass = P.pass + 1, places = #chosen, keep = P.limited, short = short } }, { __index = ctx })
+            P = nil
+            C_Timer.After(0, function() FM.ComputePicks(out, again, done) end)
+            return
+        end
         -- done: the plan (your set picks in their places), then further good picks outside it (each on its own);
         -- recipes to level for are kept apart (out.pickLevels), they are nothing to do now
         local plan = chosen
@@ -3436,7 +3551,9 @@ function FM.ComputePicks(out, ctx, done)
         for _, p in ipairs(picks) do
             if p.cand and p.cand.set then ShowSet(p, p.cand) end
         end
-        out.pickShort = ShortReason(candidates, taken, chosen)
+        -- why the plan has fewer picks than Y: as its first pass found it (FRV-240: a pass planned again with the places
+        -- the first one filled fills them, the reason stays)
+        out.pickShort = ctx.again and ctx.again.short or ShortReason(candidates, taken, chosen)
         local levelTop = {}
         for _, p in ipairs(levels) do levelTop[p.key] = true end
         for _, c in ipairs(candidates) do
@@ -3469,6 +3586,9 @@ function FM.ComputePicks(out, ctx, done)
         out.pickLevels = levels
         out.pickBudget = P.budget
         out.pickSlots = P.slots
+        -- the places the last pass shared the budget over and the share the picks out of scope were judged with (FRV-240:
+        -- a pick out of scope made again on its own, FM.RemakeExtra, takes the same)
+        out.pickPlaces, out.pickShare = P.places, P.readShare
         out.pickWhy = why
         -- the flips you hid that this plan held back (FRV-193): each step judges every candidate again, with the gold and
         -- the units earlier picks take gone, so a flip held back in one step can be a pick in another (review round 2 of
@@ -3506,7 +3626,9 @@ function FM.RemakeExtra(out, ctx, key, e)
     if not (old and old.extra) then return nil, "it is not out of scope in the plan shown" end
     StartPass(ctx)
     local ok, pick, reason = pcall(function()
-        P.perPick = P.budget / math_max(1, P.slots) -- on its own: one pick's share of the plan's gold
+        -- on its own: one pick's share of the plan's gold, the one its plan judged its picks out of scope with (FRV-240:
+        -- larger when the plan was planned again with the places it filled)
+        P.perPick = tonumber(out.pickShare) or P.budget / math_max(1, P.slots)
         local c
         if e then
             local left, doneSince = FM.SetPickLeft(e, P.asOf)

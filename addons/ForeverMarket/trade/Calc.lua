@@ -1110,10 +1110,12 @@ local planKeep = false -- the plan asked for keeps the craft picks' progress (FR
 -- FM.ComputePicks writes belongs here (pickProfit and pickShort: the summary's Profit and why the plan has fewer picks,
 -- FRV-126, FRV-133), then when and with what it was made
 -- (pickNow, pickCarry, pickRemoved, pickListed: what the plan made again after an edit starts from; pickSetDropped: the
--- set picks it could not plan, nil once FM.DropFailedSetPicks has dropped them; FRV-188)
+-- set picks it could not plan, nil once FM.DropFailedSetPicks has dropped them; FRV-188; pickPlaces, pickShare: the
+-- places its last pass shared the budget over and the share its picks out of scope were judged with, FRV-240)
 local PICK_FIELDS = { "picks", "pickLevels", "pickBudget", "pickSlots", "pickWhy", "pickRank", "pickExtra", "pickPlan",
     "pickNeed", "pickExpected", "pickGold", "pickFunds", "pickProfit", "pickShort", "pickAt", "pickT", "pickListings",
-    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden", "pickNow", "pickCarry", "pickRemoved", "pickSetDropped", "pickListed" }
+    "pickStock", "pickRecipes", "pickEdit", "pickOwned", "pickHidden", "pickNow", "pickCarry", "pickRemoved", "pickSetDropped", "pickListed",
+    "pickPlaces", "pickShare" }
 FM.PICK_FIELDS = PICK_FIELDS
 
 -- The craft numbers "Past 3 days" averages stay the latest scan's alone (FRV-196): a row a material's reference

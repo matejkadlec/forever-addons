@@ -90,7 +90,9 @@ end
 -- one's key was its first name FM.PlayerName gives the new one its full name as a second key; up to 1.70.5 the
 -- deleted one's key stayed and the name was listed twice (FRV-236). They are forgotten as /fm forget does it, their
 -- logs stay. (A deleted character whose key was its full name never gets a second key: FM.PlayerName pins that
--- key to the new GUID, so there is nothing to forget.)
+-- key to the new GUID, so there is nothing to forget.) Each forgotten key gets one chat line in the words of /fm forget
+-- (FRV-241): the cleanup runs unasked, and when it takes a character renamed away from a name another one took since,
+-- that line is the only trace of it. A forgotten key is gone, so no later login prints it again
 local function ForgetNamesakes()
     local mine, me = Info()
     if not mine then return end
@@ -113,7 +115,14 @@ local function ForgetNamesakes()
     for key, e in pairs(r.charInfo) do
         if Named(e) and keep[e.full] ~= key and r.charInfo[keep[e.full]].guid ~= e.guid then gone[#gone + 1] = key end
     end
-    for _, key in ipairs(gone) do FM.ForgetCharacter(key) end
+    table.sort(gone) -- the chat lines in a fixed order
+    for _, key in ipairs(gone) do
+        local full = r.charInfo[key].full
+        if FM.ForgetCharacter(key) then
+            FM.Print("Forgot", key .. " (an earlier character named " .. full .. ", deleted or renamed since: its saved bags, "
+                .. "bank, mailbox, auctions, gold and settings; its logs stay)")
+        end
+    end
 end
 
 local lastBagsAt = 0

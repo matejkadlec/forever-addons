@@ -184,8 +184,9 @@ H.test("amount: a craft pick's amount is what it makes, a number you set makes i
 end)
 
 H.test("amount: over the pick's share of the gold is your choice", function()
-    -- 3g, 90% across 3 picks: 90s for the pick, 9 crafts
-    local FM, env = Setup({ ["100"] = 27 }, nil, 30000)
+    -- 1g, 90% across 1 pick: 90s for the pick, 9 crafts (across 3 its only pick would get the plan's whole gold too, the
+    -- empty places' shares, FRV-240)
+    local FM, env = Setup({ ["100"] = 27 }, { tableInvestPicks = 1 }, 10000)
     local out = { crafts = { Craft("100", 43) } }
     Shown(FM, env, out)
     H.same({ out.picks[1].amount, out.picks[1].invest }, { 9, 9000 }, "the plan: make 9 with its share of the gold")
