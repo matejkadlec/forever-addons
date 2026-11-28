@@ -513,14 +513,18 @@ H.test("picks: across 1 puts the plan's gold into the best pick, across 5 takes 
     H.eq(picks["202"].invest, 9000, "each sized with the one pick's share, 90s")
 
     -- across 5 with four good crafts: 90s / 5 = 18s, make 1 (10s); then 80s / 4 = 20s, make 2; 60s / 3 = 20s,
-    -- make 2; 40s / 2 = 20s, make 2. Up to 5: four is what there is
+    -- make 2; 40s / 2 = 20s, make 2. Up to 5: four is what there is, so the plan is planned again with 4 places
+    -- (FRV-240): 90s / 4 = 22s 50c, make 2; 70s / 3 = 23s 33c, make 2; 50s / 2 = 25s, make 2; the last gets the 30s left
     FM, env = Setup(FOUR_BUYERS, { tableInvestPicks = 5 }, 10000)
     out = { crafts = FourCrafts() }
     picks = Compute(FM, env, out)
     H.eq(out.pickPlan, 4, "four picks, there is no fifth")
-    H.eq(picks["201"].invest, 1000, "18s pay one craft")
-    H.eq(picks["202"].invest, 2000, "then 20s each")
-    H.eq(picks["204"].invest, 2000, "to the last")
+    H.eq(picks["201"].invest, 2000, "22s 50c pay two crafts")
+    H.eq(picks["202"].invest, 2000, "then 20s")
+    H.eq(picks["203"].invest, 2000, "and 20s")
+    H.eq(picks["204"].invest, 3000, "the last makes 3 with what is left")
+    H.eq(out.pickNeed, 9000, "the plan uses its 90s")
+    H.same({ out.pickSlots, out.pickPlaces }, { 5, 4 }, "Picks 5, shared over the 4 places it filled")
 end)
 
 H.test("picks: what a pick does not use goes to the later ones", function()
@@ -534,6 +538,53 @@ H.test("picks: what a pick does not use goes to the later ones", function()
     H.eq(HasStep(picks["302"], "make 3"), true, "the second makes 3")
     H.eq(HasStep(picks["303"], "make 4"), true, "the third makes 4 with what the first left")
     H.eq(out.pickNeed, 9000, "the plan still uses its 90s")
+end)
+
+-- Rule (FRV-240): when the plan fills fewer places than Picks with gold left, the shares of the empty places go to the
+-- picks it found: it is planned again with the places it filled, each pick's share being the gold left over the places
+-- still open. A pick that cannot use more (here its room on the AH) keeps its size and the others share the rest, wherever
+-- it ranks. A plan that fills its places is the plan of before. Budget 10g (an amount set by hand), Picks 5; every craft
+-- needs one material at 10s, so a pick of n crafts invests n x 10s
+
+local TEN_GOLD = { tableInvestPicks = 5, tableInvestManual = true, tableInvestPctOn = false, tableInvestAmount = 100000 }
+
+H.test("picks: three picks for Picks 5 share the 10g, about 3g 33s each, not 2g each", function()
+    -- each can use 4g (40 circulate a day x 25%: 40 crafts). First pass: 2g each, 4g left; again with 3 places: 10g / 3 =
+    -- 3g 33s (33 crafts), 6g 70s / 2 = 3g 35s (33), the last the 3g 40s left (34). A fourth craft needs 3g a craft: no
+    -- pick with a share of 2g, out of scope after the plan, judged with the plan's share of 3g 33s
+    local FM, env = Setup({ ["401"] = 600, ["402"] = 600, ["403"] = 600, ["404"] = 600 }, TEN_GOLD, 1000000)
+    local dear = Craft("404", 160, 1, 40000)
+    dear.cost, dear.parts[1].key, dear.parts[1].unit = 30000, "901", 30000
+    local out = { crafts = { Craft("401", 160, 1, 50000), Craft("402", 160, 1, 40000), Craft("403", 160, 1, 30000), dear } }
+    local view = View({ ["901"] = { ladder = { { 30000, 1000 } }, qty = 1000, own = 0 } })
+    local picks = Compute(FM, env, out, view)
+    H.eq(out.pickPlan, 3, "three picks")
+    H.same({ picks["401"].invest, picks["402"].invest, picks["403"].invest }, { 33000, 33000, 34000 }, "about 3g 33s each")
+    H.same({ picks["401"].rank, picks["402"].rank, picks["403"].rank }, { 1, 2, 3 }, "in the order of before")
+    H.eq(out.pickNeed, 100000, "the plan invests the 10g")
+    H.same({ out.pickSlots, out.pickPlaces, out.pickShort }, { 5, 3, "none" }, "3 of 5 picks, why as the first pass found it")
+    H.same({ picks["404"].extra, picks["404"].invest }, { true, 30000 }, "out of scope with one craft of the plan's share")
+    H.eq(Uncolored(picks["404"].reasons[1][2]), "Not in the plan: its 3 picks earn more per gold put in.", "why")
+end)
+
+H.test("picks: a pick its room keeps at 1g stays at 1g, the other two share the rest, 4g 50s each", function()
+    -- the two first can use 5g (50 crafts), the last only 1g (10 circulate a day x 25%: 10 crafts). First pass: 2g, 2g
+    -- and 1g; again with 3 places, keeping the last one's 1g: 9g / 2 = 4g 50s, then 4g 50s, the last its 1g
+    local FM, env = Setup({ ["401"] = 600, ["402"] = 600, ["403"] = 600 }, TEN_GOLD, 1000000)
+    local out = { crafts = { Craft("401", 200, 1, 50000), Craft("402", 200, 1, 40000), Craft("403", 40, 1, 30000) } }
+    local picks = Compute(FM, env, out)
+    H.same({ picks["401"].invest, picks["402"].invest, picks["403"].invest }, { 45000, 45000, 10000 }, "4g 50s, 4g 50s and 1g")
+    H.same({ picks["401"].rank, picks["402"].rank, picks["403"].rank }, { 1, 2, 3 }, "the 1g pick ranks last all the same")
+    H.eq(out.pickNeed, 100000, "the plan invests the 10g")
+end)
+
+H.test("picks: five good candidates for Picks 5 make the plan of before, 2g each", function()
+    local FM, env = Setup({ ["401"] = 600, ["402"] = 600, ["403"] = 600, ["404"] = 600, ["405"] = 600 }, TEN_GOLD, 1000000)
+    local out = { crafts = { Craft("401", 160, 1, 50000), Craft("402", 160, 1, 40000), Craft("403", 160, 1, 30000),
+        Craft("404", 160, 1, 25000), Craft("405", 160, 1, 20000) } }
+    local picks = Compute(FM, env, out)
+    for _, key in ipairs({ "401", "402", "403", "404", "405" }) do H.eq(picks[key].invest, 20000, key .. ": 10g / 5") end
+    H.same({ out.pickPlan, out.pickPlaces, out.pickShort }, { 5, 5, nil }, "one pass, every place filled")
 end)
 
 H.test("picks: X is the share of your gold the whole plan may use, at most 90%", function()
@@ -2305,4 +2356,69 @@ H.test("held: a Stock pick earns at least your Profit against what you paid, a l
     for _, r in ipairs(pick.reasons) do
         H.eq(r[1] == "n" and r[2]:find("^List at ") ~= nil, false, "no note: " .. tostring(r[2]))
     end
+end)
+
+---------------------------------------------------------------- price falling today (FRV-239)
+-- Rule: a flip pick's "price falling today" is judged on what stays after its buy, never on the cheap listings it buys
+-- (while they are listed they are the minimum of every scan of the day): the cheapest listing of others above the dearest
+-- unit the flip buys (the Flip tab's rule, FM.FlipPlan, on the listings left) under 80% of the usual price, or today's
+-- scans whose minimum was above that unit with a median minimum under it. The Flip tab's rule is not touched.
+
+-- A flip of item 500 on `ladder` (the flip row as FM.FlipPlan makes it) with today's scans at `mins` = { { minutes ago,
+-- the lowest price } }: the pick, the plan and the flip
+local function FlipToday(ladder, usual, mins, settings, gold)
+    local FM, env, r = Setup({}, settings, gold)
+    r.items["500"] = { d = PricedRecords(27, mins) }
+    local qty = 0
+    for _, level in ipairs(ladder) do qty = qty + level[2] end
+    local f = FM.FlipPlan(ladder, qty, usual, 1)
+    local row = { key = "500", sell = f.sell, usual = usual, top = f.top, units = f.units, support = f.support, wall = f.wall,
+        qty = qty, sold12 = 10 }
+    local out = { flips = { row } }
+    local picks = Compute(FM, env, out, View({ ["500"] = { ladder = ladder, qty = qty, own = 0 } }))
+    return picks["500"], out, f, FM
+end
+
+-- Truesilver Champion as reported on 2026-11-28: the usual price 10g 89s, 2 at 5g 0s 90c, 1 at 8g 99s 98c, 5 at 14g
+-- 0s 90c; the two cheap ones were the minimum of every scan of the day
+local TRUESILVER = { { 50090, 2 }, { 89998, 1 }, { 140090, 5 } }
+local TRUESILVER_DAY = { { 240, 50090 }, { 180, 50090 }, { 120, 50090 }, { 60, 50090 }, { 0, 50090 } }
+
+H.test("price falling today: Truesilver Champion's cheap listings do not refuse its flip, with Picks 1 or Picks 5", function()
+    -- gold 30g 34s, budget 27g 31s (90%), Profit 10%
+    local pick, out, f, FM = FlipToday(TRUESILVER, 108900, TRUESILVER_DAY, { tableInvestPicks = 1 }, 303400)
+    H.same({ f.units, f.top, f.sell, math.floor(f.profit) }, { 2, 50090, 89997, 70814 },
+        "the Flip tab's rule: buy 2 up to 5g 0s 90c, list under the 8g 99s 98c that stays, +7g 8s 14c")
+    H.eq(pick ~= nil, true, "Picks 1: a pick, not " .. tostring(out.pickWhy and out.pickWhy["500"]))
+    H.same({ pick.invest, pick.listAt }, { 100180, 89997 }, "the flip's buy and list price")
+    H.eq(LineOf(pick, "Today"), Uncolored(FM.FormatMoney(50090)), "today's scans' minimum is still shown: the cheap listings")
+    -- Picks 5: one share is 5g 46s, the flip needs 10g 1s 80c: no pick, and not because the price falls
+    pick, out = FlipToday(TRUESILVER, 108900, TRUESILVER_DAY, { tableInvestPicks = 5 }, 303400)
+    H.eq(pick, nil, "Picks 5: no pick")
+    H.eq(Uncolored(out.pickWhy["500"]), "1 cheaper listing would stay under 8g 99s 97c: this pick can buy 1 of the 2",
+        "its gold is the reason")
+end)
+
+H.test("price falling today: two cheap units under a ladder that holds at 85% all day are a pick", function()
+    -- 2 at 50s under 1 at 85s and 5 at 1g 40s; the usual price 1g. Three of today's scans had the two cheap units as
+    -- their minimum, the two before them 85s
+    local mins = { { 240, 8500 }, { 180, 8500 }, { 120, 5000 }, { 60, 5000 }, { 0, 5000 } }
+    local pick, out = FlipToday({ { 5000, 2 }, { 8500, 1 }, { 14000, 5 } }, 10000, mins)
+    H.eq(pick ~= nil, true, "a pick, not " .. tostring(out.pickWhy and out.pickWhy["500"]))
+    H.same({ pick.invest, pick.listAt }, { 10000, 8499 }, "buy the two, list under the 85s that stays")
+end)
+
+H.test("price falling today: the whole ladder under 80%, now or in today's scans above the buy, still refuses it", function()
+    -- what stays after the buy starts at 75s: the market fell, whatever today's scans say
+    local mins = { { 240, 7500 }, { 180, 7500 }, { 120, 5000 }, { 60, 5000 }, { 0, 5000 } }
+    local pick, out = FlipToday({ { 5000, 2 }, { 7500, 1 }, { 14000, 5 } }, 10000, mins)
+    H.eq(pick, nil, "no pick")
+    H.eq(Uncolored(out.pickWhy["500"]), "price falling today: what stays after its buy starts at 75s 0c, 75% of the usual price",
+        "the reason")
+    -- the ladder holds at 85% now, but most of today's scans above the flip's 50s had 70s as their minimum
+    mins = { { 240, 7000 }, { 180, 7000 }, { 120, 7000 }, { 60, 5000 }, { 0, 5000 } }
+    pick, out = FlipToday({ { 5000, 2 }, { 8500, 1 }, { 14000, 5 } }, 10000, mins)
+    H.eq(pick, nil, "no pick")
+    H.eq(Uncolored(out.pickWhy["500"]), "price falling today: today's scans above its buy were at 70s 0c, 70% of the usual price",
+        "the reason")
 end)
