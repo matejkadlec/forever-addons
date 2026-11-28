@@ -1543,6 +1543,10 @@ post bar as `FM` fields (loaded before `ui/Table.lua`, whose main chunk is at Lu
   search also over Blizzard's item Buy and Sell pages). While the sniper snipes its searches come first: a Sell tab
   search goes in the sniper's slot once the sniper has nothing to search or the request has waited 2 s; the newest
   request replaces an older one
+* **Items with variants** (1.72.4): gear with "of the ..." variants (`FM.HasVariants`, or gear never checked for them,
+  `FM.SuffixUnknown`) gets no List at ("type a price"): the AH's prices of its item ID mix variants of different value,
+  as Flip and Picks know (they skip such items). The price is typed, the bar names the variant it posts (the first
+  stack's link), and the units start at what that stack's post can take
 * SavedVariables: nothing new. Not yet verified in game: posting, confirming and the hidden popup from an AddOn's own
   button, `GetItemCommodityStatus`, `IsSellItemValid`, `GetAvailablePostCount` (`docs/forever-api-notes.md`)
 
@@ -1605,7 +1609,7 @@ item's data, which a scan of 100,000 gear auctions cannot wait for. The results 
 
 ### The Upgrades tab (1.54, FRV-203, FRV-205: ui/Upgrades.lua)
 
-The last tab of the marketplace (`/fm upgrades`, or the key `U` and the tab): the rows above, one per item and suffix.
+The last tab of the group "what next" (Learn, Farm, Upgrades; Profit is the last tab since 1.72, FRV-25) (`/fm upgrades`, or the key `U` and the tab): the rows above, one per item and suffix.
 
 * **Columns:** Item (the name with its suffix, in its quality color), Slot (the game's name of it; sorts in the
   character sheet's order), Lvl (the required level, red above yours), Price (always gold, silver and copper,

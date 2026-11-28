@@ -117,7 +117,7 @@ local function Holdings()
                 out[key] = h
             end
             h.units = h.units + (s.count or 1)
-            h.slots[#h.slots + 1] = { bag = s.bag, slot = s.slot, count = s.count or 1 }
+            h.slots[#h.slots + 1] = { bag = s.bag, slot = s.slot, count = s.count or 1, link = s.link }
         end
     end
     S.holdings = out
@@ -202,16 +202,20 @@ end
 local function Row(key, h)
     local p, at = PriceOf(key)
     local listAt, src, usual, floor = FM.SellListAt(key, p)
+    -- an item with "of the ..." variants (or gear never checked for them): the AH's prices of its ID mix variants of
+    -- different value, so there is no List at; the price is typed (review round 5 of PR 100; Flip and Picks skip them)
+    local variants = (FM.HasVariants(key) or FM.SuffixUnknown(key)) and true or false
+    if variants then listAt, src = nil, nil end
     local duration, rate = FM.SellDuration(key)
     local kind = FM.ItemStacks(key) and "c" or "i"
     local units = h.units
     local row = { key = key, sell = true, units = units, slots = h.slots, p = p, at = at, listAt = listAt, src = src,
-        usual = usual, floor = floor, duration = duration, rate = rate, kind = kind }
+        usual = usual, floor = floor, duration = duration, rate = rate, kind = kind, variants = variants }
     local _, sellable, sellableBags = FM.Owned(key)
     row.bank = math_max(0, (sellable or 0) - (sellableBags or 0))
     local cheapest = p and p.ladder and p.ladder[1] and p.ladder[1][1]
     row.cheapest = cheapest
-    row.low = (IsNumber(cheapest) and IsNumber(usual) and cheapest < MARKET_LOW * usual) or false
+    row.low = (not variants and IsNumber(cheapest) and IsNumber(usual) and cheapest < MARKET_LOW * usual) or false
     row.deposit = Deposit(key, units, duration, kind, nil)
     if listAt then row.youGet = math_floor(listAt * units * (1 - CUT)) end
     local paidN, paid = FM.PaidBasis(key, units)
@@ -239,7 +243,10 @@ FM.SELL_COLUMNS = {
     { title = "Units", tip = "Units: what you hold of it in your bags (the bank's in the row tooltip: they can't be posted from there).",
         width = 70, text = function(r) return FM.FormatCount(r.units) end, sort = function(r) return r.units end },
     { title = "List at", tip = "List at: the price per unit to list at, the marketplace's rule in every tab: 1c under the cheapest auction of others (never under 1s for an item that does not stack), the usual price when the cheapest listing is over 125% of it, never under your own cheapest auction. Orange: the cheapest listing is under 80% of the usual price, the market is low today. At the AH a selected row is searched again and priced from the answer.",
-        width = 120, text = function(r) return Money(r.listAt, r.low and ORANGE or nil) end, sort = function(r) return r.listAt end },
+        width = 120, text = function(r)
+            if r.variants then return GREY .. "type a price|r" end -- "of the ..." variants mixed in the AH's prices
+            return Money(r.listAt, r.low and ORANGE or nil)
+        end, sort = function(r) return r.listAt end },
     { title = "Length", tip = "Length: 8h when 100+ units circulate in 24h, else 24h (the rule of Min. price).", width = 70,
         text = function(r) return Hours(r.duration) end, sort = function(r) return HOURS[r.duration] end },
     { title = "Deposit", tip = "Deposit: what listing all units for that length costs, back when they sell (the AH's own calculator at the AH, an estimate away from it).",
@@ -316,6 +323,9 @@ function FM.SellTooltipLines(tip, row)
     Header(tip, "Listing")
     Line(tip, "List at", Money(row.listAt, row.low and ORANGE or nil) .. (row.src and (GREY .. "  " .. SRC_TEXT[row.src] .. "|r") or ""))
     if row.low then tip:AddLine(ORANGE .. "The cheapest listing is under 80% of the usual price: the market is low today.|r", 1, 1, 1, true) end
+    if row.variants then
+        tip:AddLine(ORANGE .. "No List at: the AH's prices of this item mix its \"of the ...\" variants of different value. Type a price in the bar; the bar names the variant it posts.|r", 1, 1, 1, true)
+    end
     for _, d in ipairs({ 2, 3 }) do
         Line(tip, "Deposit " .. Hours(d), Money(Deposit(row.key, row.units, d, row.kind, nil)))
     end
@@ -389,7 +399,8 @@ end
 local function FillForm(row)
     local form = S.form
     if not (form and form.key == row.key) then
-        form = { key = row.key, units = row.units, duration = row.duration }
+        -- all units by default, at the AH as many as the first stack's post can take (one variant of gear, review round 5)
+        form = { key = row.key, units = math_min(row.units, MaxUnits(row.key, Location(row.key))), duration = row.duration }
         S.form = form
     end
     -- a post waiting for its Confirm or the AH's answer: the bar shows exactly that post (review round 2 of PR 100: a
@@ -400,7 +411,7 @@ local function FillForm(row)
         return form
     end
     form.units = math_min(form.units or row.units, row.units)
-    if not form.priceSet then form.price = row.listAt end
+    if not form.priceSet then form.price = row.listAt end -- nil for an item with variants: typed only
     return form
 end
 
@@ -444,7 +455,10 @@ local function PostState()
     if not kind then return "off", "Post", "The item's data is not loaded yet: a moment." end
     local max = MaxUnits(key, loc)
     if units < 1 or units > max then return "off", "Post", string_format("Units: 1 to %s.", FM.FormatCount(max)) end
-    if price < 1 then return "off", "Post", "Type a price." end
+    if price < 1 then
+        if row.variants then return "off", "Post", "Type a price: the AH mixes this item's \"of the ...\" variants, so there is no List at." end
+        return "off", "Post", "Type a price."
+    end
     if kind == "i" and price < SINGLE_FLOOR then
         return "off", "Post", "An item that does not stack needs at least 1s: the AH drops a cheaper post."
     end
@@ -474,7 +488,10 @@ local function UpdateBar()
     local key = S.selected
     local row = key and RowOf(key)
     local form = row and FillForm(row) or nil
-    bar.title:SetText(row and QualityName(key) or (GREY .. "No row selected|r"))
+    -- an item with variants: the link of the stack the post takes, with its "of the ..." (review round 5)
+    local first = row and row.variants and row.slots[1]
+    local link = first and type(first.link) == "string" and not FM.IsSecret(first.link) and first.link or nil
+    bar.title:SetText(link or (row and QualityName(key)) or (GREY .. "No row selected|r"))
     if form then
         if not bar.units:HasFocus() then bar.units:SetText(tostring(form.units or "")) end
         local money = FM.MoneyInput

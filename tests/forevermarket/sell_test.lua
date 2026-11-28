@@ -21,6 +21,8 @@
 --     list as it was when the post went out is selected, also when the posted item has left the bags already
 --   * review round 2 of PR 100: while a post waits for Confirm the bar shows that post, also after a new price; a
 --     post of several items ends at the multisell count once it came, never one auction early
+--   * review round 5 of PR 100: an item with "of the ..." variants (or gear never checked) has no List at: the price is
+--     typed, the bar names the stack's variant by its link, its units start at what that stack's post can take
 --   * review round 4 of PR 100: Confirm posts only while its slot still holds that item with its units: a stack moved
 --     (another item in the slot) or fewer units drop the Confirm with a note and post nothing; Post checks the slot's
 --     item too
@@ -56,7 +58,7 @@ local function Load(bags)
         GetContainerItemInfo = function(bag, slot)
             local s = bag == 0 and env.bags[slot]
             if not s then return nil end
-            return { itemID = s.id, stackCount = s.n, isBound = s.bound or false, hyperlink = "|Hitem:" .. s.id .. "|h[x]|h" }
+            return { itemID = s.id, stackCount = s.n, isBound = s.bound or false, hyperlink = s.link or ("|Hitem:" .. s.id .. "|h[x]|h") }
         end
     }
     local function InBags(id)
@@ -482,4 +484,32 @@ H.test("sell tab: Post checks that the slot still holds the item (review round 4
     FM.SellPostClicked()
     local post = Calls(env, "PostCommodity")
     H.same({ #post, post[1] and post[1][2].slot }, { 1, 2 }, "the next click posts from where the leather is now")
+end)
+
+H.test("sell tab: an item with variants has no List at, the price is typed, the bar names the variant (review round 5)", function()
+    local FM, env = Load({ { id = SWORD, n = 1 }, { id = SWORD, n = 1 } })
+    FM.ahOpen = true
+    FM.R().items[tostring(SWORD)] = { v = 1 } -- "of the ..." variants seen under this item ID
+    env.bags[1].link = "|cff1eff00|Hitem:2488::::::::20:::1:1001|h[Short Sword of the Eagle]|h|r"
+    env.C_AuctionHouse.GetAvailablePostCount = function() return 1 end -- one of each variant: the first stack's post
+    Snapshot(FM, SWORD, { { 5000, 1 } })
+    local row = RowsByKey(FM)[tostring(SWORD)]
+    H.same({ row.variants, row.listAt, row.youGet }, { true, nil, nil }, "no List at, no You get")
+    H.eq(Plain(FM.SELL_COLUMNS[3].text(row)), "type a price", "the cell says so")
+    FM.SellCreateBar(env.CreateFrame("Frame"), { x = 14, y = -532, w = 932 })
+    FM.MoneyInput = { Enabled = function() end, Focused = function() return false end, Read = function() return 0 end,
+        Write = function() end, Boxes = function() return {} end }
+    FM.SellShowBar(nil, true)
+    FM.SellSelect(tostring(SWORD))
+    Answer(FM, SWORD, { { 5000, 1 } }, nil, "i")
+    FM.SellUpdateBar()
+    H.eq(FM.sellState.bar.title:GetText():find("of the Eagle", 1, true) ~= nil, true, "the bar names the variant it posts")
+    H.same({ FM.sellState.form.units, FM.sellState.form.price }, { 1, nil }, "one unit (that stack), no price")
+    local kind, _, why = FM.SellPostState()
+    H.same({ kind, why }, { "off", "Type a price: the AH mixes this item's \"of the ...\" variants, so there is no List at." },
+        "Post waits for a typed price")
+    FM.sellState.form.price, FM.sellState.form.priceSet = 7500, true
+    H.eq(FM.SellPostState(), "post", "a typed price posts")
+    FM.SellPostClicked()
+    H.same({ Calls(env, "PostItem")[1][4], Calls(env, "PostItem")[1][6] }, { 1, 7500 }, "that one item at the typed price")
 end)
