@@ -346,7 +346,7 @@ Everything else in this section is verified against the source only (not yet ver
       - The last post found that paid the floor was made on 2026-11-17 at 22:29 CET: Longjaw Mud Snapper x200, 8 hours, vendor price 1c. Its share is 40c, and its sale mail of 11-18 gave back 98c
       - The first post found without it was made on 2026-11-18 at 06:11 CET: Longjaw Mud Snapper x140, which gave back 27c for a 28c share
       - Greater Healing Potion, 1 unit, 8 hours: a post of 2026-11-15 gave back 1s, one of 11-18 06:12 CET gave back 25c
-      - Across all mails, the 41 sale mails whose deposit is more than even the 24 hour share were all sent from 2026-11-15 to 11-17. Commodities and single auctions alike, their deposits fit a 1s floor per post, split over the sale mails of its parts (Tanning Rack, vendor price 0: 3c, 15c, 30c, 56c)
+      - Across all mails, the 41 sale mails whose deposit is more than even the 24 hour share were all sent from 2026-11-15 to 11-17. A commodity's deposits fit a 1s floor per post, split over the sale mails of its parts (Tanning Rack, vendor price 0: 3c, 15c, 30c, 56c). A single auction paid 1s for each auction: each of the 24 single-auction mails among them gave back a full 1s, and the 7 auctions of one Light Leather Reagent Bag post of 2026-11-16 gave back 7s
       - None of the 447 mails with a share under 1s sent from 2026-11-18 on is above the 24 hour share. A mail of 11-18 can still belong to a post from before the change, as the Longjaw x200 does
       - The 5 commodity posts of 2026-11-27 and 11-28 with a share under 1s paid their own share
       - Why the server's rule changed is not known. ForeverMarket (1.70.12) still adds the floor to a commodity post's `calc` and to its own estimates (FRV-242)
