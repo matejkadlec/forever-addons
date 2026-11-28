@@ -15,6 +15,7 @@ This index names the maintained source for each topic. Jira project `FRV` is the
 | ForeverMarket | [`../addons/ForeverMarket/AGENTS.md`](../addons/ForeverMarket/AGENTS.md), [`../addons/ForeverMarket/README.md`](../addons/ForeverMarket/README.md) | Agent inventory; user documentation and data format |
 | ForeverCraftQueue | [`../addons/ForeverCraftQueue/AGENTS.md`](../addons/ForeverCraftQueue/AGENTS.md) | Files, the profession window it hooks, Process queue's steps, saved data |
 | ForeverEnhancedMailbox | [`../addons/ForeverEnhancedMailbox/AGENTS.md`](../addons/ForeverEnhancedMailbox/AGENTS.md) | Files, the mail frame it hooks, a collection's steps and stops, the safety rules |
+| ForeverGamepadRebind | [`../addons/ForeverGamepadRebind/AGENTS.md`](../addons/ForeverGamepadRebind/AGENTS.md) | Files, why the pad's keybindings did not fire with the Gamepad UI, the rules of Save, the override keybindings, the window, `/fgr debug` |
 | Backported AddOns | [`../backports/AGENTS.md`](../backports/AGENTS.md) | Backport rules and port details |
 | ForeverMarket feed | [`../services/forever-market-feed/AGENTS.md`](../services/forever-market-feed/AGENTS.md), [`../services/forever-market-feed/README.md`](../services/forever-market-feed/README.md) | Rules; setup, server, deploys, backups |
 | Forever API behavior | [`forever-api-notes.md`](forever-api-notes.md) | Verified Forever-specific findings: secret values, restrictions, missing APIs, taint |

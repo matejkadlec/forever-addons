@@ -36,6 +36,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - [ForeverCampFeatures](#forevercampfeatures)
   - [ForeverCraftQueue](#forevercraftqueue)
   - [ForeverEnhancedMailbox](#foreverenhancedmailbox)
+  - [ForeverGamepadRebind](#forevergamepadrebind)
 - [Backported AddOns](#-backported-addons)
   - [Quartz](#quartz)
   - [Skada](#skada)
@@ -270,6 +271,30 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - `/fem help` shows help
 - Settings panel: `Jim's Forever AddOns -> Enhanced Mailbox`: enable, Keep free bag slots (a slider and a number box, 0 to 20), show the Shift+click line in mail tooltips, and a `Defaults` button
 - Standalone; the idea of the menu comes from mail AddOns such as Postal and Parcel, the code is written from scratch for Forever
+
+### ForeverGamepadRebind
+
+🎮 Your keyboard layout on the gamepad: every pad button or chord you set becomes the **second keybinding** of the action a keyboard key runs, so the key keeps working and the pad does the same. Made for relaxed questing with an Xbox controller and the Gamepad UI (Options > Gameplay > Gamepad).
+
+- **A table** in its own window, opened with `/fgr`, from the Jim's Forever AddOns menu (minimap button, right-click) or with a key you bind (Options > Keybindings > Jim's Forever AddOns). It is a normal window, not the settings, so you keep moving and playing while it is open
+  - One row per keyboard key: the key, the action it runs now (with its icon on the action bars), the gamepad button and the status
+  - **Set a button:** click the gamepad cell and press it on the pad; hold LT or RT first for a chord (LT + X, RT + D-pad Up, ...). Or right-click the cell and pick it from a list. The X clears the row
+  - **Save** writes the table into your keybindings (the account's, or the character's with "Character Specific Keybindings"): Options > Keybindings shows each one as the second keybinding. **Revert** drops your unsaved edits, **Reset to default layout** puts the default table back
+- **Default layout:** 1-4 on X, A, B, Y; Alt-1-4 on the D-pad (Left, Down, Right, Up); Shift-1-4 on RT + X, A, B, Y; Ctrl-1-4 on RT + the D-pad; the right mouse button on LT + X; Tab, `;`, G on LT + A, B, Y; R, F, X, Y on LT + the D-pad; F1 on LB, F2 on RB, Alt-F1 on RT + LB, B on LT + RB, I on View
+- **Nothing is ever overwritten:** a row whose button already runs something else, whose action has two keybindings already, or whose key has nothing bound is not written; it turns **red** and says why. A button you bound yourself in Options shows **orange**: the AddOn leaves it alone
+- **Removes only its own:** clearing a row, or `/fgr off`, takes out only the keybindings this AddOn wrote, and only while they still run what it wrote. Your keyboard keys always stay the first keybinding
+- **Gamepad UI:** the Gamepad UI normally keeps the pad's buttons for itself (that is why a second keybinding on X did nothing). While no gamepad menu is open, the table's buttons win over the Gamepad UI's own ones, and LT and RT no longer switch its action sets while a chord uses them. When a window the Gamepad UI navigates is open (bags, a vendor), the pad works that window as usual. Both are options in the settings
+- **The right mouse button's row** (LT + X) runs **Interact With Mouseover**: it talks to, loots or attacks what is under the cursor (or your soft target) in the world. A keybinding cannot click a mouse button, so it does not right-click the interface (an item in your bags)
+- Keybindings cannot change in combat: Save waits for the fight to end and says so
+- It changes no game setting (CVar)
+- Slash commands:
+  - `/fgr` shows or hides the table
+  - `/fgr on` and `/fgr off` enable/disable it without reloading the UI (on: the saved table written into your keybindings again; off: only its own keybindings removed)
+  - `/fgr options` opens the settings
+  - `/fgr debug` prints every gamepad button and chord you press and what it runs (for testing), `/fgr debug` again stops it
+  - `/fgr help` shows help
+- Settings panel: `Jim's Forever AddOns -> Gamepad Rebind`: enable, let the table's buttons win over the Gamepad UI's own ones, stop LT and RT's action set switching, a button that opens the table, and a `Defaults` button
+- Standalone; written from scratch for Forever
 
 ## 🧩 Backported AddOns
 

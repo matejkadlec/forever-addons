@@ -39,7 +39,7 @@ When the maintainer asks: read the issue (its form's AddOn, versions, steps, err
 
 ## Change a first-party AddOn
 
-Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket, [addons/ForeverCraftQueue/AGENTS.md](addons/ForeverCraftQueue/AGENTS.md) for ForeverCraftQueue, [addons/ForeverEnhancedMailbox/AGENTS.md](addons/ForeverEnhancedMailbox/AGENTS.md) for ForeverEnhancedMailbox). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
+Read [addons/AGENTS.md](addons/AGENTS.md) (and [addons/ForeverMarket/AGENTS.md](addons/ForeverMarket/AGENTS.md) for ForeverMarket, [addons/ForeverCraftQueue/AGENTS.md](addons/ForeverCraftQueue/AGENTS.md) for ForeverCraftQueue, [addons/ForeverEnhancedMailbox/AGENTS.md](addons/ForeverEnhancedMailbox/AGENTS.md) for ForeverEnhancedMailbox, [addons/ForeverGamepadRebind/AGENTS.md](addons/ForeverGamepadRebind/AGENTS.md) for ForeverGamepadRebind). Keep the chat, slash command and settings panel conventions; everything settable by slash command is also in the panel. Bump `## Version:`, update the inventory and `README.md` when user-facing behavior changes, sync.
 
 ## Add a first-party AddOn
 

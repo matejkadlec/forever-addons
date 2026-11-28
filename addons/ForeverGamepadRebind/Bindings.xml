@@ -1,0 +1,6 @@
+<Bindings>
+	<!-- Options -> Keybindings -> Jim's Forever AddOns (name in ForeverGamepadRebind.lua); no key is set by default -->
+	<Binding name="FOREVERGAMEPADREBIND_TOGGLE" category="Jim's Forever AddOns">
+		ForeverGamepadRebind_ToggleWindow();
+	</Binding>
+</Bindings>

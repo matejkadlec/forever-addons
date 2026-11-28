@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: |cFFFF8000Forever|r Gamepad Rebind
+## Notes: Your keyboard layout on the gamepad: each pad button or chord becomes the second keybinding of a keyboard key's action, edited in a table while you keep playing.
+## Category: Jim's Forever AddOns
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
+## Author: Matej Kadlec (https://github.com/matejkadlec)
+## Version: 1.0.2
+## X-License: All Rights Reserved
+## X-Collaboration: Matej Kadlec (https://github.com/matejkadlec)
+## X-Repository: https://github.com/matejkadlec/forever-addons
+## SavedVariables: ForeverGamepadRebindSettings, JimsForeverAddOnsDB
+
+JimsForeverAddOns.lua
+Locale.lua
+Core.lua
+ForeverGamepadRebind.lua
+Window.lua
+SettingsPanel.lua
