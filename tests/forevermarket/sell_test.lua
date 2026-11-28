@@ -14,7 +14,11 @@
 --     the same arguments
 --   * guards: a single item under 1s, a price that nets less than a vendor pays, a price under half the cheapest
 --     listing (a second click on "Post at <price>?"), the deposit over your gold, the throttle, combat, a closed AH
---   * an error event or no answer in 15 s keeps the row selected and says why
+--   * an error event or no answer in 15 s keeps the row selected and says why; a post of several items that makes
+--     progress is not cut off (review round 1 of PR 100)
+--   * review round 1 of PR 100: while Confirm waits the bar's inputs are locked; the first batch of a longer answer
+--     to the tab's own search is a fresh price (another search's batch is not); after a post the row after it in the
+--     list as it was when the post went out is selected, also when the posted item has left the bags already
 -- Whether the client takes the posts from this button is the in-game test's job.
 
 local H = require("harness")
@@ -23,7 +27,7 @@ local F = require("fixtures")
 local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Diff.lua", "scan/Ledger.lua", "scan/Search.lua",
     "scan/SearchQueue.lua", "trade/Sources.lua", "trade/Calc.lua", "trade/Crafts.lua", "trade/Cost.lua", "ui/Filters.lua",
     "ui/Sell.lua" }
-local LEATHER, SWORD, HEARTH, BOP = 2318, 2488, 6948, 9999
+local LEATHER, SWORD, HEARTH, BOP, LINEN = 2318, 2488, 6948, 9999, 2589
 local NOW_MINUTES = 400000
 -- name, stack size, vendor sell price, bind type (1 = bind on pickup)
 local INFO = {
@@ -31,6 +35,7 @@ local INFO = {
     [SWORD] = { "Short Sword", 1, 300, 2 },
     [HEARTH] = { "Hearthstone", 1, 0, 1 },
     [BOP] = { "Bound Trinket", 1, 50, 1 },
+    [LINEN] = { "Linen Cloth", 20, 1, 0 },
 }
 
 local function Load(bags)
@@ -311,4 +316,81 @@ H.test("sell tab: several single items, an error and no answer keep the row and 
     FM.SellTick()
     H.eq(FM.sellState.note.text, "Failed to post Short Sword: no answer from the AH in 15 seconds.", "no answer")
     H.eq(FM.sellState.selected, tostring(SWORD), "the row stays")
+end)
+
+H.test("sell tab: while Confirm waits the bar's inputs are locked (review round 1)", function()
+    local FM, env = Load(BAGS())
+    FM.ahOpen = true
+    env.needsConfirm = true
+    FM.SellCreateBar(env.CreateFrame("Frame"), { x = 14, y = -532, w = 932 })
+    local bar = FM.sellState.bar
+    for _, w in ipairs({ bar.units, bar.length }) do
+        function w:SetEnabled(on) self.enabled = on end
+    end
+    FM.MoneyInput = { Enabled = function(_, on) bar.priceEnabled = on end, Focused = function() return false end,
+        Read = function() return 0 end, Write = function() end, Boxes = function() return {} end }
+    FM.SellShowBar(nil, true)
+    FM.SellSelect(tostring(LEATHER))
+    Answer(FM, LEATHER, { { 205, 100 } })
+    FM.SellUpdateBar()
+    H.same({ bar.units.enabled, bar.length.enabled, bar.priceEnabled }, { true, true, true }, "a row selected: the inputs are open")
+    FM.SellPostClicked()
+    FM.SellUpdateBar()
+    H.same({ bar.units.enabled, bar.length.enabled, bar.priceEnabled }, { false, false, false },
+        "Confirm waits: units, length and price locked, so Confirm posts what the bar shows")
+    FM.SellPostClicked()
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 9)
+    FM.SellUpdateBar()
+    H.eq(bar.units.enabled, true, "open again after the post")
+end)
+
+H.test("sell tab: the first batch of a longer answer to its own search is a fresh price (review round 1)", function()
+    local FM, env = Load(BAGS())
+    FM.ahOpen = true
+    -- another search's first batch before the tab asked: not its price
+    FM.SearchLive(tostring(LEATHER), { { qty = 50, buyout = 300 * 50, owner = "?" } }, false)
+    env.clock = env.clock + 1
+    FM.SellSelect(tostring(LEATHER))
+    H.eq(FM.SellPostState(), "off", "an earlier batch of another search does not count")
+    env.clock = env.clock + 1
+    FM.SearchLive(tostring(LEATHER), { { qty = 50, buyout = 205 * 50, owner = "?" } }, false)
+    H.eq(FM.SellPostState(), "post", "the first batch of its own search: Post")
+    H.eq(RowsByKey(FM)[tostring(LEATHER)].listAt, 204, "priced from it")
+    H.eq(FM.live[tostring(LEATHER)], nil, "the full answers of the flip check are untouched")
+end)
+
+H.test("sell tab: a post of several items that makes progress is not cut off after 15 s (review round 1)", function()
+    local FM, env = Load({ { id = SWORD, n = 1 }, { id = SWORD, n = 1 }, { id = SWORD, n = 1 } })
+    FM.ahOpen = true
+    FM.SellSelect(tostring(SWORD))
+    Answer(FM, SWORD, { { 5000, 1 } }, nil, "i")
+    FM.SellPostClicked()
+    env.clock = env.clock + 10
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 1)
+    env.clock = env.clock + 10
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 2, 3)
+    env.clock = env.clock + 10
+    FM.SellTick()
+    H.eq(FM.sellState.post ~= nil, true, "30 s in, but progress 10 s ago: still posting")
+    env.clock = env.clock + 16
+    FM.SellTick()
+    H.eq(FM.sellState.post, nil, "15 s without progress ends it")
+end)
+
+H.test("sell tab: after a post the row after it is selected, also when the item left the bags already (review round 1)", function()
+    local FM, env = Load({ { id = SWORD, n = 1 }, { id = LEATHER, n = 20 }, { id = LINEN, n = 20 } })
+    FM.ahOpen = true
+    Snapshot(FM, SWORD, { { 5000, 1 } })
+    Snapshot(FM, LEATHER, { { 205, 100 } })
+    Snapshot(FM, LINEN, { { 50, 100 } })
+    local order = {}
+    for i, row in ipairs(FM.TableRowsOf("sell")) do order[i] = row.key end
+    H.same(order, { tostring(SWORD), tostring(LEATHER), tostring(LINEN) }, "the list as shown: You get, largest first")
+    FM.SellSelect(tostring(LEATHER)) -- the middle row: the top one was skipped on purpose
+    Answer(FM, LEATHER, { { 205, 100 } })
+    FM.SellPostClicked()
+    table.remove(env.bags, 2) -- all the leather leaves the bags before the AH answers
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 3)
+    H.eq(FM.sellState.selected, tostring(LINEN), "the row after it, not the top row")
 end)

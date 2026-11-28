@@ -69,6 +69,15 @@ local function ItemPageShown()
     return type(ahFrame) == "table" and (Shown(ahFrame.ItemBuyFrame) or Shown(ahFrame.ItemSellFrame))
 end
 
+-- A page that holds a Sell tab request back on top of the sniper's pause: any commodity Buy page (the sniper's own
+-- pause lets the Buy page of a sniped item be, where it searches that item only; review round 1 of PR 100), and for
+-- an item sold per auction its Buy and Sell pages
+local function RequestPageShown(kind)
+    local ahFrame = _G.AuctionHouseFrame
+    if type(ahFrame) == "table" and Shown(ahFrame.CommoditiesBuyFrame) then return true end
+    return kind == "i" and ItemPageShown()
+end
+
 -- Why no search may go out now (nil = it may); gap: the pause since the last search of anyone; kind "i": a search of
 -- an item sold per auction
 function FM.SearchHeld(gap, kind)
@@ -127,7 +136,7 @@ function FM.SearchRequestTurn(idle)
     if not r then return false end
     if not idle and GetTime() - r.at < REQUEST_WAIT then return false end
     if FM.SearchBusy("sniper") then return false end
-    if r.kind == "i" and ItemPageShown() then return false end
+    if RequestPageShown(r.kind) then return false end
     SendRequest()
     return true
 end
@@ -140,7 +149,7 @@ local function Tick()
     end
     -- the sniper snipes: the request waits for its turn in the sniper's tick
     if FM.SnipeIsActive and FM.SnipeIsActive() then return end
-    if FM.SearchHeld(nil, Q.request.kind) then return end
+    if FM.SearchHeld(nil, Q.request.kind) or RequestPageShown(Q.request.kind) then return end
     SendRequest()
 end
 

@@ -10,6 +10,8 @@
 --     whose list a search would replace, or while the AH's throttle is not ready
 --   * an item sold per auction is searched with SendSellSearchQuery (your auctions apart), a commodity with
 --     SendSearchQuery; an item search also waits while Blizzard shows an item's Buy or Sell page
+--   * a Sell tab request also waits while Blizzard shows any commodity Buy page, a sniped item's too (the sniper's own
+--     pause lets that page be; review round 1 of PR 100), in the queue's tick and in the sniper's slot
 -- Whether the client takes these calls as the sniper's is the in-game test's job.
 
 local H = require("harness")
@@ -135,4 +137,18 @@ H.test("search queue: never with the AH closed, in combat, for a deep scan or ov
     H.eq(FM.SearchRequest("4234", "c"), false, "no request while the AH is closed")
     Tick(env, 5)
     H.eq(#env.sent, 2, "nothing went out")
+end)
+
+H.test("search queue: a Sell request waits over any commodity Buy page, a sniped item's too (review round 1)", function()
+    local FM, env = Load()
+    env.page = nil -- the sniper's own check lets the Buy page of a sniped item be
+    env.AuctionHouseFrame = { CommoditiesBuyFrame = { IsShown = function() return true end } }
+    FM.SearchRequest("2318", "c")
+    Tick(env, 1)
+    H.eq(#env.sent, 0, "the queue's tick holds it")
+    env.sniping = true
+    env.clock = env.clock + 3
+    H.eq(FM.SearchRequestTurn(true), false, "the sniper's slot too")
+    env.AuctionHouseFrame = nil
+    H.eq(FM.SearchRequestTurn(true), true, "the page closed: it goes")
 end)

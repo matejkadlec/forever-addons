@@ -28,6 +28,7 @@ local DEBOUNCE = 0.6
 local MAX_DIFF_GAP = 24 * 3600
 local pending = {}
 FM.live = FM.live or {}
+FM.livePartial = FM.livePartial or {} -- the first batch of a longer answer, the same shape (the Sell tab, FRV-50)
 
 local function OwnerTag(owners, containsOwner)
     if containsOwner then return "@" end
@@ -151,9 +152,9 @@ local function Save(key, kind, rows, full)
 end
 
 -- The listings of others of a full search (FRV-214): FM.live[key], newest first; a partial result may lack the
--- cheapest units and changes nothing. The plan shown hears of it (FM.FlipSearched, trade/Picks.lua)
+-- cheapest units and changes nothing there: it goes to FM.livePartial[key], which only the Sell tab reads, for its own
+-- search sorted by price (FRV-50). The plan shown hears of a full one (FM.FlipSearched, trade/Picks.lua)
 local function Live(key, rows, full, kind)
-    if not full then return end
     local levels, qty = {}, 0
     local own, ownMin = 0, nil -- your own units and your cheapest unit price (the Sell tab never undercuts it, FRV-50)
     local aids = kind == "i" and {} or nil -- an item's auctions of others, for your buyouts of them (review round 2)
@@ -170,8 +171,18 @@ local function Live(key, rows, full, kind)
             if not ownMin or unit < ownMin then ownMin = unit end
         end
     end
-    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids, own = own, ownMin = ownMin,
+    local entry = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids, own = own, ownMin = ownMin,
         kind = kind or "c" }
+    if not full then
+        -- the first batch of a longer answer: sorted by price it holds the cheapest listings, which the Sell tab prices
+        -- from (FRV-50, review round 1 of PR 100); the flip check keeps using full answers only
+        entry.partial = true
+        FM.livePartial[key] = entry
+        if FM.SellSearched then FM.SellSearched(key) end
+        return
+    end
+    FM.livePartial[key] = nil
+    FM.live[key] = entry
     if FM.FlipCheckAnswered then FM.FlipCheckAnswered(key) end
     if FM.FlipSearched then FM.FlipSearched(key) end
     if FM.SellSearched then FM.SellSearched(key) end -- the Sell tab prices the item from it (FRV-50, ui/Sell.lua)

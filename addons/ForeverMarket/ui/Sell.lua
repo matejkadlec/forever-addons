@@ -148,13 +148,25 @@ end
 
 ---------------------------------------------------------------- prices
 
--- The price info a row is priced from: the newest search of the item (FM.live) when it is newer than the latest
--- snapshot, else the latest snapshot; second value the search's time (nil: the snapshot)
+-- The newest search answer of the item: a full one (FM.live) or the first batch of a longer one (FM.livePartial; review
+-- round 1 of PR 100) that answers this tab's own search, which is sorted by price: it holds the cheapest listings
+-- (another search's batch may be sorted otherwise); nil without any
+local function Searched(key)
+    local live, part = FM.live and FM.live[key], FM.livePartial and FM.livePartial[key]
+    if type(live) ~= "table" or not IsNumber(live.t) then live = nil end
+    local asked = S.asked
+    if type(part) ~= "table" or not IsNumber(part.t) or not (asked and asked.key == key and part.t >= asked.t) then part = nil end
+    if live and part then return part.t > live.t and part or live end
+    return live or part
+end
+
+-- The price info a row is priced from: the newest search of the item when it is newer than the latest snapshot, else
+-- the latest snapshot; second value the search's time (nil: the snapshot)
 local function PriceOf(key)
     local r = FM.R()
-    local live = FM.live and FM.live[key]
+    local live = Searched(key)
     local snapT = r.last and r.last.t or 0
-    if type(live) == "table" and IsNumber(live.t) and live.t >= snapT then return live, live.t end
+    if live and live.t >= snapT then return live, live.t end
     if not (r.last and FM.FpView) then return nil, nil end
     if S.viewOf ~= r.last then S.view, S.viewOf = FM.FpView(r.last), r.last end
     return S.view.Get(key), nil
@@ -162,8 +174,8 @@ end
 
 -- A search of the item younger than FRESH seconds: its age, else nil
 local function FreshAge(key)
-    local live = FM.live and FM.live[key]
-    if type(live) ~= "table" or not IsNumber(live.t) then return nil end
+    local live = Searched(key)
+    if not live then return nil end
     local age = FM.Now() - live.t
     return age < FRESH and age or nil
 end
@@ -451,8 +463,10 @@ local function UpdateBar()
         bar.deposit:SetText(LABEL .. "Deposit|r  " .. Money(nil))
         bar.get:SetText(LABEL .. "You get|r  " .. Money(nil))
     end
-    for _, w in ipairs({ bar.units, bar.length }) do w:SetEnabled(form ~= nil and not S.post) end
-    if FM.MoneyInput then FM.MoneyInput.Enabled(bar.price, form ~= nil and not S.post) end
+    -- locked while a post is on its way or waits for its Confirm: Confirm posts exactly what was shown (review round 1)
+    local open = form ~= nil and not S.post and not S.confirm
+    for _, w in ipairs({ bar.units, bar.length }) do w:SetEnabled(open) end
+    if FM.MoneyInput then FM.MoneyInput.Enabled(bar.price, open) end
     if bar.length.GenerateMenu then bar.length:GenerateMenu() end
     local kind, label, why = PostState()
     bar.post:SetText(label)
@@ -471,7 +485,7 @@ FM.SellUpdateBar = UpdateBar
 -- Asks the AH for the item's listings now (through the queue the sniper shares)
 local function Check(key)
     if not (key and FM.ahOpen and FM.SearchRequest) then return end
-    S.asked = { key = key, at = GetTime() }
+    S.asked = { key = key, at = GetTime(), t = FM.Now() }
     FM.SearchRequest(key, Kind(key, Location(key)))
 end
 
@@ -491,16 +505,32 @@ function FM.SellIsSelected(row)
     return row ~= nil and row.key ~= nil and row.key == S.selected
 end
 
--- The row after the posted one in the list as shown (its search and sort), else the one before, else none
-local function SelectNext(key)
+-- The keys of the rows after and before one in the list as shown (its search and sort), read when its post is sent:
+-- the posted units may have left the bags by the time the AH answers (review round 1 of PR 100)
+local function Neighbours(key)
     local list = FM.TableRowsOf and FM.TableRowsOf("sell") or {}
-    local index
     for i, row in ipairs(list) do
-        if row.key == key then index = i end
+        if row.key == key then return list[i + 1] and list[i + 1].key, list[i - 1] and list[i - 1].key end
     end
-    local nextRow = index and (list[index + 1] or list[index - 1]) or list[1]
-    if nextRow and nextRow.key == key and not Holdings()[key] then nextRow = nil end
-    S.selected, S.form, S.armed = nextRow and nextRow.key or nil, nil, nil
+    return nil, nil
+end
+
+-- After a post: the row after the posted one, else the one before, else the posted item when some is left, else the
+-- first row; it is searched at once
+local function SelectNext(p)
+    local held = Holdings()
+    local nextKey
+    for _, k in ipairs({ p.after or false, p.before or false, p.key }) do
+        if k and held[k] then
+            nextKey = k
+            break
+        end
+    end
+    if not nextKey then
+        local list = FM.TableRowsOf and FM.TableRowsOf("sell") or {}
+        nextKey = list[1] and list[1].key or nil
+    end
+    S.selected, S.form, S.armed = nextKey, nil, nil
     if S.selected and not FreshAge(S.selected) then Check(S.selected) end
 end
 
@@ -513,7 +543,7 @@ local function PostEnded(ok, why)
         Note(string_format("Posted %s %s at %s for %s.", FM.FormatCount(p.units), Name(p.key), FM.FormatMoney(p.price),
             Hours(p.duration)), GREEN)
         S.holdings = nil
-        SelectNext(p.key)
+        SelectNext(p)
     else
         Note("Failed to post " .. Name(p.key) .. ": " .. tostring(why), RED)
     end
@@ -596,7 +626,8 @@ local function PostClicked()
         UpdateBar()
         return
     end
-    local post = { key = key, kind = itemKind, args = args, n = n, units = units, price = form.price, duration = form.duration,
+    local after, before = Neighbours(key)
+    local post = { key = key, after = after, before = before, kind = itemKind, args = args, n = n, units = units, price = form.price, duration = form.duration,
         at = GetTime(), created = 0, total = itemKind == "i" and units or 1 }
     if needs then
         S.confirm = post -- the next click confirms it; Blizzard's popup for it is hidden when it comes
@@ -773,6 +804,7 @@ end)
 FM.On("AUCTION_HOUSE_AUCTION_CREATED", function()
     local p = S.post
     if not p then return end
+    p.at = GetTime() -- the 15 s count time without progress (review round 1: a post of many items takes longer)
     p.created = p.created + 1
     if p.created >= p.total then PostEnded(true) end
 end)
@@ -780,6 +812,7 @@ end)
 FM.On("AUCTION_MULTISELL_UPDATE", function(created, total)
     local p = S.post
     if not (p and IsNumber(created) and IsNumber(total)) then return end
+    p.at = GetTime()
     p.created, p.total = created, total
     if created >= total then PostEnded(true) end
 end)
