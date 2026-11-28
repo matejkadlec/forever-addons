@@ -1,10 +1,10 @@
 ## Interface: 16001
 ## Title: |cFFFF8000Forever|r Tweaks
-## Notes: Small UI tweaks: minimap zone text, chat input font, chat history on Up/Down, world map and minimap player arrows.
+## Notes: Small UI tweaks: minimap zone text, chat input font, chat history on Up/Down, world map and minimap player arrows, and an anonymous mode for screenshots.
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\Trade_Engineering
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.8.3
+## Version: 1.9.1
 ## X-License: All Rights Reserved
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## SavedVariables: ForeverTweaksDB, JimsForeverAddOnsDB
@@ -16,6 +16,7 @@ tweaks\ChatInput.lua
 tweaks\ChatHistory.lua
 tweaks\MapArrow.lua
 tweaks\MinimapArrow.lua
+tweaks\AnonymousMode.lua
 ui\SettingsPanel.lua
 core\SlashCommands.lua
 ForeverTweaks.lua

@@ -72,6 +72,10 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 - World map player arrow scale (0.3 - 2)
 - Bigger minimap player arrow (1 - 3)
   - Forever has no API to resize the built-in arrow, so a bigger arrow is drawn on top of it; it cannot be made smaller
+- Anonymous mode for screenshots (`/ftw anon` or the `Anonymous mode (for screenshots)` checkbox): hides the names of players and their pets everywhere and the chat windows, so nobody can be recognized on a screenshot; NPC names stay
+  - Hides the names above players and pets (yours too, with guild names), friendly player nameplates and the names on enemy player nameplates (Blizzard's and Plater's), the names in the player, pet, target, target-of-target, focus and party frames, tooltips of players, their pets and corpses, and the chat windows with their tabs and input
+  - Turning it off puts back your own name settings exactly as they were (for example "My name" on), also after a `/reload`, a relog or a crash with the mode on; settings that WoW keeps per character are restored for each character
+  - While it is on, the login line reminds you in orange; in combat the name settings change only when the fight ends (the chat says so), everything else changes at once
 - Slash commands (`/ftw`):
   - `/ftw` shows help
   - `/ftw on` and `/ftw off` enable/disable all tweaks without reloading the UI (`off` restores Blizzard defaults)
@@ -79,6 +83,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
   - `/ftw chat <8-24|auto|default>`
   - `/ftw history <on|off|status>`
   - `/ftw arrow map <0.3-2|default>`, `/ftw arrow minimap <1-3|default>`, `/ftw arrow status`
+  - `/ftw anon` turns the anonymous mode on or off, `/ftw anon on|off` sets it, `/ftw anon status` shows it
   - `/ftw help` shows help
   - Values are rounded to the settings panel steps (font sizes to whole numbers, map arrow to 0.05, minimap arrow to 0.1)
 - Settings panel: `Jim's Forever AddOns -> Tweaks` with every option above and a `Defaults` button

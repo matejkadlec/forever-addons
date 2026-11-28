@@ -8,7 +8,7 @@ local string_format = string.format
 local PARENT_CATEGORY_NAME = "Jim's Forever AddOns"
 local PARENT_PANEL_NAME = "JimsForeverAddOnsSettingsPanel"
 local CHILD_CATEGORY_NAME = "Tweaks"
-local CHILD_DESCRIPTION = "Minimap zone text, chat input, chat history and player arrows"
+local CHILD_DESCRIPTION = "Minimap zone text, chat input, chat history, player arrows and anonymous mode"
 local SLIDER_WIDTH = 170
 local DEFAULT_MINIMAP_ARROW_SCALE = 1.5
 
@@ -225,6 +225,10 @@ local function RefreshSettingsPanel()
     controls.minimapArrowScale.valueText:SetText(FormatScale(FTW.NormalizeNumber("minimapArrowScale", minimapScale)))
     SetControlEnabled(controls.minimapArrowScale, enabled and db.minimapArrowScale ~= nil)
 
+    controls.anon:SetChecked(db.anonMode)
+    SetControlEnabled(controls.anon, enabled)
+    controls.anonNote:SetFontObject(enabled and "GameFontHighlightSmall" or "GameFontDisableSmall")
+
     refreshing = false
 end
 
@@ -317,6 +321,18 @@ local function RegisterSettingsPanel()
     controls.minimapArrow = CreateCheckbox("ForeverTweaksSettingsMinimapArrow", 32, -500, "Bigger minimap arrow (drawn over the default one)", true, function(checked)
         FTW.SetMinimapArrowScale(checked and controls.minimapArrowScale:GetValue() or nil)
     end)
+
+    -- Anonymous mode, in a right column: the page has no room left below the player arrows
+    local anonHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    anonHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", 380, -114)
+    anonHeader:SetText("Screenshots")
+    controls.anon = CreateCheckbox("ForeverTweaksSettingsAnonymous", 376, -134, "Anonymous mode (for screenshots)", true, FTW.SetAnonymousMode)
+    local anonNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    anonNote:SetPoint("TOPLEFT", panel, "TOPLEFT", 400, -160)
+    anonNote:SetWidth(230)
+    anonNote:SetJustifyH("LEFT")
+    anonNote:SetText("Hides the names of players and their pets (above them, on nameplates, unit frames and tooltips) and the chat windows. Turning it off puts your name settings back. Also /ftw anon.")
+    controls.anonNote = anonNote
 
     -- optional Settings callbacks: refresh when shown, "Restore All Defaults"
     panel.OnRefresh = RefreshSettingsPanel
