@@ -1546,7 +1546,9 @@ post bar as `FM` fields (loaded before `ui/Table.lua`, whose main chunk is at Lu
 * **Items with variants** (1.72.4): gear with "of the ..." variants (`FM.HasVariants`, or gear never checked for them,
   `FM.SuffixUnknown`) gets no List at ("type a price"): the AH's prices of its item ID mix variants of different value,
   as Flip and Picks know (they skip such items). The price is typed, the bar names the variant it posts (the first
-  stack's link), and the units start at what that stack's post can take
+  stack's link), and the units start at what that stack's post can take. The price belongs to that variant (1.72.5):
+  another variant first in the bags starts the form again, and Post and Confirm go only while the slot holds that
+  variant (`FM.GearVariant` of its link)
 * SavedVariables: nothing new. Not yet verified in game: posting, confirming and the hidden popup from an AddOn's own
   button, `GetItemCommodityStatus`, `IsSellItemValid`, `GetAvailablePostCount` (`docs/forever-api-notes.md`)
 

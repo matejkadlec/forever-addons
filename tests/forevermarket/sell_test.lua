@@ -23,6 +23,8 @@
 --     post of several items ends at the multisell count once it came, never one auction early
 --   * review round 5 of PR 100: an item with "of the ..." variants (or gear never checked) has no List at: the price is
 --     typed, the bar names the stack's variant by its link, its units start at what that stack's post can take
+--   * review round 6 of PR 100: a typed price belongs to the variant it was typed for: another variant first in the bags
+--     starts the form again, and Confirm is dropped when its slot holds another variant of the same item
 --   * review round 4 of PR 100: Confirm posts only while its slot still holds that item with its units: a stack moved
 --     (another item in the slot) or fewer units drop the Confirm with a note and post nothing; Post checks the slot's
 --     item too
@@ -512,4 +514,41 @@ H.test("sell tab: an item with variants has no List at, the price is typed, the 
     H.eq(FM.SellPostState(), "post", "a typed price posts")
     FM.SellPostClicked()
     H.same({ Calls(env, "PostItem")[1][4], Calls(env, "PostItem")[1][6] }, { 1, 7500 }, "that one item at the typed price")
+end)
+
+-- A Short Sword link with one bonus ID (its "of the ..." on Forever) and its name
+local function SwordLink(bonus, name)
+    return "|cff1eff00|Hitem:2488::::::::44:1485:::1:" .. bonus .. "::::::|h[Short Sword " .. name .. "]|h|r"
+end
+
+H.test("sell tab: a typed price belongs to its variant; another variant in the slot drops Confirm (review round 6)", function()
+    local eagle, monkey = SwordLink(1001, "of the Eagle"), SwordLink(1002, "of the Monkey")
+    local FM, env = Load({ { id = SWORD, n = 1, link = eagle }, { id = SWORD, n = 1, link = monkey } })
+    H.eq(FM.GearVariant(eagle) ~= FM.GearVariant(monkey), true, "two variants of one item ID")
+    FM.ahOpen = true
+    env.needsConfirm = true
+    FM.R().items[tostring(SWORD)] = { v = 1 }
+    env.C_AuctionHouse.GetAvailablePostCount = function() return 1 end
+    FM.SellSelect(tostring(SWORD))
+    Answer(FM, SWORD, { { 5000, 1 } }, nil, "i")
+    FM.SellPostState()
+    FM.sellState.form.price, FM.sellState.form.priceSet = 50000, true -- 5g typed for the Eagle
+    FM.SellPostClicked()
+    H.eq(FM.SellPostState(), "confirm", "Confirm waits for the Eagle in slot 1")
+    env.bags[1], env.bags[2] = env.bags[2], env.bags[1] -- sorted: the Monkey in slot 1
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    H.eq(FM.sellState.confirm, nil, "another variant in the slot: the Confirm is dropped")
+    H.eq(#Calls(env, "ConfirmPostItem"), 0, "nothing confirmed")
+    -- no Confirm: the form starts again for the variant that is first now, the typed price is gone
+    env.needsConfirm = false
+    local kind, _, why = FM.SellPostState()
+    H.eq(kind, "off", "the Monkey has no price yet")
+    H.eq(why:find("Type a price", 1, true) ~= nil, true, "Type a price")
+    H.eq(FM.sellState.form.link, monkey, "the form is the Monkey's now")
+    -- the slot changes again before the bags' event: Post checks the variant too
+    FM.sellState.form.price, FM.sellState.form.priceSet = 20000, true -- 2g typed for the Monkey
+    env.bags[1], env.bags[2] = env.bags[2], env.bags[1] -- the Eagle back in slot 1, no event yet
+    FM.SellPostClicked()
+    H.eq(#Calls(env, "PostItem"), 1, "only the first post (the Eagle's, at 5g) went out")
+    H.eq(FM.sellState.note.text, "Your bags changed: click Post again.", "the Eagle is not posted at the Monkey's price")
 end)

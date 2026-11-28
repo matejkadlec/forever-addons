@@ -369,12 +369,32 @@ end
 -- Whether a bag location still holds the item of key, with at least units at the AH (review round 4 of PR 100: an
 -- ItemLocation is only a bag and a slot, so a bag sorted or a stack moved while Confirm waits must not post another
 -- item): C_Item.DoesItemExist, C_Item.GetItemID, GetAvailablePostCount
-local function Holds(loc, key, units)
+-- The link of the item in a bag slot now (C_Container.GetContainerItemInfo, as the bags are read), nil without one
+local function SlotLink(bag, slot)
+    if not (C_Container and C_Container.GetContainerItemInfo and bag and slot) then return nil end
+    local ok, info = pcall(C_Container.GetContainerItemInfo, bag, slot)
+    local link = ok and type(info) == "table" and info.hyperlink or nil
+    if type(link) ~= "string" or FM.IsSecret(link) then return nil end
+    return link
+end
+
+-- Two links of one variant: the same "of the ..." (FM.GearVariant), else (a name not loaded) the same link
+local function SameVariant(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    local va, vb = FM.GearVariant(a), FM.GearVariant(b)
+    if va ~= "" and vb ~= "" then return va == vb end
+    return a == b
+end
+
+-- link, bag, slot: for an item with variants the stack its price was typed for, which the slot must still hold (review
+-- round 6 of PR 100: another variant of the same item in the slot must not go at that price)
+local function Holds(loc, key, units, link, bag, slot)
     if not (loc and C_Item and C_Item.DoesItemExist and C_Item.GetItemID) then return false end
     local okExists, exists = pcall(C_Item.DoesItemExist, loc)
     if not (okExists and exists == true) then return false end
     local okID, id = pcall(C_Item.GetItemID, loc)
     if not (okID and IsNumber(id) and id == FM.ItemIDFromKey(key)) then return false end
+    if link and not SameVariant(SlotLink(bag, slot), link) then return false end
     local ah = C_AuctionHouse
     if units and ah and ah.GetAvailablePostCount then
         local okCount, count = pcall(ah.GetAvailablePostCount, loc)
@@ -410,6 +430,14 @@ local function FillForm(row)
         form.units, form.price, form.duration = pending.units, pending.price, pending.duration
         return form
     end
+    -- an item with variants: the price belongs to the variant of the first stack it was typed for; another variant
+    -- first (bags sorted, the stack posted) starts the form again (review round 6 of PR 100)
+    local first = row.variants and row.slots[1] or nil
+    if first and not (form.link and SameVariant(first.link, form.link)) then
+        form.link, form.price, form.priceSet = first.link, nil, nil
+        form.units = math_min(row.units, MaxUnits(row.key, Location(row.key)))
+        S.armed = nil
+    end
     form.units = math_min(form.units or row.units, row.units)
     if not form.priceSet then form.price = row.listAt end -- nil for an item with variants: typed only
     return form
@@ -422,7 +450,7 @@ end
 -- A Confirm whose stack is no longer where it was is dropped; the bar says so and Post starts over
 local function ConfirmStillHolds()
     local c = S.confirm
-    if not c or Holds(c.args[1], c.key, c.units) then return true end
+    if not c or Holds(c.args[1], c.key, c.units, c.link, c.bag, c.slot) then return true end
     S.confirm = nil
     Note("Your bags changed while Confirm waited: nothing was posted, post it again.", ORANGE)
     return false
@@ -489,8 +517,7 @@ local function UpdateBar()
     local row = key and RowOf(key)
     local form = row and FillForm(row) or nil
     -- an item with variants: the link of the stack the post takes, with its "of the ..." (review round 5)
-    local first = row and row.variants and row.slots[1]
-    local link = first and type(first.link) == "string" and not FM.IsSecret(first.link) and first.link or nil
+    local link = row and row.variants and form and type(form.link) == "string" and not FM.IsSecret(form.link) and form.link or nil
     bar.title:SetText(link or (row and QualityName(key)) or (GREY .. "No row selected|r"))
     if form then
         if not bar.units:HasFocus() then bar.units:SetText(tostring(form.units or "")) end
@@ -665,7 +692,10 @@ local function PostClicked()
         return
     end
     -- the slot read before the bags last changed may hold another item now (review round 4)
-    if not Holds(loc, key, nil) then
+    local stack = Holdings()[key] and Holdings()[key].slots[1]
+    local postRow = RowOf(key)
+    local variantLink = postRow and postRow.variants and form.link or nil
+    if not (stack and Holds(loc, key, nil, variantLink, stack.bag, stack.slot)) then
         S.holdings = nil
         Note("Your bags changed: click Post again.", ORANGE)
         UpdateBar()
@@ -689,7 +719,8 @@ local function PostClicked()
         return
     end
     local after, before = Neighbours(key)
-    local post = { key = key, after = after, before = before, kind = itemKind, args = args, n = n, units = units, price = form.price, duration = form.duration,
+    local post = { key = key, after = after, before = before, link = variantLink, bag = stack.bag, slot = stack.slot,
+        kind = itemKind, args = args, n = n, units = units, price = form.price, duration = form.duration,
         at = GetTime(), created = 0, total = itemKind == "i" and units or 1 }
     if needs then
         S.confirm = post -- the next click confirms it; Blizzard's popup for it is hidden when it comes
