@@ -968,8 +968,7 @@ end
 -- before 1.23; a second character with the same first name on this realm and faction gets its full name. Every
 -- key remembers its character's GUID (R.charInfo[key].guid), so no key moves and old records keep theirs: a key
 -- without a GUID yet goes to the first of its characters that logs in. Until the GUID and the saved data can be
--- read, the first name. A character deleted and made again under the same names has a new GUID and is a new
--- character here; the key of the deleted one is forgotten at login (ForgetNamesakes, scan/Characters.lua, FRV-236)
+-- read, the first name
 local charKey
 function FM.PlayerName()
     if charKey then return charKey end

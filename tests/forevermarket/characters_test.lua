@@ -277,6 +277,8 @@ end)
 --     characters apart and they stay together, nothing is dropped
 --   * a forgotten key is free again, as after /fm forget: the key rule gives it to the next character it fits, and
 --     log lines an earlier character left under it would read as that one's (FRV-237 decides whether to keep that)
+--   * this is about a deleted character whose key was its first name: one whose key was its full name never got a
+--     second key, the unchanged rule pins that key to the new GUID (the test before the no-surname one)
 
 -- A later session on the same saved variables
 local function Next(saved, guid, first, surname)
@@ -423,6 +425,32 @@ H.test("characters: the same first name with different surnames stays two charac
     env.FlushTimers()
     H.same(Names(FM), { "Tester", "Tester Second", "Tester Third" }, "three characters")
     H.eq(FM.R().bags.Tester, Reading(9, { { 2589, 1, 1 } }), "nothing of the others is dropped")
+end)
+
+-- Not changed by FRV-236, pinned here because it is the other way a made-again character gets its key (FRV-35's rule,
+-- core/Core.lua): a deleted character whose key was its full name (another character holds the first name) has that
+-- key pinned to the new GUID. One key, so the name was never listed twice and nothing is forgotten; what the deleted
+-- one left under the key stays until it is read again (whether to keep that is FRV-237)
+H.test("characters: a made-again character whose deleted namesake had a full-name key keeps that key", function()
+    local FM, env = Load(nil, "Nobody")
+    FM.InitializeSavedData()
+    local r = FM.R()
+    r.charInfo.Tester = { guid = "Player-1-A", full = "Tester Surname", seen = NOW - 500 }
+    r.charInfo["Tester Second"] = { guid = "Player-1-B", full = "Tester Second", seen = NOW - 100, since = NOW - 900 }
+    r.bags.Tester, r.bags["Tester Second"] = Reading(9, { { 2589, 1, 1 } }), Reading(2, { { 2589, 2, 2 } })
+    r.posts[1] = "1,Tester Second,2589,1,1,3,i"
+    -- "Tester Second" is deleted and made again
+    FM, env = Next(env.ForeverMarketDB, "Player-1-Z", "Tester", "Second")
+    H.eq(FM.PlayerName(), "Tester Second", "its full name, which is the deleted one's key")
+    env.FireEvent("PLAYER_LOGIN")
+    env.FlushTimers()
+    r = FM.R()
+    H.same(Names(FM), { "Tester", "Tester Second" }, "listed once, next to the other character of that first name")
+    H.eq(r.charInfo["Tester Second"].guid, "Player-1-Z", "the key is pinned to the new GUID")
+    H.eq(r.charInfo["Tester Second"].since, NOW - 900, "with its entry as it was")
+    H.eq(r.bags["Tester Second"], Reading(2, { { 2589, 2, 2 } }), "and what the deleted one left under it")
+    H.eq(r.posts[1], "1,Tester Second,2589,1,1,3,i", "its log lines read as this character's")
+    H.eq(r.bags.Tester, Reading(9, { { 2589, 1, 1 } }), "the other character is untouched")
 end)
 
 H.test("characters: without a surname two characters of one name stay together, nothing is forgotten or dropped", function()

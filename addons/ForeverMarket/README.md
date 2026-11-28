@@ -371,25 +371,34 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   still found by the first name, and the mail a character logged under its first name before its key began counts
   as seen under its new key (it is not logged twice; `charInfo[key].since`); what the character that keeps the
   first name logs later stays its own
-* A character deleted and created again under the same name (1.70.9, FRV-236): it has a new GUID (seen in game),
-  so it gets a key of its own like any new character. Up to 1.70.5 the deleted character's key stayed next to
-  it, and the name was listed twice (`/fm chars`, the Profit tab's dropdown), each entry with its own result.
-  A full name belongs to one character of a realm at a time, so at every login, of the keys with one full name
-  under different GUIDs only the logged-in character's own stays, else the one seen last; the others are
-  forgotten as `/fm forget` does it (their entry, readings and settings; no log line is touched). What follows
-  is what follows a `/fm forget`, here without being asked for: in the Profit tab the forgotten key's posts,
-  mails and purchases count in "All characters" only. Its auction list goes with it, and a character without a
-  list counts as never looked at, so for a while the deleted character's posts read on the cautious side: they
-  count as your listings until their time runs out (`FM.OwnListings`, up to 24 hours: "Exclude already listed
-  items", a pick's room), the deep scan matches others' auctions against all its posts of the last 48 hours
+* A character deleted and created again under the same name (1.70.9, FRV-236): it has a new GUID (seen in game).
+  Where the deleted character's key was its first name (the usual case), the key rule above finds that first
+  name taken by another GUID and gives the new character its full name as a key of its own. Up to 1.70.5 the
+  deleted character's key stayed next to it, and the name was listed twice (`/fm chars`, the Profit tab's
+  dropdown), each entry with its own result. A full name belongs to one character of a realm at a time, so at
+  login, once the logged-in character's own key is known, of the keys with one full name under different GUIDs
+  only the logged-in character's own stays, else the one seen last; the others are forgotten as `/fm forget`
+  does it (their entry, readings and settings; no log line is touched). What follows is what follows a
+  `/fm forget`, here without being asked for: in the Profit tab the forgotten key's posts, mails and purchases
+  count in "All characters" only. Its auction list goes with it, and a character without a list counts as
+  never looked at, so for a while the deleted character's posts read on the cautious side: they count as your
+  listings until their time runs out (`FM.OwnListings`, up to 24 hours: "Exclude already listed items", a
+  pick's room), the deep scan matches others' auctions against all its posts of the last 48 hours
   (`FM.BuildOwnPool`), and its ended commodity posts of the 72 hour record are open with what is known to have
   sold, not sold out (`trade/Listings.lua`: fewer proven sales for Picks). A key that was forgotten is free
-  again, as after `/fm forget`: the key rule gives it to the next character it fits (the deleted one's first
-  name to another character of that first name, or to the same name made again once more), and that key's old
-  log lines and Profit readings then read as the new character's (FRV-237). Otherwise the made-again character
-  starts with its own records, settings and Profit history. A character renamed away from a name that another
-  of yours then takes is forgotten the same way until it logs in again, under a new key. Without a surname
-  nothing tells two characters of one name apart: they share their key as before
+  again, as after `/fm forget`: the key rule gives it to the next character it fits (for example the deleted
+  one's first name to another character of that first name, or to the same name made again once more), and
+  that key's old log lines and Profit readings then read as the new character's, its posts of the last days as
+  its running auctions until its first look at the AH (FRV-237). Where no such key is given out again, the
+  made-again character starts with its own records, settings and Profit history.
+  Where the deleted character's key was already its full name (another character of yours holds the first
+  name), nothing of this applies: the key rule, unchanged since 1.23, pins that existing key to the new GUID,
+  so the name was never listed twice and nothing is forgotten, and the new character goes on under the key with
+  everything the deleted one left there (its log lines, settings and Profit readings, and its last bank,
+  mailbox, auction list and pool until each is read again; FRV-237).
+  A character renamed away from a name that another of yours then takes is forgotten the same way until it
+  logs in again, under a new key. Without a surname nothing tells two characters of one name apart: they share
+  their key as before
 
 ## Marketplace (`/fm`, key `U`, "FM: table" at the AH, settings button)
 
