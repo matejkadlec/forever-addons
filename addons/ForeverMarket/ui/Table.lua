@@ -1,9 +1,10 @@
 local _, FM = ...
 
 -- The market table (/fm, the key U, the "FM: table" button at the AH, or the settings panel).
--- Tabs in groups: Picks, Favorites, Ignored (blue) | Craft, Vendor, Flip (red) | Profit (gold, a graph of your AH
--- result, ui/Performance.lua), Learn, Farm, Upgrades (green; Upgrades' columns, filters and texts in ui/Upgrades.lua,
--- FRV-203: this file's main chunk is at Lua 5.1's 200 locals, so it gets no new top-level local).
+-- Blizzard's tabs at the window's bottom edge (FRV-25), in groups by use with a wider gap between them: mine (Picks,
+-- Favorites, Ignored) | what pays (Craft, Vendor, Flip) | selling (Sell, ui/Sell.lua, FRV-50) | what next (Learn, Farm,
+-- Upgrades; Upgrades' columns, filters and texts in ui/Upgrades.lua) | result (Profit, a graph of your AH result,
+-- ui/Performance.lua). This file's main chunk is at Lua 5.1's 200 locals, so it gets no new top-level local (FRV-203).
 -- Numbers come from trade/Calc.lua and refresh by themselves after every deep scan.
 -- Row tooltip = how a number was worked out. Click = search its shopping list at the AH, in Auctionator's Shopping
 -- tab when Auctionator is loaded, else in Blizzard's Buy list (only what you would buy there: a craft's AH
@@ -28,11 +29,13 @@ local string_find = string.find
 local table_sort = table.sort
 
 local FRAME_NAME = "ForeverMarketTable"
-local W, ROW_H, ROWS = 960, 22, 20
-local TOP = -134 -- first row
+-- 22 rows since FRV-25: the band of the tab buttons under the title bar went to two more rows (the same window height)
+local W, ROW_H, ROWS = 960, 22, 22
+local TOP = -90 -- first row
 -- search box, checkboxes and filter buttons; the "Filter by name" label above the box is gone (FRV-26), the row and
--- everything under it moved up by its height (14 px)
-local FILTER_Y = -74
+-- everything under it moved up by its height (14 px), and by the tab buttons' band (44 px) when they went to the
+-- bottom edge (FRV-25)
+local FILTER_Y = -30
 local LINE_Y = TOP + 24 - ROW_H / 2 -- the line above the header: Picks' budget row (FRV-95), Flip's age line
 local SUMMARY_Y = LINE_Y - ROW_H -- Picks: the plan's summary, under its budget row
 local MAX_COLUMNS = 11 -- per tab, in W - 28 = 932 px (Picks has 11 since FRV-188, the other tabs up to 8)
@@ -553,8 +556,8 @@ local LEARN_COLUMNS = {
         sort = function(r) return r.craft.profName or r.craft.prof or "" end }
 }
 
--- group 1 blue, group 2 red (the button's own color), each starting after a gap; at the right end group 4 gold
--- (Profit) and group 3 green (Learn, Farm, Upgrades)
+-- The tabs in their order at the bottom edge (FRV-25), each in its group: 1 mine, 2 what pays, 3 selling, 4 what next,
+-- 5 the result; a wider gap between two groups, no colors. A new tab is one entry here with its group
 local TABS = {}
 if FM.PICKS_READY then
     -- the icon is part of the Pick cell (after the rank), the default sort is the rank
@@ -569,13 +572,22 @@ TABS[#TABS + 1] = { id = "latest", label = "Craft", columns = CRAFT_COLUMNS, dat
     defaultSort = { { 2, true } } } -- profit per hour of crafting
 TABS[#TABS + 1] = { id = "vendor", label = "Vendor", columns = VENDOR_COLUMNS, data = "vendor", group = 2 }
 TABS[#TABS + 1] = { id = "flips", label = "Flip", columns = FLIP_COLUMNS, data = "flips", group = 2 }
-TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, group = 4 } -- no table: a graph
-TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 3,
+-- what you hold with a price to list at, posted from the table (FRV-50, ui/Sell.lua; the post bar under its list)
+TABS[#TABS + 1] = { id = "sell", label = "Sell", columns = FM.SELL_COLUMNS, sell = true, group = 3,
+    defaultSort = { { 6, true } } } -- You get, largest first
+TABS[#TABS + 1] = { id = "learn", label = "Learn", columns = LEARN_COLUMNS, data = "learn", learn = true, group = 4,
     profColumn = true, defaultSort = { { 5, true }, { 2, false } } } -- profit now, then the lowest skill
-TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 3 }
--- gear on the AH that beats what you wear, scored by Pawn (FRV-203; the last tab at the right end)
-TABS[#TABS + 1] = { id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_COLUMNS, upgrades = true, group = 3 }
-local GROUP_COLOR = { [1] = { 0.35, 0.6, 1 }, [3] = { 0.35, 0.95, 0.35 }, [4] = { 1, 0.82, 0 } }
+TABS[#TABS + 1] = { id = "farm", label = "Farm", columns = FARM_COLUMNS, farm = true, group = 4 }
+-- gear on the AH that beats what you wear, scored by Pawn (FRV-203)
+TABS[#TABS + 1] = { id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_COLUMNS, upgrades = true, group = 4 }
+TABS[#TABS + 1] = { id = "perf", label = "Profit", columns = {}, graph = true, group = 5 } -- no table: a graph
+-- The tab strip under the window (FRV-25): Blizzard's PanelTabButtonTemplate as under the Auction House and the
+-- battleground scoreboard (Blizzard_SharedXML/Mainline/SharedUIPanelTemplates.xml / .lua on forever), the first tab at
+-- x 11, 2 px up into the window's bottom edge (the character frame's tabs), 3 px between tabs (PanelTemplates_AnchorTabs),
+-- groupGap more between groups. Layout measures every tab with its text; while the row is wider than the window it
+-- first narrows the group gaps (down to minGap), then every tab's padding (down to minPadding): never a second row or a
+-- shorter label. hang = how far the tabs reach below the window, for the clamp to the screen
+local TAB_STRIP = { x = 11, y = 2, gap = 3, groupGap = 14, minGap = 4, minPadding = -8, hang = 32 }
 local TAB_BY_ID = {}
 for _, t in ipairs(TABS) do TAB_BY_ID[t.id] = t end
 -- the Gear view of Favorites and Ignored (FRV-207, ui/Upgrades.lua): their gear with the Upgrades tab's columns, rows,
@@ -585,6 +597,55 @@ TAB_BY_ID.favsGear = { id = "favsGear", gearOf = "favs", label = "Favorites", co
     upgrades = true, gearView = true, group = 1 }
 TAB_BY_ID.ignoredGear = { id = "ignoredGear", gearOf = "ignored", label = "Ignored", columns = FM.UPGRADE_COLUMNS,
     favs = true, ignored = true, upgrades = true, gearView = true, group = 1 }
+
+-- Every tab sized to its text with the padding that fits (PanelTemplates_TabResize; the template's own OnShow and a
+-- display size change use f.tabPadding too) and anchored left to right; returns the row's width, the group gap and
+-- the padding it took (the tests). Called when the window is made and whenever a label changes ("Ignored (5)")
+function TAB_STRIP.Layout(f)
+    local tabs = f.Tabs or {}
+    if not PanelTemplates_TabResize or #tabs == 0 then return 0 end
+    local room = W - 2 * TAB_STRIP.x
+    local breaks = 0
+    for i = 2, #tabs do
+        if tabs[i].group ~= tabs[i - 1].group then breaks = breaks + 1 end
+    end
+    local gap, padding, width = TAB_STRIP.groupGap, 0, 0
+    for _ = 1, 32 do -- each pass narrows one step; bounded
+        width = (#tabs - 1) * TAB_STRIP.gap + breaks * gap
+        for _, b in ipairs(tabs) do
+            PanelTemplates_TabResize(b, padding)
+            local w = b:GetWidth()
+            width = width + ((type(w) == "number" and not FM.IsSecret(w)) and w or 0)
+        end
+        if width <= room then break end
+        if gap > TAB_STRIP.minGap and breaks > 0 then
+            gap = math_max(TAB_STRIP.minGap, gap - math.ceil((width - room) / breaks))
+        elseif padding > TAB_STRIP.minPadding then
+            padding = math_max(TAB_STRIP.minPadding, padding - math.ceil((width - room) / #tabs))
+        else
+            break -- as narrow as it goes: the row may reach past the window's right edge
+        end
+    end
+    f.tabPadding = padding
+    for i, b in ipairs(tabs) do
+        b:ClearAllPoints()
+        if i == 1 then
+            b:SetPoint("TOPLEFT", f, "BOTTOMLEFT", TAB_STRIP.x, TAB_STRIP.y)
+        else
+            b:SetPoint("TOPLEFT", tabs[i - 1], "TOPRIGHT", TAB_STRIP.gap + (b.group ~= tabs[i - 1].group and gap or 0), 0)
+        end
+    end
+    return width, gap, padding
+end
+
+-- The tab shown is the selected one: brighter and joined to the window (PanelTemplates_SetTab); Favorites and
+-- Ignored also in their Gear view (view.tab stays their id)
+function TAB_STRIP.Select(f)
+    local b = f.tabs[view.tab]
+    local id = b and b:GetID()
+    if id and PanelTemplates_SetTab then PanelTemplates_SetTab(f, id) end
+end
+FM.TableTabStrip, FM.TableTabs = TAB_STRIP, TABS -- for the tests (the stubs cannot build the window)
 
 local function Settings()
     return FM.GetSettings()
@@ -811,6 +872,9 @@ local function BuildRows(tab, lookup)
     elseif tab.upgrades then
         -- the scored upgrades with their Cost-Benefit, the slots, the search and Best per slot applied (ui/Upgrades.lua)
         source = FM.UpgradesTabRows and FM.UpgradesTabRows(needle) or {}
+    elseif tab.sell then
+        -- what your bags hold that can go to the AH, with its price to list at (FRV-50, ui/Sell.lua)
+        source = FM.SellTabRows and FM.SellTabRows() or {}
     else
         source = trade and trade[tab.data] or {}
     end
@@ -819,7 +883,7 @@ local function BuildRows(tab, lookup)
     local prof = ProfFilter()
     local out = {}
     local hideOutliers = s.tableNoOutliers and not tab.picks and not tab.farm and not tab.favs and not tab.learn
-        and not tab.upgrades -- an upgrade has no profit per 1g
+        and not tab.upgrades and not tab.sell -- an upgrade has no profit per 1g, the Sell tab lists all you hold
     local lo, hi
     if hideOutliers then lo, hi = Fences(source) end
     if not lookup then view.outliers = 0 end
@@ -858,7 +922,7 @@ local function BuildRows(tab, lookup)
             -- the settings panel's minimum profit per item; 0g 0s 0c is no minimum (FRV-86, the old "Any")
             local minProfit = s.tableMinProfit
             if keep and type(minProfit) == "number" and minProfit > 0 and not tab.favs and not tab.learn and not tab.picks
-                and not tab.upgrades then
+                and not tab.upgrades and not tab.sell then
                 local per = ProfitPerItem(row)
                 if not per or per < minProfit then keep = false end
             end
@@ -1358,8 +1422,9 @@ local function SnipeTargets(row, mode)
     row = row.stepsOf or row -- a pick's second line (its steps) belongs to the pick above
     local tab
     tab, row = RowSource(row)
-    -- an Upgrades row is one gear listing: never the commodity sniper (FRV-203; its own buy window, FRV-204)
-    if not tab or tab.upgrades then return nil end
+    -- an Upgrades row is one gear listing: never the commodity sniper (FRV-203; its own buy window, FRV-204); a Sell
+    -- row is what you hold (FRV-50)
+    if not tab or tab.upgrades or tab.sell then return nil end
     local list, status, perAuction = {}, nil, false
     -- an item sold per auction (stack size 1); one the client has not loaded yet ("unknown", its data asked for) stays
     -- in, the sniper still refuses it safely
@@ -1507,6 +1572,11 @@ local function RowTooltipLines(tip, tab, row)
         TT = GameTooltip
         return
     end
+    if tab.sell then
+        FM.SellTooltipLines(tip, row) -- the Sell tab's own lines (FRV-50, ui/Sell.lua)
+        TT = GameTooltip
+        return
+    end
     TT:AddLine(IconText(row.key) .. QualityColor(row.key) .. Name(row.key) .. "|r")
     local use, src = RowSource(row, tab)
     if tab.favs then
@@ -1558,6 +1628,10 @@ local function RowHints(tab, row)
     end
     if tab.upgrades then
         FM.UpgradeHints(GameTooltip, row) -- no snipe (FRV-203): buy at the AH (FRV-204), try it on (FRV-205)
+        return
+    end
+    if tab.sell then
+        FM.SellHints(GameTooltip, row) -- a click selects the row for the post bar (FRV-50)
         return
     end
     GameTooltip:AddLine("Click: search at the AH", HINT_R, HINT_G, HINT_B, true)
@@ -1854,6 +1928,20 @@ local function OnRowClick(button, mouseButton)
         end
         return
     end
+    -- Sell (FRV-50): a click selects the row for the post bar (at the AH its price is checked), Shift+click links it,
+    -- right-click the menu; no search, no snipe, no recipe
+    if CurrentTab().sell then
+        if mouseButton == "RightButton" then
+            GameTooltip:Hide()
+            ShowRowMenu(button, row)
+        elseif IsShiftKeyDown and IsShiftKeyDown() then
+            local link = ItemLink(row.key)
+            if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
+        elseif FM.SellSelect then
+            FM.SellSelect(row.key)
+        end
+        return
+    end
     -- Ctrl+click: the row's recipe in its profession window, a pick's crafts in the count box (FRV-132, ui/OpenRecipe.lua);
     -- a row without a craft you know says why
     if mouseButton ~= "RightButton" and IsControlKeyDown and IsControlKeyDown() then
@@ -2062,8 +2150,9 @@ local function ShownWidth(tab, i)
     return width
 end
 
+-- the Sell tab's post bar takes the last two rows (FRV-50)
 local function VisibleRows(tab)
-    return ROWS - ListShift(tab) / ROW_H
+    return ROWS - ListShift(tab) / ROW_H - (tab.sell and 2 or 0)
 end
 
 local function LayoutColumns()
@@ -2171,6 +2260,7 @@ local function ShiftHint(tab)
     -- Favorites and Ignored: the search box and the Marketplace / Gear dropdown (FRV-207), in both views
     if tab.favs then return "  ·  hold Shift over the search box and the dropdown for their tips" end
     if tab.picks or tab.upgrades then return "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips" end
+    if tab.sell then return "  ·  hold Shift over inputs and the dropdown for their tips" end -- the post bar (FRV-50)
     if tab.crafts or tab.learn then return "  ·  hold Shift over inputs and checkboxes for their tips" end
     if tab.id == "vendor" then return "  ·  hold Shift over inputs and dropdowns for their tips" end
     return "  ·  hold Shift over the search box for its tip"
@@ -2243,6 +2333,9 @@ local function FooterText(total, short, tab)
             or "  ·  cheap listings to relist under the cheapest listing that stays, 15%+ profit after the cut, Profit = the whole flip")
     elseif tab.learn then
         text = text .. "  ·  every recipe you can still learn, losing ones too  ·  7 days = usual prices"
+    elseif tab.sell then
+        -- "1-20 of 34 items  ·  your bags; ..." (FRV-50)
+        text = text .. (total == 1 and " item" or " items") .. (FM.SellFooterNote and FM.SellFooterNote(short) or "")
     elseif tab.upgrades then
         -- "1-20 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship" (FRV-203)
         text = text .. (total == 1 and " upgrade" or " upgrades") .. (FM.UpgradesFooterNote and FM.UpgradesFooterNote(short) or "")
@@ -2507,9 +2600,10 @@ local function RenderGraph(tab)
         w:Hide()
     end
     if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, false) end
+    if FM.SellShowBar then FM.SellShowBar(frame, false) end
     if FM.TableViewShow then FM.TableViewShow(frame, nil) end
     if FM.FiltersDialogSync then FM.FiltersDialogSync(nil) end
-    for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
+    TAB_STRIP.Select(frame)
     FM.PerfShow(frame, true, GRAPH_GEO)
     frame.status:SetText(StatusText())
     frame.footer:SetText(FM.PerfFooter())
@@ -2529,7 +2623,12 @@ end
 Render = function()
     if not frame or not frame:IsShown() then return end
     local tab = CurrentTab()
-    frame.tabs.ignored:SetText(string_format("Ignored (%d)", FM.IgnoredTabCount()))
+    -- the Ignored tab counts its items; a new count sizes the tabs again (FRV-25: the width follows the text)
+    local ignoredLabel = string_format("Ignored (%d)", FM.IgnoredTabCount())
+    if frame.tabs.ignored:GetText() ~= ignoredLabel then
+        frame.tabs.ignored:SetText(ignoredLabel)
+        TAB_STRIP.Layout(frame)
+    end
     -- the plan's pass shows "Computing..." and renders itself
     if EnsurePlan(tab) then return end
     local graph = (tab.graph and FM.PerfShow) and true or false
@@ -2584,6 +2683,8 @@ Render = function()
         button.row = row and not row.section and (row.stepsOf or row) or nil
         local highlight = button:GetHighlightTexture()
         if highlight then highlight:SetAlpha((row and row.section) and 0 or 1) end
+        -- the Sell tab's selected row stays lit (FRV-50: the post bar's row)
+        if tab.sell and row and FM.SellIsSelected and FM.SellIsSelected(row) then button:LockHighlight() else button:UnlockHighlight() end
         button.wide:Hide()
         if row and (row.section or row.stepsOf) then
             button.icon:Hide()
@@ -2628,7 +2729,7 @@ Render = function()
         status.loss:SetShown(statusKind == "loss")
         status:SetShown(statusKind ~= nil)
     end
-    for id, b in pairs(frame.tabs) do b:SetEnabled(id ~= view.tab) end
+    TAB_STRIP.Select(frame)
     -- the filters of Picks, Craft and Learn (FRV-89): its own ("Filters") or the global ones ("Global filters"),
     -- the button of the set it does not use greyed out
     local filterTab = (tab.crafts or tab.picks or tab.learn) and true or false
@@ -2681,6 +2782,8 @@ Render = function()
     if frame.prof.GenerateMenu then frame.prof:GenerateMenu() end -- the selected profession's name
     -- Upgrades: Level, Rarities, Slots, Spec and Best per slot (ui/Upgrades.lua), only on that tab
     if FM.UpgradesShowFilters then FM.UpgradesShowFilters(frame, (tab.upgrades and not tab.gearView) and true or false) end
+    -- Sell: the post bar under its list (FRV-50, ui/Sell.lua)
+    if FM.SellShowBar then FM.SellShowBar(frame, tab.sell) end
     -- Favorites and Ignored: the Marketplace / Gear dropdown left of Refresh (FRV-207)
     if FM.TableViewShow then FM.TableViewShow(frame, tab) end
     LayoutFilters(frame)
@@ -2706,6 +2809,7 @@ Render = function()
         local busy = FM.trade and FM.trade.busy or (FM.TradeBusy and FM.TradeBusy()) or (tab.farm and FM.FarmBusy and FM.FarmBusy())
         local text = busy and "Computing..." or "Nothing here right now."
         if tab.upgrades and FM.UpgradesEmptyText then text = FM.UpgradesEmptyText() end
+        if tab.sell and FM.SellEmptyText then text = FM.SellEmptyText() end
         if tab.gearView and FM.GearViewEmptyText then
             text = FM.GearViewEmptyText(tab.gearOf) -- the Gear view (FRV-207): its own words, Pawn's from the Upgrades tab
         elseif tab.ignored and not busy and FM.IgnoredTabCount() == 0 then
@@ -2974,42 +3078,31 @@ local function CreateTable()
     end
     f.status:SetJustifyH("RIGHT")
 
-    -- tabs in groups with a gap between; Profit, Learn, Farm and Upgrades at the right end of the row. Ten tabs: 84 px
-    -- each, 88 apart (94 and 98 before FRV-203), the left block ends at x 562, the right one starts at 596
+    -- Blizzard's tabs at the bottom edge (FRV-25; until 1.71 tinted panel buttons in a row under the title bar, the
+    -- tab shown greyed out like a disabled button): the tab shown is brighter and joined to the window, the others
+    -- darker and lit on hover; each as wide as its text. The template puts each into f.Tabs (parentArray "Tabs")
     f.tabs = {}
-    local x, group = 14, nil
-    local rightCount = 0
-    for _, t in ipairs(TABS) do
-        if t.group >= 3 then rightCount = rightCount + 1 end
-    end
-    local rightIndex = 0
-    for _, t in ipairs(TABS) do
-        local b = Button(f, t.label, 84, function() SelectTab(t.id) end)
-        if t.group >= 3 then
-            -- the gold and green groups sit at the right end of the row, Upgrades last
-            rightIndex = rightIndex + 1
-            b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16 - (rightCount - rightIndex) * 88, -30)
-        else
-            if group and t.group ~= group then x = x + 24 end
-            b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -30)
-            x = x + 88
+    for i, t in ipairs(TABS) do
+        local b = CreateFrame("Button", nil, f, "PanelTabButtonTemplate")
+        if not (f.Tabs and f.Tabs[#f.Tabs] == b) then -- a client without the template's parentArray
+            f.Tabs = f.Tabs or {}
+            f.Tabs[#f.Tabs + 1] = b
         end
-        group = t.group
-        local color = GROUP_COLOR[t.group]
-        if color then
-            -- the red panel button, made grey and tinted (stays tinted through its up/down/disabled textures)
-            for _, part in ipairs({ b.Left, b.Middle, b.Right }) do
-                if part then
-                    part:SetDesaturated(true)
-                    part:SetVertexColor(color[1], color[2], color[3])
-                end
-            end
-        end
+        b:SetID(i)
+        b:SetText(t.label)
+        b.group = t.group
+        b:SetScript("OnClick", function()
+            if PlaySound and SOUNDKIT then PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB) end
+            SelectTab(t.id)
+        end)
         f.tabs[t.id] = b
     end
-    -- what the Ignored tab is (FRV-83), also over the selected (disabled) tab
+    if PanelTemplates_SetNumTabs then PanelTemplates_SetNumTabs(f, #f.Tabs) end
+    TAB_STRIP.Layout(f)
+    -- the clamp to the screen holds the tabs too, so they are never dragged off its bottom
+    f:SetClampRectInsets(0, 0, 0, -TAB_STRIP.hang)
+    -- what the Ignored tab is (FRV-83), also over the selected (disabled) tab (the template keeps motion scripts on)
     local ignoredTab = f.tabs.ignored
-    ignoredTab:SetMotionScriptsWhileDisabled(true)
     FM.TableTip(ignoredTab, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Ignored items")
@@ -3288,6 +3381,8 @@ local function CreateTable()
     if FM.UpgradesCreateFilters then FM.UpgradesCreateFilters(f) end
     -- Favorites and Ignored: Marketplace / Gear left of Refresh (FRV-207; ui/Upgrades.lua)
     if FM.TableViewCreate then FM.TableViewCreate(f) end
+    -- Sell: the post bar in the last two rows of the list (FRV-50, ui/Sell.lua)
+    if FM.SellCreateBar then FM.SellCreateBar(f, { x = 14, y = TOP - (ROWS - 2) * ROW_H - 2, w = W - 28 }) end
     FM.TableTipHook(refresh, function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Refresh")

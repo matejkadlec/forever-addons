@@ -21,8 +21,9 @@ local _, FM = ...
 --             end; a click loads the item into the add row. Without the scroll bar the rows reach the end of the
 --             header line (FRV-101). Each column is as wide as its widest value (FRV-128, Layout: measured in the
 --             row's font when the window is made, the window widened for them), a long name takes a second line
---   budget    "Automatically refresh budget" with "Clear" at the row's right end (FRV-171: stops sniping every item of
---             the list at once, after a second click on "Confirm" within 3 seconds), "Budget [%] [bar] [refresh]",
+--   budget    "Automatically refresh budget" with "Clear done", "Clear paused" and "Clear all" at the row's right end
+--             (FRV-223: the done items, the paused ones, all of them; a button with nothing to remove is disabled; Clear
+--             all, FRV-171's "Clear", after a second click on "Confirm" within 3 seconds), "Budget [%] [bar] [refresh]",
 --             "Set budget manually [] [g s c]" (FRV-94); hovering the budget row says what it is, what the sniper spent
 --             today and what is left
 -- It opens next to the AH (until it is dragged), hides when the AH closes and comes back with it unless it was closed
@@ -58,7 +59,13 @@ local SCROLL_BAR_X = 26   -- the scroll bar's left edge, from the frame's right
 local LIST_W = W - LIST_LEFT - LIST_RIGHT_BAR -- the narrower list, with its scroll bar (Layout sets it again)
 local HINT_ROWS, HINT_H, HINT_W = 8, 20, 340
 local MESSAGE_SECONDS = 5
-local CLEAR_CONFIRM = 3 -- seconds the Clear button waits as "Confirm" for its second click (FRV-171)
+local CLEAR_CONFIRM = 3 -- seconds Clear all waits as "Confirm" for its second click (FRV-171)
+-- Clear done, Clear paused, Clear all (FRV-223): one group at the right end of the "Automatically refresh budget" row
+local CLEAR_W, CLEAR_GAP = 90, 4
+local CLEAR_WHAT = {
+    done = { label = "Clear done", one = "done item", tip = "whose Bought now reached its limit" },
+    paused = { label = "Clear paused", one = "paused item", tip = "you paused" }
+}
 -- The add row (FRV-153): the item box, the buyout (MoneyInputFrameTemplate is 176 px wide,
 -- Blizzard_MoneyFrame/Mainline/MoneyInputFrame.xml), "max units", then Refresh and Update at the right end. The window
 -- is at least ADD_ROW_W wide (Layout), so the two buttons never reach the "max units" box
@@ -896,30 +903,61 @@ local function BudgetTooltip(self)
     GameTooltip:Show()
 end
 
--- The Clear button (FRV-171): "Confirm" while its first click waits for the second (CLEAR_CONFIRM seconds), "Clear"
--- otherwise; disabled while the list is empty
+-- The Clear buttons (FRV-171, FRV-223): Clear all is "Confirm" while its first click waits for the second
+-- (CLEAR_CONFIRM seconds), "Clear all" otherwise; each button is disabled while it has nothing to remove
 local function UpdateClearButton()
     if not frame then return end
     local any = #FM.SnipeList() > 0
     if not (any and clearUntil and GetTime() < clearUntil) then clearUntil = nil end
-    frame.clear:SetText(clearUntil and "Confirm" or "Clear")
+    frame.clear:SetText(clearUntil and "Confirm" or "Clear all")
     frame.clear:SetEnabled(any)
+    frame.clearDone:SetEnabled(FM.SnipeClearCount("done") > 0)
+    frame.clearPaused:SetEnabled(FM.SnipeClearCount("paused") > 0)
 end
 
--- A click on it: the first one arms it, the second one within CLEAR_CONFIRM seconds stops sniping every item (their
--- buyouts and numbers stay remembered, FM.SnipeClear); the add row empties when it was editing one of them
+-- Items removed: the add row empties when it was editing one of them; the message says how many
+local function Cleared(which)
+    local editing = selected ~= nil and FM.IsSniped(selected) and selected or nil
+    local n = FM.SnipeClear(which)
+    if editing and not FM.IsSniped(editing) then Select(nil) end
+    local what = which and CLEAR_WHAT[which].one or "item"
+    Message(string_format("Stopped sniping %s %s%s.", FM.FormatCount(n), what, n == 1 and "" or "s"), WHITE)
+end
+
+-- Clear all: the first click arms it, the second one within CLEAR_CONFIRM seconds stops sniping every item (their
+-- buyouts and numbers stay remembered, FM.SnipeClear)
 local function ClearClicked()
     if clearUntil and GetTime() < clearUntil then
         clearUntil = nil
-        local editing = selected ~= nil and FM.IsSniped(selected)
-        local n = FM.SnipeClear()
-        if editing then Select(nil) end
-        Message(string_format("Stopped sniping %s item%s.", FM.FormatCount(n), n == 1 and "" or "s"), WHITE)
+        Cleared(nil)
     else
         clearUntil = GetTime() + CLEAR_CONFIRM
         C_Timer.After(CLEAR_CONFIRM + 0.05, UpdateClearButton)
     end
     UpdateClearButton()
+end
+
+-- Clear done and Clear paused (FRV-223): one click, they remove only what they name
+local function ClearSomeClicked(which)
+    clearUntil = nil -- a Clear all waiting for its second click is forgotten
+    if FM.SnipeClearCount(which) > 0 then Cleared(which) end
+    UpdateClearButton()
+end
+
+-- Their tooltips say how many items they remove ("Removes 3 done items"), also over a disabled button
+local function ClearTooltip(self, which)
+    local n = FM.SnipeClearCount(which)
+    local what = which and CLEAR_WHAT[which] or nil
+    local count
+    if n == 0 then
+        count = what and ("No " .. what.one .. "s to remove.") or "No items to remove."
+    else
+        count = string_format("Removes %s %s%s", FM.FormatCount(n), what and what.one or "item", n == 1 and "" or "s")
+            .. (what and (": the items " .. what.tip .. ".") or ", paused ones too.")
+    end
+    Tooltip(self, "ANCHOR_TOP", what and what.label or "Clear all",
+        count .. " Their buyouts and numbers are remembered for when you add them again."
+        .. (what and "" or " Click again within 3 seconds to confirm."))
 end
 
 ---------------------------------------------------------------- refresh
@@ -1202,15 +1240,20 @@ local function CreateBudget(f)
     auto:SetScript("OnLeave", HideTooltip)
     f.autoCheck = auto
 
-    -- "Clear" at the right end of that row (FRV-171), its right edge on the refresh icon's below: every item of the
-    -- list at once, after a second click within 3 seconds
-    f.clear = Button(f, "Clear", ADD_W, ClearClicked)
+    -- "Clear done", "Clear paused" and "Clear all" at the right end of that row (FRV-223, in place of FRV-171's
+    -- "Clear"), one group whose right edge is on the refresh icon's below; Clear all after a second click within 3 s
+    f.clear = Button(f, "Clear all", CLEAR_W, ClearClicked)
     f.clear:SetPoint("RIGHT", f, "BOTTOMRIGHT", -16, 92)
-    f.clear:SetScript("OnEnter", function(self)
-        Tooltip(self, "ANCHOR_TOP", "Clear",
-            "Stop sniping every item in the list. Their buyouts and numbers are remembered for next time. Click again within 3 seconds to confirm.")
-    end)
-    f.clear:SetScript("OnLeave", HideTooltip)
+    f.clearPaused = Button(f, CLEAR_WHAT.paused.label, CLEAR_W, function() ClearSomeClicked("paused") end)
+    f.clearPaused:SetPoint("RIGHT", f.clear, "LEFT", -CLEAR_GAP, 0)
+    f.clearDone = Button(f, CLEAR_WHAT.done.label, CLEAR_W, function() ClearSomeClicked("done") end)
+    f.clearDone:SetPoint("RIGHT", f.clearPaused, "LEFT", -CLEAR_GAP, 0)
+    for which, b in pairs({ all = f.clear, done = f.clearDone, paused = f.clearPaused }) do
+        local kind = which ~= "all" and which or nil
+        b:SetMotionScriptsWhileDisabled(true) -- the count also over a disabled button
+        b:SetScript("OnEnter", function(self) ClearTooltip(self, kind) end)
+        b:SetScript("OnLeave", HideTooltip)
+    end
 
     -- hovering the budget row explains it
     local zone = CreateFrame("Frame", nil, f)
@@ -1398,7 +1441,7 @@ local function CreateWindow()
     f:SetScript("OnHide", function()
         FM.snipeWindowShown = false
         if not hidingForAH then reopenWithAH = false end -- closed by hand (x, Esc, the key): it stays closed
-        clearUntil = nil -- a Clear waiting for its second click is forgotten
+        clearUntil = nil -- a Clear all waiting for its second click is forgotten
         HideHints()
         FM.SnipeStop()
     end)

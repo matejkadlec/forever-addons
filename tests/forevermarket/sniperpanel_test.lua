@@ -21,15 +21,19 @@
 --     is loaded, saves like Update and starts Bought now at 0 with the limit kept (180/12 -> 0/12, 20 typed -> 0/20,
 --     empty -> no limit and 0), a done row is active again; Update keeps the count (180/12 stays, done); Bought today
 --     keeps its number after both; the window is wide enough for the add row with both buttons
---   * FRV-171: "Clear" on the "Automatically refresh budget" row is disabled with an empty list; the first click turns
---     it into "Confirm" for 3 seconds and changes nothing, the second click within them stops sniping every item
---     (paused ones too), says how many, empties an add row that was editing one of them and keeps the buyouts and
---     numbers for the suggestions; after 3 seconds it is "Clear" again
+--   * FRV-171: "Clear all" (FRV-223; "Clear" before) on the "Automatically refresh budget" row is disabled with an
+--     empty list; the first click turns it into "Confirm" for 3 seconds and changes nothing, the second click within
+--     them stops sniping every item (paused ones too), says how many, empties an add row that was editing one of them
+--     and keeps the buyouts and numbers for the suggestions; after 3 seconds it is "Clear all" again
+--   * FRV-223: "Clear done", "Clear paused" and "Clear all" sit right-aligned in this order where "Clear" was; Clear
+--     done leaves only the item still sniped (Thick Leather 30/30, Light Leather 248/248, Light Hide 31/31 done,
+--     Deeprock Salt 0/5), Clear paused removes only the paused rows (a done and paused one too), each at once; a button
+--     with nothing to remove is disabled and its tooltip says how many items it removes
 -- How it looks and whether the client accepts these calls is the in-game test's job.
 
 local H = require("harness")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua", "ui/Filters.lua", "ui/SniperPanel.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/SearchQueue.lua", "scan/Sniper.lua", "ui/Filters.lua", "ui/SniperPanel.lua" }
 local LEATHER, HIDE, SWORD = 2318, 4235, 2488 -- two commodities and an item sold per auction
 local GOLD = 1000000
 
@@ -77,6 +81,7 @@ local function Frames(env)
         function f:SetJustifyH(justify) self.justifyH = justify end
         function f:SetTextColor(r, g, b) self.color = { r, g, b } end
         function f:EnableMouseWheel(on) self.mouseWheel = on and true or false end
+        function f:SetPoint(...) self.anchor = { ... } end -- FRV-223: where the Clear buttons sit
         function f:GetUnboundedStringWidth()
             local plain = (self.text or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
             return #plain * (env.charWidth or 0)
@@ -573,11 +578,11 @@ H.test("sniper window: Refresh shows only for an item of the list, and the windo
     H.same({ f.refresh.width, f.add.width }, { 70, 70 }, "both as wide as Add was")
 end)
 
--- FRV-171: Clear on the "Automatically refresh budget" row
+-- FRV-171: Clear (Clear all since FRV-223) on the "Automatically refresh budget" row
 H.test("sniper window: Clear is disabled with an empty list, one click and 3 seconds change nothing", function()
     local FM, env = Load()
     local f = Open(FM, env)
-    H.eq(f.clear:GetText(), "Clear", "the button")
+    H.eq(f.clear:GetText(), "Clear all", "the button")
     H.eq(f.clear.enabled, false, "disabled while the list is empty")
     FM.SnipeSet(tostring(LEATHER), 100, 20)
     FM.SnipeSet(tostring(HIDE), 500)
@@ -587,7 +592,7 @@ H.test("sniper window: Clear is disabled with an empty list, one click and 3 sec
     H.eq(#FM.SnipeList(), 2, "nothing cleared yet")
     env.clock = env.clock + 3.1
     env.FlushTimers()
-    H.eq(f.clear:GetText(), "Clear", "after 3 seconds it is Clear again")
+    H.eq(f.clear:GetText(), "Clear all", "after 3 seconds it is Clear all again")
     H.eq(#FM.SnipeList(), 2, "and nothing changed")
     Fire(f.clear, "OnClick")
     H.eq(f.clear:GetText(), "Confirm", "a click after that only arms it again")
@@ -612,7 +617,7 @@ H.test("sniper window: Clear, then Confirm within 3 seconds stops sniping every 
     H.eq(#FM.SnipeList(), 0, "the list is empty, the paused item too")
     H.eq(f.empty.shown, true, "No items yet")
     H.eq(f.note:GetText():find("Stopped sniping 2 items.", 1, true) ~= nil, true, "the message says how many")
-    H.eq(f.clear:GetText(), "Clear", "the button is Clear again")
+    H.eq(f.clear:GetText(), "Clear all", "the button is Clear all again")
     H.eq(f.clear.enabled, false, "and disabled")
     H.eq(f.search:GetText(), "", "the add row that edited a listed item is empty")
     H.eq(f.add:GetText(), "Add", "with Add")
@@ -649,9 +654,72 @@ H.test("sniper window: closing the window forgets a Clear that waits for its sec
     Fire(f.clear, "OnClick")
     f:Hide()
     FM.ShowSnipe()
-    H.eq(f.clear:GetText(), "Clear", "reopened: Clear again")
+    H.eq(f.clear:GetText(), "Clear all", "reopened: Clear all again")
     Fire(f.clear, "OnClick")
     H.eq(#FM.SnipeList(), 1, "its click only arms it")
+end)
+
+-- FRV-223: the maintainer's case, three items done and one still sniped
+H.test("sniper window: Clear done, Clear paused and Clear all sit right-aligned and remove what they name", function()
+    local FM, env = Load()
+    local f = Open(FM, env)
+    local lines = {}
+    env.GameTooltip = {
+        SetOwner = function() lines = {} end,
+        AddLine = function(_, text) lines[#lines + 1] = text end,
+        Show = function() end,
+        Hide = function() end
+    }
+    H.same({ f.clearDone:GetText(), f.clearPaused:GetText(), f.clear:GetText() }, { "Clear done", "Clear paused", "Clear all" },
+        "the three buttons")
+    -- an anchor as text: the frames by name (H.same would walk into the frames)
+    local function Anchor(b)
+        local a = b.anchor
+        local of = a[2] == f and "window" or a[2] == f.clear and "clear" or a[2] == f.clearPaused and "paused" or "?"
+        return table.concat({ a[1], of, a[3], tostring(a[4]), tostring(a[5]) }, " ")
+    end
+    H.eq(Anchor(f.clear), "RIGHT window BOTTOMRIGHT -16 92", "Clear all where Clear was")
+    H.eq(Anchor(f.clearPaused), "RIGHT clear LEFT -4 0", "Clear paused left of it")
+    H.eq(Anchor(f.clearDone), "RIGHT paused LEFT -4 0", "Clear done first: one group to the right")
+    H.same({ f.clearDone.enabled, f.clearPaused.enabled, f.clear.enabled }, { false, false, false },
+        "all three disabled with an empty list")
+    local thick, light, hide, salt = "4304", tostring(LEATHER), "783", "8150"
+    local names = FM.R().names
+    names[thick], names[hide], names[salt] = "Thick Leather", "Light Hide", "Deeprock Salt"
+    for key, n in pairs({ [thick] = 30, [light] = 248, [hide] = 31, [salt] = 5 }) do
+        FM.SnipeSet(key, 100, n)
+        if key ~= salt then FM.SnipeSaved(key).got = n end -- 30/30, 248/248, 31/31 done, 0/5 still sniped
+    end
+    FM.RefreshSnipe()
+    H.same({ f.clearDone.enabled, f.clearPaused.enabled, f.clear.enabled }, { true, false, true },
+        "nothing paused: Clear paused disabled")
+    Fire(f.clearDone, "OnEnter")
+    H.eq(lines[1], "Clear done", "the tooltip's title")
+    H.eq(lines[2]:find("Removes 3 done items", 1, true) ~= nil, true, "it says how many it removes")
+    Fire(f.clearPaused, "OnEnter")
+    H.eq(lines[2]:find("No paused items to remove.", 1, true) ~= nil, true, "a disabled one says it has none")
+    Fire(f.clearDone, "OnClick")
+    H.same(FM.SnipeList(), { salt }, "Clear done at once: only Deeprock Salt is left")
+    H.eq(f.note:GetText():find("Stopped sniping 3 done items.", 1, true) ~= nil, true, "the message says how many")
+    H.same({ FM.SnipeSaved(thick).p, FM.SnipeSaved(thick).n }, { 100, 30 }, "their buyouts and numbers are remembered")
+    H.eq(f.clearDone.enabled, false, "nothing done left: disabled")
+    -- paused rows: one still sniped, one done and paused (it goes with either button)
+    FM.SnipeSet(thick, 100, 30)
+    FM.SnipeSaved(thick).got = 30
+    FM.SnipeSetPaused(thick, true)
+    FM.SnipeSet(hide, 100, 31)
+    FM.SnipeSetPaused(hide, true)
+    FM.SnipeSet(light, 100, 248)
+    FM.RefreshSnipe()
+    H.same({ FM.SnipeClearCount("done"), FM.SnipeClearCount("paused"), FM.SnipeClearCount() }, { 1, 2, 4 },
+        "done and paused counts the item both done and paused twice, Clear all every item")
+    Fire(f.clearPaused, "OnClick")
+    H.same(FM.SnipeList(), { salt, light }, "Clear paused removes only the paused rows, the done one too")
+    H.eq(f.clearPaused.enabled, false, "nothing paused left")
+    H.eq(f.clear:GetText(), "Clear all", "Clear all is not armed by the others")
+    Fire(f.clear, "OnClick")
+    Fire(f.clear, "OnClick")
+    H.same(FM.SnipeList(), {}, "Clear all empties the list")
 end)
 
 H.test("sniper window: the wheel light is ON half a second after a wheel step that reached the sniper", function()

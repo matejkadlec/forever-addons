@@ -809,7 +809,7 @@ end)
 
 -- Two picks of the same material with the real sniper loaded (review rounds 1 and 2 of pull request 73)
 local function SnipedPicks()
-    local FM, env, out, ctx, state = TwoPicks(0, { "scan/Sniper.lua" })
+    local FM, env, out, ctx, state = TwoPicks(0, { "scan/SearchQueue.lua", "scan/Sniper.lua" })
     env.C_Timer.NewTicker = function() return { Cancel = function() end } end
     env.C_Item = { GetItemMaxStackSizeByID = function() return 20 end }
     env.SetOverrideBindingClick, env.ClearOverrideBindings = function() end, function() end

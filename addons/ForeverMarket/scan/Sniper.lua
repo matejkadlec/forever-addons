@@ -723,14 +723,36 @@ function FM.SnipeRemove(key)
     Refresh()
 end
 
--- The window's Clear (FRV-171): every item leaves the list as with its row's x, paused ones too. The day's gold and
--- units (Bought today) stay. Returns how many items it stopped sniping
-function FM.SnipeClear()
+-- Whether a listed item goes with the window's Clear done / Clear paused / Clear all (FRV-223): "done" = its Bought now
+-- reached its limit, "paused" = paused, nil = every item; an item both done and paused goes with either
+local function Clears(key, which)
+    if which == "done" then
+        local left = Left(key)
+        return left ~= nil and left <= 0
+    end
+    if which == "paused" then return Paused(key) end
+    return true
+end
+
+-- How many listed items Clear done / Clear paused / Clear all would remove (FRV-223)
+function FM.SnipeClearCount(which)
+    local n = 0
+    for _, key in ipairs(FM.SnipeList()) do
+        if Clears(key, which) then n = n + 1 end
+    end
+    return n
+end
+
+-- The window's Clear buttons (FRV-171, FRV-223): the items they take leave the list as with their row's x (which = nil:
+-- every item, paused ones too; "done"; "paused"). The day's gold and units (Bought today) stay, and so do each item's
+-- buyout and number for when it is added again. Returns how many items it stopped sniping
+function FM.SnipeClear(which)
     local s = Data()
     if not s then return 0 end
     local n = 0
     for i = #s.list, 1, -1 do
-        if Remove(s, s.list[i]) then n = n + 1 end
+        local key = s.list[i]
+        if Clears(key, which) and Remove(s, key) then n = n + 1 end
     end
     Refresh()
     return n
@@ -1066,6 +1088,7 @@ local function BlizzardPageInTheWay()
     if itemID and FM.IsSniped(tostring(itemID)) then return nil end -- sniped there, see Tick
     return "buy"
 end
+FM.SnipePageInTheWay = BlizzardPageInTheWay -- the shared search queue pauses the same way (scan/SearchQueue.lua, FRV-50)
 
 -- Why no purchase may start now (nil = it may)
 local function HoldReason()
@@ -1084,22 +1107,9 @@ end
 
 ---------------------------------------------------------------- searching
 
-local SORTS
-local function Sorts()
-    if not SORTS then
-        local order = Enum and Enum.AuctionHouseSortOrder and Enum.AuctionHouseSortOrder.Price or 0
-        SORTS = { { sortOrder = order, reverseSort = false } }
-    end
-    return SORTS
-end
-
--- The deep scan reads or saves its list, or its request waits for a free AH or the server's answer (FRV-130: the
--- searches hold back so that the AH gets free for it)
-local function DeepScanBusy()
-    local state = FM.deep and FM.deep.state
-    if state == "walking" or state == "saving" then return true end
-    return FM.DeepScanWantsAH ~= nil and FM.DeepScanWantsAH()
-end
+-- The searches go out through the queue the Sell tab shares (scan/SearchQueue.lua, FRV-50): its send, its pause for a
+-- deep scan (FRV-130), and the Sell tab's request in the sniper's slot
+local DeepScanBusy = FM.SearchDeepScanBusy
 
 local function Searchable(key, b)
     if Kind(key) == "item" or not Limit(key) or Paused(key) then return false end
@@ -1125,15 +1135,10 @@ local function NextKey(b)
 end
 
 local function SendSearch(key)
-    local itemID = FM.ItemIDFromKey(key)
-    local ah = C_AuctionHouse
-    if not itemID then return end
-    local ok, itemKey = pcall(ah.MakeItemKey, itemID)
+    if not FM.ItemIDFromKey(key) then return end
     S.lastSent = GetTime()
-    if not ok or type(itemKey) ~= "table" then return end
-    if pcall(ah.SendSearchQuery, itemKey, Sorts(), false) then
-        S.waiting = { itemID = itemID, key = key, sent = S.lastSent }
-    end
+    local itemID, sent = FM.SearchSend(key, "sniper")
+    if itemID then S.waiting = { itemID = itemID, key = key, sent = sent } end
 end
 
 -- Items sniping searches now (not sold per auction, with a price, not paused, not done, budget left)
@@ -1185,11 +1190,14 @@ local function Tick()
     -- the Buy page of a sniped item: only that item (the page keeps it), and less often
     local pageItem = BuyPageItem()
     if now - S.lastSent < (pageItem and PAGE_SEARCH_GAP or SEARCH_GAP) then return end
+    if FM.SearchBusy("sniper") then return end -- the Sell tab's search is on its way, or went out just now
     local ah = C_AuctionHouse
     if not (ah and ah.SendSearchQuery and ah.MakeItemKey) then return end
     if ah.IsThrottledMessageSystemReady and not ah.IsThrottledMessageSystemReady() then return end
     local b = Budget(true)
     if not b then return end
+    -- the Sell tab's search takes this slot when the sniper has nothing to search, or once it waited its turn (FRV-50)
+    if FM.SearchRequestTurn(not pageItem and CountSearchable(b) == 0) then return end
     local key
     if pageItem then
         local pageKey = tostring(pageItem)

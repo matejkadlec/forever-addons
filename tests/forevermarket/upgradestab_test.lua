@@ -196,18 +196,12 @@ local function Cell(FM, i, row)
     return FM.UPGRADE_COLUMNS[i].text(row)
 end
 
-H.test("upgrades tab: after Farm, ten tab buttons of 84 px, 88 apart", function()
-    local src = assert(io.open("addons/ForeverMarket/ui/Table.lua", "r")):read("*a")
-    local farm = src:find('id = "farm"', 1, true)
-    local upgrades = src:find('id = "upgrades"', 1, true)
-    H.eq(farm ~= nil and upgrades ~= nil and upgrades > farm, true, "Upgrades comes after Farm")
-    H.eq(src:find('{ id = "upgrades", label = "Upgrades", columns = FM.UPGRADE_COLUMNS, upgrades = true, group = 3 }', 1, true) ~= nil,
-        true, "in the green group")
-    H.eq(src:find("Button(f, t.label, 84,", 1, true) ~= nil, true, "84 px buttons")
-    H.eq(src:find("(rightCount - rightIndex) * 88", 1, true) ~= nil and src:find("x = x + 88", 1, true) ~= nil, true, "88 apart")
-    -- the left block: 3 + 3 tabs with one gap of 24 ends at 562; the right block of 4 starts at 596 (W 960, 16 margin)
-    H.eq(14 + 5 * 88 + 24 + 84, 562, "the left block ends at x 562")
-    H.eq(960 - 16 - 3 * 88 - 84, 596, "the right block starts at x 596")
+H.test("upgrades tab: after Farm in the group what next (FRV-25: the tabs at the bottom edge, tabs_test.lua)", function()
+    local FM = Load({ [MM] = true })
+    local ids, groups = {}, {}
+    for i, t in ipairs(FM.TableTabs) do ids[t.id], groups[t.id] = i, t.group end
+    H.eq(ids.upgrades, ids.farm + 1, "Upgrades comes right after Farm")
+    H.same({ groups.learn, groups.farm, groups.upgrades }, { 4, 4, 4 }, "Learn, Farm, Upgrades: one group")
     local toc = assert(io.open("addons/ForeverMarket/ForeverMarket.toc", "r")):read("*a")
     local u, b, t = toc:find("ui\\Upgrades.lua", 1, true), toc:find("ui\\UpgradeBuy.lua", 1, true), toc:find("ui\\Table.lua", 1, true)
     H.eq(u ~= nil and b ~= nil and u < b and b < t, true, "ui/Upgrades.lua, then ui/UpgradeBuy.lua, before ui/Table.lua")
@@ -423,9 +417,9 @@ H.test("upgrades tab: an empty list says why, the age line, the footer", functio
     H.eq(Plain(FM.UpgradesStaleText()), "Listings from a snapshot 3h 12m old: some are sold by now. A deep scan at the Auction House brings fresh ones.",
         "3h 12m old")
     -- the footer: the count of upgrades, the scale, the Shift hint
-    H.eq(Plain(FM.TableFooterText(214, false, "upgrades")), "1-20 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship"
+    H.eq(Plain(FM.TableFooterText(214, false, "upgrades")), "1-22 of 214 upgrades  ·  scored with Pawn's scale Hunter: Marksmanship"
         .. "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips", "the footer")
-    H.eq(Plain(FM.TableFooterText(214, true, "upgrades")), "1-20 of 214 upgrades  ·  Hunter: Marksmanship (Pawn)"
+    H.eq(Plain(FM.TableFooterText(214, true, "upgrades")), "1-22 of 214 upgrades  ·  Hunter: Marksmanship (Pawn)"
         .. "  ·  hold Shift over inputs, dropdowns and checkboxes for their tips", "its shorter form")
 end)
 
