@@ -139,6 +139,16 @@ local function RefreshSettingsPanel()
     end
     SetControlEnabled(controls.show, enabled)
     SetControlEnabled(controls.resetPosition, enabled)
+    SetControlEnabled(controls.autoReset, enabled)
+    -- what the game allowed without a key press so far (found out by the runs themselves)
+    local craft, open = ns.AutoState()
+    local function Found(value)
+        if value == nil then
+            return L.SETTINGS_AUTO_UNKNOWN
+        end
+        return value and L.SETTINGS_AUTO_YES or L.SETTINGS_AUTO_NO
+    end
+    controls.auto:SetText(string.format(L.SETTINGS_AUTO, Found(craft), Found(open)))
     refreshing = false
 end
 
@@ -186,22 +196,35 @@ local function RegisterSettingsPanel()
             end),
         doneSound = CreateCheckbox("ForeverCraftQueueSettingsSound", 32, -178, L.SETTINGS_SOUND, true, function(value)
             ns.SetOption("doneSound", value)
+        end),
+        wheel = CreateCheckbox("ForeverCraftQueueSettingsWheel", 32, -202, L.SETTINGS_WHEEL, true, function(value)
+            ns.SetOption("wheel", value)
         end)
     }
 
-    controls.show = CreateButton("ForeverCraftQueueSettingsShow", 36, -214, 130, L.SETTINGS_SHOW, function()
+    controls.show = CreateButton("ForeverCraftQueueSettingsShow", 36, -238, 130, L.SETTINGS_SHOW, function()
         if ns.TogglePanel then
             ns.TogglePanel()
         end
     end)
-    controls.resetPosition = CreateButton("ForeverCraftQueueSettingsResetPosition", 176, -214, 130,
+    controls.resetPosition = CreateButton("ForeverCraftQueueSettingsResetPosition", 176, -238, 130,
         L.SETTINGS_RESET_POSITION, function()
             ns.SetPanelPosition(nil)
             ns.ApplySettings()
         end)
 
+    -- what the game allowed without a key press, and a button that forgets it (the next run tries again)
+    controls.autoReset = CreateButton("ForeverCraftQueueSettingsAutoReset", 36, -274, 90, L.SETTINGS_AUTO_RESET,
+        function()
+            ns.ResetAuto()
+        end)
+    controls.auto = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    controls.auto:SetPoint("LEFT", controls.autoReset, "RIGHT", 10, 0)
+    controls.auto:SetWidth(440)
+    controls.auto:SetJustifyH("LEFT")
+
     local note = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -256)
+    note:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -312)
     note:SetWidth(560)
     note:SetJustifyH("LEFT")
     note:SetText(L.SETTINGS_NOTE)

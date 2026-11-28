@@ -3,9 +3,10 @@ local _, ns = ...
 local L = ns.L
 
 -- The queue panel: every queued row across your professions (icon, name, profession and what the bags allow, the
--- count box, up / down / remove), Process queue and Clear queue with its confirmation, and the status of the next
--- step. Docked to the right of the profession window (past its side tabs) while that option is on and the window is
--- open, else a free window you can drag. Built on first use with Blizzard's scroll list (as ForeverMarket's sniper).
+-- count box, up / down / remove), Process queue (Stop while a run goes, Continue while it waits for a key press) and
+-- Clear queue with its confirmation, and the status of the run or the next step. Docked to the right of the
+-- profession window (past its side tabs) while that option is on and the window is open, else a free window you can
+-- drag. Built on first use with Blizzard's scroll list (as ForeverMarket's sniper).
 
 local ipairs = ipairs
 local type = type
@@ -20,15 +21,20 @@ local W, H = 340, 470
 local ROW_H = 36
 local LIST_LEFT, LIST_TOP = 10, -30
 local LIST_RIGHT, LIST_RIGHT_BAR = 10, 26
-local LIST_BOTTOM = 92
+local LIST_BOTTOM = 100
 local SCROLL_BAR_X = 20
 -- Room between the profession window and the docked panel when the window has no side tabs to measure
 local DOCK_GAP = 4
 local DOCK_FALLBACK = 50
+-- Seconds within which a profession window that hid and shows again only switched professions (as the run's
+-- CLOSE_GRACE in ForeverCraftQueue.lua)
+local SWITCH_TIME = 3
 
 local frame
 -- The rows the list was built for (recipe IDs in order); the same list only refills its rows
 local listSig
+-- GetTime() of the moment the profession window's hiding closed the docked panel, else nil
+local hiddenAt
 
 -- Colors of the second line of a row
 local GREY = { 0.62, 0.62, 0.62 }
@@ -311,7 +317,8 @@ local function CreateConfirm(f)
     local confirm = CreateFrame("Frame", nil, f)
     confirm:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 6, 6)
     confirm:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -6, 6)
-    confirm:SetHeight(76)
+    -- up to the line under the list, so the status of a run does not show through
+    confirm:SetHeight(86)
     confirm:SetFrameLevel(f:GetFrameLevel() + 20)
     confirm:EnableMouse(true)
     confirm:Hide()
@@ -421,7 +428,8 @@ local function CreatePanel()
     local status = f:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     status:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 14, LIST_BOTTOM - 12)
     status:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", -14, LIST_BOTTOM - 12)
-    status:SetHeight(34)
+    -- room for three lines: a run's status names the batch, the row after it or why it stopped
+    status:SetHeight(42)
     status:SetJustifyH("LEFT")
     status:SetJustifyV("TOP")
     f.status = status
@@ -499,19 +507,24 @@ function ns.ApplyPanelSettings()
 end
 
 -- The profession window opens the panel with it only while "Open queue window automatically" is on, docks a panel
--- that is open already, and hides a docked panel with it (HookScript leaves Blizzard's scripts alone)
+-- that is open already, and hides a docked panel with it (HookScript leaves Blizzard's scripts alone). A window that
+-- comes back within a few seconds only switched professions (Camelot hides it when a trade skill closes): the docked
+-- panel it closed comes back with it, so a switch of professions during a run keeps the panel (FRV-220).
 function ns.HookProfessionsFrame()
     if not ProfessionsFrame or ns.professionsFrameHooked then
         return
     end
     ns.professionsFrameHooked = true
     ProfessionsFrame:HookScript("OnShow", function()
-        if ns.IsEnabled() and (ns.GetDB().autoOpen or (frame and frame:IsShown())) then
+        local switched = hiddenAt ~= nil and GetTime() - hiddenAt < SWITCH_TIME
+        hiddenAt = nil
+        if ns.IsEnabled() and (ns.GetDB().autoOpen or switched or (frame and frame:IsShown())) then
             ns.ShowPanel()
         end
     end)
     ProfessionsFrame:HookScript("OnHide", function()
         if frame and frame.docked then
+            hiddenAt = frame:IsShown() and GetTime() or nil
             frame:Hide()
         end
     end)
