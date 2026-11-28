@@ -356,6 +356,23 @@ local function RowOf(key)
     return h and Row(key, h) or nil
 end
 
+-- Whether a bag location still holds the item of key, with at least units at the AH (review round 4 of PR 100: an
+-- ItemLocation is only a bag and a slot, so a bag sorted or a stack moved while Confirm waits must not post another
+-- item): C_Item.DoesItemExist, C_Item.GetItemID, GetAvailablePostCount
+local function Holds(loc, key, units)
+    if not (loc and C_Item and C_Item.DoesItemExist and C_Item.GetItemID) then return false end
+    local okExists, exists = pcall(C_Item.DoesItemExist, loc)
+    if not (okExists and exists == true) then return false end
+    local okID, id = pcall(C_Item.GetItemID, loc)
+    if not (okID and IsNumber(id) and id == FM.ItemIDFromKey(key)) then return false end
+    local ah = C_AuctionHouse
+    if units and ah and ah.GetAvailablePostCount then
+        local okCount, count = pcall(ah.GetAvailablePostCount, loc)
+        if okCount and IsNumber(count) and count < units then return false end
+    end
+    return true
+end
+
 -- The units the post may take: the AH's count for the item at the AH (GetAvailablePostCount), else your bags'
 local function MaxUnits(key, loc)
     local h = Holdings()[key]
@@ -389,6 +406,15 @@ end
 
 local function Note(text, color)
     S.note = text and { text = text, color = color or WHITE, at = GetTime() } or nil
+end
+
+-- A Confirm whose stack is no longer where it was is dropped; the bar says so and Post starts over
+local function ConfirmStillHolds()
+    local c = S.confirm
+    if not c or Holds(c.args[1], c.key, c.units) then return true end
+    S.confirm = nil
+    Note("Your bags changed while Confirm waited: nothing was posted, post it again.", ORANGE)
+    return false
 end
 
 -- What the button does now and why: kind = "post", "confirm", "check" (a fresh price first), "armed" (the second
@@ -584,6 +610,11 @@ local function PostClicked()
     end
     local ah = C_AuctionHouse
     if kind == "confirm" then
+        -- the stack the post was made for, still in its slot with its units (the bags may have changed)
+        if not ConfirmStillHolds() then
+            UpdateBar()
+            return
+        end
         local c = S.confirm
         local fn = c.kind == "c" and ah.ConfirmPostCommodity or ah.ConfirmPostItem
         S.posting = true
@@ -613,6 +644,13 @@ local function PostClicked()
     local okValid, valid = pcall(ah.IsSellItemValid, loc, false)
     if not (okValid and valid) then
         Note("Failed to post " .. Name(key) .. ": the AH does not take it.", RED)
+        UpdateBar()
+        return
+    end
+    -- the slot read before the bags last changed may hold another item now (review round 4)
+    if not Holds(loc, key, nil) then
+        S.holdings = nil
+        Note("Your bags changed: click Post again.", ORANGE)
         UpdateBar()
         return
     end
@@ -780,6 +818,7 @@ end
 
 FM.On("BAG_UPDATE_DELAYED", function()
     S.holdings = nil
+    ConfirmStillHolds() -- a Confirm whose stack moved or shrank is dropped (review round 4)
     if not S.post then Refresh() end
 end)
 

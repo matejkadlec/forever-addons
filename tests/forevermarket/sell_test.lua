@@ -21,6 +21,9 @@
 --     list as it was when the post went out is selected, also when the posted item has left the bags already
 --   * review round 2 of PR 100: while a post waits for Confirm the bar shows that post, also after a new price; a
 --     post of several items ends at the multisell count once it came, never one auction early
+--   * review round 4 of PR 100: Confirm posts only while its slot still holds that item with its units: a stack moved
+--     (another item in the slot) or fewer units drop the Confirm with a note and post nothing; Post checks the slot's
+--     item too
 -- Whether the client takes the posts from this button is the in-game test's job.
 
 local H = require("harness")
@@ -69,7 +72,9 @@ local function Load(bags)
             if not i then return nil end
             return i[1], nil, 1, 1, 1, "", "", i[2], "", 0, i[3], 0, 0, i[4]
         end,
-        GetItemNameByID = function(id) return INFO[id] and INFO[id][1] end
+        GetItemNameByID = function(id) return INFO[id] and INFO[id][1] end,
+        DoesItemExist = function(loc) return env.bags[loc.slot] ~= nil end,
+        GetItemID = function(loc) return env.bags[loc.slot] and env.bags[loc.slot].id end
     }
     local names = FM.R().names
     for id, i in pairs(INFO) do names[tostring(id)] = i[1] end
@@ -413,8 +418,6 @@ H.test("sell tab: while Confirm waits the bar shows that post, a new price does 
     H.eq(FM.SellPostState(), "confirm", "Confirm waits")
     env.clock = env.clock + 5
     Answer(FM, LEATHER, { { 199, 100 } }) -- a new answer: List at 1s 98c now
-    table.remove(env.bags, 1) -- and 10 of the 25 units leave the bags
-    env.FireEvent("BAG_UPDATE_DELAYED")
     written = {}
     FM.SellUpdateBar()
     H.same({ FM.sellState.form.price, FM.sellState.form.units }, { 204, 25 }, "the bar keeps the post Confirm sends")
@@ -437,4 +440,46 @@ H.test("sell tab: a post of several items ends at the multisell count, never one
     H.eq(FM.sellState.post ~= nil, true, "two of three: still posting")
     env.FireEvent("AUCTION_MULTISELL_UPDATE", 3, 3)
     H.eq(FM.sellState.post, nil, "the third ends it")
+end)
+
+H.test("sell tab: Confirm posts only while its slot still holds that item with its units (review round 4)", function()
+    local FM, env = Load(BAGS())
+    FM.ahOpen = true
+    env.needsConfirm = true
+    FM.SellSelect(tostring(LEATHER))
+    Answer(FM, LEATHER, { { 205, 100 } })
+    FM.SellPostClicked()
+    H.eq(FM.SellPostState(), "confirm", "Confirm waits for the stack of bag 0, slot 1")
+    -- the bags are sorted: slot 1 holds the sword now
+    env.bags[1], env.bags[5] = env.bags[5], env.bags[1]
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    H.eq(FM.sellState.confirm, nil, "the Confirm is dropped")
+    H.eq(FM.sellState.note.text, "Your bags changed while Confirm waited: nothing was posted, post it again.", "and says why")
+    H.eq(#Calls(env, "ConfirmPostCommodity"), 0, "nothing confirmed")
+    -- fewer units in the slot before the bags' event came: the click itself checks
+    env.bags = BAGS()
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    FM.SellPostClicked()
+    H.eq(FM.SellPostState(), "confirm", "a new post waits for its Confirm")
+    table.remove(env.bags, 1) -- 10 of the 25 units leave, no event yet
+    FM.SellPostClicked()
+    H.eq(#Calls(env, "ConfirmPostCommodity"), 0, "fewer units than the post: not confirmed")
+    H.eq(FM.sellState.confirm, nil, "dropped")
+end)
+
+H.test("sell tab: Post checks that the slot still holds the item (review round 4)", function()
+    local bags = BAGS()
+    bags[6] = { id = LINEN, n = 30 }
+    local FM, env = Load(bags)
+    FM.ahOpen = true
+    FM.SellSelect(tostring(LEATHER))
+    Answer(FM, LEATHER, { { 205, 100 } })
+    FM.SellPostState()
+    env.bags[1], env.bags[6] = env.bags[6], env.bags[1] -- linen where leather was, the bags' event not yet here
+    FM.SellPostClicked()
+    H.eq(#Calls(env, "PostCommodity"), 0, "the linen in the slot is not posted as leather")
+    H.eq(FM.sellState.note.text, "Your bags changed: click Post again.", "the bar says so")
+    FM.SellPostClicked()
+    local post = Calls(env, "PostCommodity")
+    H.same({ #post, post[1] and post[1][2].slot }, { 1, 2 }, "the next click posts from where the leather is now")
 end)

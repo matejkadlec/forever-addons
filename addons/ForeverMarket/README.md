@@ -1520,7 +1520,10 @@ post bar as `FM` fields (loaded before `ui/Table.lua`, whose main chunk is at Lu
   `C_AuctionHouse.PostCommodity(location, duration, units, unitPrice)` for a commodity, `PostItem(location, duration,
   units, nil, buyout per item)` for anything else (`GetItemCommodityStatus` of the first stack's
   `ItemLocation:CreateFromBagAndSlot`, `IsSellItemValid(location, false)`). When it returns `needsConfirmation` the
-  button reads "Confirm" and the next click calls `ConfirmPostCommodity` / `ConfirmPostItem` with the same arguments;
+  button reads "Confirm" and the next click calls `ConfirmPostCommodity` / `ConfirmPostItem` with the same arguments
+  (1.72.3: only while that bag slot still holds the item with its units, `C_Item.DoesItemExist` / `C_Item.GetItemID` /
+  `GetAvailablePostCount`; bags sorted or a stack moved meanwhile drop the Confirm and nothing is posted; Post checks
+  the slot's item the same way; while Confirm waits the bar's inputs are locked and show that post);
   Blizzard's own `AUCTION_HOUSE_POST_WARNING` popup (its Accept confirms only Blizzard's own pending post) is hidden
   at once (`StaticPopup_Hide`, `AuctionHouseFrame:SetDialogOverlayShown(false)`, also on the next frame)
 * **Done or failed:** `AUCTION_HOUSE_AUCTION_CREATED` ends a post (several single items: until all are created, also
