@@ -83,6 +83,39 @@ local function Touch()
     info.seen = FM.Now()
 end
 
+-- A full name belongs to one character of a realm at a time (both names are checked together when a character is
+-- made, docs/forever-api-notes.md): of the keys that carry one full name under different GUIDs only one still has
+-- it, the logged-in character's own, else the one seen last. The others are characters that were deleted or renamed
+-- since: a character deleted and made again under its name has a new GUID (seen in game), and where the deleted
+-- one's key was its first name FM.PlayerName gives the new one its full name as a second key; up to 1.70.5 the
+-- deleted one's key stayed and the name was listed twice (FRV-236). They are forgotten as /fm forget does it, their
+-- logs stay. (A deleted character whose key was its full name never gets a second key: FM.PlayerName pins that
+-- key to the new GUID, so there is nothing to forget.)
+local function ForgetNamesakes()
+    local mine, me = Info()
+    if not mine then return end
+    local r = FM.R()
+    mine.full = FM.PlayerFullName() or mine.full
+    local function Named(e) return type(e) == "table" and type(e.full) == "string" and type(e.guid) == "string" end
+    local keep = {} -- [full name] = the key that still has it
+    for key, e in pairs(r.charInfo) do
+        if Named(e) then
+            local held = keep[e.full]
+            local other = held and r.charInfo[held]
+            local seen, otherSeen = tonumber(e.seen) or 0, other and tonumber(other.seen) or 0
+            if not held or key == me
+                or (held ~= me and (seen > otherSeen or (seen == otherSeen and key < held))) then
+                keep[e.full] = key
+            end
+        end
+    end
+    local gone = {}
+    for key, e in pairs(r.charInfo) do
+        if Named(e) and keep[e.full] ~= key and r.charInfo[keep[e.full]].guid ~= e.guid then gone[#gone + 1] = key end
+    end
+    for _, key in ipairs(gone) do FM.ForgetCharacter(key) end
+end
+
 local lastBagsAt = 0
 local bagsLoaded = false -- a BAG_UPDATE_DELAYED came this session: the bags are loaded for sure
 
@@ -119,12 +152,16 @@ FM.On("BAG_UPDATE_DELAYED", function()
 end)
 
 FM.On("PLAYER_LOGIN", function()
+    -- at once where the GUID can be read already, so no list of this session names a character twice
+    local ok, err = pcall(ForgetNamesakes)
+    if not ok and geterrorhandler then geterrorhandler()(err) end
     C_Timer.After(10, function()
-        local ok, err = pcall(function()
+        local ok2, err2 = pcall(function()
             Touch()
+            ForgetNamesakes()
             SaveBags("login")
         end)
-        if not ok and geterrorhandler then geterrorhandler()(err) end
+        if not ok2 and geterrorhandler then geterrorhandler()(err2) end
     end)
 end)
 FM.On("PLAYER_LOGOUT", function()
