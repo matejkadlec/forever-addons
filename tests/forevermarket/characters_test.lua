@@ -267,8 +267,9 @@ H.test("characters: /fm forget removes a character's records and readings, keeps
 end)
 
 -- Rule (FRV-236): a full name belongs to one character of a realm at a time (both names are checked together when a
--- character is made). A character deleted and made again under the same first name and surname has a new GUID, so
--- the key rule gives it a key of its own, like any new character; the deleted one's key must not stay listed:
+-- character is made). A character deleted and made again under the same first name and surname has a new GUID, and
+-- where the deleted one's key was its first name the key rule gives the new one a key of its own (its full name);
+-- the deleted one's key must not stay listed:
 --   * at login, of the keys with one full name under different GUIDs the logged-in character's own stays, else the
 --     one seen last; the others are forgotten as /fm forget does it (records and readings; no log line is touched)
 --   * so a made-again character is listed once from its first login on, and saved data of before 1.70.9 that holds

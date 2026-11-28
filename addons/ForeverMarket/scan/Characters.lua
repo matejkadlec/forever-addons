@@ -86,9 +86,11 @@ end
 -- A full name belongs to one character of a realm at a time (both names are checked together when a character is
 -- made, docs/forever-api-notes.md): of the keys that carry one full name under different GUIDs only one still has
 -- it, the logged-in character's own, else the one seen last. The others are characters that were deleted or renamed
--- since: a character deleted and made again under its name has a new GUID (seen in game), so FM.PlayerName gives it
--- a key of its own, and up to 1.70.5 the deleted one's key stayed and the name was listed twice (FRV-236). They are
--- forgotten as /fm forget does it, their logs stay
+-- since: a character deleted and made again under its name has a new GUID (seen in game), and where the deleted
+-- one's key was its first name FM.PlayerName gives the new one its full name as a second key; up to 1.70.5 the
+-- deleted one's key stayed and the name was listed twice (FRV-236). They are forgotten as /fm forget does it, their
+-- logs stay. (A deleted character whose key was its full name never gets a second key: FM.PlayerName pins that
+-- key to the new GUID, so there is nothing to forget.)
 local function ForgetNamesakes()
     local mine, me = Info()
     if not mine then return end
