@@ -73,7 +73,7 @@ Disabling or deleting the AddOn does not leave the channel by itself: the game k
 - The in-range check pauses in combat; whatever the game hides from AddOns (secret values) is skipped, never read
 - TomTom is optional
 - The AddOn shares a small piece of code with the other Jim's Forever AddOns, so with one of them or several you get, once:
-  - A minimap button "Jim's Forever AddOns": a click opens their overview page in the settings, a right-click a menu of their settings pages; drag it around the minimap's edge, or let MinimapButtonButton collect it. "Show minimap button" on the overview page (`Esc -> Options -> AddOns -> Jim's Forever AddOns`) hides it
+  - A minimap button "Jim's Forever AddOns" (an orange J): a click opens their overview page in the settings, a right-click a menu of their settings pages; drag it around the minimap's edge, or let MinimapButtonButton collect it. "Show minimap button" on the overview page (`Esc -> Options -> AddOns -> Jim's Forever AddOns`) hides it
   - One login line in place of a line per AddOn, for example `[JFA] Jim's Forever AddOns: ForeverCampFeatures v1.4.0 loaded` (with several of them: how many, and `[versions]` to click)
   - `/jfa`, the list of them with their versions
 

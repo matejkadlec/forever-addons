@@ -31,7 +31,7 @@ The full rule set is [`AGENTS.md`](AGENTS.md), with the nested `AGENTS.md` of th
 
 1. Follow the naming format `Forever[AddOnName]` for consistency, with a three letter shortname starting with `F` for its chat prefix and its slash command
 2. Each AddOn must be fully standalone, with no dependency on another AddOn of this repository
-   - It carries a copy of the shared file `JimsForeverAddOns.lua` (copy it from any AddOn that has it) as the first file of its `.toc` and adds `JimsForeverAddOnsDB` to its `## SavedVariables:`; the file prints the one `[JFA]` login line, so the AddOn prints no loading message of its own ([`addons/AGENTS.md`](addons/AGENTS.md#shared-file-jimsforeveraddonslua))
+   - It carries a copy of the shared file `JimsForeverAddOns.lua` (copy it from any AddOn that has it) as the first file of its `.toc`, a copy of its icon `Media/JimsForeverAddOns.tga` from the same AddOn, and adds `JimsForeverAddOnsDB` to its `## SavedVariables:`; the file prints the one `[JFA]` login line, so the AddOn prints no loading message of its own ([`addons/AGENTS.md`](addons/AGENTS.md#shared-file-jimsforeveraddonslua))
 3. Required `.toc` fields, as in [`addons/AGENTS.md`](addons/AGENTS.md) (which also has the rules for chat messages, the settings panel and the slash commands), plus `## X-Collaboration:`:
    ```ini
    ## Interface: 16001

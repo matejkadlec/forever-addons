@@ -52,7 +52,7 @@ Found a bug or have an idea? See [Feedback](#-feedback).
 
 🧭 Every first-party AddOn carries the same small piece of shared code, so any one of those AddOns alone gives you these, once, however many you install:
 
-- **One minimap button "Jim's Forever AddOns"**
+- **One minimap button "Jim's Forever AddOns"**, an orange J
   - Click: opens the `Jim's Forever AddOns` overview page of the settings
   - Right-click: a menu of the installed AddOns (Camp Features, Craft Queue, Hawk Timer, Market, ...); pick one to open its settings
   - Drag it around the minimap's edge, its place is saved; with MinimapButtonButton installed it sits in its panel with the other buttons
