@@ -401,14 +401,24 @@ H.test("sell tab: while Confirm waits the bar shows that post, a new price does 
     local FM, env = Load(BAGS())
     FM.ahOpen = true
     env.needsConfirm = true
+    -- the bar, whose refresh (FM.SellUpdateBar) fills the form from the row (review round 3: the test must reach it)
+    FM.SellCreateBar(env.CreateFrame("Frame"), { x = 14, y = -532, w = 932 })
+    local written = {}
+    FM.MoneyInput = { Enabled = function() end, Focused = function() return false end, Read = function() return -1 end,
+        Write = function(_, copper) written[#written + 1] = copper end, Boxes = function() return {} end }
+    FM.SellShowBar(nil, true)
     FM.SellSelect(tostring(LEATHER))
     Answer(FM, LEATHER, { { 205, 100 } })
     FM.SellPostClicked()
     H.eq(FM.SellPostState(), "confirm", "Confirm waits")
     env.clock = env.clock + 5
     Answer(FM, LEATHER, { { 199, 100 } }) -- a new answer: List at 1s 98c now
-    FM.SellPostState()
+    table.remove(env.bags, 1) -- and 10 of the 25 units leave the bags
+    env.FireEvent("BAG_UPDATE_DELAYED")
+    written = {}
+    FM.SellUpdateBar()
     H.same({ FM.sellState.form.price, FM.sellState.form.units }, { 204, 25 }, "the bar keeps the post Confirm sends")
+    H.same(written, { 204 }, "the price box shows it too")
     FM.SellPostClicked()
     H.eq(Calls(env, "ConfirmPostCommodity")[1][5], 204, "and Confirm sends it")
 end)
