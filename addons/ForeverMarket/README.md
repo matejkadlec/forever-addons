@@ -376,11 +376,20 @@ came within 60 s, and because the 15 minutes counted from the request, the next 
   it, and the name was listed twice (`/fm chars`, the Profit tab's dropdown), each entry with its own result.
   A full name belongs to one character of a realm at a time, so at every login, of the keys with one full name
   under different GUIDs only the logged-in character's own stays, else the one seen last; the others are
-  forgotten as `/fm forget` does it (their entry, readings and settings; no log line is touched, so their
-  posts, mails and purchases count in "All characters" only). The made-again character starts with its own
-  records, settings and Profit history. A character renamed away from a name that another of yours then takes
-  is forgotten the same way until it logs in again, under a new key. Without a surname nothing tells two
-  characters of one name apart: they share their key as before
+  forgotten as `/fm forget` does it (their entry, readings and settings; no log line is touched). What follows
+  is what follows a `/fm forget`, here without being asked for: in the Profit tab the forgotten key's posts,
+  mails and purchases count in "All characters" only. Its auction list goes with it, and a character without a
+  list counts as never looked at, so for a while the deleted character's posts read on the cautious side: they
+  count as your listings until their time runs out (`FM.OwnListings`, up to 24 hours: "Exclude already listed
+  items", a pick's room), the deep scan matches others' auctions against all its posts of the last 48 hours
+  (`FM.BuildOwnPool`), and its ended commodity posts of the 72 hour record are open with what is known to have
+  sold, not sold out (`trade/Listings.lua`: fewer proven sales for Picks). A key that was forgotten is free
+  again, as after `/fm forget`: the key rule gives it to the next character it fits (the deleted one's first
+  name to another character of that first name, or to the same name made again once more), and that key's old
+  log lines and Profit readings then read as the new character's (FRV-237). Otherwise the made-again character
+  starts with its own records, settings and Profit history. A character renamed away from a name that another
+  of yours then takes is forgotten the same way until it logs in again, under a new key. Without a surname
+  nothing tells two characters of one name apart: they share their key as before
 
 ## Marketplace (`/fm`, key `U`, "FM: table" at the AH, settings button)
 

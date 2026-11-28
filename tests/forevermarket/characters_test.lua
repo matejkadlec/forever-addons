@@ -10,8 +10,8 @@
 --     bank, with the time of the reading; never the logged-in character
 --   * /fm chars lists the characters; /fm forget <name> removes a character's records and readings, keeps its
 --     logs, refuses the logged-in character and answers an unknown name with the standard error
---   * a character deleted and made again under the same first name and surname is one character with one key
---     (FRV-236, the rules stand with its tests below)
+--   * a character deleted and made again under the same first name and surname is listed once: the deleted one's
+--     key is forgotten at login (FRV-236, the rules stand with its tests below)
 
 local H = require("harness")
 local F = require("fixtures")
@@ -275,6 +275,8 @@ end)
 --     both keys is mended from either character
 --   * two characters with the same first name and different surnames stay two; without a surname nothing tells two
 --     characters apart and they stay together, nothing is dropped
+--   * a forgotten key is free again, as after /fm forget: the key rule gives it to the next character it fits, and
+--     log lines an earlier character left under it would read as that one's (FRV-237 decides whether to keep that)
 
 -- A later session on the same saved variables
 local function Next(saved, guid, first, surname)
