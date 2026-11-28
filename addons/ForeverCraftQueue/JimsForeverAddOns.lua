@@ -1,9 +1,10 @@
 -- Jim's Forever AddOns: the code every first-party Forever AddOn shares (FRV-120, FRV-180)
 --
--- Every first-party AddOn carries an identical copy of this file as the first file of its .toc and lists
--- JimsForeverAddOnsDB in its ## SavedVariables. No AddOn needs another one: the copies meet in the global table
--- JimsForeverAddOns and, like LibStub, the newest copy present runs while older ones only register the AddOn that
--- carries them. tests/jimsforeveraddons/copies_test.lua fails when the copies differ.
+-- Every first-party AddOn carries an identical copy of this file as the first file of its .toc, the same icon
+-- Media/JimsForeverAddOns.tga, and lists JimsForeverAddOnsDB in its ## SavedVariables. No AddOn needs another one:
+-- the copies meet in the global table JimsForeverAddOns and, like LibStub, the newest copy present runs while older
+-- ones only register the AddOn that carries them. tests/jimsforeveraddons/copies_test.lua fails when the copies of
+-- the file or of the icon differ.
 --
 -- What it does, once, whichever of the AddOns are installed:
 --   * one login line "[JFA] Jim's Forever AddOns: 7 loaded [versions]" (with one AddOn: its name and version),
@@ -20,7 +21,7 @@
 local addonName = ...
 
 -- Raise on every change of this file: the newest copy present runs
-local VERSION = 2
+local VERSION = 3
 
 local JFA = _G.JimsForeverAddOns
 if type(JFA) ~= "table" then
@@ -45,7 +46,13 @@ local CATEGORY = "Jim's Forever AddOns" -- the ## Category: of every first-party
 local PANEL_NAME = "JimsForeverAddOnsSettingsPanel" -- the overview page, created by the first AddOn with settings
 local BUTTON_NAME = "JimsForeverAddOnsMinimapButton" -- a Minimap child named "...MinimapButton...": MinimapButtonButton collects it
 local CHECKBOX_NAME = "JimsForeverAddOnsShowMinimapButton"
-local ICON = "Interface\\Icons\\INV_Misc_Book_09" -- a Blizzard icon until the AddOns get their own
+-- The button's icon, an orange J (FRV-245), from this copy's own AddOn: every AddOn with this copy ships it, and the
+-- code that runs is always that of a loaded AddOn with the newest copy present (an older copy has no say in it)
+local ICON = "Interface\\AddOns\\" .. addonName .. "\\Media\\JimsForeverAddOns"
+-- The part of the icon its 17 x 17 slot shows (left, right, top, bottom): the J, the texture's center, lands on the
+-- round border's center, about 1 px right of and 1.6 px below the slot's center (MiniMap-TrackingBorder's ring is
+-- centered at texel 20, 19.4 of its 64, drawn 53 wide)
+local ICON_COORDS = { 0.0275, 0.8675, 0.0026, 0.8426 }
 local VERSIONS_LINK = "addon:JimsForeverAddOns:versions" -- LinkTypes.AddOn: Blizzard hands its clicks to "SetItemRef"
 local DEFAULT_ANGLE = 200 -- degrees around the minimap, counterclockwise from its right
 local BUTTON_RADIUS = 5 -- how far outside the minimap's edge the button sits
@@ -437,7 +444,7 @@ function JFA:CreateMinimapButton()
     icon:SetTexture(ICON)
     icon:SetSize(17, 17)
     icon:SetPoint("TOPLEFT", 7, -6)
-    icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+    icon:SetTexCoord(ICON_COORDS[1], ICON_COORDS[2], ICON_COORDS[3], ICON_COORDS[4])
 
     button:SetScript("OnClick", function(self, mouseButton)
         JFA:OnButtonClick(self, mouseButton)

@@ -11,6 +11,7 @@ The keyboard layout on the gamepad (FRV-227; label `forever-gamepad-rebind`, sho
 | File | Holds |
 | --- | --- |
 | `JimsForeverAddOns.lua` | The shared file of every first-party AddOn (login line, `/jfa`, minimap button): an identical copy, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
+| `Media/JimsForeverAddOns.tga` | The minimap button's icon (an orange J) that the shared file takes from this AddOn's folder when its copy runs: an identical copy in every first-party AddOn, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
 | `Locale.lua` | Every shown text (`ns.L`), the pad's button names (Xbox names) and the keyboard keys' |
 | `Core.lua` | Pure logic, no game calls (tested in `tests/forevergamepadrebind/core_test.lua`): the default layout `ns.DEFAULT_ROWS`, chords (`ns.ParseChord`, `ns.BuildChord`, `ns.ChordLabel`, `ns.KeyLabel`), the saved rows' cleanup, the plan of a Save (`ns.Plan`, `ns.RemovalPlan`), the overrides and blocked keys, the statuses |
 | `ForeverGamepadRebind.lua` | Messages, saved settings, the keybinding reader, Save and the removal (`ns.Save`, `Sync`), the override keybindings (`ns.RefreshOverrides`), `/fgr debug`'s monitor, events, slash commands, the key binding's name |

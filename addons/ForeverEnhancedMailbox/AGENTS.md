@@ -11,6 +11,7 @@ More ways to collect mail from the default inbox (FRV-178, after the analysis FR
 | File | Holds |
 | --- | --- |
 | `JimsForeverAddOns.lua` | The shared file of every first-party AddOn (login line, `/jfa`, minimap button): an identical copy, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
+| `Media/JimsForeverAddOns.tga` | The minimap button's icon (an orange J) that the shared file takes from this AddOn's folder when its copy runs: an identical copy in every first-party AddOn, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
 | `Locale.lua` | Every shown text (`ns.L`) |
 | `Core.lua` | Pure logic, no game calls (tested in `tests/foreverenhancedmailbox/core_test.lua`): `ns.NextStep` (which mail and slot a step takes), `ns.Outcome` and `ns.RecordOutcome` (what a step's answer means), `ns.Waiting` (what waits), `ns.SummaryLine` (the chat line of a run), money, the modifier's name, the hint line |
 | `ForeverEnhancedMailbox.lua` | Messages, saved settings, the inbox as a collection reads it (`ns.ReadMail`, `ns.ReadInbox`, `ns.FreeSlots`), the collection (`ns.Start`, `ns.Stop`, the `OnUpdate` steps), events, slash commands |

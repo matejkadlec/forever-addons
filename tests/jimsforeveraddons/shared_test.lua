@@ -25,6 +25,17 @@ local function Newer(prefix)
     return text
 end
 
+-- The copy an AddOn not updated since FRV-245 carries: VERSION one lower, a Blizzard icon, no icon file of its own
+local function Older()
+    local text, versions = SOURCE:gsub("local VERSION = (%d+)\n", function(n)
+        return "local VERSION = " .. (tonumber(n) - 1) .. "\n"
+    end)
+    local icons
+    text, icons = text:gsub('local ICON = [^\n]+\n', 'local ICON = "Interface\\\\Icons\\\\INV_Misc_Book_09"\n')
+    assert(versions == 1 and icons == 1, "the shared file's VERSION or ICON line changed: update this test")
+    return text
+end
+
 -- A client with the given AddOns installed: each { name, version, category, loaded (default true), lod }
 local function NewClient(installed)
     local env = Stubs.NewEnvironment()
@@ -46,11 +57,24 @@ local function NewClient(installed)
         IsAddOnLoadOnDemand = function(i) return installed[i].lod == true end
     }
 
-    -- frames: a check button keeps its check and has its .Text; the minimap button is counted
+    -- frames: a check button keeps its check and has its .Text; the minimap button is counted, and its textures keep
+    -- their file, size, point and coords by draw layer (seen.textures.ARTWORK is the icon)
     local CreateStubFrame = env.CreateFrame
+    seen.textures = {}
     env.CreateFrame = function(kind, name, parent, template)
         local frame = CreateStubFrame(kind, name)
-        if name == "JimsForeverAddOnsMinimapButton" then seen.buttons = seen.buttons + 1 end
+        if name == "JimsForeverAddOnsMinimapButton" then
+            seen.buttons = seen.buttons + 1
+            function frame:CreateTexture(_, layer)
+                local texture = CreateStubFrame()
+                function texture:SetTexture(file) self.file = file end
+                function texture:SetSize(width, height) self.size = { width, height } end
+                function texture:SetPoint(...) self.point = { ... } end
+                function texture:SetTexCoord(...) self.coords = { ... } end
+                seen.textures[layer] = texture
+                return texture
+            end
+        end
         if template == "UICheckButtonTemplate" then
             frame.Text = CreateStubFrame()
             function frame:SetChecked(on) self.checked = on and true or false end
@@ -174,6 +198,56 @@ H.test("the newest copy runs whichever AddOn loads first; one line and one butto
         H.eq(env.JimsForeverAddOns.carriers.ForeverHawkTimer ~= nil and env.JimsForeverAddOns.carriers.ForeverTweaks ~= nil,
             true, "both AddOns registered")
     end
+end)
+
+-- Whether the repository has the file
+local function Exists(path)
+    local handle = io.open(path, "rb")
+    if handle then handle:close() end
+    return handle ~= nil
+end
+
+H.test("the icon comes from the folder of the AddOn whose copy runs, which ships it, also next to an outdated AddOn", function()
+    local cases = {
+        { "one AddOn", { { name = "ForeverTweaks" } }, "ForeverTweaks" },
+        { "two of the same version: the first loaded runs", { { name = "ForeverHawkTimer" }, { name = "ForeverTweaks" } },
+            "ForeverHawkTimer" },
+        { "an outdated AddOn without the icon loads first", { { name = "ForeverHawkTimer", source = Older() },
+            { name = "ForeverTweaks" } }, "ForeverTweaks" },
+        { "an outdated AddOn without the icon loads last", { { name = "ForeverTweaks" },
+            { name = "ForeverHawkTimer", source = Older() } }, "ForeverTweaks" }
+    }
+    for _, case in ipairs(cases) do
+        local label, order, from = case[1], case[2], case[3]
+        local env, seen = NewClient({
+            { name = "ForeverHawkTimer", version = "1.3.4" },
+            { name = "ForeverTweaks", version = "1.8.4" }
+        })
+        LoadAll(env, order)
+        H.eq(seen.buttons, 1, label .. ": minimap buttons")
+        H.eq(seen.textures.ARTWORK.file, "Interface\\AddOns\\" .. from .. "\\Media\\JimsForeverAddOns", label .. ": icon")
+        -- the client finds the .tga without the extension (ForeverRangeIndicator's shapes are set the same way)
+        H.eq(Exists("addons/" .. from .. "/Media/JimsForeverAddOns.tga"), true, label .. ": " .. from .. " ships it")
+    end
+end)
+
+H.test("the icon keeps the Blizzard icon's slot, border and background; the J lands on the ring's center", function()
+    local env, seen = NewClient({ { name = "ForeverTweaks", version = "1.8.4" } })
+    LoadAll(env, { { name = "ForeverTweaks" } })
+    local icon, border, background = seen.textures.ARTWORK, seen.textures.OVERLAY, seen.textures.BACKGROUND
+    H.same(icon.size, { 17, 17 }, "icon size")
+    H.same(icon.point, { "TOPLEFT", 7, -6 }, "icon point")
+    H.same({ border.file, border.size, border.point }, { 136430, { 53, 53 }, { "TOPLEFT", 0, 0 } }, "border")
+    H.same({ background.file, background.size, background.point }, { 136467, { 20, 20 }, { "TOPLEFT", 7, -5 } },
+        "background")
+    local left, right, top, bottom = icon.coords[1], icon.coords[2], icon.coords[3], icon.coords[4]
+    H.eq(left >= 0 and right <= 1 and top >= 0 and bottom <= 1, true, "coords inside the texture")
+    H.eq(math.abs((right - left) - (bottom - top)) < 1e-9, true, "a square part: the J is not stretched")
+    -- where the texture's center lands in the button, against the ring's center (texel 20, 19.4 of 64, drawn 53 wide)
+    local x = 7 + (0.5 - left) / (right - left) * 17
+    local y = 6 + (0.5 - top) / (bottom - top) * 17
+    H.eq(math.abs(x - 20 * 53 / 64) < 0.05 and math.abs(y - 19.4 * 53 / 64) < 0.05, true,
+        string.format("the J at %.2f, %.2f", x, y))
 end)
 
 H.test("an AddOn's registered line is printed right under the [JFA] line, at every load", function()

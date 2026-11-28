@@ -11,6 +11,7 @@ A crafting queue across all professions (FRV-131, label `forever-craft-queue`, s
 | File | Holds |
 | --- | --- |
 | `JimsForeverAddOns.lua` | The shared file of every first-party AddOn (login line, `/jfa`, minimap button): an identical copy, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
+| `Media/JimsForeverAddOns.tga` | The minimap button's icon (an orange J) that the shared file takes from this AddOn's folder when its copy runs: an identical copy in every first-party AddOn, never edited here alone ([`addons/AGENTS.md`](../AGENTS.md#shared-file-jimsforeveraddonslua)) |
 | `Locale.lua` | Every shown text (`ns.L`) |
 | `Core.lua` | Pure queue logic, no game calls (tested in `tests/forevercraftqueue/core_test.lua`): rows and their cleanup, adding and merging, moving, counts, what the bags allow, `ns.NextStep`, `ns.OnCrafted`, the summaries, the run's state machine (`ns.Runner...`, `ns.CleanAuto`) |
 | `ForeverCraftQueue.lua` | Messages, saved data and the trace, the profession window's state (`ns.OpenSkillLine`, `ns.IsCrafting`), the run (`ns.Process`, `ns.Tick`, the calls to the game, the mouse wheel catcher, the status line `ns.ProcessState`), counting crafts, events, key binding globals, slash commands |
