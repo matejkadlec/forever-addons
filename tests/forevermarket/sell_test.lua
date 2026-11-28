@@ -19,6 +19,8 @@
 --   * review round 1 of PR 100: while Confirm waits the bar's inputs are locked; the first batch of a longer answer
 --     to the tab's own search is a fresh price (another search's batch is not); after a post the row after it in the
 --     list as it was when the post went out is selected, also when the posted item has left the bags already
+--   * review round 2 of PR 100: while a post waits for Confirm the bar shows that post, also after a new price; a
+--     post of several items ends at the multisell count once it came, never one auction early
 -- Whether the client takes the posts from this button is the in-game test's job.
 
 local H = require("harness")
@@ -393,4 +395,36 @@ H.test("sell tab: after a post the row after it is selected, also when the item 
     env.FireEvent("BAG_UPDATE_DELAYED")
     env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 3)
     H.eq(FM.sellState.selected, tostring(LINEN), "the row after it, not the top row")
+end)
+
+H.test("sell tab: while Confirm waits the bar shows that post, a new price does not move it (review round 2)", function()
+    local FM, env = Load(BAGS())
+    FM.ahOpen = true
+    env.needsConfirm = true
+    FM.SellSelect(tostring(LEATHER))
+    Answer(FM, LEATHER, { { 205, 100 } })
+    FM.SellPostClicked()
+    H.eq(FM.SellPostState(), "confirm", "Confirm waits")
+    env.clock = env.clock + 5
+    Answer(FM, LEATHER, { { 199, 100 } }) -- a new answer: List at 1s 98c now
+    FM.SellPostState()
+    H.same({ FM.sellState.form.price, FM.sellState.form.units }, { 204, 25 }, "the bar keeps the post Confirm sends")
+    FM.SellPostClicked()
+    H.eq(Calls(env, "ConfirmPostCommodity")[1][5], 204, "and Confirm sends it")
+end)
+
+H.test("sell tab: a post of several items ends at the multisell count, never one auction early (review round 2)", function()
+    local FM, env = Load({ { id = SWORD, n = 1 }, { id = SWORD, n = 1 }, { id = SWORD, n = 1 } })
+    FM.ahOpen = true
+    FM.SellSelect(tostring(SWORD))
+    Answer(FM, SWORD, { { 5000, 1 } }, nil, "i")
+    FM.SellPostClicked()
+    -- the count before each created auction
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 1, 3)
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 1)
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 2, 3)
+    env.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", 2)
+    H.eq(FM.sellState.post ~= nil, true, "two of three: still posting")
+    env.FireEvent("AUCTION_MULTISELL_UPDATE", 3, 3)
+    H.eq(FM.sellState.post, nil, "the third ends it")
 end)

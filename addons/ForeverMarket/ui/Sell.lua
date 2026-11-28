@@ -375,6 +375,13 @@ local function FillForm(row)
         form = { key = row.key, units = row.units, duration = row.duration }
         S.form = form
     end
+    -- a post waiting for its Confirm or the AH's answer: the bar shows exactly that post (review round 2 of PR 100: a
+    -- new price or a change of the bags must not move it)
+    local pending = S.confirm or S.post
+    if pending and pending.key == row.key then
+        form.units, form.price, form.duration = pending.units, pending.price, pending.duration
+        return form
+    end
     form.units = math_min(form.units or row.units, row.units)
     if not form.priceSet then form.price = row.listAt end
     return form
@@ -805,6 +812,8 @@ FM.On("AUCTION_HOUSE_AUCTION_CREATED", function()
     local p = S.post
     if not p then return end
     p.at = GetTime() -- the 15 s count time without progress (review round 1: a post of many items takes longer)
+    -- once the multisell count came, it alone counts (review round 2: both events for one auction counted it twice)
+    if p.multi then return end
     p.created = p.created + 1
     if p.created >= p.total then PostEnded(true) end
 end)
@@ -813,6 +822,7 @@ FM.On("AUCTION_MULTISELL_UPDATE", function(created, total)
     local p = S.post
     if not (p and IsNumber(created) and IsNumber(total)) then return end
     p.at = GetTime()
+    p.multi = true
     p.created, p.total = created, total
     if created >= total then PostEnded(true) end
 end)
