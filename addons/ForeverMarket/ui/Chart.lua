@@ -145,15 +145,21 @@ function FM.ChartModeButtons(parent, anchor, x, y, onClick)
         b:SetSize(84, 22)
         b:SetText(FM.PERF_MODES[id].label)
         b:SetPoint("TOPLEFT", anchor, "TOPLEFT", x + (i - 1) * 88, y)
-        b:SetScript("OnClick", function() onClick(id) end)
+        -- the selected one changes nothing when clicked again
+        b:SetScript("OnClick", function(self) if not self.selected then onClick(id) end end)
         buttons[id] = b
     end
     return buttons
 end
 
--- The mode shown is the disabled button
+-- The mode shown is the selected button (FRV-25): held in its highlight (lit, its text white) and still enabled, so it
+-- no longer looks unavailable as the disabled button it was until 1.71
 function FM.ChartShowMode(buttons, mode)
-    for id, b in pairs(buttons) do b:SetEnabled(id ~= mode) end
+    for id, b in pairs(buttons) do
+        b.selected = id == mode
+        b:SetEnabled(true)
+        if b.selected then b:LockHighlight() else b:UnlockHighlight() end
+    end
 end
 
 ---------------------------------------------------------------- drawing

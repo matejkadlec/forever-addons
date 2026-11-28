@@ -34,7 +34,7 @@
 
 local H = require("harness")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/SearchQueue.lua", "scan/Sniper.lua" }
 local LEATHER, THICK, SWORD = 2318, 4304, 2488 -- two commodities and an item sold per auction
 local GOLD = 1000000 -- 100g, so the default budget (50%) is 50g
 

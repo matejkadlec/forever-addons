@@ -1761,3 +1761,29 @@ function FM.SnipeFollowShown(key)
     FM.SnipeFollowPlan(ShownBuysLeft(trade), trade.pickAt, true)
     if FM.RefreshTable then FM.RefreshTable() end
 end
+
+---------------------------------------------------------------- the Sell tab (FRV-50, ui/Sell.lua)
+
+-- The price to list at on the Sell tab, the table's one rule: SellPrice (1c under the cheapest auction of others,
+-- never under the floor of an item that does not stack; with none listed your own price or the last seen), then
+-- CapSell's (at most the usual price when the price is over 125% of it). p = the price info of a fresh search
+-- (FM.live) or of the latest snapshot (FM.FpView). Your own cheapest auction is never undercut: under the price, it
+-- is the price. Returns the price per unit (nil without any), its source ("ah", "usual", "own", "last"), the usual
+-- price and the floor
+function FM.SellListAt(key, p)
+    local sell, src = SellPrice(key, { Get = function() return p end })
+    local usual = UsualPrice(key, FM.Now())
+    local floor = FM.MinListPrice(key, p)
+    if sell and src ~= "own" and usual and sell > usual * SELL_CAP then
+        sell, src = math_max(floor or 1, math_floor(usual)), "usual"
+    end
+    if sell and p and type(p.ownMin) == "number" and p.ownMin < sell then sell, src = p.ownMin, "own" end
+    return sell, src, usual, floor
+end
+
+-- The Sell tab's length, the rule of Min. price (AddDeposit): 8h (index 2) when 100+ units circulate in 24h (C/24h =
+-- the units sold per 12h x 2), else 24h (index 3). Second value the units sold per 12h (nil while not measured)
+function FM.SellDuration(key)
+    local rate = SoldLatest(key, Minutes(FM.Now()))
+    return (type(rate) == "number" and rate >= 50) and 2 or 3, rate
+end

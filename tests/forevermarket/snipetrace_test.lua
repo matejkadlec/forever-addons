@@ -37,7 +37,7 @@
 
 local H = require("harness")
 
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/SearchQueue.lua", "scan/Sniper.lua" }
 local LEATHER, THICK = 4234, 4304 -- Heavy Leather, Thick Leather: commodities
 local BELT, CLOAK = "6468", "3719" -- the picks: Deviate Scale Belt, Hillman's Cloak
 

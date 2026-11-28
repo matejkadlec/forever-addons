@@ -4,7 +4,7 @@
 ## Category: Jim's Forever AddOns
 ## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## Author: Matej Kadlec (https://github.com/matejkadlec)
-## Version: 1.71.0
+## Version: 1.72.0
 ## X-License: All Rights Reserved
 ## X-Repository: https://github.com/matejkadlec/forever-addons
 ## X-Curse-Required-Dependencies: foreverartisan
@@ -28,6 +28,7 @@ scan\Worth.lua
 scan\Characters.lua
 scan\FarmLog.lua
 scan\Feed.lua
+scan\SearchQueue.lua
 scan\Sniper.lua
 trade\Sources.lua
 trade\Upgrades.lua
@@ -51,6 +52,7 @@ ui\Chart.lua
 ui\Performance.lua
 ui\Upgrades.lua
 ui\UpgradeBuy.lua
+ui\Sell.lua
 ui\Table.lua
 ui\OpenRecipe.lua
 ui\Filters.lua

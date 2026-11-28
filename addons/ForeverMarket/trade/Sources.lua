@@ -1280,6 +1280,20 @@ local function BagIDs()
     return list
 end
 
+-- Every slot of your bags that holds an item, in bag order (FRV-50, the Sell tab posts from them):
+-- { bag, slot, id, count, bound, link }; empty without the container API
+function FM.BagSlots()
+    local out = {}
+    if not HasContainerAPI() then return out end
+    for _, bag in ipairs(BagIDs()) do
+        for slot = 1, SlotCount(bag) do
+            local id, count, bound, link = ContainerSlot(bag, slot)
+            if id then out[#out + 1] = { bag = bag, slot = slot, id = id, count = count, bound = bound, link = link } end
+        end
+    end
+    return out
+end
+
 -- Bank containers: Forever uses retail's bank tabs (Enum.BagIndex.CharacterBankTab_1..9 = 6..14; -1 is the
 -- keyring there), older clients the bank container -1 plus bank bags
 local function BankIDs()

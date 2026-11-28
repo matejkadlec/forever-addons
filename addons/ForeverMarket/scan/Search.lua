@@ -10,7 +10,8 @@ local _, FM = ...
 -- item.a keeps the auctions of the last search: "<time>|<full>|aid:qty:buyout:secondsLeft:owner,..."
 --
 -- Live listings (FRV-214): FM.live[key] holds the listings of others of the newest full search of each item this
--- session ({ t = FM.Now(), ladder = { { unit, qty }, ... }, qty }), also of a sniped item the log skips. A flip pick is
+-- session ({ t = FM.Now(), ladder = { { unit, qty }, ... }, qty, own, ownMin, kind }: own and ownMin your units and cheapest
+-- unit price, FRV-50), also of a sniped item the log skips. A flip pick is
 -- judged on them while they are newer than the snapshot it came from (FM.FlipLive, trade/Picks.lua). While the AH is
 -- open the flip picks of the plan shown are searched here, one every few seconds, when nothing else uses the AH
 -- (FlipCheck below); a deep scan can be minutes old by the time you buy: the measurements are on FRV-214.
@@ -154,19 +155,26 @@ end
 local function Live(key, rows, full, kind)
     if not full then return end
     local levels, qty = {}, 0
+    local own, ownMin = 0, nil -- your own units and your cheapest unit price (the Sell tab never undercuts it, FRV-50)
     local aids = kind == "i" and {} or nil -- an item's auctions of others, for your buyouts of them (review round 2)
     for _, row in ipairs(rows) do
         local n = row.owner ~= "@" and row.qty or (row.othersQty or 0)
+        local unit = FM.UnitPrice(row.qty, row.buyout)
         if n > 0 then
-            local unit = FM.UnitPrice(row.qty, row.buyout)
             levels[unit] = (levels[unit] or 0) + n
             qty = qty + n
             if aids and row.auctionID then aids[row.auctionID] = n end
         end
+        if row.owner == "@" and row.qty > n then
+            own = own + row.qty - n
+            if not ownMin or unit < ownMin then ownMin = unit end
+        end
     end
-    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids }
+    FM.live[key] = { t = FM.Now(), ladder = FM.SortedLevels(levels), qty = qty, aids = aids, own = own, ownMin = ownMin,
+        kind = kind or "c" }
     if FM.FlipCheckAnswered then FM.FlipCheckAnswered(key) end
     if FM.FlipSearched then FM.FlipSearched(key) end
+    if FM.SellSearched then FM.SellSearched(key) end -- the Sell tab prices the item from it (FRV-50, ui/Sell.lua)
 end
 FM.SearchLive = Live -- for the tests
 

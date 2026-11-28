@@ -452,9 +452,19 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
   usual cost at these prices, so a dip of one scan no longer passes it, materials cheap for hours do. "Past 3 days"
   stays the average of each scan's own numbers, and the sniper keeps its prices (a craft row's Shift+click snipes its
   main material at its max price, which that material's own reference does not move)
-* Tabs in groups: **Picks**, **Favorites**, **Ignored (n)** (blue) | **Craft**, **Vendor**, **Flip** (red) | **Profit**
-  (gold, 1.15, a graph, see below), **Learn**, **Farm**, **Upgrades** (green, right end; 1.54, see below: ten tabs, so
-  every tab button is 84 px wide, 88 apart, 94 and 98 before). Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
+* Tabs at the window's bottom edge (1.72, FRV-25: Blizzard's `PanelTabButtonTemplate` with `PanelTemplates_SetNumTabs` /
+  `PanelTemplates_SetTab`, as under the Auction House and the battleground scoreboard), in groups by use with a wider
+  gap between them and no colors: mine **Picks**, **Favorites**, **Ignored (n)** | what pays **Craft**, **Vendor**,
+  **Flip** | selling **Sell** (1.72, FRV-50, see below) | what next **Learn**, **Farm**, **Upgrades** (1.54) | the result
+  **Profit** (1.15, a graph). The tab shown is brighter and joined to the window, the others darker and lit on hover,
+  each as wide as its name; the first one's top left sits at the window's bottom left (x 11, 2 px up into its edge),
+  3 px between tabs and 14 more between two groups. The client measures every tab: while the row is wider than the
+  window's 938 px, first the group gaps narrow (down to 4 px), then every tab's padding (down to -8): a label is
+  never shortened and no second row starts (13 tabs, with Auctions and "Watchlist (2)" to come, fit at about 6 px per
+  letter). The window's clamp to the screen holds the tabs too (`SetClampRectInsets`). Until 1.71 the tabs were tinted
+  panel buttons in a row under the title bar (blue / red / green / gold groups, 84 px each since 1.54), the tab shown
+  greyed out as a disabled button; that band went to two more rows of the table (22, the same window height). A
+  new tab is one entry in `TABS` (`ui/Table.lua`) with its group. Until 1.10 Craft was "Latest", Vendor "Vendor resell", Flip "AH resell", and a "Past 3 days"
   tab (averages of the last 3 days) existed; `r.track` still feeds the 3 day ranges in tooltips and picks. The
   **Materials** tab (sell a material or craft with it) is gone since 1.18: Craft prices every recipe with its
   materials at the AH price, and Picks plans with what you hold. A table saved on it opens on
@@ -1468,6 +1478,71 @@ Refreshes by itself after every deep scan, nothing to maintain by hand:
 * No "~" in game texts (1.15.3): it doesn't render well in the game's font; estimates are marked with a grey "*"
   (material prices from short or stored ladders, farm gold per hour before your own data).
 
+## Sell tab (1.72, FRV-50: ui/Sell.lua, scan/SearchQueue.lua)
+
+What you hold in your bags with a price to list at, posted from the table (the maintainer's decision on FRV-46: a tab
+of the marketplace, not a window of its own). `ui/Sell.lua` holds the tab's columns, rows, row tooltip, texts and the
+post bar as `FM` fields (loaded before `ui/Table.lua`, whose main chunk is at Lua 5.1's 200 locals).
+
+* **Rows:** one per item of your bags that can go to the AH: not soulbound (the slot's `isBound`), not bind on pickup,
+  no quest item (`FM.NeverSellable`); all its stacks summed (`FM.BagSlots`, `trade/Sources.lua`), read again after every
+  change of the bags. Units in the bank are named in the row tooltip ("+40 in the bank"): they can't be posted from
+  there. Ignored items show in the Ignored tab only, as in every tab
+* **Columns:** Item | Units (in your bags) | List at (per unit) | Length | Deposit (all units) | You get (all units
+  after the 5% cut, the default sort, largest first) | Profit (You get less what these units cost you, `FM.PaidBasis`:
+  your purchases and the materials of your crafts as in the item tooltip's Cost section; for the part with a known
+  cost when only some units have one; red = a loss; "-" when you never bought them)
+  * List at = the marketplace's one rule (`FM.SellListAt`, `trade/Calc.lua`): `SellPrice` (1c under the cheapest
+    auction of others, never under the 1s floor of an item that does not stack; with none listed your own price, else
+    the last seen) and the Craft tab's cap (the usual price when the price is over 125% of it); your own cheapest
+    auction is never undercut: under the price it is the price ("own"). Priced from the newest search of the item when
+    it is newer than the latest snapshot (`FM.live`, which keeps your own units and cheapest price too since 1.72),
+    else from the latest snapshot. Orange: the cheapest listing is under 80% of the usual price (the market is low
+    today)
+  * Length = the rule of Min. price (`FM.SellDuration`): 8h when 100+ units circulate in 24h (C/24h), else 24h
+  * Deposit: the AH's calculator at the AH (`CalculateCommodityDeposit` for a commodity, `CalculateItemDeposit` of one
+    auction times the units for an item sold per auction, FRV-234), else the estimate of `trade/Cost.lua`
+* **Row tooltip:** your units (and the bank's), the price levels of others now, the usual price, your cheapest auction,
+  the units of others at or under your price, where the prices come from (a search n ago, or the latest snapshot),
+  List at and why, the deposit for 8h and 24h, how long the units take to sell at the measured rate ("about 6h at 40
+  per 12h"), You get and Profit. Click: select it for the post bar; Shift+click: link to chat; Alt+click: sticky;
+  right-click: the menu (Favorize, Ignore, Show history; no Snipe)
+* **The post bar** (the last two rows of the list): the selected row's name, Units (a box, all by default; at the AH
+  at most `GetAvailablePostCount`), Price (gold / silver / copper, List at by default and again after every check of
+  the price until you type one), Length (8 / 24 / 2 hours), the deposit, what you get, and one button that always
+  sits in the same place; the line under it says what the button does or what the last post did (8 s)
+* **A fresh price first:** selecting a row at the AH (and opening the AH with a row selected) searches the item
+  through the search queue (`FM.SearchRequest`): a commodity with `SendSearchQuery`, an item sold per auction with
+  `SendSellSearchQuery(itemKey, sorts, true)` (the call of the Upgrades buy window, seen in game) and an empty answer of
+  that search as "none listed". The answer prices the row; Post is enabled only while it is younger than 60 s, after
+  that the button reads "Check price" and a click searches again
+* **The calls**, from the button's `OnClick` only, never from a timer or an event and never in combat:
+  `C_AuctionHouse.PostCommodity(location, duration, units, unitPrice)` for a commodity, `PostItem(location, duration,
+  units, nil, buyout per item)` for anything else (`GetItemCommodityStatus` of the first stack's
+  `ItemLocation:CreateFromBagAndSlot`, `IsSellItemValid(location, false)`). When it returns `needsConfirmation` the
+  button reads "Confirm" and the next click calls `ConfirmPostCommodity` / `ConfirmPostItem` with the same arguments;
+  Blizzard's own `AUCTION_HOUSE_POST_WARNING` popup (its Accept confirms only Blizzard's own pending post) is hidden
+  at once (`StaticPopup_Hide`, `AuctionHouseFrame:SetDialogOverlayShown(false)`, also on the next frame)
+* **Done or failed:** `AUCTION_HOUSE_AUCTION_CREATED` ends a post (several single items: until all are created, also
+  `AUCTION_MULTISELL_UPDATE(created, total)`), the bar says "Posted 25 Light Leather at 2s 04c for 24h." and the next
+  row of the list as shown is selected (and searched), so one click after another lists your bags;
+  `AUCTION_HOUSE_POST_ERROR`, `AUCTION_HOUSE_SHOW_ERROR` (its text from `AuctionHouseUtil.GetErrorText`),
+  `AUCTION_MULTISELL_FAILURE`, the AH closing or no answer in 15 s leave the row selected and say why. The post is
+  logged by `scan/Ledger.lua`'s hooks like one made in Blizzard's window
+* **Guards**, each disables the button and says why: a single item under 1s ("the AH drops a cheaper post"), a price
+  that nets less after the 5% cut than a vendor pays ("A vendor pays more"), the deposit over your gold, the AH's
+  throttle not ready (`IsThrottledMessageSystemReady`), combat, the AH closed ("Open the Auction House to post"); a
+  typed price under half the fresh cheapest listing needs a second click on "Post at <price>?" (within 10 s, with the
+  same units, price and length)
+* **The search queue** (`scan/SearchQueue.lua`): the sniper's paced search became a module both use: one search at a
+  time (the next waits for the answer, at most 3 s), at least 0.65 s apart, only with the AH's throttle ready, never
+  in combat, for a deep scan or over Blizzard's commodity Sell page and the Buy page of an item not sniped (an item
+  search also over Blizzard's item Buy and Sell pages). While the sniper snipes its searches come first: a Sell tab
+  search goes in the sniper's slot once the sniper has nothing to search or the request has waited 2 s; the newest
+  request replaces an older one
+* SavedVariables: nothing new. Not yet verified in game: posting, confirming and the hidden popup from an AddOn's own
+  button, `GetItemCommodityStatus`, `IsSellItemValid`, `GetAvailablePostCount` (`docs/forever-api-notes.md`)
+
 ## Upgrades (1.53, FRV-202: trade/Upgrades.lua; the tab since 1.54)
 
 The logic of the Upgrades tab (Epic FRV-190; the tab and its buy window below): the gear of the latest snapshot that
@@ -1663,7 +1738,7 @@ Monday). Only the AH counts: loot, quests, vendors, trainers, repairs and flight
     rule. The "Expired deposit" losses of the 13 days move from 72g 89s 82c to 72g 88s 38c, the hunter's AH result
     from 95g 25s 96c to 94g 75s 75c: the rule had charged about 50s less than the mails gave back.
 * **The character dropdown** (1.69, FRV-231; at the right end of the row of Daily / Weekly / Monthly, its right edge
-  under the Upgrades tab's): **All characters**, the default, then every known character of this realm and faction
+  16 px in from the window's; until 1.71 under the Upgrades tab's button, which moved to the bottom edge with FRV-25): **All characters**, the default, then every known character of this realm and faction
   (`FM.Characters`, the list of `/fm chars`), each with its full name in its class color: `Elfiehu Ntress`,
   `Forever Marketplace`. It is always there, also with one known character. The graph, the total, the dots' tooltips
   and their top 3 lists follow the choice (`FM.PerfWho`, `FM.PerfSetWho`, `FM.PerfSeries(mode, now, who)` in
@@ -2045,13 +2120,19 @@ per purchase.
     greyed out, while on the % box is; the boxes apply on Enter or a lost focus, Esc shows the saved amount again).
     Hovering the budget row shows three lines: "50% of your gold at 13:06" (or "Set manually: 5g"), "Spent by the
     sniper today" and "Left" (the budget minus what the sniper spent since its last refresh)
-  * **Clear** (1.46, FRV-171), at the right end of the "Automatically refresh budget" row, its right edge on the
-    refresh icon's: stops sniping every item of the list at once, paused ones too, as each row's x does
+  * **Clear done**, **Clear paused** and **Clear all** (1.72, FRV-223, in place of FRV-171's one "Clear"), one group
+    at the right end of the "Automatically refresh budget" row, in this order, Clear all's right edge on the refresh
+    icon's (90 px each, 4 apart). Clear done removes every item whose Bought now reached its limit, Clear paused every
+    paused item (an item both done and paused goes with either), both at once; Clear all (FRV-171's Clear, below) every
+    item after its confirmation. A button with nothing to remove is greyed out; each tooltip says how many items it
+    removes ("Removes 3 done items"), also over a disabled button. Removing works like each row's x
+    (`FM.SnipeClear(which)`, `FM.SnipeClearCount(which)`, which = "done", "paused" or nil). Clear all (1.46, FRV-171):
+    stops sniping every item of the list at once, paused ones too, as each row's x does
     (`FM.SnipeClear`: their buyouts and numbers stay remembered and are suggested again by the empty item box, Bought
     today stays, a purchase not confirmed yet is cancelled, a confirmed one is left to the server's answer). One
     confirmation step like a row's Buy -> Confirm: the first click turns it into "Confirm" for 3 seconds, the second
     click clears and the line under the add row says "Stopped sniping 8 items."; after 3 seconds, or when the window
-    closes, it is "Clear" again. Disabled while the list is empty. An add row that was editing a listed item empties
+    closes, it is "Clear all" again. Disabled while the list is empty. An add row that was editing a listed item empties
   * The `?`: five lines of help
 * Where it opens: a dragged position (`snipePos`, also one saved by an older version: the window is clamped to the
   screen), else at the AH's right edge while the AH is open, else the screen's center. It follows the AH: when the AH
@@ -2063,7 +2144,9 @@ per purchase.
   purchase with a second wheel step" (`snipeConfirmClick`, off; the game may switch it on itself, see below, and the
   chat line then names this option)
 * Runs only while the window is open at the AH: the sniped items are searched round robin with
-  `C_AuctionHouse.SendSearchQuery` (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
+  `C_AuctionHouse.SendSearchQuery` through the search queue the Sell tab shares (1.72, FRV-50, `scan/SearchQueue.lua`:
+  one search at a time, the sniper's first; a Sell tab search takes the sniper's slot when it has nothing to search or
+  after waiting 2 s) (0.65 s apart at least, the AH allows 100 searches per minute; waits for the
   AH throttle; pauses in combat, while a deep scan runs or its request waits for a free AH (1.41), on Blizzard's
   commodity Sell page and on the Buy page of
   an item you don't snipe: those pages read the results of their own item and reset on every new result, so a

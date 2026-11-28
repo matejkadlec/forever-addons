@@ -20,7 +20,7 @@ local H = require("harness")
 local F = require("fixtures")
 
 local B = F.Base36
-local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/Sniper.lua", "trade/Crafts.lua", "trade/Cost.lua" }
+local FILES = { "core/Core.lua", "core/Codec.lua", "core/Store.lua", "scan/SearchQueue.lua", "scan/Sniper.lua", "trade/Crafts.lua", "trade/Cost.lua" }
 local LEATHER, THICK = 2319, 4304
 local GOLD = 1000000
 
